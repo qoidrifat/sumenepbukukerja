@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Sumenep Buku Kerja maskable app icon</title>
+  <rect width="512" height="512" fill="#2563EB"/>
+  <g transform="translate(128 128)">
+    <path d="M18.5 28.5c8.6-3.4 17.2-2.5 25.5 3.2v35.1c-8.3-5.7-16.9-6.6-25.5-3.2V28.5Z" fill="#FFFFFF"/>
+    <path d="M77.5 28.5c-8.6-3.4-17.2-2.5-25.5 3.2v35.1c8.3-5.7 16.9-6.6 25.5-3.2V28.5Z" fill="#DBEAFE"/>
+    <path d="M48 32v35" stroke="#F59E0B" stroke-width="4" stroke-linecap="round"/>
+    <path d="M70 15.5a8 8 0 0 0-8 8c0 6.1 8 13.5 8 13.5s8-7.4 8-13.5a8 8 0 0 0-8-8Z" fill="#F59E0B"/>
+    <circle cx="70" cy="23.5" r="3" fill="#FFFFFF"/>
+  </g>
+</svg>

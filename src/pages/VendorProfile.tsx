@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Link, useParams } from "react-router";
 import {
   ArrowLeft,
@@ -52,6 +53,7 @@ function VendorProfileContent() {
   const [reviewNotice, setReviewNotice] = useState("");
   const [reviewError, setReviewError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const reduceMotion = useReducedMotion() ?? false;
 
   if (vendor === undefined) return <ProfileLoading />;
   if (vendor === null) return <NotFound />;
@@ -118,7 +120,12 @@ function VendorProfileContent() {
 
   return (
     <div className="min-h-dvh min-h-[100svh] bg-[#f7f8fc] pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-12">
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur-sm">
+      <motion.header
+        initial={reduceMotion ? false : { opacity: 0, y: -16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: reduceMotion ? 0 : 0.45, ease: [0.22, 1, 0.36, 1] }}
+        className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur-sm"
+      >
         <div className="mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
           <Link
             to="/#katalog"
@@ -127,14 +134,22 @@ function VendorProfileContent() {
             <ArrowLeft className="size-5" />Kembali ke katalog
           </Link>
           <div className="flex items-center gap-2">
-            <button
+            <motion.button
               type="button"
               onClick={share}
+              whileHover={reduceMotion ? undefined : { y: -2, scale: 1.04 }}
+              whileTap={reduceMotion ? undefined : { scale: 0.94 }}
               className={`flex size-12 items-center justify-center rounded-lg text-slate-600 hover:bg-blue-50 hover:text-blue-700 ${focusRing}`}
               aria-label="Bagikan listing"
+              title="Bagikan listing"
             >
-              <Share2 className="size-5" />
-            </button>
+              <motion.span
+                whileHover={reduceMotion ? undefined : { rotate: 14 }}
+                className="inline-flex"
+              >
+                <Share2 className="size-5" />
+              </motion.span>
+            </motion.button>
             <Link
               to="/"
               className={`hidden min-h-12 items-center rounded-lg px-2 text-lg font-black tracking-[-0.04em] text-slate-950 hover:bg-blue-50 sm:flex ${focusRing}`}
@@ -143,33 +158,47 @@ function VendorProfileContent() {
             </Link>
           </div>
         </div>
-      </header>
+      </motion.header>
 
       <main className="relative z-10 mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-12">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(340px,.7fr)] lg:items-start lg:gap-10">
           <div className="space-y-6">
             <ScrollReveal>
-            <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <motion.section
+              whileHover={reduceMotion ? undefined : { y: -2 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+            >
               {photoUrl ? (
-                <img
+                <motion.img
                   src={photoUrl}
                   alt={`Foto ${vendor.name}`}
+                  initial={reduceMotion ? false : { opacity: 0, scale: 1.04 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  whileHover={reduceMotion ? undefined : { scale: 1.025 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.7, ease: [0.22, 1, 0.36, 1] }}
                   className="aspect-[16/9] w-full object-cover sm:aspect-[21/9]"
                 />
               ) : (
-                <div
+                <motion.div
                   className={`relative aspect-[16/9] overflow-hidden bg-gradient-to-br ${vendor.accent} sm:aspect-[21/9]`}
                   role="img"
                   aria-label={`Ilustrasi ${vendor.name}`}
+                  whileHover={reduceMotion ? undefined : { scale: 1.01 }}
+                  transition={{ duration: 0.25 }}
                 >
                   <div className="absolute -right-12 -top-20 size-72 rounded-full border border-white/25" />
                   <div className="absolute -bottom-24 left-10 size-64 rounded-full border border-white/20" />
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="flex size-24 items-center justify-center rounded-2xl border border-white/40 bg-white/20 text-3xl font-black text-white backdrop-blur-sm sm:size-32">
+                    <motion.span
+                      animate={reduceMotion ? undefined : { y: [0, -7, 0] }}
+                      transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut" }}
+                      className="flex size-24 items-center justify-center rounded-2xl border border-white/40 bg-white/20 text-3xl font-black text-white backdrop-blur-sm sm:size-32"
+                    >
                       {vendor.mark}
-                    </span>
+                    </motion.span>
                   </div>
-                </div>
+                </motion.div>
               )}
               <div className="p-5 sm:p-7">
                 <div className="flex flex-wrap items-center gap-2">
@@ -192,22 +221,33 @@ function VendorProfileContent() {
                 <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">{vendor.description}</p>
                 <div className="mt-6 flex flex-wrap gap-2">
                   {vendor.tags.map((tag) => (
-                    <span key={tag} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-bold text-slate-700">
+                    <motion.span
+                      key={tag}
+                      whileHover={reduceMotion ? undefined : { y: -2, scale: 1.02 }}
+                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-bold text-slate-700"
+                    >
                       {tag}
-                    </span>
+                    </motion.span>
                   ))}
                 </div>
                 <div className="mt-8 grid gap-3 border-t border-slate-200 pt-6 sm:grid-cols-2">
-                  <Info icon={MapPin} label="Alamat" value={`${vendor.address} · dekat ${landmark}`} />
-                  <Info icon={Clock3} label="Jam kerja" value={vendor.hours} />
-                  <Info icon={Store} label="Mulai dari" value={vendor.price} />
-                  <Info icon={Phone} label="Kontak" value={vendor.phone.replace(/^62/, "0")} />
+                  <Info reduceMotion={reduceMotion} icon={MapPin} label="Alamat" value={`${vendor.address} · dekat ${landmark}`} />
+                  <Info reduceMotion={reduceMotion} icon={Clock3} label="Jam kerja" value={vendor.hours} />
+                  <Info reduceMotion={reduceMotion} icon={Store} label="Mulai dari" value={vendor.price} />
+                  <Info reduceMotion={reduceMotion} icon={Phone} label="Kontak" value={vendor.phone.replace(/^62/, "0")} />
                 </div>
               </div>
-            </section>
+            </motion.section>
             </ScrollReveal>
 
-            <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+            <ScrollReveal>
+            <motion.section
+              initial={reduceMotion ? false : { opacity: 0, y: 18 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.12 }}
+              transition={{ duration: reduceMotion ? 0 : 0.5, ease: [0.22, 1, 0.36, 1] }}
+              className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
+            >
               <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Catatan warga</p>
               <h2 className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950">
                 Pengalaman bersama {vendor.name}
@@ -215,7 +255,14 @@ function VendorProfileContent() {
               {reviewItems.length > 0 ? (
                 <div className="mt-5 space-y-4">
                   {reviewItems.map((item) => (
-                    <article key={item._id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <motion.article
+                      key={item._id}
+                      initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true, amount: 0.2 }}
+                      transition={{ duration: reduceMotion ? 0 : 0.38, ease: [0.22, 1, 0.36, 1] }}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                    >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="font-extrabold text-slate-900">{item.authorName}</p>
                         <span className="inline-flex items-center gap-1 text-sm font-bold text-amber-700">
@@ -226,16 +273,29 @@ function VendorProfileContent() {
                       <time className="mt-3 block text-xs font-semibold text-slate-500">
                         {new Intl.DateTimeFormat("id-ID", { dateStyle: "long" }).format(new Date(item.createdAt))}
                       </time>
-                    </article>
+                    </motion.article>
                   ))}
                 </div>
               ) : (
-                <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-base leading-7 text-slate-600">
+                <motion.p
+                  initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: reduceMotion ? 0 : 0.4 }}
+                  className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-base leading-7 text-slate-600"
+                >
                   Belum ada ulasan. Jika Anda pernah memakai layanan ini, pengalaman Anda dapat membantu warga lain.
-                </p>
+                </motion.p>
               )}
 
-              <form onSubmit={submitReview} className="mt-6 border-t border-slate-200 pt-6">
+              <motion.form
+                onSubmit={submitReview}
+                initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.2 }}
+                transition={{ duration: reduceMotion ? 0 : 0.45, delay: reduceMotion ? 0 : 0.08 }}
+                className="mt-6 border-t border-slate-200 pt-6"
+              >
                 <h3 className="text-lg font-black text-slate-950">Tulis ulasan</h3>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <label className="flex flex-col gap-2">
@@ -247,18 +307,15 @@ function VendorProfileContent() {
                       className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                     />
                   </label>
-                  <label className="flex flex-col gap-2">
-                    <span className="text-sm font-extrabold text-slate-800">Rating</span>
-                    <select
+                  <div className="flex flex-col gap-2">
+                    <span id="rating-label" className="text-sm font-extrabold text-slate-800">Rating</span>
+                    <RatingPicker
                       value={reviewRating}
-                      onChange={(event) => setReviewRating(Number(event.target.value))}
-                      className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    >
-                      {[5, 4, 3, 2, 1].map((rating) => (
-                        <option key={rating} value={rating}>{rating} bintang</option>
-                      ))}
-                    </select>
-                  </label>
+                      onChange={setReviewRating}
+                      reduceMotion={reduceMotion}
+                    />
+                    <span className="text-xs font-semibold text-slate-500">{reviewRating} dari 5 bintang</span>
+                  </div>
                   <label className="flex flex-col gap-2 sm:col-span-2">
                     <span className="text-sm font-extrabold text-slate-800">Pengalaman</span>
                     <textarea
@@ -270,82 +327,181 @@ function VendorProfileContent() {
                     />
                   </label>
                 </div>
-                {reviewError ? <p className="mt-3 text-sm font-bold text-red-700">{reviewError}</p> : null}
-                {reviewNotice ? <p className="mt-3 text-sm font-bold text-emerald-700">{reviewNotice}</p> : null}
-                <button
+                <AnimatePresence initial={false} mode="wait">
+                  {reviewError ? (
+                    <motion.p
+                      key="review-error"
+                      role="alert"
+                      initial={reduceMotion ? false : { opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
+                      className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700"
+                    >
+                      {reviewError}
+                    </motion.p>
+                  ) : null}
+                  {reviewNotice ? (
+                    <motion.p
+                      key="review-notice"
+                      role="status"
+                      initial={reduceMotion ? false : { opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
+                      className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700"
+                    >
+                      {reviewNotice}
+                    </motion.p>
+                  ) : null}
+                </AnimatePresence>
+                <motion.button
                   type="submit"
                   disabled={!vendor._id || submitting}
+                  whileHover={reduceMotion ? undefined : { y: -2, scale: 1.01 }}
+                  whileTap={reduceMotion ? undefined : { scale: 0.98 }}
                   className={`mt-4 flex min-h-12 items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 text-base font-extrabold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
                 >
-                  <Send className="size-4" />
+                  <motion.span
+                    animate={submitting && !reduceMotion ? { rotate: 360 } : { rotate: 0 }}
+                    transition={submitting && !reduceMotion ? { duration: 0.8, repeat: Infinity, ease: "linear" } : { duration: 0.2 }}
+                    className="inline-flex"
+                  >
+                    <Send className="size-4" />
+                  </motion.span>
                   {submitting ? "Mengirim..." : "Kirim ulasan"}
-                </button>
-              </form>
-            </section>
+                </motion.button>
+              </motion.form>
+            </motion.section>
+            </ScrollReveal>
           </div>
 
-          <aside className="lg:sticky lg:top-24">
+          <motion.aside
+            initial={reduceMotion ? false : { opacity: 0, x: 18 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, amount: 0.2 }}
+            transition={{ duration: reduceMotion ? 0 : 0.5, delay: reduceMotion ? 0 : 0.12, ease: [0.22, 1, 0.36, 1] }}
+            className="lg:sticky lg:top-24"
+          >
             <GlassSurface tint="blue" className="rounded-xl p-5 shadow-sm sm:p-6">
               <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Mulai dari sini</p>
               <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">Tanya langsung ke usaha ini.</h2>
               <p className="mt-3 text-base leading-7 text-slate-600">
                 Pesan sudah disiapkan otomatis supaya Anda tidak perlu mengetik dari awal.
               </p>
-              <a
+              <motion.a
                 href={waHref}
                 target="_blank"
                 rel="noreferrer"
                 onClick={trackWhatsApp}
+                whileHover={reduceMotion ? undefined : { y: -2, scale: 1.01 }}
+                whileTap={reduceMotion ? undefined : { scale: 0.98 }}
                 className={`mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 py-3 text-base font-extrabold text-[#082f1e] shadow-sm hover:shadow-md ${focusRing}`}
               >
-                <MessageCircle className="size-5" />{categoryActionLabel[vendor.category]}
-              </a>
+                <motion.span
+                  whileHover={reduceMotion ? undefined : { scale: 1.12, rotate: -6 }}
+                  className="inline-flex"
+                >
+                  <MessageCircle className="size-5" />
+                </motion.span>
+                {categoryActionLabel[vendor.category]}
+              </motion.a>
               <div className="mt-3 grid grid-cols-[1fr_3rem] gap-2">
-                <a
+                <motion.a
                   href={`tel:${vendor.phone}`}
+                  whileHover={reduceMotion ? undefined : { y: -2 }}
+                  whileTap={reduceMotion ? undefined : { scale: 0.98 }}
                   className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-base font-extrabold text-slate-800 hover:border-blue-300 hover:bg-blue-50 ${focusRing}`}
                 >
                   <Phone className="size-5 text-blue-600" />Simpan nomor
-                </a>
-                <button
+                </motion.a>
+                <motion.button
                   type="button"
                   onClick={() => favorites.save(vendor.slug, vendor._id)}
+                  whileHover={reduceMotion ? undefined : { y: -2, scale: 1.04 }}
+                  whileTap={reduceMotion ? undefined : { scale: 0.94 }}
+                  animate={reduceMotion ? undefined : { scale: saved ? [1, 1.14, 1] : 1 }}
+                  transition={{ duration: 0.28 }}
                   className={`flex min-h-12 items-center justify-center rounded-lg border border-slate-300 hover:bg-blue-50 ${focusRing}`}
                   aria-label={saved ? "Hapus dari tersimpan" : "Simpan listing"}
+                  aria-pressed={saved}
                 >
                   <Bookmark className={`size-5 ${saved ? "fill-blue-600 text-blue-600" : "text-slate-600"}`} />
-                </button>
+                </motion.button>
               </div>
               <div className="mt-5 flex items-start gap-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold leading-6 text-slate-700">
                 <span className="text-lg" aria-hidden="true">✎</span>
                 <span>Transaksi dan kesepakatan tetap dilakukan langsung bersama mitra.</span>
               </div>
             </GlassSurface>
-          </aside>
+          </motion.aside>
         </div>
       </main>
 
       <div className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white p-3 pb-[calc(.75rem+env(safe-area-inset-bottom))] lg:hidden">
         <div className="mx-auto grid max-w-md grid-cols-[3rem_1fr] gap-2">
-          <button
+          <motion.button
             type="button"
             onClick={() => favorites.save(vendor.slug, vendor._id)}
+            whileHover={reduceMotion ? undefined : { y: -2, scale: 1.04 }}
+            whileTap={reduceMotion ? undefined : { scale: 0.94 }}
+            animate={reduceMotion ? undefined : { scale: saved ? [1, 1.14, 1] : 1 }}
+            transition={{ duration: 0.28 }}
             className={`flex min-h-12 items-center justify-center rounded-lg border border-slate-300 ${focusRing}`}
             aria-label={saved ? "Hapus dari tersimpan" : "Simpan listing"}
+            aria-pressed={saved}
           >
             <Bookmark className={`size-5 ${saved ? "fill-blue-600 text-blue-600" : "text-slate-600"}`} />
-          </button>
-          <a
+          </motion.button>
+          <motion.a
             href={waHref}
             target="_blank"
             rel="noreferrer"
             onClick={trackWhatsApp}
+            whileHover={reduceMotion ? undefined : { scale: 1.01 }}
+            whileTap={reduceMotion ? undefined : { scale: 0.98 }}
             className={`flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 py-3 text-base font-extrabold text-[#082f1e] ${focusRing}`}
           >
-            <MessageCircle className="size-5" />{categoryActionLabel[vendor.category]}
-          </a>
+            <motion.span whileHover={reduceMotion ? undefined : { scale: 1.12 }} className="inline-flex">
+              <MessageCircle className="size-5" />
+            </motion.span>
+            {categoryActionLabel[vendor.category]}
+          </motion.a>
         </div>
       </div>
+    </div>
+  );
+}
+
+function RatingPicker({
+  value,
+  onChange,
+  reduceMotion,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  reduceMotion: boolean;
+}) {
+  return (
+    <div
+      role="group"
+      aria-labelledby="rating-label"
+      className="flex min-h-12 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1"
+    >
+      {[1, 2, 3, 4, 5].map((rating) => (
+        <motion.button
+          key={rating}
+          type="button"
+          onClick={() => onChange(rating)}
+          whileHover={reduceMotion ? undefined : { y: -2, scale: 1.1 }}
+          whileTap={reduceMotion ? undefined : { scale: 0.9 }}
+          animate={reduceMotion ? undefined : { scale: value >= rating ? [1, 1.14, 1] : 1 }}
+          transition={{ duration: 0.24 }}
+          className={`flex min-h-10 min-w-10 items-center justify-center rounded-md ${focusRing} ${value >= rating ? "text-amber-500" : "text-slate-300 hover:text-amber-400"}`}
+          aria-label={`${rating} bintang`}
+          aria-pressed={value === rating}
+        >
+          <Star className="size-5 fill-current" />
+        </motion.button>
+      ))}
     </div>
   );
 }
@@ -354,19 +510,30 @@ function Info({
   icon: Icon,
   label,
   value,
+  reduceMotion,
 }: {
   icon: typeof MapPin;
   label: string;
   value: string;
+  reduceMotion: boolean;
 }) {
   return (
-    <div className="flex min-w-0 items-start gap-3 rounded-lg bg-slate-50 p-3">
-      <Icon className="mt-0.5 size-5 shrink-0 text-blue-600" />
+    <motion.div
+      whileHover={reduceMotion ? undefined : { x: 2 }}
+      transition={{ duration: 0.18 }}
+      className="flex min-w-0 items-start gap-3 rounded-lg bg-slate-50 p-3"
+    >
+      <motion.span
+        whileHover={reduceMotion ? undefined : { rotate: -8, scale: 1.08 }}
+        className="mt-0.5 inline-flex shrink-0"
+      >
+        <Icon className="size-5 text-blue-600" />
+      </motion.span>
       <div className="min-w-0">
         <p className="text-sm font-extrabold text-slate-900">{label}</p>
         <p className="mt-1 text-base leading-6 text-slate-600">{value}</p>
       </div>
-    </div>
+    </motion.div>
   );
 }
 

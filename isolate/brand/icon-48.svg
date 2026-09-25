@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+  <title id="title">Sumenep Buku Kerja</title>
+  <rect x="3" y="3" width="42" height="42" rx="10" fill="#2563EB"/>
+  <path d="M9.7 15c4.3-1.7 8.5-1.2 12.7 1.5v17.4c-4.2-2.7-8.4-3.3-12.7-1.5V15Z" fill="#FFFFFF"/>
+  <path d="M38.3 15c-4.3-1.7-8.5-1.2-12.7 1.5v17.4c4.2-2.7 8.4-3.3 12.7-1.5V15Z" fill="#DBEAFE"/>
+  <path d="M24 17.1v17.4" stroke="#F59E0B" stroke-width="2.7" stroke-linecap="round"/>
+  <path d="M35.1 8.4a4.05 4.05 0 0 0-4.05 4.05c0 3.1 4.05 6.9 4.05 6.9s4.05-3.8 4.05-6.9a4.05 4.05 0 0 0-4.05-4.05Z" fill="#F59E0B"/>
+  <circle cx="35.1" cy="12.45" r="1.5" fill="#FFFFFF"/>
+</svg>

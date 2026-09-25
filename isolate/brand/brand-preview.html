@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Preview Identitas — Sumenep Buku Kerja</title>
+    <style>
+      :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #0f172a; background: #f7f8fc; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 32px; }
+      main { max-width: 1120px; margin: 0 auto; }
+      h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: -.04em; }
+      h2 { margin: 0 0 16px; font-size: 14px; text-transform: uppercase; letter-spacing: .12em; }
+      p { color: #64748b; }
+      section { margin-top: 24px; padding: 24px; border: 1px solid #dbeafe; border-radius: 20px; background: #fff; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+      .card { display: grid; min-height: 180px; place-items: center; padding: 20px; border-radius: 16px; }
+      .light { background: #f7f8fc; border: 1px solid #e2e8f0; }
+      .dark { background: #0f172a; }
+      .parchment { background: #faf7ee; border: 2px solid #121212; box-shadow: 4px 4px 0 #121212; }
+      .mobile { width: 220px; min-height: 92px; padding: 14px; border-bottom: 1px solid #e2e8f0; }
+      .lockup { width: min(100%, 420px); height: auto; }
+      .mark { width: 64px; height: 64px; }
+      .sizes { display: flex; align-items: end; justify-content: center; gap: 24px; min-height: 140px; }
+      .sizes figure { margin: 0; text-align: center; color: #64748b; font-size: 12px; }
+      .sizes img { display: block; margin: 0 auto 8px; }
+      .size-512 { width: min(512px, 70vw); }
+      .size-64 { width: 64px; height: 64px; }
+      .size-32 { width: 32px; height: 32px; }
+      .size-16 { width: 16px; height: 16px; }
+      .admin-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #faf7ee; border-bottom: 2px solid #121212; }
+      .admin-bar img { width: 40px; height: 40px; border: 2px solid #121212; border-radius: 8px; background: white; box-shadow: 2px 2px 0 #121212; }
+      .admin-bar strong { display: block; font-size: 16px; text-transform: uppercase; }
+      .admin-bar span { color: #525252; font-size: 13px; font-weight: 700; }
+      footer { margin-top: 28px; color: #64748b; font-size: 13px; }
+      @media (max-width: 640px) { body { padding: 16px; } section { padding: 16px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sumenep Buku Kerja</h1>
+      <p>Preview lokal identitas visual — “Jasa dekat, tanpa ribet.”</p>
+
+      <section>
+        <h2>Primary lockup</h2>
+        <div class="grid">
+          <div class="card light"><img class="lockup" src="/brand/logo-primary.svg" alt="Logo primer Sumenep Buku Kerja" /></div>
+          <div class="card dark"><img class="lockup" src="/brand/logo-primary-dark.svg" alt="Logo primer pada background gelap" /></div>
+          <div class="card parchment"><img class="lockup" src="/brand/logo-stacked.svg" alt="Logo stacked" /></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Public navigation & mobile header</h2>
+        <div class="card light mobile">
+          <img src="/brand/logo-mark.svg" width="44" height="44" alt="" />
+          <div style="margin-left: 12px; line-height: 1.1"><strong>Sumenep <span style="color:#2563eb">Buku</span> Kerja</strong><small style="display:block;margin-top:5px;color:#64748b">Jasa dekat, tanpa ribet.</small></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Admin workspace</h2>
+        <div class="parchment" style="padding:0;overflow:hidden">
+          <div class="admin-bar">
+            <a href="/" aria-label="Kembali" style="color:#121212;font-weight:900">←</a>
+            <img src="/brand/logo-mark.svg" alt="" />
+            <div><strong>Sumenep Buku Kerja</strong><span>Ruang pengelola</span></div>
+            <b style="margin-left:auto;border:2px solid #121212;padding:6px 10px;background:#ffe662;font-size:12px;text-transform:uppercase">Admin</b>
+          </div>
+          <div style="height:8px;background:linear-gradient(90deg,#ff5a26 0 38%,#ffe662 38% 72%,#121212 72% 100%)"></div>
+          <div style="padding:24px;color:#525252;font-weight:700">Parchment, charcoal, hard border, and hard shadow.</div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Scale & small-size check</h2>
+        <div class="sizes">
+          <figure><img class="size-512" src="/brand/logo-mark.svg" alt="" /><figcaption>512px</figcaption></figure>
+          <figure><img class="size-64" src="/brand/logo-mark.svg" alt="" /><figcaption>64px</figcaption></figure>
+          <figure><img class="size-32" src="/brand/logo-mark.svg" alt="" /><figcaption>32px</figcaption></figure>
+          <figure><img class="size-16" src="/brand/logo-mark.svg" alt="" /><figcaption>16px</figcaption></figure>
+        </div>
+      </section>
+
+      <section>
+        <h2>Monochrome</h2>
+        <div class="grid">
+          <div class="card light"><img class="mark" src="/brand/logo-mono-black.svg" alt="Logo monokrom hitam" /></div>
+          <div class="card dark"><img class="mark" src="/brand/logo-mono-white.svg" alt="Logo monokrom putih" /></div>
+        </div>
+      </section>
+
+      <footer>Usage: keep the symbol clear and unmodified; use the mark at 16px or larger, and the full lockup at 160px or wider.</footer>
+    </main>
+  </body>
+</html>

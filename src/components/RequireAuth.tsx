@@ -23,8 +23,8 @@ import { Navigate, useLocation, useNavigate } from "react-router";
  */
 export function RequireAuth({
   children,
-  title = "Sign in to continue",
-  description = "This page is only available to signed-in users.",
+  title = "Masuk untuk melanjutkan",
+  description = "Halaman ini hanya tersedia untuk pengguna yang sudah masuk.",
   redirectImmediately = false,
 }: {
   children: ReactNode;
@@ -41,7 +41,7 @@ export function RequireAuth({
 
   if (isLoading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background">
+      <main className="flex min-h-dvh min-h-[100svh] items-center justify-center bg-background">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </main>
     );
@@ -56,7 +56,7 @@ export function RequireAuth({
     }
 
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background p-6">
+      <main className="flex min-h-dvh min-h-[100svh] items-center justify-center bg-background p-6">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="flex justify-center">
@@ -68,18 +68,18 @@ export function RequireAuth({
             <CardDescription>{description}</CardDescription>
           </CardHeader>
           <CardContent className="text-center text-sm text-muted-foreground">
-            You'll come straight back to this page once you're signed in.
+            Setelah masuk, Anda akan langsung kembali ke halaman ini.
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
             <Button className="w-full" onClick={() => navigate(signInHref)}>
-              Sign in
+              Masuk
             </Button>
             <Button
               variant="ghost"
               className="w-full"
               onClick={() => navigate("/")}
             >
-              Back to home
+              Kembali ke beranda
             </Button>
           </CardFooter>
         </Card>

@@ -14,6 +14,7 @@ export type Vendor = {
   reviews: number;
   featured?: boolean;
   verified?: boolean;
+  photoId?: string;
   status?: "draft" | "active" | "archived";
   _id?: string;
   _creationTime?: number;

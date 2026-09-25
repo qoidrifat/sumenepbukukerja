@@ -7,6 +7,7 @@ import { ConvexReactClient } from "convex/react";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
+import { useCatalogSeedBootstrap } from "@/lib/catalog-store";
 import "./index.css";
 
 // Lazy load route components for better code splitting
@@ -63,7 +64,7 @@ class RootErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-background text-foreground p-6">
+        <div className="flex min-h-dvh min-h-[100svh] items-center justify-center bg-background p-6 text-foreground">
           <div className="max-w-lg text-center">
             <p className="text-sm font-semibold">Preview runtime error</p>
             <p className="mt-2 text-xs text-muted-foreground break-words">
@@ -85,6 +86,11 @@ class RootErrorBoundary extends React.Component<
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 
 
+
+function CatalogBootstrap() {
+  useCatalogSeedBootstrap();
+  return null;
+}
 
 function RouteSyncer() {
   const location = useLocation();
@@ -118,6 +124,7 @@ createRoot(document.getElementById("root")!).render(
       </ToolbarErrorBoundary>
       <ConvexAuthProvider client={convex}>
         <BrowserRouter>
+          <CatalogBootstrap />
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
             <Routes>
@@ -134,7 +141,17 @@ createRoot(document.getElementById("root")!).render(
                   </RequireAuth>
                 }
               />
-              <Route path="/admin" element={<Admin />} />
+              <Route
+                path="/admin"
+                element={
+                  <RequireAuth
+                    title="Masuk untuk mengelola katalog"
+                    description="Ruang pengelola hanya tersedia setelah Anda masuk."
+                  >
+                    <Admin />
+                  </RequireAuth>
+                }
+              />
               <Route path="/v/:slug" element={<VendorProfile />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

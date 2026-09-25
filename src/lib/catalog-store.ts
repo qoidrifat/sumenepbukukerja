@@ -1,37 +1,164 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { vendors as seedVendors, type Vendor } from "./catalog";
+import { vendors as seedVendors, vendorBySlug, type Vendor } from "./catalog";
 
-export type VendorRecord = Vendor & { _id: string; _creationTime: number; status: "draft" | "active" | "archived"; featured?: boolean; verified?: boolean; reviewsCount?: number; whatsappClicks?: number; shareClicks?: number; updatedAt: number; createdAt: number; reviews?: Array<{ _id: string; authorName: string; rating: number; body: string; createdAt: number }> };
+export type VendorReview = {
+  _id: string;
+  authorName: string;
+  rating: number;
+  body: string;
+  createdAt: number;
+};
+
+export type VendorRecord = Vendor & {
+  _id: string;
+  _creationTime: number;
+  status: "draft" | "active" | "archived";
+  featured?: boolean;
+  verified?: boolean;
+  reviewsCount?: number;
+  whatsappClicks?: number;
+  shareClicks?: number;
+  searchImpressions?: number;
+  updatedAt: number;
+  createdAt: number;
+  reviewItems?: VendorReview[];
+};
 
 const STORAGE_KEY = "sumenep-buku-kerja-favorites";
+const CATALOG_SEED_EVENT = "sumenep-catalog-seed-updated";
+let catalogSeedState: "idle" | "requested" | "ready" = "idle";
 
-function readFavorites(): string[] { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]") as string[]; } catch { return []; } }
-function persistFavorites(ids: string[]) { localStorage.setItem(STORAGE_KEY, JSON.stringify(ids)); window.dispatchEvent(new Event("sumenep-favorites-updated")); }
+function readFavorites(): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistFavorites(slugs: string[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(slugs));
+  } catch {
+    // A blocked storage API must not prevent browsing or contacting a vendor.
+  }
+  window.dispatchEvent(new Event("sumenep-favorites-updated"));
+}
+
+function useCatalogRemote() {
+  const remote = useQuery(api.vendors.listActive, {});
+  const ensureSeeded = useMutation(api.vendors.ensureCatalogSeeded);
+  const [, setSeedRevision] = useState(0);
+
+  useEffect(() => {
+    const sync = () => setSeedRevision((revision) => revision + 1);
+    window.addEventListener(CATALOG_SEED_EVENT, sync);
+    return () => window.removeEventListener(CATALOG_SEED_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    if (remote === undefined) return;
+    if (remote.length > 0) {
+      catalogSeedState = "ready";
+      return;
+    }
+    if (catalogSeedState !== "idle") return;
+
+    catalogSeedState = "requested";
+    void ensureSeeded()
+      .then((inserted) => {
+        catalogSeedState = inserted === 0 ? "ready" : "requested";
+        window.dispatchEvent(new Event(CATALOG_SEED_EVENT));
+      })
+      .catch((error) => {
+        catalogSeedState = "idle";
+        console.warn("Catalog seed could not be created:", error);
+      });
+  }, [ensureSeeded, remote]);
+
+  return remote;
+}
+
+export function useCatalogSeedBootstrap() {
+  return useCatalogRemote();
+}
 
 export function useCatalogVendors() {
-  const remote = useQuery(api.vendors.listActive, {});
-  return (remote ?? seedVendors) as Vendor[];
+  const remote = useCatalogRemote();
+  if (remote && remote.length > 0) return remote as Vendor[];
+  if (remote && catalogSeedState === "ready") return [];
+  return seedVendors;
 }
 
 export function useVendor(slug: string | undefined) {
-  return useQuery(api.vendors.getBySlug, { slug: slug ?? "" });
+  const remote = useQuery(api.vendors.getBySlug, { slug: slug ?? "" });
+
+  if (remote === undefined) {
+    const local = vendorBySlug(slug ?? "");
+    return local ? { ...local, reviewItems: [] } : undefined;
+  }
+  if (remote === null) return null;
+
+  const { reviews, ...vendor } = remote;
+  return {
+    ...vendor,
+    reviews: vendor.reviewsCount ?? reviews.length,
+    reviewItems: reviews,
+  } as Vendor;
+}
+
+function useStoredFavorites() {
+  const [local, setLocal] = useState<string[]>(readFavorites);
+
+  useEffect(() => {
+    const sync = () => setLocal(readFavorites());
+    window.addEventListener("sumenep-favorites-updated", sync);
+    return () => window.removeEventListener("sumenep-favorites-updated", sync);
+  }, []);
+
+  const toggleLocal = (slug: string) => {
+    setLocal((current) => {
+      const next = current.includes(slug)
+        ? current.filter((item) => item !== slug)
+        : [...current, slug];
+      persistFavorites(next);
+      return next;
+    });
+  };
+
+  return [local, toggleLocal] as const;
+}
+
+export function useVendorPhoto(photoId: string | undefined) {
+  return useQuery(api.vendors.getImageUrl, { storageId: photoId ?? "" });
 }
 
 export function useFavorites() {
   const remote = useQuery(api.vendors.listFavorites, {});
-  const [local, save] = useStoredFavorites();
-  const ids = new Set((remote ?? []).map((item) => String(item.vendorId)));
-  local.forEach((id) => ids.add(id));
-  return { ids, isSaved: (id: string) => ids.has(id), local, save };
-}
+  const favorite = useMutation(api.vendors.toggleFavorite);
+  const [local, toggleLocal] = useStoredFavorites();
+  const slugs = new Set(remote?.map((item) => item.slug) ?? []);
 
-function useStoredFavorites() {
-  const [local, setLocal] = useState(readFavorites);
-  useEffect(() => { const sync = () => setLocal(readFavorites()); window.addEventListener("sumenep-favorites-updated", sync); return () => window.removeEventListener("sumenep-favorites-updated", sync); }, []);
-  const save = (slug: string) => { const next = local.includes(slug) ? local.filter((item) => item !== slug) : [...local, slug]; persistFavorites(next); setLocal(next); };
-  return [local, save] as const;
+  local.forEach((slug) => slugs.add(slug));
+
+  const save = (slug: string, vendorId?: string) => {
+    toggleLocal(slug);
+    if (vendorId) {
+      void favorite({ vendorId: vendorId as never }).catch(() => {
+        // Anonymous visitors keep the local favorite; signed-in users sync remotely.
+      });
+    }
+  };
+
+  return {
+    slugs,
+    isSaved: (slug: string) => slugs.has(slug),
+    local,
+    save,
+  };
 }
 
 export function useCatalogActions() {
@@ -43,9 +170,25 @@ export function useCatalogActions() {
   const review = useMutation(api.vendors.addReview);
   const feedback = useMutation(api.vendors.submitFeedback);
   const subscription = useMutation(api.vendors.setSubscription);
-  return { create, update, archive, click, favorite, review, feedback, subscription };
+  const generateUploadUrl = useMutation(api.vendors.generateUploadUrl);
+  return {
+    create,
+    update,
+    archive,
+    click,
+    favorite,
+    review,
+    feedback,
+    subscription,
+    generateUploadUrl,
+  };
 }
 
-export function useAdminVendors(status?: "draft" | "active" | "archived") { return useQuery(api.vendors.listForAdmin, status ? { status } : {}); }
+export function useAdminVendors(status?: "draft" | "active" | "archived") {
+  return useQuery(
+    api.vendors.listForAdmin,
+    status ? { status } : {},
+  ) as VendorRecord[] | undefined;
+}
 
 export { readFavorites, persistFavorites };

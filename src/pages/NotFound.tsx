@@ -1,26 +1,33 @@
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
+import { ArrowLeft, BookOpen } from "lucide-react";
+import { Link } from "react-router";
 
 export default function NotFound() {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-      className="min-h-screen flex flex-col"
-    >
+  const reduceMotion = useReducedMotion();
 
-      
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <div className="max-w-5xl mx-auto relative px-4">
-          <div className="flex items-center justify-center min-h-[200px]">
-            <div className="text-center">
-              <h1 className="text-4xl font-bold text-gray-900 mb-4">404</h1>
-              <p className="text-lg text-gray-600">Page Not Found</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </motion.div>
+  return (
+    <main className="notebook-paper flex min-h-dvh min-h-[100svh] items-center justify-center px-4 py-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] text-slate-950">
+      <motion.section
+        initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className="w-full max-w-lg rounded-2xl border border-blue-200 bg-white/95 p-6 text-center shadow-lg sm:p-9"
+      >
+        <span className="mx-auto flex size-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm">
+          <BookOpen className="size-8" />
+        </span>
+        <p className="mt-6 text-sm font-extrabold uppercase tracking-[0.16em] text-blue-600">Halaman tidak ditemukan</p>
+        <h1 className="mt-2 text-5xl font-black tracking-[-0.07em] text-slate-950">404</h1>
+        <p className="mx-auto mt-4 max-w-md text-base leading-7 text-slate-600">
+          Catatan yang Anda cari mungkin sudah dipindahkan atau tidak pernah ada di Buku Kerja.
+        </p>
+        <Link
+          to="/#katalog"
+          className="mx-auto mt-7 flex min-h-12 w-full max-w-xs items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 text-base font-extrabold text-white hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+        >
+          <ArrowLeft className="size-5" />Kembali ke katalog
+        </Link>
+      </motion.section>
+    </main>
   );
 }

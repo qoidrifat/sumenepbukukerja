@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, Loader2, Mail, UserRound } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,12 +16,8 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp";
-
-import { useAuth } from "@/hooks/use-auth";
 import logo from "@/assets/logo.svg";
-import { ArrowRight, Loader2, Mail, UserX } from "lucide-react";
-import { Suspense, useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useAuth } from "@/hooks/use-auth";
 
 interface AuthProps {
   redirectAfterAuth?: string;
@@ -48,26 +47,21 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
-      navigate(redirect);
-    }
+    if (!authLoading && isAuthenticated) navigate(redirect);
   }, [authLoading, isAuthenticated, navigate, redirect]);
+
   const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
     setError(null);
     try {
       const formData = new FormData(event.currentTarget);
+      const email = String(formData.get("email") ?? "");
       await signIn("email-otp", formData);
-      setStep({ email: formData.get("email") as string });
-      setIsLoading(false);
-    } catch (error) {
-      console.error("Email sign-in error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Failed to send verification code. Please try again.",
-      );
+      setStep({ email });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Kode verifikasi gagal dikirim. Coba lagi.");
+    } finally {
       setIsLoading(false);
     }
   };
@@ -79,17 +73,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     try {
       const formData = new FormData(event.currentTarget);
       await signIn("email-otp", formData);
-
-      console.log("signed in");
-
       navigate(redirect);
-    } catch (error) {
-      console.error("OTP verification error:", error);
-
-      setError("The verification code you entered is incorrect.");
-      setIsLoading(false);
-
+    } catch {
+      setError("Kode yang dimasukkan belum tepat. Silakan periksa kembali.");
       setOtp("");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -97,128 +86,105 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     try {
-      console.log("Attempting anonymous sign in...");
       await signIn("anonymous");
-      console.log("Anonymous sign in successful");
       navigate(redirect);
-    } catch (error) {
-      console.error("Guest login error:", error);
-      console.error("Error details:", JSON.stringify(error, null, 2));
-      setError(`Failed to sign in as guest: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Mode tamu belum dapat dibuka. Coba lagi.");
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <main className="notebook-paper flex min-h-dvh min-h-[100svh] flex-col px-4 py-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
+      <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          className="flex min-h-12 items-center gap-2 rounded-lg px-2 text-base font-extrabold text-slate-800 hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+        >
+          <ArrowLeft className="size-5" />Kembali
+        </button>
+        <span className="rounded-full border border-blue-200 bg-white/80 px-3 py-2 text-sm font-extrabold text-blue-700">
+          Akun warga
+        </span>
+      </div>
 
-      
-      {/* Auth Content */}
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex items-center justify-center h-full flex-col">
-        <Card className="min-w-[350px] pb-0 border shadow-md">
+      <div className="flex flex-1 items-center justify-center py-8">
+        <Card className="w-full max-w-md border-slate-200 bg-white/95 p-0 shadow-lg">
           {step === "signIn" ? (
             <>
               <CardHeader className="text-center">
-              <div className="flex justify-center">
-                    <img
-                      src={logo}
-                      alt="Lock Icon"
-                      width={64}
-                      height={64}
-                      className="rounded-lg mb-4 mt-4 cursor-pointer"
-                      onClick={() => navigate("/")}
-                    />
-                  </div>
-                <CardTitle className="text-xl">Get Started</CardTitle>
-                <CardDescription>
-                  Enter your email to log in or sign up
+                <button
+                  type="button"
+                  onClick={() => navigate("/")}
+                  className="mx-auto flex min-h-12 items-center justify-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                  aria-label="Buka beranda Sumenep Buku Kerja"
+                >
+                  <img src={logo} alt="" width={56} height={56} className="rounded-xl" />
+                </button>
+                <CardTitle className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950">
+                  Masuk ke Buku Kerja
+                </CardTitle>
+                <CardDescription className="text-base leading-7">
+                  Simpan listing favorit dan sinkronkan dari perangkat mana pun.
                 </CardDescription>
               </CardHeader>
               <form onSubmit={handleEmailSubmit}>
                 <CardContent>
-                  
-                  <div className="relative flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <label className="flex flex-col gap-2">
+                    <span className="text-sm font-extrabold text-slate-800">Email</span>
+                    <span className="relative">
+                      <Mail className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-blue-600" />
                       <Input
                         name="email"
-                        placeholder="name@example.com"
+                        placeholder="nama@email.com"
                         type="email"
-                        className="pl-9"
+                        autoComplete="email"
+                        className="min-h-12 pl-11 text-base"
                         disabled={isLoading}
                         required
                       />
-                    </div>
-                    <Button
-                      type="submit"
-                      variant="outline"
-                      size="icon"
-                      disabled={isLoading}
-                    >
-                      {isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <ArrowRight className="h-4 w-4" />
-                      )}
-                    </Button>
+                    </span>
+                  </label>
+                  {error ? <p className="mt-3 text-sm font-bold text-red-700">{error}</p> : null}
+                  <Button type="submit" className="mt-5 min-h-12 w-full text-base" disabled={isLoading}>
+                    {isLoading ? <Loader2 className="size-5 animate-spin" /> : <ArrowRight className="size-5" />}
+                    Kirim kode masuk
+                  </Button>
+                  <div className="my-5 flex items-center gap-3" aria-hidden="true">
+                    <span className="h-px flex-1 bg-slate-200" />
+                    <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">atau</span>
+                    <span className="h-px flex-1 bg-slate-200" />
                   </div>
-                  {error && (
-                    <p className="mt-2 text-sm text-red-500">{error}</p>
-                  )}
-                  
-                  <div className="mt-4">
-                    <div className="relative">
-                      <div className="absolute inset-0 flex items-center">
-                        <span className="w-full border-t" />
-                      </div>
-                      <div className="relative flex justify-center text-xs uppercase">
-                        <span className="bg-background px-2 text-muted-foreground">
-                          Or
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full mt-4"
-                      onClick={handleGuestLogin}
-                      disabled={isLoading}
-                    >
-                      <UserX className="mr-2 h-4 w-4" />
-                      Continue as Guest
-                    </Button>
-                  </div>
+                  <Button type="button" variant="outline" className="min-h-12 w-full text-base" onClick={handleGuestLogin} disabled={isLoading}>
+                    <UserRound className="size-5" />Masuk sebagai tamu
+                  </Button>
                 </CardContent>
               </form>
             </>
           ) : (
             <>
-              <CardHeader className="text-center mt-4">
-                <CardTitle>Check your email</CardTitle>
-                <CardDescription>
-                  We've sent a code to {step.email}
+              <CardHeader className="text-center">
+                <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Kode 6 digit</p>
+                <CardTitle className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950">Periksa email Anda</CardTitle>
+                <CardDescription className="break-all text-base leading-7">
+                  Kami mengirim kode ke {step.email}.
                 </CardDescription>
               </CardHeader>
               <form onSubmit={handleOtpSubmit}>
-                <CardContent className="pb-4">
+                <CardContent>
                   <input type="hidden" name="email" value={step.email} />
                   <input type="hidden" name="code" value={otp} />
-
-                  <div className="flex justify-center">
+                  <div className="flex justify-center py-2">
                     <InputOTP
                       value={otp}
                       onChange={setOtp}
                       maxLength={6}
                       disabled={isLoading}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && otp.length === 6 && !isLoading) {
-                          // Find the closest form and submit it
-                          const form = (e.target as HTMLElement).closest("form");
-                          if (form) {
-                            form.requestSubmit();
-                          }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && otp.length === 6 && !isLoading) {
+                          const form = (event.target as HTMLElement).closest("form");
+                          if (form) form.requestSubmit();
                         }
                       }}
                     >
@@ -229,76 +195,32 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       </InputOTPGroup>
                     </InputOTP>
                   </div>
-                  {error && (
-                    <p className="mt-2 text-sm text-red-500 text-center">
-                      {error}
-                    </p>
-                  )}
-                  <p className="text-sm text-muted-foreground text-center mt-4">
-                    Didn't receive a code?{" "}
-                    <Button
-                      variant="link"
-                      className="p-0 h-auto"
-                      onClick={() => setStep("signIn")}
-                    >
-                      Try again
-                    </Button>
+                  {error ? <p className="mt-3 text-center text-sm font-bold text-red-700">{error}</p> : null}
+                  <p className="mt-4 text-center text-sm leading-6 text-slate-600">
+                    Tidak menerima kode?{" "}
+                    <button type="button" onClick={() => setStep("signIn")} className="min-h-12 rounded-lg px-2 font-extrabold text-blue-700 hover:bg-blue-50">
+                      Kirim ulang
+                    </button>
                   </p>
                 </CardContent>
                 <CardFooter className="flex-col gap-2">
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={isLoading || otp.length !== 6}
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Verifying...
-                      </>
-                    ) : (
-                      <>
-                        Verify code
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </>
-                    )}
+                  <Button type="submit" className="min-h-12 w-full text-base" disabled={isLoading || otp.length !== 6}>
+                    {isLoading ? <Loader2 className="size-5 animate-spin" /> : <ArrowRight className="size-5" />}
+                    {isLoading ? "Memverifikasi..." : "Verifikasi kode"}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setStep("signIn")}
-                    disabled={isLoading}
-                    className="w-full"
-                  >
-                    Use different email
+                  <Button type="button" variant="ghost" className="min-h-12 w-full text-base" onClick={() => setStep("signIn")} disabled={isLoading}>
+                    Gunakan email lain
                   </Button>
                 </CardFooter>
               </form>
             </>
           )}
-
-          <div className="py-4 px-6 text-xs text-center text-muted-foreground bg-muted border-t rounded-b-lg">
-            Secured by{" "}
-            <a
-              href="https://freebuff.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-primary transition-colors"
-            >
-              freebuff.com
-            </a>
-          </div>
         </Card>
-        </div>
       </div>
-    </div>
+    </main>
   );
 }
 
 export default function AuthPage(props: AuthProps) {
-  return (
-    <Suspense>
-      <Auth {...props} />
-    </Suspense>
-  );
+  return <Auth {...props} />;
 }

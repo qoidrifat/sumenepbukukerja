@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import {
   Archive,
@@ -42,7 +42,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useNavigate } from "react-router";
 import { AnimatedContent, BorderGlow, Counter, GlassIcons, ScrollReveal } from "@/components/react-bits";
-import { AccessibilityControls, InteractionHistory, MyRequestHistory, NotificationCenter, OwnerGalleryManager, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
+import { AccessibilityControls, InteractionHistory, MyRequestHistory, NotificationCenter, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
+import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
 
 type OwnerAvailability = NonNullable<Vendor["availability"]>;
 
@@ -212,11 +213,11 @@ function OwnerPackageEditor({ vendorId }: { vendorId: string }) {
         <p className="mt-3 text-sm leading-6 text-slate-600">Belum ada paket. Tambahkan harga dan cakupan agar warga lebih mudah memilih.</p>
       )}
       <form onSubmit={submit} className="mt-4 grid gap-2 sm:grid-cols-2">
-        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nama paket" className={ownerInputClass} required />
-        <input value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Harga awal" className={ownerInputClass} required />
-        <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Deskripsi paket" rows={2} className={`${ownerInputClass} sm:col-span-2`} required minLength={5} />
-        <input value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="Estimasi durasi" className={ownerInputClass} />
-        <input value={area} onChange={(event) => setArea(event.target.value)} placeholder="Cakupan area" className={ownerInputClass} />
+        <input aria-label="Nama paket" value={name} onChange={(event) => setName(event.target.value)} placeholder="Nama paket" className={ownerInputClass} required />
+        <input aria-label="Harga paket" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Harga awal" className={ownerInputClass} required />
+        <textarea aria-label="Deskripsi paket" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Deskripsi paket" rows={2} className={`${ownerInputClass} sm:col-span-2`} required minLength={5} />
+        <input aria-label="Estimasi durasi paket" value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="Estimasi durasi" className={ownerInputClass} />
+        <input aria-label="Cakupan area paket" value={area} onChange={(event) => setArea(event.target.value)} placeholder="Cakupan area" className={ownerInputClass} />
         <button type="submit" disabled={saving} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white hover:bg-blue-700 disabled:opacity-50 sm:col-span-2">
           <Plus className="size-4" />{saving ? "Menyimpan..." : "Tambah paket"}
         </button>
@@ -227,6 +228,7 @@ function OwnerPackageEditor({ vendorId }: { vendorId: string }) {
 }
 
 function OwnerListingManager() {
+  const { online } = useOfflineQueue();
   const owned = useOwnerVendors();
   const { create, update, archive, availability, generateUploadUrl } = useCatalogActions();
   const [draft, setDraft] = useState<OwnerDraft | null>(null);
@@ -235,6 +237,25 @@ function OwnerListingManager() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!online) return;
+    const handlers = {
+      availability: async (payload: Record<string, unknown>) => {
+        if (typeof payload.vendorId !== "string" || typeof payload.availability !== "string") return;
+        await availability({
+          vendorId: payload.vendorId as never,
+          availability: payload.availability as "available" | "busy" | "closed",
+          availabilityNote: typeof payload.availabilityNote === "string" ? payload.availabilityNote : undefined,
+          nextAvailableAt: typeof payload.nextAvailableAt === "number" ? payload.nextAvailableAt : undefined,
+          responseMinutes: typeof payload.responseMinutes === "number" ? payload.responseMinutes : undefined,
+          serviceRadiusKm: typeof payload.serviceRadiusKm === "number" ? payload.serviceRadiusKm : undefined,
+        });
+      },
+    };
+    registerOfflineHandlers(handlers);
+    void flushOfflineQueue(handlers);
+  }, [availability, online]);
 
   const updateDraft = (changes: Partial<OwnerDraft>) => {
     setDraft((current) => (current ? { ...current, ...changes } : current));
@@ -292,7 +313,7 @@ function OwnerListingManager() {
       } else {
         await create(payload);
       }
-      setNotice(draft.id ? "Listing berhasil diperbarui." : "Listing berhasil dibuat.");
+      setNotice(draft.id ? "Listing berhasil diperbarui dan sedang menunggu sinkronisasi." : "Listing berhasil dibuat sebagai draft dan menunggu moderasi admin.");
       resetDraft();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Listing belum dapat disimpan.");
@@ -315,7 +336,15 @@ function OwnerListingManager() {
       });
       setNotice(`Status ${vendor.name} diperbarui.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Status belum dapat diperbarui.");
+      enqueueOfflineMutation("availability", {
+        vendorId: vendor._id,
+        availability: next,
+        availabilityNote: vendor.availabilityNote,
+        nextAvailableAt: vendor.nextAvailableAt,
+        responseMinutes: vendor.responseMinutes,
+        serviceRadiusKm: vendor.serviceRadiusKm,
+      });
+      setError(caught instanceof Error ? caught.message : "Status disimpan lokal dan akan dikirim saat online.");
     } finally {
       setBusyId(null);
     }
@@ -405,6 +434,7 @@ function OwnerListingManager() {
                 {vendor.status === "active" ? <Link to={`/v/${vendor.slug}`} className="inline-flex min-h-10 items-center rounded-lg px-2 text-sm font-extrabold text-blue-700 hover:bg-blue-50">Lihat listing <ArrowRight className="size-4" /></Link> : null}
               </div>
               <OwnerGalleryManager vendorId={vendor._id} vendorName={vendor.name} />
+              <OwnerListingHistory vendorId={vendor._id} vendorName={vendor.name} />
             </article>
           ))}
         </div>

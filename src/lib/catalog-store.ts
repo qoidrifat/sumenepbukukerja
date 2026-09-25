@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { vendors as seedVendors, vendorBySlug, type Vendor } from "./catalog";
-import { enqueueOfflineMutation, flushOfflineQueue } from "./offline-queue";
+import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers } from "./offline-queue";
 
 export type VendorReview = {
   _id: string;
@@ -40,6 +40,7 @@ export type ServiceRequest = {
   status: "open" | "claimed" | "completed" | "cancelled" | "expired";
   vendorId?: string;
   vendorName?: string;
+  offers?: RequestOffer[];
   createdAt: number;
   updatedAt: number;
 };
@@ -52,6 +53,7 @@ export type ListingClaim = {
   email: string;
   businessAddress: string;
   evidenceStorageId?: string;
+  evidenceUrl?: string;
   status: "pending" | "verified" | "rejected";
   reviewNote?: string;
   reviewedAt?: number;
@@ -204,6 +206,8 @@ function useCatalogRemote() {
     if (remote.length > 0) {
       catalogSeedState = "ready";
       persistCatalogSnapshot(remote as Vendor[]);
+      const urls = ["/", ...remote.slice(0, 60).map((vendor) => `/v/${vendor.slug}`)];
+      navigator.serviceWorker?.controller?.postMessage({ type: "CACHE_URLS", urls });
     }
     if (catalogSyncRequested) return;
 
@@ -403,8 +407,8 @@ export function useFavorites() {
 
   useEffect(() => {
     if (!isAuthenticated || !online) return;
-    void flushOfflineQueue({
-      favorite: async (payload) => {
+    const handlers = {
+      favorite: async (payload: Record<string, unknown>) => {
         if (typeof payload.vendorId !== "string") return;
         await favorite({
           vendorId: payload.vendorId as never,
@@ -412,7 +416,9 @@ export function useFavorites() {
           collection: typeof payload.collection === "string" ? payload.collection : undefined,
         });
       },
-    });
+    };
+    registerOfflineHandlers(handlers);
+    void flushOfflineQueue(handlers);
   }, [favorite, isAuthenticated, online]);
 
   useEffect(() => {
@@ -422,7 +428,7 @@ export function useFavorites() {
     void syncLocalFavorites({ items })
       .then(() => clearLocal(items.map((item) => item.slug)))
       .catch(() => attemptedSync.current.delete(pendingSyncKey));
-  }, [clearLocal, pendingLocalItems, pendingSyncKey, syncLocalFavorites]);
+  }, [clearLocal, online, pendingLocalItems, pendingSyncKey, syncLocalFavorites]);
 
   const save = (slug: string, vendorId?: string, collection = "Tersimpan") => {
     const shouldSave = !slugs.has(slug);
@@ -496,6 +502,7 @@ export function useCatalogActions() {
   const submitClaim = useMutation(api.claims.submitVendorClaim);
   const reviewClaim = useMutation(api.claims.reviewVendorClaim);
   const offerRequest = useMutation(api.offers.offerRequest);
+  const acceptOffer = useMutation(api.offers.acceptRequestOffer);
   const withdrawOffer = useMutation(api.offers.withdrawOffer);
   const reopenRequest = useMutation(api.community.reopenRequest);
   const track = useMutation(api.analytics.track);
@@ -531,6 +538,7 @@ export function useCatalogActions() {
     submitClaim,
     reviewClaim,
     offerRequest,
+    acceptOffer,
     withdrawOffer,
     reopenRequest,
     track,
@@ -582,7 +590,8 @@ export function useOpenReports() {
 }
 
 export function useOwnerVendors() {
-  return useQuery(api.vendors.listForOwner, {}) as VendorRecord[] | undefined;
+  const { isAuthenticated } = useConvexAuth();
+  return useQuery(api.vendors.listForOwner, isAuthenticated ? {} : "skip") as VendorRecord[] | undefined;
 }
 
 export function useAdminVendors(status?: "draft" | "active" | "archived") {
@@ -592,16 +601,23 @@ export function useAdminVendors(status?: "draft" | "active" | "archived") {
   ) as VendorRecord[] | undefined;
 }
 
-export function usePendingClaims() {
-  return useQuery(api.claims.listPendingClaims, {}) as ListingClaim[] | undefined;
+export function useVendorClaims(vendorId: string | undefined) {
+  return useQuery(
+    api.claims.listVendorClaims,
+    vendorId ? { vendorId: vendorId as never } : "skip",
+  ) as ListingClaim[] | undefined;
 }
 
-export function useStaffMembers() {
-  return useQuery(api.users.listStaff, {});
+export function usePendingClaims(enabled = true) {
+  return useQuery(api.claims.listPendingClaims, enabled ? {} : "skip") as ListingClaim[] | undefined;
 }
 
-export function useStaffInvites() {
-  return useQuery(api.users.listStaffInvites, {});
+export function useStaffMembers(enabled = true) {
+  return useQuery(api.users.listStaff, enabled ? {} : "skip");
+}
+
+export function useStaffInvites(enabled = true) {
+  return useQuery(api.users.listStaffInvites, enabled ? {} : "skip");
 }
 
 export function useAuditLogs() {
@@ -630,8 +646,8 @@ export function useRequestOffers(requestId: string | undefined) {
   );
 }
 
-export function usePhotosForModeration() {
-  return useQuery(api.community.listPhotosForModeration, {});
+export function usePhotosForModeration(enabled = true) {
+  return useQuery(api.community.listPhotosForModeration, enabled ? {} : "skip");
 }
 
 export function useListingHistory(vendorId: string | undefined) {
@@ -639,6 +655,10 @@ export function useListingHistory(vendorId: string | undefined) {
     api.users.listListingHistory,
     vendorId ? { vendorId: vendorId as never } : "skip",
   );
+}
+
+export function useRecentListingHistory(enabled = true) {
+  return useQuery(api.users.listRecentListingHistory, enabled ? { limit: 40 } : "skip");
 }
 
 export { readFavorites, persistFavorites };

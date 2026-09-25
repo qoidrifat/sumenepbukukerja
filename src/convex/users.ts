@@ -26,6 +26,11 @@ const permissionsFor = (role: StaffRole | null) => ({
   canVerify: role === "admin" || role === "staff",
 });
 
+export const currentUserId = query({
+  args: {},
+  handler: async (ctx) => await getAuthUserId(ctx),
+});
+
 export const currentAccess = query({
   args: {},
   handler: async (ctx) => {
@@ -110,7 +115,7 @@ export const createStaffInvite = mutation({
   handler: async (ctx, args) => {
     const { userId } = await requireStaff(ctx, "admin");
     const email = normalizeEmail(args.email);
-    if (!email || !email.includes("@")) throw new Error("Masukkan email pengelola yang valid");
+    if (!/^\S+@\S+\.\S+$/.test(email) || email.length > 254) throw new Error("Masukkan email pengelola yang valid");
     const existingUser = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", email))
@@ -164,6 +169,9 @@ export const acceptStaffInvite = mutation({
       .withIndex("byUser", (q) => q.eq("userId", userId))
       .unique();
     if (existing) {
+      if (existing.role === "admin" && invite.role !== "admin") {
+        throw new Error("Admin tidak dapat diturunkan melalui undangan");
+      }
       await ctx.db.patch(existing._id, { role: invite.role, updatedAt: Date.now() });
     } else {
       await ctx.db.insert("staffMembers", { userId, role: invite.role, createdAt: Date.now(), updatedAt: Date.now() });
@@ -257,5 +265,20 @@ export const listListingHistory = query({
     return rows
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, Math.min(Math.max(args.limit ?? 30, 1), 100));
+  },
+});
+
+export const listRecentListingHistory = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await requireManagementViewer(ctx);
+    const rows = await ctx.db.query("listingHistory").collect();
+    const recent = rows
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, Math.min(Math.max(args.limit ?? 40, 1), 100));
+    return Promise.all(recent.map(async (row) => ({
+      ...row,
+      vendorName: (await ctx.db.get(row.vendorId))?.name ?? "Listing",
+    })));
   },
 });

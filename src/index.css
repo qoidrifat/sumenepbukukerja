@@ -86,10 +86,37 @@
     --foreground: #000000;
     --card: #ffffff;
     --card-foreground: #000000;
-    --muted: #f1f5f9;
-    --muted-foreground: #334155;
-    --border: #94a3b8;
-    --primary: #1d4ed8;
+    --muted: #ffffff;
+    --muted-foreground: #1f2937;
+    --border: #000000;
+    --primary: #0000cc;
+  }
+
+  html[data-high-contrast="true"] body,
+  html[data-high-contrast="true"] .bg-white,
+  html[data-high-contrast="true"] [data-slot="card"] {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  html[data-high-contrast="true"] .text-slate-950,
+  html[data-high-contrast="true"] .text-slate-900,
+  html[data-high-contrast="true"] .text-slate-800,
+  html[data-high-contrast="true"] .text-slate-700,
+  html[data-high-contrast="true"] .text-slate-600,
+  html[data-high-contrast="true"] .text-muted-foreground {
+    color: #000000 !important;
+  }
+
+  html[data-high-contrast="true"] .border-slate-200,
+  html[data-high-contrast="true"] .border-slate-300,
+  html[data-high-contrast="true"] .border-blue-200 {
+    border-color: #000000 !important;
+  }
+
+  html[data-high-contrast="true"] :where(a, button, input, select, textarea, summary, [role="button"]):focus-visible {
+    outline: 3px solid #0000cc !important;
+    outline-offset: 3px !important;
   }
 
   button,

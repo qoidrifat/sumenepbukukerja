@@ -295,6 +295,27 @@ export const createVendor = mutation({
     const privileged = await hasStaffAccess(ctx, userId);
     const phone = normalizeWhatsAppPhone(args.phone);
     if (!phone) throw new Error("Masukkan nomor WhatsApp yang valid");
+    if (!["Servis Teknik", "Hajatan & Acara", "Kuliner", "Transportasi", "Jasa Umum"].includes(args.category)) {
+      throw new Error("Kategori usaha tidak dikenal");
+    }
+    if (args.name.trim().length < 2 || args.name.trim().length > 120) {
+      throw new Error("Nama usaha harus 2–120 karakter");
+    }
+    if (args.description.trim().length < 10 || args.description.trim().length > 2000) {
+      throw new Error("Deskripsi usaha harus 10–2000 karakter");
+    }
+    if (args.address.trim().length < 5 || args.address.trim().length > 300) {
+      throw new Error("Alamat usaha harus 5–300 karakter");
+    }
+    if (args.hours.trim().length > 200) throw new Error("Jam kerja terlalu panjang");
+    if (args.lat !== undefined && (args.lat < -90 || args.lat > 90)) throw new Error("Koordinat latitude tidak valid");
+    if (args.lng !== undefined && (args.lng < -180 || args.lng > 180)) throw new Error("Koordinat longitude tidak valid");
+    if (args.responseMinutes !== undefined && (args.responseMinutes < 0 || args.responseMinutes > 10080)) {
+      throw new Error("Waktu respons harus antara 0 dan 10.080 menit");
+    }
+    if (args.serviceRadiusKm !== undefined && (args.serviceRadiusKm < 0 || args.serviceRadiusKm > 500)) {
+      throw new Error("Radius layanan harus antara 0 dan 500 km");
+    }
     const now = Date.now();
     const base = slugify(args.name);
     const existing = await ctx.db
@@ -328,7 +349,7 @@ export const createVendor = mutation({
       status: privileged ? args.status ?? "draft" : "draft",
       featured: privileged ? args.featured ?? false : false,
       verified: privileged ? args.verified ?? false : false,
-      photoId: args.photoId,
+      photoId: privileged ? args.photoId : undefined,
       lat: args.lat,
       lng: args.lng,
       availability: args.availability ?? "available",
@@ -373,6 +394,17 @@ export const updateVendor = mutation({
     const privileged = await hasStaffAccess(ctx, userId);
     const phone = normalizeWhatsAppPhone(changes.phone);
     if (!phone) throw new Error("Masukkan nomor WhatsApp yang valid");
+    if (!["Servis Teknik", "Hajatan & Acara", "Kuliner", "Transportasi", "Jasa Umum"].includes(changes.category)) {
+      throw new Error("Kategori usaha tidak dikenal");
+    }
+    if (changes.name.trim().length < 2 || changes.name.trim().length > 120) throw new Error("Nama usaha harus 2–120 karakter");
+    if (changes.description.trim().length < 10 || changes.description.trim().length > 2000) throw new Error("Deskripsi usaha harus 10–2000 karakter");
+    if (changes.address.trim().length < 5 || changes.address.trim().length > 300) throw new Error("Alamat usaha harus 5–300 karakter");
+    if (changes.hours.trim().length > 200) throw new Error("Jam kerja terlalu panjang");
+    if (changes.lat !== undefined && (changes.lat < -90 || changes.lat > 90)) throw new Error("Koordinat latitude tidak valid");
+    if (changes.lng !== undefined && (changes.lng < -180 || changes.lng > 180)) throw new Error("Koordinat longitude tidak valid");
+    if (changes.responseMinutes !== undefined && (changes.responseMinutes < 0 || changes.responseMinutes > 10080)) throw new Error("Waktu respons harus antara 0 dan 10.080 menit");
+    if (changes.serviceRadiusKm !== undefined && (changes.serviceRadiusKm < 0 || changes.serviceRadiusKm > 500)) throw new Error("Radius layanan harus antara 0 dan 500 km");
 
     const nextStatus = privileged
       ? changes.status
@@ -400,9 +432,11 @@ export const updateVendor = mutation({
       status: nextStatus,
       featured: privileged ? changes.featured : current.featured,
       verified: privileged ? changes.verified : current.verified,
-      photoId: changes.photoId === undefined ? current.photoId : changes.photoId,
-      lat: changes.lat,
-      lng: changes.lng,
+      photoId: privileged
+        ? changes.photoId === undefined ? current.photoId : changes.photoId
+        : current.photoId,
+      lat: changes.lat === undefined ? current.lat : changes.lat,
+      lng: changes.lng === undefined ? current.lng : changes.lng,
       availability: changes.availability ?? current.availability,
       availabilityNote: changes.availabilityNote === undefined ? current.availabilityNote : changes.availabilityNote,
       nextAvailableAt: changes.nextAvailableAt === undefined ? current.nextAvailableAt : changes.nextAvailableAt,
@@ -470,6 +504,15 @@ export const archiveVendor = mutation({
       featured: false,
       updatedAt: now,
     });
+    await writeListingHistory(ctx, {
+      vendorId: args.id,
+      actorId,
+      changes: [
+        { field: "status", oldValue: current?.status, newValue: "archived" },
+        { field: "featured", oldValue: current?.featured ?? false, newValue: false },
+      ],
+      reason: "archive",
+    });
     await writeAudit(ctx, {
       action: "listing.archived",
       actorId,
@@ -498,7 +541,7 @@ export const incrementClick = mutation({
   },
   handler: async (ctx, args) => {
     const current = await ctx.db.get(args.id);
-    if (!current) return;
+    if (!current || current.status !== "active") return;
     const kind = args.kind ?? "whatsapp";
     const key =
       kind === "whatsapp"

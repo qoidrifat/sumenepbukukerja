@@ -3,7 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { GenericMutationCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
-import { requireStaff } from "./access";
+import { requireManagementViewer } from "./access";
 
 const eventNameValidator = v.union(
   v.literal("search_impression"),
@@ -20,6 +20,7 @@ const eventNameValidator = v.union(
   v.literal("notification_opted_in"),
   v.literal("request_matched"),
   v.literal("request_expired"),
+  v.literal("request_reopened"),
 );
 
 export async function recordEvent(
@@ -74,7 +75,7 @@ export const track = mutation({
 export const adminMetrics = query({
   args: {},
   handler: async (ctx) => {
-    await requireStaff(ctx);
+    await requireManagementViewer(ctx);
     const [events, vendors, requests, photos] = await Promise.all([
       ctx.db.query("analyticsEvents").collect(),
       ctx.db.query("vendors").collect(),
@@ -83,9 +84,12 @@ export const adminMetrics = query({
     ]);
     const count = (event: string) => events.filter((row) => row.event === event).length;
     const active = vendors.filter((vendor) => vendor.status === "active");
-    const photoIds = new Set(photos.filter((photo) => photo.active !== false && photo.moderationStatus !== "rejected").map((photo) => photo.vendorId));
+    const photoIds = new Set(photos.filter((photo) => photo.active !== false && photo.moderationStatus === "approved").map((photo) => photo.vendorId));
     const byCategory = Object.fromEntries([...new Set(active.map((vendor) => vendor.category))].map((category) => [category, active.filter((vendor) => vendor.category === category).length]));
     const byArea = Object.fromEntries([...new Set(active.map((vendor) => vendor.landmark))].map((area) => [area, active.filter((vendor) => vendor.landmark === area).length]));
+    const searchCount = count("search_impression");
+    const whatsappCount = count("whatsapp_clicked");
+    const responseValues = active.map((vendor) => vendor.responseMinutes).filter((value): value is number => typeof value === "number" && value > 0);
     const topProviders = vendors
       .filter((vendor) => vendor.ownerId)
       .map((vendor) => ({ id: vendor._id, name: vendor.name, responseMinutes: vendor.responseMinutes ?? 999999, requests: requests.filter((request) => request.vendorId === vendor._id).length }))
@@ -108,6 +112,9 @@ export const adminMetrics = query({
         notificationOptedIn: count("notification_opted_in"),
       },
       activeListings: active.length,
+      searchToWhatsappRate: searchCount > 0 ? Math.round((whatsappCount / searchCount) * 100) : 0,
+      averageResponseMinutes: responseValues.length > 0 ? Math.round(responseValues.reduce((sum, value) => sum + value, 0) / responseValues.length) : 0,
+      completedRequests: requests.filter((request) => request.status === "completed").length,
       listingsWithoutPrice: active.filter((vendor) => !vendor.price.trim()).length,
       listingsWithoutPhotos: active.filter((vendor) => !vendor.photoId && !photoIds.has(vendor._id)).length,
       listingsWithoutHours: active.filter((vendor) => !vendor.hours.trim()).length,

@@ -1,8 +1,25 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getStaffAccess, requireStaff, requireUser } from "./access";
+import { getStaffAccess, requireManagementViewer, requireStaff, requireUser } from "./access";
 import { writeAudit } from "./audit";
 import { recordEvent } from "./analytics";
+import type { GenericMutationCtx } from "convex/server";
+import type { DataModel } from "./_generated/dataModel";
+
+const MAX_EVIDENCE_BYTES = 1_000_000;
+
+async function validateEvidenceFile(
+  ctx: GenericMutationCtx<DataModel>,
+  storageId: string | undefined,
+) {
+  if (!storageId) return;
+  const metadata = await ctx.db.system.get("_storage", storageId as never);
+  if (!metadata) throw new Error("Bukti klaim tidak ditemukan");
+  if (metadata.size > MAX_EVIDENCE_BYTES) throw new Error("Bukti klaim maksimal 1 MB");
+  if (metadata.contentType && !metadata.contentType.startsWith("image/")) {
+    throw new Error("Bukti klaim harus berupa foto");
+  }
+}
 
 const claimStatusValidator = v.union(
   v.literal("pending"),
@@ -28,9 +45,10 @@ export const submitVendorClaim = mutation({
     const phone = args.whatsappPhone.replace(/\D/g, "").replace(/^0/, "62");
     const email = args.email.trim().toLowerCase();
     const address = args.businessAddress.trim();
-    if (phone.length < 10 || phone.length > 15 || !email.includes("@") || address.length < 5) {
+    if (phone.length < 10 || phone.length > 15 || !/^\S+@\S+\.\S+$/.test(email) || address.length < 5 || address.length > 300) {
       throw new Error("Nomor WhatsApp, email, dan alamat usaha wajib diisi dengan benar");
     }
+    await validateEvidenceFile(ctx, args.evidenceStorageId);
     const previous = await ctx.db
       .query("listingClaims")
       .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
@@ -70,18 +88,21 @@ export const listVendorClaims = query({
     const vendor = await ctx.db.get(args.vendorId);
     if (!vendor) throw new Error("Listing tidak ditemukan");
     const access = await getStaffAccess(ctx, userId);
-    if (vendor.ownerId !== userId && !access) throw new Error("Klaim listing tidak dapat diakses");
-    return await ctx.db
+    const claims = await ctx.db
       .query("listingClaims")
       .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
       .collect();
+    if (access || vendor.ownerId === userId) return claims;
+    const ownClaims = claims.filter((claim) => claim.requesterId === userId);
+    if (ownClaims.length === 0) throw new Error("Klaim listing tidak dapat diakses");
+    return ownClaims;
   },
 });
 
 export const listPendingClaims = query({
   args: {},
   handler: async (ctx) => {
-    await requireStaff(ctx);
+    await requireManagementViewer(ctx);
     const claims = await ctx.db
       .query("listingClaims")
       .withIndex("byStatus", (q) => q.eq("status", "pending"))
@@ -89,7 +110,14 @@ export const listPendingClaims = query({
     return Promise.all(claims.map(async (claim) => {
       const vendor = await ctx.db.get(claim.vendorId);
       const requester = await ctx.db.get(claim.requesterId);
-      return { ...claim, vendorName: vendor?.name, vendorSlug: vendor?.slug, requesterName: requester?.name, requesterEmail: requester?.email };
+      return {
+        ...claim,
+        vendorName: vendor?.name,
+        vendorSlug: vendor?.slug,
+        requesterName: requester?.name,
+        requesterEmail: requester?.email,
+        evidenceUrl: claim.evidenceStorageId ? await ctx.storage.getUrl(claim.evidenceStorageId) : undefined,
+      };
     }));
   },
 });
@@ -121,6 +149,7 @@ export const reviewVendorClaim = mutation({
       });
       await ctx.db.patch(claim.vendorId, {
         ownerId: claim.requesterId,
+        verified: true,
         updatedAt: now,
       });
       await writeAudit(ctx, {
@@ -130,14 +159,16 @@ export const reviewVendorClaim = mutation({
         entityId: args.claimId,
         newValue: { ownerAssigned: true },
       });
-      await writeAudit(ctx, {
-        action: "listing.status_changed",
-        actorId: userId,
-        vendorId: claim.vendorId,
-        oldValue: vendor.status,
-        newValue: vendor.status,
-        metadata: { reason: "claim_approved" },
-      });
+      if (!vendor.verified) {
+        await writeAudit(ctx, {
+          action: "listing.verified",
+          actorId: userId,
+          vendorId: claim.vendorId,
+          oldValue: false,
+          newValue: true,
+          metadata: { source: "claim_review" },
+        });
+      }
     } else {
       await ctx.db.patch(args.claimId, {
         status: "rejected",
@@ -164,7 +195,7 @@ export const reviewVendorClaim = mutation({
 export const listClaimStatus = query({
   args: { claimStatus: claimStatusValidator },
   handler: async (ctx, args) => {
-    await requireStaff(ctx);
+    await requireManagementViewer(ctx);
     return await ctx.db
       .query("listingClaims")
       .withIndex("byStatus", (q) => q.eq("status", args.claimStatus))

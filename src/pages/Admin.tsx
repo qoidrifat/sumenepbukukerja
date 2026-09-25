@@ -1,5 +1,7 @@
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { useMemo, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { Link } from "react-router";
 import {
   AlertTriangle,
@@ -47,6 +49,7 @@ import {
   type VendorRecord,
 } from "@/lib/catalog-store";
 import { duplicateScore, profileCompleteness, qualityIssues } from "@/lib/catalog-data";
+import { AdminGovernance } from "@/components/admin-governance";
 
 import {
   AdminHeader,
@@ -102,6 +105,8 @@ const emptyDraft = (): Vendor => ({
 
 function AdminGate() {
   const access = useCurrentAccess();
+  const bootstrapAvailable = useQuery(api.users.bootstrapAdministratorAvailable, {});
+  const bootstrap = useMutation(api.users.bootstrapAdministrator);
   if (access === undefined) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-[#FAF7EE] p-6 text-[#1A1A1A]">
@@ -109,12 +114,13 @@ function AdminGate() {
       </main>
     );
   }
-  if (!access.isStaff) {
+  if (!access.canViewAdmin) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-[#FAF7EE] p-6 text-[#1A1A1A]">
         <div className="max-w-md border-2 border-[#121212] bg-white p-6 text-center shadow-[4px_4px_0_#121212]">
           <h1 className="text-2xl font-black">Akses pengelola diperlukan</h1>
-          <p className="mt-3 leading-7 text-[#525252]">Akun ini belum memiliki peran admin atau staff. Hubungi pengelola Buku Kerja untuk membuka ruang ini.</p>
+          <p className="mt-3 leading-7 text-[#525252]">Akun ini belum memiliki peran admin, staff, atau viewer. Hubungi pengelola Buku Kerja untuk membuka ruang ini.</p>
+          {bootstrapAvailable?.available ? <button type="button" onClick={() => void bootstrap({})} className="admin-btn admin-btn-primary mt-5 inline-flex">Aktifkan admin awal</button> : null}
           <Link to="/" className="admin-btn admin-btn-secondary mt-5 inline-flex">Kembali ke katalog</Link>
         </div>
       </main>
@@ -128,6 +134,7 @@ export default function Admin() {
 }
 
 function AdminWorkspace() {
+  const access = useCurrentAccess();
   const items = useAdminVendors() ?? EMPTY_ITEMS;
   const reports = useOpenReports() ?? [];
   const communityMetrics = useCommunityMetrics();
@@ -166,6 +173,10 @@ function AdminWorkspace() {
   };
 
   const startNew = () => {
+    if (!access?.canModerate) {
+      setError("Viewer hanya dapat melihat data. Minta admin atau staff melakukan perubahan.");
+      return;
+    }
     setDraft(emptyDraft());
     setPhoto(null);
     setPhotoFile(null);
@@ -180,6 +191,10 @@ function AdminWorkspace() {
   };
 
   const startEdit = (vendor: VendorRecord) => {
+    if (!access?.canModerate) {
+      setError("Viewer hanya dapat melihat data. Minta admin atau staff melakukan perubahan.");
+      return;
+    }
     setDraft({ ...vendor, reviews: vendor.reviewsCount ?? vendor.reviews });
     setPhoto(null);
     setPhotoFile(null);
@@ -287,6 +302,10 @@ function AdminWorkspace() {
     successMessage: string,
     actionName = "update",
   ) => {
+    if (!access?.canModerate) {
+      setError("Viewer tidak dapat mengubah status listing.");
+      return;
+    }
     const actionKey = `${vendor._id}:${actionName}`;
     setBusyAction(actionKey);
     setError("");
@@ -371,7 +390,7 @@ function AdminWorkspace() {
   };
 
   const confirmDestructiveAction = async () => {
-    if (!pendingConfirmation) return;
+    if (!pendingConfirmation || !access?.canModerate) return;
     setConfirming(true);
     setError("");
     try {
@@ -398,6 +417,10 @@ function AdminWorkspace() {
     id: string,
     status: "reviewing" | "resolved" | "dismissed",
   ) => {
+    if (!access?.canModerate) {
+      setError("Viewer tidak dapat memperbarui laporan.");
+      return;
+    }
     setBusyAction(`report:${id}`);
     setError("");
     try {
@@ -674,7 +697,7 @@ function AdminWorkspace() {
 
   return (
     <div className="admin-workspace min-h-dvh min-h-[100svh] pb-[calc(2rem+env(safe-area-inset-bottom))] text-[#1A1A1A]">
-      <AdminHeader />
+      <AdminHeader role={access?.role ?? undefined} />
       <main className="admin-shell-frame mx-auto max-w-[1600px] px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10">
         {previewContent}
 
@@ -767,6 +790,8 @@ function AdminWorkspace() {
             <p className="text-base font-black">{error}</p>
           </div>
         ) : null}
+
+        <AdminGovernance />
 
         <section className="mt-8" aria-labelledby="operational-metrics-title">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">

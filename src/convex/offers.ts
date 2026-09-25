@@ -1,9 +1,10 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalAction, mutation, query } from "./_generated/server";
 import type { DataModel } from "./_generated/dataModel";
 import { getStaffAccess, requireUser } from "./access";
 import { recordEvent } from "./analytics";
 import { writeAudit } from "./audit";
+import { internal } from "./_generated/api";
 
 const distanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
   const radians = (value: number) => (value * Math.PI) / 180;
@@ -71,10 +72,22 @@ export const listOwnerRequests = query({
     return Promise.all(visible.map(async (request) => {
       const requester = await ctx.db.get(request.requesterId);
       const vendor = request.vendorId ? await ctx.db.get(request.vendorId) : null;
+      const vendorMatches = vendors
+        .filter((candidate) => isMatch(request, candidate))
+        .map((candidate) => ({
+          vendorId: candidate._id,
+          name: candidate.name,
+          distanceKm: request.lat !== undefined && request.lng !== undefined && candidate.lat !== undefined && candidate.lng !== undefined
+            ? distanceKm(request.lat, request.lng, candidate.lat, candidate.lng)
+            : request.landmark !== "all" && request.landmark === candidate.landmark ? 0 : undefined,
+          responseMinutes: candidate.responseMinutes,
+        }))
+        .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity) || (a.responseMinutes ?? 999999) - (b.responseMinutes ?? 999999));
       return {
         ...request,
         requesterName: requester?.name ?? "Warga Sumenep",
         vendorName: vendor?.name,
+        vendorMatches,
         offers: offers.filter((offer) => offer.requestId === request._id && vendorIds.has(offer.vendorId)),
       };
     })).then((rows) => rows.sort((a, b) => b.updatedAt - a.updatedAt));
@@ -88,6 +101,7 @@ export const offerRequest = mutation({
     const request = await ctx.db.get(args.requestId);
     const vendor = await ctx.db.get(args.vendorId);
     if (!request || request.status !== "open" || (request.expiresAt && request.expiresAt <= Date.now())) throw new Error("Permintaan sudah tidak tersedia");
+    if (request.requesterId === userId) throw new Error("Anda tidak dapat menawarkan permintaan milik sendiri");
     if (!vendor || vendor.status !== "active" || vendor.ownerId !== userId) throw new Error("Hanya pemilik listing aktif yang dapat menawarkan bantuan");
     if (!isMatch(request, vendor)) throw new Error("Listing belum cocok dengan kategori, area, atau radius layanan");
     const now = Date.now();
@@ -96,10 +110,56 @@ export const offerRequest = mutation({
       await ctx.db.patch(existing._id, { status: "offered", message: args.message?.trim() || undefined, updatedAt: now });
       return existing._id;
     }
-    const offerId = await ctx.db.insert("requestOffers", { requestId: args.requestId, vendorId: args.vendorId, offeredBy: userId, message: args.message?.trim() || undefined, status: "offered", createdAt: now, updatedAt: now });
+    const offerId = await ctx.db.insert("requestOffers", { requestId: args.requestId, vendorId: args.vendorId, offeredBy: userId, message: args.message?.trim()?.slice(0, 500) || undefined, status: "offered", createdAt: now, updatedAt: now });
+    await ctx.db.insert("notifications", {
+      userId: request.requesterId,
+      kind: `request_offer:${offerId}`,
+      title: "Tawaran baru untuk permintaan Anda",
+      body: `${vendor.name} menawarkan bantuan untuk "${request.title}".`,
+      read: false,
+      createdAt: now,
+    });
     await recordEvent(ctx, { event: "request_matched", userId, requestId: args.requestId, vendorId: args.vendorId });
     await writeAudit(ctx, { action: "request.status_changed", actorId: userId, requestId: args.requestId, vendorId: args.vendorId, newValue: "offered" });
     return offerId;
+  },
+});
+
+export const acceptRequestOffer = mutation({
+  args: { requestId: v.id("serviceRequests"), offerId: v.id("requestOffers") },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const request = await ctx.db.get(args.requestId);
+    const offer = await ctx.db.get(args.offerId);
+    if (!request || !offer || offer.requestId !== args.requestId) throw new Error("Tawaran tidak ditemukan");
+    if (request.requesterId !== userId) throw new Error("Hanya pembuat permintaan yang dapat menerima tawaran");
+    if (request.status !== "open" || offer.status !== "offered" || (request.expiresAt && request.expiresAt <= Date.now())) {
+      throw new Error("Tawaran sudah tidak tersedia");
+    }
+    const vendor = await ctx.db.get(offer.vendorId);
+    if (!vendor || vendor.status !== "active" || !isMatch(request, vendor)) throw new Error("Listing tidak lagi cocok dengan permintaan");
+    const now = Date.now();
+    await ctx.db.patch(args.requestId, { status: "claimed", vendorId: offer.vendorId, claimedAt: now, updatedAt: now });
+    await ctx.db.patch(args.offerId, { status: "accepted", updatedAt: now });
+    const otherOffers = await ctx.db.query("requestOffers").withIndex("byRequest", (q) => q.eq("requestId", args.requestId)).collect();
+    for (const other of otherOffers.filter((item) => item._id !== args.offerId && item.status === "offered")) {
+      await ctx.db.patch(other._id, { status: "withdrawn", updatedAt: now });
+    }
+    if (vendor.ownerId) {
+      await ctx.db.insert("notifications", { userId: vendor.ownerId as DataModel["users"]["document"]["_id"], kind: "request_update", title: "Tawaran Anda diterima", body: `Permintaan "${request.title}" menerima tawaran ${vendor.name}.`, read: false, createdAt: now });
+    }
+    await recordEvent(ctx, { event: "request_claimed", userId, requestId: args.requestId, vendorId: offer.vendorId });
+    await writeAudit(ctx, { action: "request.status_changed", actorId: userId, requestId: args.requestId, vendorId: offer.vendorId, oldValue: "open", newValue: "claimed" });
+    await ctx.scheduler.runAfter(0, internal.offers.sendOfferAcceptedNotification, { requestId: args.requestId });
+    return args.requestId;
+  },
+});
+
+export const sendOfferAcceptedNotification = internalAction({
+  args: { requestId: v.id("serviceRequests") },
+  handler: async (ctx, args) => {
+    await ctx.runAction(internal.whatsapp.sendRequestStatusNotification, { requestId: args.requestId, status: "claimed" });
+    return { sent: true };
   },
 });
 
@@ -109,8 +169,9 @@ export const withdrawOffer = mutation({
     const userId = await requireUser(ctx);
     const offer = await ctx.db.get(args.offerId);
     if (!offer) throw new Error("Tawaran tidak ditemukan");
+    if (offer.status !== "offered") throw new Error("Tawaran ini sudah tidak aktif");
     const access = await getStaffAccess(ctx, userId);
-    if (offer.offeredBy !== userId && !access) throw new Error("Anda tidak dapat menarik tawaran ini");
+    if (offer.offeredBy !== userId && access?.role !== "admin" && access?.role !== "staff") throw new Error("Anda tidak dapat menarik tawaran ini");
     await ctx.db.patch(args.offerId, { status: "withdrawn", updatedAt: Date.now() });
     return args.offerId;
   },

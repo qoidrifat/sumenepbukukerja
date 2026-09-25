@@ -117,7 +117,7 @@ export function vendorUpdatePayload(
   };
 }
 
-export function AdminHeader() {
+export function AdminHeader({ role = "admin" }: { role?: string }) {
   return (
     <header className="sticky top-0 z-40 border-b-2 border-[#121212] bg-[#FAF7EE] pt-[env(safe-area-inset-top)]">
       <div className="admin-shell-frame mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-3 px-3 sm:px-6 lg:px-10">
@@ -150,7 +150,7 @@ export function AdminHeader() {
 
         <span className="admin-status admin-status-confirmed shrink-0">
           <span className="mr-1.5 size-2 rounded-full bg-[#1A1A1A]" />
-          Admin
+          {role === "admin" ? "Admin" : role === "staff" ? "Staff" : "Viewer"}
         </span>
       </div>
       <div

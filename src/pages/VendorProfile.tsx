@@ -27,7 +27,8 @@ import {
 } from "@/lib/catalog-store";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { BlurText, GlassSurface, ScrollReveal } from "@/components/react-bits";
-import { AvailabilityBadge, PackageList, ReportListingButton } from "@/components/community-widgets";
+import { AvailabilityBadge, ClaimListingPanel, PackageList, ReportListingButton } from "@/components/community-widgets";
+import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
 import NotFound from "./NotFound";
 
 const focusRing =
@@ -91,7 +92,16 @@ function VendorProfileContent() {
   const photoUrl = useVendorPhoto(vendor?.photoId);
   const photos = useVendorPhotos(vendor?._id);
   const favorites = useFavorites();
-  const { click, review, interaction } = useCatalogActions();
+  const { click, review, interaction, track } = useCatalogActions();
+  const analyticsId = (() => {
+    if (typeof window === "undefined") return undefined;
+    const key = "sumenep-buku-kerja-anonymous-id";
+    const existing = window.localStorage.getItem(key);
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    window.localStorage.setItem(key, created);
+    return created;
+  })();
   const [reviewName, setReviewName] = useState("");
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewBody, setReviewBody] = useState("");
@@ -101,6 +111,24 @@ function VendorProfileContent() {
   const [ctaNotice, setCtaNotice] = useState<CtaNotice | null>(null);
   const viewedVendorId = useRef<string | undefined>(undefined);
   const reduceMotion = useReducedMotion() ?? false;
+  const { online } = useOfflineQueue();
+
+  useEffect(() => {
+    if (!online) return;
+    const handlers = {
+      interaction: async (payload: Record<string, unknown>) => {
+        if (typeof payload.vendorId !== "string" || typeof payload.kind !== "string") return;
+        await interaction({
+          vendorId: payload.vendorId as never,
+          kind: payload.kind as "view" | "whatsapp" | "share" | "call" | "request",
+          status: typeof payload.status === "string" ? payload.status as "opened" | "waiting" | "completed" | "dismissed" : undefined,
+          requestId: typeof payload.requestId === "string" ? payload.requestId as never : undefined,
+        });
+      },
+    };
+    registerOfflineHandlers(handlers);
+    void flushOfflineQueue(handlers);
+  }, [interaction, online]);
 
   useEffect(() => {
     const vendorId = vendor?._id;
@@ -108,8 +136,11 @@ function VendorProfileContent() {
     // turn that into duplicate "view" rows in the resident interaction history.
     if (!vendorId || viewedVendorId.current === vendorId) return;
     viewedVendorId.current = vendorId;
-    void interaction({ vendorId: vendorId as never, kind: "view" }).catch(() => undefined);
-  }, [interaction, vendor?._id]);
+    void interaction({ vendorId: vendorId as never, kind: "view" }).catch(() => {
+      enqueueOfflineMutation("interaction", { vendorId, kind: "view", status: "opened" });
+    });
+    void track({ event: "listing_opened", vendorId: vendorId as never, anonymousId: analyticsId }).catch(() => undefined);
+  }, [analyticsId, interaction, track, vendor?._id]);
 
   useEffect(() => {
     if (!ctaNotice) return;
@@ -148,7 +179,10 @@ function VendorProfileContent() {
   const trackWhatsApp = () => {
     if (vendor._id) {
       void click({ id: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
-      void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
+      void track({ event: "whatsapp_clicked", vendorId: vendor._id as never, anonymousId: analyticsId }).catch(() => undefined);
+      void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => {
+        enqueueOfflineMutation("interaction", { vendorId: vendor._id, kind: "whatsapp", status: "opened" });
+      });
     }
     try {
       const key = `sumenep-buku-kerja-clicks:${vendor.slug}`;
@@ -160,14 +194,22 @@ function VendorProfileContent() {
   };
 
   const trackCall = () => {
-    if (vendor._id) void interaction({ vendorId: vendor._id as never, kind: "call" }).catch(() => undefined);
+    if (vendor._id) {
+      void track({ event: "call_clicked", vendorId: vendor._id as never, anonymousId: analyticsId }).catch(() => undefined);
+      void interaction({ vendorId: vendor._id as never, kind: "call" }).catch(() => {
+        enqueueOfflineMutation("interaction", { vendorId: vendor._id, kind: "call", status: "opened" });
+      });
+    }
   };
 
   const share = async () => {
     const text = `${vendor.name} — ${vendor.description}`;
     if (vendor._id) {
       void click({ id: vendor._id as never, kind: "share" }).catch(() => undefined);
-      void interaction({ vendorId: vendor._id as never, kind: "share" }).catch(() => undefined);
+      void track({ event: "share_clicked", vendorId: vendor._id as never, anonymousId: analyticsId }).catch(() => undefined);
+      void interaction({ vendorId: vendor._id as never, kind: "share" }).catch(() => {
+        enqueueOfflineMutation("interaction", { vendorId: vendor._id, kind: "share", status: "opened" });
+      });
     }
     const url = `${window.location.origin}/v/${vendor.slug}`;
     try {
@@ -351,6 +393,7 @@ function VendorProfileContent() {
                   </section>
                 ) : null}
                 <PackageList vendorId={vendor._id} />
+                {vendor._id && !vendor.ownerId ? <ClaimListingPanel vendorId={vendor._id} vendorName={vendor.name} phone={vendor.phone} address={vendor.address} /> : null}
                 <div className="mt-5"><ReportListingButton vendorId={vendor._id} /></div>
               </div>
             </motion.section>

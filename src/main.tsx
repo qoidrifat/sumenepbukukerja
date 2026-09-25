@@ -65,16 +65,15 @@ class RootErrorBoundary extends React.Component<
     if (this.state.hasError) {
       return (
         <div className="flex min-h-dvh min-h-[100svh] items-center justify-center bg-background p-6 text-foreground">
-          <div className="max-w-lg text-center">
-            <p className="text-sm font-semibold">Preview runtime error</p>
-            <p className="mt-2 text-xs text-muted-foreground break-words">
-              {this.state.message}
-            </p>
-            {this.state.stack && (
-              <pre className="mt-3 text-left text-[10px] leading-4 text-muted-foreground/80 max-h-40 overflow-auto rounded border border-border/60 p-2">
-                {this.state.stack}
-              </pre>
-            )}
+          <div className="max-w-lg rounded-2xl border border-border bg-background p-6 text-center shadow-lg" role="alert">
+            <p className="text-lg font-black">Buku Kerja sedang mengalami gangguan</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">Data Anda tidak diubah. Muat ulang halaman atau kembali ke katalog untuk melanjutkan.</p>
+            <p className="mt-3 break-words text-xs text-muted-foreground">{this.state.message}</p>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <button type="button" onClick={() => window.location.reload()} className="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">Muat ulang</button>
+              <a href="/" className="inline-flex min-h-11 items-center rounded-lg border border-border px-4 text-sm font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">Kembali ke katalog</a>
+            </div>
+            {this.state.stack ? <details className="mt-4 text-left text-xs text-muted-foreground"><summary>Detail teknis</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border/60 p-2">{this.state.stack}</pre></details> : null}
           </div>
         </div>
       );

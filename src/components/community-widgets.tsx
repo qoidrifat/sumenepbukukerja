@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   ArrowRight,
   Bell,
-  CheckCircle2,
   Clock3,
   Cloud,
   Download,
@@ -23,6 +22,7 @@ import { distanceLabel } from "@/lib/catalog-data";
 import {
   useCatalogActions,
   useCatalogVendors,
+  useOwnerVendors,
   useMyInteractions,
   useNotificationPreferences,
   useOwnerRequests,
@@ -31,6 +31,8 @@ import {
   useServiceRequests,
   useVendorPackages,
   useVendorPhotos,
+  useVendorClaims,
+  useListingHistory,
   type NotificationPreferences,
   type ServiceRequest,
 } from "@/lib/catalog-store";
@@ -99,6 +101,7 @@ function RequestForm({ onCreated }: { onCreated: () => void }) {
   const [landmark, setLandmark] = useState("all");
   const [budget, setBudget] = useState("");
   const [neededAt, setNeededAt] = useState("");
+  const [useLocation, setUseLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -113,11 +116,20 @@ function RequestForm({ onCreated }: { onCreated: () => void }) {
     setError("");
     setSuccess("");
     try {
+      let lat: number | undefined;
+      let lng: number | undefined;
+      if (useLocation && typeof navigator !== "undefined" && navigator.geolocation) {
+        const position = await new Promise<GeolocationPosition | null>((resolve) => navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), { timeout: 3500, maximumAge: 60_000 }));
+        lat = position?.coords.latitude;
+        lng = position?.coords.longitude;
+      }
       await createRequest({
         title,
         description,
         category,
         landmark,
+        lat,
+        lng,
         budget: budget || undefined,
         neededAt: neededAt ? new Date(`${neededAt}T12:00:00`).getTime() : undefined,
       });
@@ -170,6 +182,10 @@ function RequestForm({ onCreated }: { onCreated: () => void }) {
           <span className="text-sm font-extrabold text-slate-800">Dibutuhkan kapan <span className="font-medium text-slate-500">(opsional)</span></span>
           <input type="date" value={neededAt} onChange={(event) => setNeededAt(event.target.value)} className={inputClass} />
         </label>
+        <label className="flex min-h-12 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-700 sm:col-span-2">
+          <input type="checkbox" checked={useLocation} onChange={(event) => setUseLocation(event.target.checked)} className="size-4 accent-blue-600" />
+          Gunakan lokasi saya untuk pencocokan jarak (opsional)
+        </label>
         <label className="flex flex-col gap-2 sm:col-span-2">
           <span className="text-sm font-extrabold text-slate-800">Ceritakan kebutuhan</span>
           <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Contoh: RC turun malam ini, mohon diberi tahu harga dan estimasi datang." rows={3} className="min-h-28 rounded-lg border border-slate-300 bg-white px-3 py-3 text-base leading-6 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required minLength={10} maxLength={1000} />
@@ -191,9 +207,10 @@ type RequestWithExpiry = Omit<ServiceRequest, "status"> & {
 
 function RequestCard({ request }: { request: RequestWithExpiry }) {
   const vendors = useCatalogVendors();
+  const ownedVendors = useOwnerVendors() ?? [];
   const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
-  const { claimRequest, click, interaction } = useCatalogActions();
+  const { claimRequest, acceptOffer, click, interaction } = useCatalogActions();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const matches = vendors
@@ -202,6 +219,19 @@ function RequestCard({ request }: { request: RequestWithExpiry }) {
     .slice(0, 3);
   const vendorSlug = request.vendorId ? vendors.find((vendor) => vendor._id === request.vendorId)?.slug : undefined;
   const isRequester = Boolean(user?._id && user._id === request.requesterId);
+
+  const accept = async (offerId: string) => {
+    setBusy(true);
+    setMessage("");
+    try {
+      await acceptOffer({ requestId: request._id as never, offerId: offerId as never });
+      setMessage("Tawaran diterima. Mitra akan diberi tahu.");
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "Tawaran belum dapat diterima.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const offer = async (vendor: Vendor) => {
     if (!isAuthenticated) {
@@ -235,7 +265,7 @@ function RequestCard({ request }: { request: RequestWithExpiry }) {
           <h3 className="mt-2 text-lg font-black text-slate-950">{request.title}</h3>
         </div>
         <span className={`rounded-full px-2.5 py-1 text-xs font-extrabold ${request.status === "open" ? "bg-emerald-50 text-emerald-700" : request.status === "claimed" ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"}`}>
-          {request.status === "open" ? "Butuh bantuan" : request.status === "claimed" ? `Ditawari ${request.vendorName ?? "mitra"}` : request.status === "completed" ? "Selesai" : "Dibatalkan"}
+          {request.status === "open" ? "Butuh bantuan" : request.status === "claimed" ? `Ditawari ${request.vendorName ?? "mitra"}` : request.status === "completed" ? "Selesai" : request.status === "expired" ? "Kedaluwarsa" : "Dibatalkan"}
         </span>
       </div>
       <p className="mt-3 text-sm leading-6 text-slate-600">{request.description}</p>
@@ -244,6 +274,7 @@ function RequestCard({ request }: { request: RequestWithExpiry }) {
         {request.budget ? <span>Anggaran {request.budget}</span> : null}
         {request.neededAt ? <span>Diperlukan {formatRequestDate(request.neededAt)}</span> : null}
       </div>
+      {isRequester && request.offers?.some((item) => item.status === "offered") ? <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3"><p className="text-xs font-extrabold uppercase tracking-[0.12em] text-emerald-800">Tawaran masuk</p><div className="mt-2 space-y-2">{request.offers.filter((item) => item.status === "offered").map((item) => <div key={item._id} className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm font-bold text-slate-800">{item.vendorName}</span><button type="button" disabled={busy} onClick={() => void accept(item._id)} className={`min-h-10 rounded-lg bg-emerald-700 px-3 text-xs font-extrabold text-white disabled:opacity-50 ${focusRing}`}>Terima tawaran</button></div>)}</div></div> : null}
       {request.status === "open" && matches.length > 0 ? (
         <div className="mt-4 border-t border-slate-100 pt-3">
           <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-slate-500">Usaha yang cocok</p>
@@ -261,7 +292,7 @@ function RequestCard({ request }: { request: RequestWithExpiry }) {
                 <div key={vendor.slug} className="flex flex-col gap-2 rounded-lg border border-blue-100 bg-blue-50/60 p-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm font-extrabold text-slate-900">{vendor.name}</p>
                   <div className="flex flex-wrap gap-2">
-                    {!isRequester ? (
+                    {!isRequester && vendor._id && ownedVendors.some((owned) => owned._id === vendor._id) ? (
                       <button type="button" disabled={busy} onClick={() => void offer(vendor)} className={`min-h-12 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-50 disabled:opacity-50 ${focusRing}`}>
                         {busy ? "Mengirim..." : "Tawarkan bantuan"}
                       </button>
@@ -346,7 +377,7 @@ export function MyRequestHistory() {
       setUpdatingId(null);
     }
   };
-  return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex items-center gap-3"><span className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Send className="size-5" /></span><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Permintaan saya</p><h2 className="mt-1 text-xl font-black text-slate-950">Pantau kebutuhan</h2></div></div>{ownRequests.length === 0 ? <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">Belum ada permintaan yang Anda posting.</p> : <div className="mt-4 space-y-3">{ownRequests.map((request) => <div key={request._id} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-extrabold text-slate-950">{request.title}</p><p className="mt-1 text-sm text-slate-600">{request.status === "open" ? "Menunggu penawaran" : request.status === "claimed" ? `Ditawari ${request.vendorName ?? "mitra"}` : request.status === "completed" ? "Sudah selesai" : "Dibatalkan"}</p></div><span className="text-xs font-bold text-slate-500">{formatRequestDate(request.createdAt)}</span></div>{request.status === "open" || request.status === "claimed" ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={updatingId === request._id} onClick={() => void update(request._id, "completed")} className={`min-h-12 rounded-lg border border-emerald-200 px-3 text-sm font-extrabold text-emerald-700 disabled:opacity-50 ${focusRing}`}>Tandai selesai</button><button type="button" disabled={updatingId === request._id} onClick={() => void update(request._id, "cancelled")} className={`min-h-12 rounded-lg border border-slate-300 px-3 text-sm font-extrabold text-slate-700 disabled:opacity-50 ${focusRing}`}>Batalkan</button></div> : null}</div>)}</div>}{notice ? <p className="mt-3 text-sm font-bold text-blue-700" role="status">{notice}</p> : null}</section>;
+  return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex items-center gap-3"><span className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Send className="size-5" /></span><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Permintaan saya</p><h2 className="mt-1 text-xl font-black text-slate-950">Pantau kebutuhan</h2></div></div>{ownRequests.length === 0 ? <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">Belum ada permintaan yang Anda posting.</p> : <div className="mt-4 space-y-3">{ownRequests.map((request) => <div key={request._id} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-extrabold text-slate-950">{request.title}</p><p className="mt-1 text-sm text-slate-600">{request.status === "open" ? "Menunggu penawaran" : request.status === "claimed" ? `Ditawari ${request.vendorName ?? "mitra"}` : request.status === "completed" ? "Sudah selesai" : request.status === "expired" ? "Kedaluwarsa" : "Dibatalkan"}</p></div><span className="text-xs font-bold text-slate-500">{formatRequestDate(request.createdAt)}</span></div>{request.status === "open" || request.status === "claimed" ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={updatingId === request._id} onClick={() => void update(request._id, "completed")} className={`min-h-12 rounded-lg border border-emerald-200 px-3 text-sm font-extrabold text-emerald-700 disabled:opacity-50 ${focusRing}`}>Tandai selesai</button><button type="button" disabled={updatingId === request._id} onClick={() => void update(request._id, "cancelled")} className={`min-h-12 rounded-lg border border-slate-300 px-3 text-sm font-extrabold text-slate-700 disabled:opacity-50 ${focusRing}`}>Batalkan</button></div> : null}{request.status === "cancelled" || request.status === "expired" ? <div className="mt-3"><button type="button" disabled={updatingId === request._id} onClick={() => { setUpdatingId(request._id); void reopenRequest({ requestId: request._id as never }).then(() => setNotice("Permintaan dibuka kembali.")).catch((caught) => setNotice(caught instanceof Error ? caught.message : "Permintaan belum dapat dibuka.")); }} className={`min-h-11 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 disabled:opacity-50 ${focusRing}`}>Buka kembali</button></div> : null}</div>)}</div>}{notice ? <p className="mt-3 text-sm font-bold text-blue-700" role="status">{notice}</p> : null}</section>;
 }
 
 export function InteractionHistory() {
@@ -477,6 +508,7 @@ export function NotificationCenter() {
           : whatsappStatus.configured
             ? "WhatsApp Business API sudah terkonfigurasi."
             : "WhatsApp Business API belum dikonfigurasi; preferensi tetap dapat disimpan."}
+        {" Status percakapan inbound belum dibaca otomatis; tandai status manual pada riwayat interaksi."}
       </p>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -560,6 +592,57 @@ export function NotificationCenter() {
   );
 }
 
+export function ClaimListingPanel({ vendorId, vendorName, phone, address }: { vendorId: string; vendorName: string; phone: string; address: string }) {
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const claims = useVendorClaims(isAuthenticated ? vendorId : undefined);
+  const { submitClaim, generateUploadUrl } = useCatalogActions();
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [whatsappPhone, setWhatsappPhone] = useState(phone);
+  const [businessAddress, setBusinessAddress] = useState(address);
+  const [evidence, setEvidence] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState("");
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      let evidenceStorageId: string | undefined;
+      if (evidence) {
+        if (evidence.size > 1_000_000) throw new Error("Bukti foto maksimal 1 MB.");
+        const uploadUrl = await generateUploadUrl();
+        const response = await fetch(uploadUrl, { method: "POST", headers: { "Content-Type": evidence.type || "image/jpeg" }, body: evidence });
+        if (!response.ok) throw new Error("Bukti gagal diunggah.");
+        const result = (await response.json()) as { storageId?: string };
+        evidenceStorageId = result.storageId;
+      }
+      await submitClaim({ vendorId: vendorId as never, email, whatsappPhone, businessAddress, evidenceStorageId });
+      setStatus("pending");
+      setMessage("Klaim terkirim dan menunggu pemeriksaan pengelola.");
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "Klaim belum dapat dikirim.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!isAuthenticated) {
+    return <button type="button" onClick={() => navigate(`/auth?returnTo=${encodeURIComponent(`/v/${window.location.pathname.split("/").pop() ?? ""}`)}`)} className={`mt-6 min-h-12 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-extrabold text-blue-700 ${focusRing}`}>Masuk untuk mengklaim usaha ini</button>;
+  }
+  if (status === "pending" || claims?.some((claim) => claim.status === "pending")) {
+    return <p className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800" role="status">Klaim {vendorName} sedang diverifikasi oleh pengelola.</p>;
+  }
+  if (claims?.some((claim) => claim.status === "rejected")) {
+    return <p className="mt-6 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">Klaim sebelumnya ditolak. Periksa bukti dan hubungi pengelola bila perlu.</p>;
+  }
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className={`mt-6 min-h-12 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-extrabold text-blue-700 ${focusRing}`}>Ini usaha saya — klaim listing</button>;
+  return <form onSubmit={submit} className="mt-6 rounded-xl border border-blue-200 bg-blue-50/70 p-4"><p className="font-extrabold text-slate-950">Klaim {vendorName}</p><p className="mt-1 text-sm leading-6 text-slate-600">Masukkan data yang bisa diverifikasi. Pemilik baru ditetapkan setelah admin menyetujui.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800 sm:col-span-2">Email terverifikasi<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} required /></label><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800">Nomor WhatsApp<input type="tel" value={whatsappPhone} onChange={(event) => setWhatsappPhone(event.target.value)} className={inputClass} required /></label><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800">Alamat usaha<input value={businessAddress} onChange={(event) => setBusinessAddress(event.target.value)} className={inputClass} required /></label><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800 sm:col-span-2">Foto bukti (opsional)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setEvidence(event.target.files?.[0] ?? null)} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label></div>{message ? <p className="mt-3 text-sm font-bold text-red-700" role="alert">{message}</p> : null}<div className="mt-3 flex gap-2"><button type="submit" disabled={busy} className={`min-h-11 rounded-lg bg-blue-600 px-3 text-sm font-extrabold text-white disabled:opacity-50 ${focusRing}`}>{busy ? "Mengirim..." : "Kirim klaim"}</button><button type="button" onClick={() => setOpen(false)} className={`min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Batal</button></div></form>;
+}
+
 export function OwnerGalleryManager({ vendorId, vendorName }: { vendorId: string; vendorName: string }) {
   const photos = useVendorPhotos(vendorId) ?? [];
   const { generateUploadUrl, createPhoto, removePhoto } = useCatalogActions();
@@ -611,7 +694,7 @@ export function OwnerGalleryManager({ vendorId, vendorName }: { vendorId: string
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {photos.map((photo) => (
             <figure key={photo._id} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-              <img src={photo.url} alt={photo.caption || `Foto ${vendorName}`} className="aspect-square w-full object-cover" loading="lazy" />
+              <img src={photo.url ?? ""} alt={photo.caption || `Foto ${vendorName}`} className="aspect-square w-full object-cover" loading="lazy" />
               <figcaption className="flex items-center justify-between gap-1 px-2 py-1 text-[11px] text-slate-600">
                 <span>{photo.moderationStatus === "pending" ? "Menunggu moderasi" : photo.moderationStatus === "rejected" ? "Ditolak" : "Tampil"}</span>
                 <button type="button" disabled={busy} onClick={() => { if (window.confirm("Hapus foto ini?")) void removePhoto({ id: photo._id as never }).catch((caught) => setMessage(caught instanceof Error ? caught.message : "Foto belum dapat dihapus.")); }} className={`font-black text-red-700 ${focusRing}`} aria-label={`Hapus foto ${vendorName}`}>Hapus</button>
@@ -626,6 +709,16 @@ export function OwnerGalleryManager({ vendorId, vendorName }: { vendorId: string
         </label>
         {message ? <p className="text-sm font-bold text-blue-700" role="status">{message}</p> : null}
       </div>
+    </details>
+  );
+}
+
+export function OwnerListingHistory({ vendorId, vendorName }: { vendorId: string; vendorName: string }) {
+  const history = useListingHistory(vendorId) ?? [];
+  return (
+    <details className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+      <summary className={`min-h-11 cursor-pointer font-extrabold text-slate-800 ${focusRing}`}>Riwayat perubahan · {vendorName}</summary>
+      {history.length === 0 ? <p className="mt-3 text-sm text-slate-600">Belum ada perubahan yang tercatat.</p> : <div className="mt-3 max-h-56 space-y-2 overflow-auto">{history.map((entry) => <article key={entry._id} className="border-b border-slate-100 pb-2 text-sm"><p className="font-bold text-slate-800">{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.createdAt))}</p>{entry.changes.map((change) => <p key={`${entry._id}-${change.field}`} className="mt-1 text-slate-600"><span className="font-bold">{change.field}</span>: {change.oldValue ?? "—"} → {change.newValue ?? "—"}</p>)}</article>)}</div>}
     </details>
   );
 }
@@ -678,6 +771,9 @@ export function PwaControls() {
   const { online, pendingCount } = useOfflineQueue();
 
   useEffect(() => {
+    let registration: ServiceWorkerRegistration | undefined;
+    let onUpdateFound: (() => void) | undefined;
+    const hadController = Boolean(navigator.serviceWorker?.controller);
     const onInstall = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(event as InstallPromptEvent);
@@ -685,16 +781,35 @@ export function PwaControls() {
     const onServiceWorkerMessage = (event: MessageEvent) => {
       if (event.data?.type === "UPDATE_READY") setUpdateReady(true);
     };
+    const onControllerChange = () => {
+      if (hadController) window.location.reload();
+    };
+    const watchRegistration = (next: ServiceWorkerRegistration | undefined) => {
+      registration = next;
+      if (registration?.waiting) setUpdateReady(true);
+      onUpdateFound = () => {
+        const installing = registration?.installing;
+        if (!installing) {
+          setUpdateReady(true);
+          return;
+        }
+        installing.addEventListener("statechange", () => {
+          if (installing.state === "installed" && navigator.serviceWorker.controller) setUpdateReady(true);
+        }, { once: true });
+      };
+      registration?.addEventListener("updatefound", onUpdateFound);
+    };
     window.addEventListener("beforeinstallprompt", onInstall);
     navigator.serviceWorker?.addEventListener("message", onServiceWorkerMessage);
-    if (navigator.serviceWorker?.controller) {
-      void navigator.serviceWorker.getRegistration().then((registration) => {
-        if (registration?.waiting) setUpdateReady(true);
-      });
+    navigator.serviceWorker?.addEventListener("controllerchange", onControllerChange);
+    if (navigator.serviceWorker) {
+      void navigator.serviceWorker.getRegistration().then(watchRegistration);
     }
     return () => {
       window.removeEventListener("beforeinstallprompt", onInstall);
       navigator.serviceWorker?.removeEventListener("message", onServiceWorkerMessage);
+      navigator.serviceWorker?.removeEventListener("controllerchange", onControllerChange);
+      if (registration && onUpdateFound) registration.removeEventListener("updatefound", onUpdateFound);
     };
   }, []);
 
@@ -762,7 +877,7 @@ export function ReportListingButton({ vendorId }: { vendorId?: string }) {
     }
   };
   if (!open) return <button type="button" onClick={() => setOpen(true)} className={`inline-flex min-h-12 items-center gap-2 rounded-lg px-3 text-sm font-extrabold text-slate-600 hover:bg-slate-100 hover:text-red-700 ${focusRing}`}><AlertTriangle className="size-4" />Laporkan listing</button>;
-  return <form onSubmit={submit} className="rounded-xl border border-red-200 bg-red-50 p-3"><p className="font-extrabold text-red-900">Ada informasi yang kurang tepat?</p><select value={reason} onChange={(event) => setReason(event.target.value)} className={`mt-3 ${inputClass}`}><option>Informasi tidak akurat</option><option>Nomor WhatsApp salah</option><option>Usaha sudah tutup</option><option>Konten tidak pantas</option></select><textarea value={details} onChange={(event) => setDetails(event.target.value)} placeholder="Ceritakan detailnya" rows={3} className={`mt-2 ${inputClass}`} required minLength={5} /><div className="mt-2 flex gap-2"><button type="submit" className={`min-h-12 rounded-lg bg-red-700 px-3 text-sm font-extrabold text-white ${focusRing}`}>Kirim</button><button type="button" onClick={() => setOpen(false)} className={`min-h-12 rounded-lg px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Batal</button></div>{status ? <p className="mt-2 text-sm font-bold text-red-800" role="status">{status}</p> : null}</form>;
+  return <form onSubmit={submit} className="rounded-xl border border-red-200 bg-red-50 p-3"><p className="font-extrabold text-red-900">Ada informasi yang kurang tepat?</p><select aria-label="Alasan laporan" value={reason} onChange={(event) => setReason(event.target.value)} className={`mt-3 ${inputClass}`}><option>Informasi tidak akurat</option><option>Nomor WhatsApp salah</option><option>Usaha sudah tutup</option><option>Konten tidak pantas</option></select><textarea aria-label="Detail laporan" value={details} onChange={(event) => setDetails(event.target.value)} placeholder="Ceritakan detailnya" rows={3} className={`mt-2 ${inputClass}`} required minLength={5} /><div className="mt-2 flex gap-2"><button type="submit" className={`min-h-12 rounded-lg bg-red-700 px-3 text-sm font-extrabold text-white ${focusRing}`}>Kirim</button><button type="button" onClick={() => setOpen(false)} className={`min-h-12 rounded-lg px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Batal</button></div>{status ? <p className="mt-2 text-sm font-bold text-red-800" role="status">{status}</p> : null}</form>;
 }
 
 export function PackageManager({ vendorId, vendorName }: { vendorId: string; vendorName: string }) {
@@ -785,7 +900,7 @@ export function PackageManager({ vendorId, vendorName }: { vendorId: string; ven
       setMessage(caught instanceof Error ? caught.message : "Paket belum dapat ditambahkan.");
     }
   };
-  return <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3"><summary className={`min-h-12 cursor-pointer py-3 text-sm font-extrabold text-slate-800 ${focusRing}`}>Kelola paket {vendorName}</summary><div className="mt-3 space-y-3">{packages?.map((item) => <div key={item._id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3"><div><p className="font-extrabold text-slate-900">{item.name} · {item.price}</p><p className="mt-1 text-sm text-slate-600">{item.description}</p></div><button type="button" onClick={() => void removePackage({ id: item._id as never })} className={`flex min-h-10 items-center rounded-lg px-2 text-sm font-extrabold text-red-700 hover:bg-red-50 ${focusRing}`} aria-label={`Hapus paket ${item.name}`}><X className="size-4" /></button></div>)}<form onSubmit={submit} className="grid gap-2 sm:grid-cols-2"><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nama paket" className={inputClass} required /><input value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Harga" className={inputClass} required /><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Deskripsi paket" rows={2} className={`${inputClass} sm:col-span-2`} required /><input value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="Estimasi durasi" className={inputClass} /><input value={area} onChange={(event) => setArea(event.target.value)} placeholder="Area layanan" className={inputClass} /><button type="submit" className={`min-h-12 rounded-lg bg-blue-600 px-3 text-sm font-extrabold text-white sm:col-span-2 ${focusRing}`}>Simpan paket</button></form>{message ? <p className="text-sm font-bold text-blue-700" role="status">{message}</p> : null}</div></details>;
+  return <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3"><summary className={`min-h-12 cursor-pointer py-3 text-sm font-extrabold text-slate-800 ${focusRing}`}>Kelola paket {vendorName}</summary><div className="mt-3 space-y-3">{packages?.map((item) => <div key={item._id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3"><div><p className="font-extrabold text-slate-900">{item.name} · {item.price}</p><p className="mt-1 text-sm text-slate-600">{item.description}</p></div><button type="button" onClick={() => void removePackage({ id: item._id as never })} className={`flex min-h-10 items-center rounded-lg px-2 text-sm font-extrabold text-red-700 hover:bg-red-50 ${focusRing}`} aria-label={`Hapus paket ${item.name}`}><X className="size-4" /></button></div>)}<form onSubmit={submit} className="grid gap-2 sm:grid-cols-2"><input aria-label="Nama paket" value={name} onChange={(event) => setName(event.target.value)} placeholder="Nama paket" className={inputClass} required /><input aria-label="Harga paket" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Harga" className={inputClass} required /><textarea aria-label="Deskripsi paket" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Deskripsi paket" rows={2} className={`${inputClass} sm:col-span-2`} required /><input aria-label="Estimasi durasi paket" value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="Estimasi durasi" className={inputClass} /><input aria-label="Area layanan paket" value={area} onChange={(event) => setArea(event.target.value)} placeholder="Area layanan" className={inputClass} /><button type="submit" className={`min-h-12 rounded-lg bg-blue-600 px-3 text-sm font-extrabold text-white sm:col-span-2 ${focusRing}`}>Simpan paket</button></form>{message ? <p className="text-sm font-bold text-blue-700" role="status">{message}</p> : null}</div></details>;
 }
 
 export function CompareTray({ vendors, selected, onRemove, onClear }: { vendors: Vendor[]; selected: string[]; onRemove: (slug: string) => void; onClear: () => void }) {

@@ -44,7 +44,7 @@ export async function requireUser(ctx: Context) {
 export async function requireStaff(ctx: Context, minimum: "staff" | "admin" = "staff") {
   const userId = await requireUser(ctx);
   const access = await getStaffAccess(ctx, userId);
-  if (!access || (minimum === "admin" && access.role !== "admin")) {
+  if (!access || (minimum === "admin" && access.role !== "admin") || (minimum === "staff" && access.role === "viewer")) {
     throw new Error(minimum === "admin" ? "Hanya admin yang dapat melakukan tindakan ini" : "Hanya pengelola yang dapat melakukan tindakan ini");
   }
   return access;
@@ -64,7 +64,7 @@ export async function requireVendorManager(
   const userId = await requireUser(ctx);
   if (!vendor) throw new Error("Listing tidak ditemukan");
   const access = await getStaffAccess(ctx, userId);
-  if (vendor.ownerId !== userId && !access) {
+  if (vendor.ownerId !== userId && (!access || access.role === "viewer")) {
     throw new Error("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
   }
   return { userId, access };

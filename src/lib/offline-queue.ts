@@ -9,6 +9,12 @@ export type OfflineMutation = {
 
 const QUEUE_KEY = "sumenep-buku-kerja-offline-queue";
 const QUEUE_EVENT = "sumenep-offline-queue-updated";
+type OfflineHandlers = Partial<Record<OfflineMutation["type"], (payload: Record<string, unknown>) => Promise<void>>>;
+let registeredHandlers: OfflineHandlers = {};
+
+export function registerOfflineHandlers(handlers: OfflineHandlers) {
+  registeredHandlers = { ...registeredHandlers, ...handlers };
+}
 
 function readQueue(): OfflineMutation[] {
   if (typeof window === "undefined") return [];
@@ -52,13 +58,12 @@ export function removeOfflineMutation(id: string) {
   writeQueue(readQueue().filter((item) => item.id !== id));
 }
 
-export async function flushOfflineQueue(
-  handlers: Partial<Record<OfflineMutation["type"], (payload: Record<string, unknown>) => Promise<void>>>,
-) {
+export async function flushOfflineQueue(handlers: OfflineHandlers = {}) {
   if (typeof navigator !== "undefined" && !navigator.onLine) return { synced: 0, remaining: readQueue().length };
+  const effectiveHandlers = { ...registeredHandlers, ...handlers };
   let synced = 0;
   for (const item of readQueue()) {
-    const handler = handlers[item.type];
+    const handler = effectiveHandlers[item.type];
     if (!handler) continue;
     try {
       await handler(item.payload);
@@ -80,7 +85,7 @@ export function useOfflineQueue() {
     const goOnline = () => setOnline(true);
     const goOffline = () => setOnline(false);
     const onMessage = (event: MessageEvent) => {
-      if (event.data?.type === "SYNC_REQUESTED") void flushOfflineQueue({});
+      if (event.data?.type === "SYNC_REQUESTED") void flushOfflineQueue();
     };
     window.addEventListener(QUEUE_EVENT, refresh);
     window.addEventListener("online", goOnline);

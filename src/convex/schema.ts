@@ -65,7 +65,7 @@ const schema = defineSchema(
 
     businesses: defineTable({
       name: v.string(),
-      ownerId: v.optional(v.string()),
+      ownerId: v.optional(v.id("users")),
       description: v.optional(v.string()),
       createdAt: v.number(),
     }).index("byOwner", ["ownerId"]),
@@ -91,7 +91,7 @@ const schema = defineSchema(
       featured: v.optional(v.boolean()),
       verified: v.optional(v.boolean()),
       photoId: v.optional(v.string()),
-      ownerId: v.optional(v.string()),
+      ownerId: v.optional(v.id("users")),
       businessId: v.optional(v.string()),
       subscriptionTier: v.optional(v.union(v.literal("free"), v.literal("featured"), v.literal("premium"))),
       whatsappClicks: v.optional(v.number()),

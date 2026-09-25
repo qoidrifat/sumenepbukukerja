@@ -5,7 +5,7 @@ import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
-import { writeAudit } from "./audit";
+import { writeAudit, writeListingHistory } from "./audit";
 import { requireManagementViewer } from "./access";
 
 const categoryValidator = v.union(
@@ -40,6 +40,23 @@ const interactionStatusValidator = v.union(
   v.literal("completed"),
   v.literal("dismissed"),
 );
+
+const distanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const radians = (value: number) => (value * Math.PI) / 180;
+  const dLat = radians(lat2 - lat1);
+  const dLng = radians(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const isWithinServiceArea = (
+  request: { landmark: string; lat?: number; lng?: number },
+  vendor: DataModel["vendors"]["document"],
+) => {
+  if (request.landmark === "all" || vendor.landmark === request.landmark) return true;
+  if (request.lat === undefined || request.lng === undefined || vendor.lat === undefined || vendor.lng === undefined) return false;
+  return distanceKm(request.lat, request.lng, vendor.lat, vendor.lng) <= (vendor.serviceRadiusKm ?? 0);
+};
 
 async function requireUser(
   ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
@@ -86,6 +103,20 @@ async function requireVendorManager(
     throw new Error("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
   }
   return userId;
+}
+
+const MAX_PHOTO_BYTES = 1_000_000;
+
+async function validatePhotoFile(
+  ctx: GenericMutationCtx<DataModel>,
+  storageId: string,
+) {
+  const metadata = await ctx.db.system.get("_storage", storageId as never);
+  if (!metadata) throw new Error("File foto tidak ditemukan");
+  if (metadata.size > MAX_PHOTO_BYTES) throw new Error("Ukuran foto maksimal 1 MB");
+  if (metadata.contentType && !metadata.contentType.startsWith("image/")) {
+    throw new Error("File harus berupa foto");
+  }
 }
 
 async function notifyUser(
@@ -142,14 +173,20 @@ export const listRequests = query({
       .slice(0, Math.min(Math.max(args.limit ?? 30, 1), 100));
     return Promise.all(
       visible.map(async (request) => {
-        const [requester, vendor] = await Promise.all([
+        const [requester, vendor, offerRows] = await Promise.all([
           ctx.db.get(request.requesterId),
           request.vendorId ? ctx.db.get(request.vendorId) : Promise.resolve(null),
+          ctx.db.query("requestOffers").withIndex("byRequest", (q) => q.eq("requestId", request._id)).collect(),
         ]);
+        const offers = await Promise.all(offerRows.map(async (offer) => ({
+          ...offer,
+          vendorName: (await ctx.db.get(offer.vendorId))?.name ?? "Listing",
+        })));
         return {
           ...request,
           requesterName: requester?.name ?? "Warga Sumenep",
           vendorName: vendor?.name,
+          offers,
         };
       }),
     );
@@ -178,6 +215,8 @@ export const createRequest = mutation({
     if (description.length < 10 || description.length > 1000) {
       throw new Error("Ceritakan kebutuhan dalam 10–1000 karakter");
     }
+    if (args.lat !== undefined && (args.lat < -90 || args.lat > 90)) throw new Error("Koordinat lokasi tidak valid");
+    if (args.lng !== undefined && (args.lng < -180 || args.lng > 180)) throw new Error("Koordinat lokasi tidak valid");
     const now = Date.now();
     const expiresAt = Math.min(
       Math.max(args.expiresAt ?? now + 14 * 24 * 60 * 60 * 1000, now + 60 * 60 * 1000),
@@ -200,6 +239,11 @@ export const createRequest = mutation({
     });
     await recordEvent(ctx, { event: "request_created", userId, requestId });
     await ctx.scheduler.runAfter(
+      Math.max(0, expiresAt - now - 24 * 60 * 60 * 1000),
+      internal.community.sendRequestExpiryReminder,
+      { requestId },
+    );
+    await ctx.scheduler.runAfter(
       expiresAt - now,
       internal.community.expireRequest,
       { requestId },
@@ -209,6 +253,23 @@ export const createRequest = mutation({
       internal.whatsapp.sendRequestCreatedNotifications,
       { requestId },
     );
+    // Notify owners of active, matching listings directly in the app. Public
+    // WhatsApp remains opt-in and rate-limited; this internal alert is only a
+    // pointer to the matching request.
+    const matchingVendors = await ctx.db
+      .query("vendors")
+      .withIndex("byStatus", (q) => q.eq("status", "active"))
+      .collect();
+    const matchingOwners = new Set(
+      matchingVendors
+        .filter((vendor) => vendor.category === args.category && isWithinServiceArea({ landmark: args.landmark, lat: args.lat, lng: args.lng }, vendor))
+        .map((vendor) => vendor.ownerId)
+        .filter((ownerId): ownerId is NonNullable<typeof ownerId> => Boolean(ownerId) && ownerId !== userId),
+    );
+    for (const ownerId of matchingOwners) {
+      await notifyUser(ctx, ownerId as DataModel["users"]["document"]["_id"], "request_match", "Request cocok untuk listing Anda", `${title} — ${args.category} di ${args.landmark === "all" ? "Sumenep" : landmarkLabelForNotification(args.landmark)}.`);
+    }
+
     // Do not fan out a notification to every account by default. Users opt
     // in explicitly, and the cap keeps a busy board from creating unbounded
     // notification rows in a small deployment.
@@ -265,11 +326,48 @@ export const expireRequest = internalMutation({
     for (const offer of offers.filter((item) => item.status === "offered")) {
       await ctx.db.patch(offer._id, { status: "expired", updatedAt: now });
     }
+    const recent = await ctx.db
+      .query("notifications")
+      .withIndex("byUser", (q) => q.eq("userId", request.requesterId))
+      .collect();
+    const expiryKey = `request_expired:${request._id}`;
+    if (!recent.some((notification) => notification.kind === expiryKey)) {
+      await ctx.db.insert("notifications", {
+        userId: request.requesterId,
+        kind: expiryKey,
+        title: "Permintaan kedaluwarsa",
+        body: `"${request.title}" sudah melewati masa aktif dan tidak dapat diklaim.`,
+        read: false,
+        createdAt: now,
+      });
+    }
   },
 });
 
 const landmarkLabelForNotification = (landmark: string) =>
   ({ adipura: "Taman Bunga / Adipura", trunojoyo: "Jl. Trunojoyo", anom: "Pasar Anom Baru", keraton: "Keraton / Labang Mesem", jamik: "Masjid Jamik", "kota-lama": "Kota Lama", kalianget: "Kalianget", bluto: "Bluto", pragaan: "Pragaan" }[landmark] ?? landmark);
+
+export const sendRequestExpiryReminder = internalMutation({
+  args: { requestId: v.id("serviceRequests") },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.status !== "open" || !request.expiresAt || request.expiresAt <= Date.now()) return;
+    const reminderKey = `request_expiry:${request._id}`;
+    const existing = await ctx.db
+      .query("notifications")
+      .withIndex("byUser", (q) => q.eq("userId", request.requesterId))
+      .collect();
+    if (existing.some((notification) => notification.kind === reminderKey)) return;
+    await ctx.db.insert("notifications", {
+      userId: request.requesterId,
+      kind: reminderKey,
+      title: "Permintaan hampir kedaluwarsa",
+      body: `"${request.title}" masih terbuka. Tandai selesai atau buka kembali bila masih dibutuhkan.`,
+      read: false,
+      createdAt: Date.now(),
+    });
+  },
+});
 
 export const claimRequest = mutation({
   args: {
@@ -280,12 +378,14 @@ export const claimRequest = mutation({
     const userId = await requireUser(ctx);
     const request = await ctx.db.get(args.requestId);
     const vendor = await ctx.db.get(args.vendorId);
-    if (!request || request.status !== "open") throw new Error("Permintaan sudah tidak tersedia");
+    if (!request || request.status !== "open" || (request.expiresAt && request.expiresAt <= Date.now())) {
+      throw new Error("Permintaan sudah tidak tersedia");
+    }
     if (!vendor || vendor.status !== "active") throw new Error("Listing tidak tersedia");
     if (request.requesterId === userId) throw new Error("Anda tidak dapat menawarkan permintaan milik sendiri");
     if (vendor.category !== request.category) throw new Error("Listing tidak cocok dengan kategori permintaan");
-    if (request.landmark !== "all" && vendor.landmark !== request.landmark) {
-      throw new Error("Listing berada di area yang berbeda dari permintaan");
+    if (!isWithinServiceArea(request, vendor)) {
+      throw new Error("Listing berada di luar area atau radius layanan permintaan");
     }
     await requireVendorManager(ctx, vendor);
     const now = Date.now();
@@ -316,6 +416,15 @@ export const claimRequest = mutation({
       updatedAt: now,
     });
     await recordEvent(ctx, { event: "request_claimed", userId, vendorId: args.vendorId, requestId: args.requestId });
+    await writeAudit(ctx, {
+      action: "request.status_changed",
+      actorId: userId,
+      requestId: args.requestId,
+      vendorId: args.vendorId,
+      oldValue: "open",
+      newValue: "claimed",
+      metadata: { source: "direct_claim" },
+    });
     await ctx.db.insert("vendorInteractions", {
       userId,
       vendorId: args.vendorId,
@@ -413,9 +522,23 @@ export const reopenRequest = mutation({
       .query("requestOffers")
       .withIndex("byRequest", (q) => q.eq("requestId", args.requestId))
       .collect();
-    for (const offer of offers.filter((item) => item.status === "withdrawn" || item.status === "expired")) {
-      await ctx.db.patch(offer._id, { status: "expired", updatedAt: now });
+    for (const offer of offers) {
+      if (offer.status !== "expired") await ctx.db.patch(offer._id, { status: "expired", updatedAt: now });
     }
+    await writeAudit(ctx, {
+      action: "request.status_changed",
+      actorId: userId,
+      requestId: args.requestId,
+      oldValue: request.status,
+      newValue: "open",
+      metadata: { source: "reopen" },
+    });
+    await recordEvent(ctx, { event: "request_reopened", userId, requestId: args.requestId, metadata: { source: "reopen" } });
+    await ctx.scheduler.runAfter(
+      Math.max(0, expiresAt - now - 24 * 60 * 60 * 1000),
+      internal.community.sendRequestExpiryReminder,
+      { requestId: args.requestId },
+    );
     await ctx.scheduler.runAfter(expiresAt - now, internal.community.expireRequest, { requestId: args.requestId });
     return args.requestId;
   },
@@ -516,7 +639,7 @@ export const updateAvailability = mutation({
   },
   handler: async (ctx, args) => {
     const vendor = await ctx.db.get(args.vendorId);
-    await requireVendorManager(ctx, vendor);
+    const actorId = await requireVendorManager(ctx, vendor);
     await ctx.db.patch(args.vendorId, {
       availability: args.availability,
       availabilityNote: args.availabilityNote?.trim() || undefined,
@@ -524,6 +647,18 @@ export const updateAvailability = mutation({
       responseMinutes: args.responseMinutes,
       serviceRadiusKm: args.serviceRadiusKm,
       updatedAt: Date.now(),
+    });
+    await writeListingHistory(ctx, {
+      vendorId: args.vendorId,
+      actorId,
+      changes: [
+        { field: "availability", oldValue: vendor?.availability, newValue: args.availability },
+        { field: "availabilityNote", oldValue: vendor?.availabilityNote, newValue: args.availabilityNote },
+        { field: "nextAvailableAt", oldValue: vendor?.nextAvailableAt, newValue: args.nextAvailableAt },
+        { field: "responseMinutes", oldValue: vendor?.responseMinutes, newValue: args.responseMinutes },
+        { field: "serviceRadiusKm", oldValue: vendor?.serviceRadiusKm, newValue: args.serviceRadiusKm },
+      ],
+      reason: "availability_update",
     });
     return args.vendorId;
   },
@@ -737,13 +872,17 @@ export const listVendorPhotos = query({
   args: { vendorId: v.id("vendors") },
   handler: async (ctx, args) => {
     const vendor = await ctx.db.get(args.vendorId);
-    if (!vendor || vendor.status !== "active") return [];
+    if (!vendor) return [];
+    const viewerId = await getAuthUserId(ctx);
+    const canManage = Boolean(
+      viewerId && (vendor.ownerId === viewerId || (await hasStaffAccess(ctx, viewerId))),
+    );
+    if (vendor.status !== "active" && !canManage) return [];
     const rows = await ctx.db
       .query("vendorPhotos")
       .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
       .collect();
-    const viewerId = await getAuthUserId(ctx);
-    const canSeePending = viewerId === vendor.ownerId;
+    const canSeePending = canManage;
     const visible = rows
       .filter((photo) => photo.active !== false && (canSeePending || (photo.moderationStatus !== "pending" && photo.moderationStatus !== "rejected")))
       .sort((a, b) => a.createdAt - b.createdAt)
@@ -767,6 +906,8 @@ export const createVendorPhoto = mutation({
     const vendor = await ctx.db.get(args.vendorId);
     const actorId = await requireVendorManager(ctx, vendor);
     if (!args.storageId) throw new Error("Foto belum berhasil diunggah");
+    await validatePhotoFile(ctx, args.storageId);
+    if (args.caption && args.caption.trim().length > 160) throw new Error("Deskripsi foto maksimal 160 karakter");
     const currentPhotos = await ctx.db
       .query("vendorPhotos")
       .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
@@ -828,8 +969,22 @@ export const moderateVendorPhoto = mutation({
       active: args.decision === "approved" ? true : false,
     });
     const vendor = await ctx.db.get(photo.vendorId);
-    if (vendor && !vendor.photoId && args.decision === "approved") {
-      await ctx.db.patch(photo.vendorId, { photoId: photo.storageId, updatedAt: Date.now() });
+    if (vendor) {
+      const remaining = await ctx.db
+        .query("vendorPhotos")
+        .withIndex("byVendor", (q) => q.eq("vendorId", photo.vendorId))
+        .collect();
+      const nextPhoto = remaining
+        .filter((item) => item._id !== photo._id && item.active !== false && item.moderationStatus === "approved")
+        .sort((a, b) => a.createdAt - b.createdAt)[0];
+      const shouldUsePhoto = args.decision === "approved"
+        ? (!vendor.photoId || vendor.photoId === photo.storageId ? photo.storageId : vendor.photoId)
+        : vendor.photoId === photo.storageId
+          ? nextPhoto?.storageId
+          : vendor.photoId;
+      if (shouldUsePhoto !== vendor.photoId) {
+        await ctx.db.patch(photo.vendorId, { photoId: shouldUsePhoto, updatedAt: Date.now() });
+      }
     }
     await writeAudit(ctx, {
       action: "photo.moderated",
@@ -845,7 +1000,7 @@ export const moderateVendorPhoto = mutation({
 export const listPhotosForModeration = query({
   args: {},
   handler: async (ctx) => {
-    await requireStaff(ctx);
+    await requireManagementViewer(ctx);
     const photos = await ctx.db
       .query("vendorPhotos")
       .withIndex("byModeration", (q) => q.eq("moderationStatus", "pending"))

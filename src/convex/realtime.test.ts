@@ -5,6 +5,7 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+type TestIdentity = ReturnType<ReturnType<typeof convexTest>["withIdentity"]>;
 
 const listingPayload = {
   name: "Bengkel Uji Realtime",
@@ -28,10 +29,23 @@ async function createOwnerListing(t: ReturnType<typeof convexTest>) {
   return { owner, vendorId };
 }
 
+async function promoteToAdmin(t: ReturnType<typeof convexTest>, vendorId: string) {
+  const vendor = await t.run(async (ctx) => await ctx.db.get(vendorId as never));
+  if (!vendor?.ownerId) throw new Error("Test owner was not created");
+  await t.run(async (ctx) => await ctx.db.insert("staffMembers", { userId: vendor.ownerId!, role: "admin", createdAt: Date.now(), updatedAt: Date.now() }));
+  return vendor.ownerId;
+}
+
+async function publishListing(identity: TestIdentity, vendorId: string) {
+  await identity.mutation(api.vendors.updateVendor, { id: vendorId as never, ...listingPayload, status: "active" });
+}
+
 describe("Sumenep Buku Kerja realtime contracts", () => {
   test("listing pemilik hanya terlihat dan bisa dikelola oleh pemiliknya", async () => {
     const t = convexTest(schema, modules);
     const { owner, vendorId } = await createOwnerListing(t);
+    await promoteToAdmin(t, vendorId);
+    await publishListing(owner, vendorId);
     const stranger = t.withIdentity({ name: "Warga lain" });
 
     const owned = await owner.query(api.vendors.listForOwner, {});
@@ -106,6 +120,8 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
   test("request, claim, status, dan riwayat interaksi tersinkron antar query", async () => {
     const t = convexTest(schema, modules);
     const { owner, vendorId } = await createOwnerListing(t);
+    await promoteToAdmin(t, vendorId);
+    await publishListing(owner, vendorId);
     const resident = t.withIdentity({ name: "Warga peminta" });
 
     const requestId = await resident.mutation(api.community.createRequest, {
@@ -148,6 +164,139 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     expect(await resident.query(api.community.listRequests, { mine: true })).toEqual([
       expect.objectContaining({ _id: requestId, status: "completed" }),
     ]);
+  });
+
+  test("klaim listing memindahkan owner hanya setelah review dan menulis audit", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.vendors.ensureCatalogSeeded, {});
+    const seeded = await t.run(async (ctx) => await ctx.db.query("vendors").withIndex("bySlug", (q) => q.eq("slug", "karya-jaya")).unique());
+    expect(seeded?.ownerId).toBeUndefined();
+    const claimant = t.withIdentity({ name: "Pemilikclaims" });
+    const claimId = await claimant.mutation(api.claims.submitVendorClaim, {
+      vendorId: seeded!._id,
+      whatsappPhone: "081234567890",
+      email: "owner@example.test",
+      businessAddress: "Alamat usaha terverifikasi",
+    });
+    const claim = await t.run(async (ctx) => await ctx.db.get(claimId as never)) as unknown as { requesterId: string };
+    await t.run(async (ctx) => await ctx.db.insert("staffMembers", { userId: claim!.requesterId as never, role: "admin", createdAt: Date.now(), updatedAt: Date.now() }));
+    await claimant.mutation(api.claims.reviewVendorClaim, { claimId, decision: "verified" });
+    const claimed = await t.run(async (ctx) => await ctx.db.get(seeded!._id as never)) as unknown as { ownerId?: string };
+    expect(claimed?.ownerId).toBe(claim?.requesterId);
+    const history = await claimant.query(api.users.listAuditLogs, {});
+    expect(history.some((entry) => entry.action === "listing.claim_submitted")).toBe(true);
+    expect(history.some((entry) => entry.action === "listing.claim_approved")).toBe(true);
+  });
+
+  test("request offer hanya memiliki satu pemenang dan expired request tidak bisa diklaim", async () => {
+    const t = convexTest(schema, modules);
+    const first = t.withIdentity({ name: "Pemilik Satu" });
+    const firstVendor = await first.mutation(api.vendors.createVendor, listingPayload);
+    await promoteToAdmin(t, firstVendor);
+    await publishListing(first, firstVendor);
+    const second = t.withIdentity({ name: "Pemilik Dua" });
+    const secondPayload = { ...listingPayload, name: "Bengkel Uji Dua", phone: "081298765432" };
+    const secondVendor = await second.mutation(api.vendors.createVendor, secondPayload);
+    await promoteToAdmin(t, secondVendor);
+    await publishListing(second, secondVendor);
+    const resident = t.withIdentity({ name: "Warga Request" });
+    const requestId = await resident.mutation(api.community.createRequest, {
+      title: "Butuh pompa air",
+      description: "Pompa air di rumah perlu diperiksa.",
+      category: "Servis Teknik",
+      landmark: "kalianget",
+    });
+    await first.mutation(api.offers.offerRequest, { requestId, vendorId: firstVendor });
+    const offerRows = await t.run(async (ctx) => await ctx.db.query("requestOffers").withIndex("byRequest", (q) => q.eq("requestId", requestId)).collect());
+    await resident.mutation(api.offers.acceptRequestOffer, { requestId, offerId: offerRows[0]._id });
+    await expect(second.mutation(api.community.claimRequest, { requestId, vendorId: secondVendor })).rejects.toThrow();
+    const request = await t.run(async (ctx) => await ctx.db.get(requestId as never)) as unknown as { status: string };
+    expect(request?.status).toBe("claimed");
+    const offers = await t.run(async (ctx) => await ctx.db.query("requestOffers").withIndex("byRequest", (q) => q.eq("requestId", requestId)).collect());
+    expect(offers.filter((offer) => offer.status === "accepted")).toHaveLength(1);
+    const expiringId = await resident.mutation(api.community.createRequest, {
+      title: "Request kedaluwarsa",
+      description: "Request ini hanya untuk menguji masa berlaku.",
+      category: "Kuliner",
+      landmark: "pragaan",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+    await t.run(async (ctx) => await ctx.db.patch(expiringId as never, { expiresAt: Date.now() - 1 }));
+    await t.mutation(internal.community.expireRequest, { requestId: expiringId });
+    expect((await t.run(async (ctx) => await ctx.db.get(expiringId as never)) as unknown as { status: string })?.status).toBe("expired");
+  });
+
+  test("foto baru menunggu moderasi dan foto pertama approved menjadi foto utama", async () => {
+    const t = convexTest(schema, modules);
+    const owner = t.withIdentity({ name: "Pemilik Foto" });
+    const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
+    await promoteToAdmin(t, vendorId);
+    await publishListing(owner, vendorId);
+    const storageId = await owner.run(async (ctx) => await ctx.storage.store(new Blob(["photo-test"])));
+    const photoId = await owner.mutation(api.community.createVendorPhoto, { vendorId, storageId, caption: "Etalase" });
+    expect(await owner.query(api.community.listVendorPhotos, { vendorId })).toHaveLength(1);
+    await owner.mutation(api.community.moderateVendorPhoto, { id: photoId, decision: "approved" });
+    const publicPhotos = await t.query(api.community.listVendorPhotos, { vendorId });
+    expect(publicPhotos[0]).toMatchObject({ caption: "Etalase" });
+    expect((await t.run(async (ctx) => await ctx.db.get(vendorId as never)) as unknown as { photoId?: string })?.photoId).toBe(storageId);
+  });
+
+  test("WhatsApp delivery queue dideduplikasi dan webhook mengubah status", async () => {
+    const t = convexTest(schema, modules);
+    const owner = t.withIdentity({ name: "Pemilik WhatsApp" });
+    await owner.mutation(api.vendors.createVendor, listingPayload);
+    const userId = await owner.query(api.users.currentUserId, {});
+    const args = { userId: userId as never, deliveryKey: "whatsapp:test:dedupe", title: "Uji", body: "Pesan" };
+    const first = await t.mutation(internal.whatsapp.queueWhatsappDelivery, args);
+    const second = await t.mutation(internal.whatsapp.queueWhatsappDelivery, args);
+    expect(first.shouldSend).toBe(true);
+    expect(second.shouldSend).toBe(false);
+    await t.mutation(internal.whatsapp.markWhatsappSent, { id: first.id, providerMessageId: "SM-test" });
+    await t.mutation(internal.whatsapp.applyDeliveryStatus, { providerMessageId: "SM-test", status: "delivered" });
+    await t.mutation(internal.whatsapp.applyDeliveryStatus, { providerMessageId: "SM-test", status: "queued" });
+    const delivery = await t.query(internal.whatsapp.deliveryForRetry, { deliveryId: first.id });
+    expect(delivery?.status).toBe("delivered");
+    expect(delivery?.attempts).toBe(1);
+  });
+
+  test("viewer bisa membaca data kelola tetapi tidak bisa mengubah listing", async () => {
+    const t = convexTest(schema, modules);
+    const owner = t.withIdentity({ name: "Admin Uji" });
+    const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
+    await promoteToAdmin(t, vendorId);
+    await publishListing(owner, vendorId);
+    const viewer = t.withIdentity({ name: "Viewer Uji" });
+    const requestId = await viewer.mutation(api.community.createRequest, { title: "Request viewer", description: "Request untuk akses viewer.", category: "Kuliner", landmark: "pragaan" });
+    const request = await t.run(async (ctx) => await ctx.db.get(requestId as never)) as unknown as { requesterId: string };
+    await t.run(async (ctx) => await ctx.db.insert("staffMembers", { userId: request.requesterId as never, role: "viewer", createdAt: Date.now(), updatedAt: Date.now() }));
+    expect(await viewer.query(api.vendors.listForAdmin, {})).toHaveLength(1);
+    await expect(viewer.mutation(api.vendors.updateVendor, { id: vendorId, ...listingPayload, name: "Tidak boleh" })).rejects.toThrow();
+  });
+
+  test("viewer tidak dapat memoderasialthough viewer dapat membaca", async () => {
+    const t = convexTest(schema, modules);
+    const owner = t.withIdentity({ name: "Pemilik Moderasi" });
+    const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
+    await promoteToAdmin(t, vendorId);
+    const storageId = await owner.run(async (ctx) => await ctx.storage.store(new Blob(["photo"], { type: "image/jpeg" })));
+    const photoId = await owner.mutation(api.community.createVendorPhoto, { vendorId, storageId, caption: "Foto uji" });
+    const viewer = t.withIdentity({ name: "Viewer Moderasi" });
+    const viewerRequest = await viewer.mutation(api.community.createRequest, { title: "Permintaan viewer", description: "Deskripsi cukup panjang untuk moderasi.", category: "Kuliner", landmark: "pragaan" });
+    const viewerRow = await t.run(async (ctx) => await ctx.db.get(viewerRequest as never)) as unknown as { requesterId: string };
+    await t.run(async (ctx) => await ctx.db.insert("staffMembers", { userId: viewerRow.requesterId as never, role: "viewer", createdAt: Date.now(), updatedAt: Date.now() }));
+    await expect(viewer.mutation(api.community.moderateVendorPhoto, { id: photoId, decision: "approved" })).rejects.toThrow();
+  });
+
+  test("requester dapat melihat klaimnya sendiri tanpa membuka klaim orang lain", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.vendors.ensureCatalogSeeded, {});
+    const seeded = await t.run(async (ctx) => await ctx.db.query("vendors").withIndex("bySlug", (q) => q.eq("slug", "karya-jaya")).unique());
+    const claimant = t.withIdentity({ name: "Pemilik Klaim" });
+    const claimId = await claimant.mutation(api.claims.submitVendorClaim, { vendorId: seeded!._id, whatsappPhone: "081234567890", email: "claimant@example.test", businessAddress: "Alamat claimant" });
+    const ownClaims = await claimant.query(api.claims.listVendorClaims, { vendorId: seeded!._id });
+    expect(ownClaims).toEqual([expect.objectContaining({ _id: claimId, status: "pending" })]);
+    const stranger = t.withIdentity({ name: "Orang Lain" });
+    await expect(stranger.query(api.claims.listVendorClaims, { vendorId: seeded!._id })).rejects.toThrow();
   });
 
   test("notifikasi hanya masuk ke pengguna yang opt-in", async () => {

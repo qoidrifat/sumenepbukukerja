@@ -188,14 +188,20 @@ export const notificationRecipients = internalQuery({
           : `whatsapp:${args.kind}:${args.entityId}`;
       if (deliveries.some((delivery) => delivery.deliveryKey === deliveryKey)) continue;
       if (recent.some((item) => item.kind === deliveryKey)) continue;
-      const lastDay = recent.filter(
-        (item) =>
-          item.channel === "whatsapp" && now - item.createdAt < 24 * 60 * 60 * 1000,
-      );
       const recentDeliveries = deliveries.filter(
         (delivery) => now - delivery.createdAt < 24 * 60 * 60 * 1000,
       );
-      if (lastDay.length + recentDeliveries.length >= 3) continue;
+      // Delivery rows are the canonical rate-limit ledger. A few legacy
+      // notifications may predate the queue, so count those separately rather
+      // than counting the same message twice.
+      const deliveryKeys = new Set(recentDeliveries.map((delivery) => delivery.deliveryKey));
+      const legacyWhatsappCount = recent.filter(
+        (item) =>
+          item.channel === "whatsapp" &&
+          now - item.createdAt < 24 * 60 * 60 * 1000 &&
+          !deliveryKeys.has(item.kind),
+      ).length;
+      if (recentDeliveries.length + legacyWhatsappCount >= 3) continue;
 
       recipients.push({
         userId,
@@ -237,7 +243,7 @@ const safeErrorCode = (value: unknown) => {
 
 export const queueWhatsappDelivery = internalMutation({
   args: {
-    userId: v.id("users"),
+    userId: v.string(),
     deliveryKey: v.string(),
     title: v.string(),
     body: v.string(),
@@ -250,7 +256,7 @@ export const queueWhatsappDelivery = internalMutation({
     if (existing) return { id: existing._id, shouldSend: false, status: existing.status, attempts: existing.attempts };
     const id = await ctx.db.insert("whatsappDeliveries", {
       deliveryKey: args.deliveryKey,
-      userId: args.userId,
+      userId: args.userId as DataModel["users"]["document"]["_id"],
       status: "queued",
       attempts: 0,
       title: args.title,
@@ -266,7 +272,7 @@ export const markWhatsappSent = internalMutation({
   args: { id: v.id("whatsappDeliveries"), providerMessageId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const current = await ctx.db.get(args.id);
-    if (!current) return;
+    if (!current || current.status === "delivered") return;
     const now = Date.now();
     await ctx.db.patch(args.id, {
       status: "sent",
@@ -296,7 +302,7 @@ export const markWhatsappFailed = internalMutation({
   args: { id: v.id("whatsappDeliveries"), errorCode: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const current = await ctx.db.get(args.id);
-    if (!current) return;
+    if (!current || current.status === "delivered") return;
     const attempts = current.attempts + 1;
     const nextAttemptAt = attempts < 3 ? Date.now() + attempts * 60_000 : undefined;
     await ctx.db.patch(args.id, {
@@ -329,14 +335,22 @@ export const applyDeliveryStatus = internalMutation({
       .withIndex("byProviderMessageId", (q) => q.eq("providerMessageId", args.providerMessageId))
       .unique();
     if (!delivery) return false;
+    // Provider callbacks can arrive out of order. Never regress a terminal
+    // delivery back to queued/sent because an older callback was delayed.
+    if (delivery.status === "delivered" && args.status !== "delivered") return true;
+    if (delivery.status === "sent" && args.status === "queued") return true;
     const now = Date.now();
+    const nextAttemptAt = args.status === "failed" && delivery.attempts < 3
+      ? now + Math.max(1, delivery.attempts) * 60_000
+      : undefined;
     await ctx.db.patch(delivery._id, {
       status: args.status,
       lastErrorCode: args.status === "failed" ? safeErrorCode(args.errorCode) : undefined,
+      nextAttemptAt,
       updatedAt: now,
     });
-    if (args.status === "failed" && delivery.attempts < 3) {
-      await ctx.scheduler.runAfter(delivery.attempts * 60_000, internal.whatsapp.retryWhatsappDelivery, { deliveryId: delivery._id });
+    if (nextAttemptAt) {
+      await ctx.scheduler.runAfter(Math.max(1, delivery.attempts) * 60_000, internal.whatsapp.retryWhatsappDelivery, { deliveryId: delivery._id });
     }
     return true;
   },
@@ -470,7 +484,7 @@ export const retryWhatsappDelivery = internalAction({
   args: { deliveryId: v.id("whatsappDeliveries") },
   handler: async (ctx, args) => {
     const delivery = await ctx.runQuery(internal.whatsapp.deliveryForRetry, { deliveryId: args.deliveryId });
-    if (!delivery || delivery.status === "delivered" || delivery.status === "sent" || delivery.attempts >= 3) return { sent: false };
+    if (!delivery || delivery.status === "delivered" || delivery.status === "sent" || delivery.attempts >= 3 || (delivery.nextAttemptAt !== undefined && delivery.nextAttemptAt > Date.now())) return { sent: false };
     if (!twilioConfig().configured) return { sent: false };
     try {
       // The phone is intentionally stored only in the notification preference.
@@ -506,12 +520,6 @@ export const sendTestWhatsapp = action({
     ) {
       throw new Error("Simpan nomor lalu aktifkan notifikasi WhatsApp terlebih dahulu");
     }
-    const result = await sendWhatsappMessage({
-      phone,
-      title: "Sumenep Buku Kerja",
-      body: `Halo ${preference.name}, notifikasi WhatsApp Anda sudah aktif.`,
-    });
-    if (result.skipped) throw new Error("Integrasi WhatsApp belum dikonfigurasi");
     const deliveryKey = `whatsapp:test:${userId}:${new Date().toISOString().slice(0, 10)}`;
     const queued = await ctx.runMutation(internal.whatsapp.queueWhatsappDelivery, {
       userId,
@@ -519,9 +527,20 @@ export const sendTestWhatsapp = action({
       title: "WhatsApp aktif",
       body: "Pesan uji berhasil dikirim.",
     });
-    if (queued.shouldSend) {
+    if (!queued.shouldSend) throw new Error("Pesan uji sudah dikirim hari ini");
+    try {
+      const result = await sendWhatsappMessage({
+        phone,
+        title: "Sumenep Buku Kerja",
+        body: `Halo ${preference.name}, notifikasi WhatsApp Anda sudah aktif.`,
+      });
+      if (result.skipped) throw new Error("Integrasi WhatsApp belum dikonfigurasi");
       await ctx.runMutation(internal.whatsapp.markWhatsappSent, { id: queued.id, providerMessageId: result.messageId });
+      return { sent: true };
+    } catch (error) {
+      const code = error && typeof error === "object" && "providerCode" in error ? String(error.providerCode) : "provider_error";
+      await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: queued.id, errorCode: code });
+      throw new Error("Integrasi WhatsApp belum dapat mengirim pesan uji");
     }
-    return { sent: true };
   },
 });

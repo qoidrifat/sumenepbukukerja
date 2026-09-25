@@ -59,6 +59,7 @@ export const listActive = query({
             ? haversineKm(args.lat, args.lng, vendor.lat, vendor.lng)
             : undefined;
         const openNow =
+          vendor.availability !== "closed" &&
           /24|24 jam|setiap hari|senin|minggu/.test(vendor.hours.toLowerCase()) &&
           currentMinutes >= 360 &&
           currentMinutes <= 1320;
@@ -362,6 +363,31 @@ export const incrementClick = mutation({
   },
 });
 
+export const recordSearch = mutation({
+  args: {
+    vendorIds: v.array(v.id("vendors")),
+    query: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const normalized = args.query.trim().slice(0, 120);
+    if (normalized.length < 2 || args.vendorIds.length === 0) return 0;
+    const uniqueIds = [...new Set(args.vendorIds)].slice(0, 24);
+    const vendors = await Promise.all(
+      uniqueIds.map((vendorId) => ctx.db.get(vendorId)),
+    );
+    await Promise.all(
+      vendors
+        .filter((vendor) => vendor?.status === "active")
+        .map((vendor) =>
+          ctx.db.patch(vendor!._id, {
+            searchImpressions: (vendor!.searchImpressions ?? 0) + 1,
+          }),
+        ),
+    );
+    return vendors.filter((vendor) => vendor?.status === "active").length;
+  },
+});
+
 export const addReview = mutation({
   args: {
     vendorId: v.id("vendors"),
@@ -404,6 +430,7 @@ export const toggleFavorite = mutation({
   args: {
     vendorId: v.id("vendors"),
     collection: v.optional(v.string()),
+    saved: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
@@ -415,16 +442,24 @@ export const toggleFavorite = mutation({
         q.eq("userId", userId).eq("vendorId", args.vendorId),
       )
       .unique();
-    if (existing) await ctx.db.delete(existing._id);
-    else {
+    const shouldSave = args.saved ?? !existing;
+    if (!shouldSave && existing) {
+      await ctx.db.delete(existing._id);
+      return false;
+    }
+    if (shouldSave && !existing) {
       await ctx.db.insert("favorites", {
         userId,
         vendorId: args.vendorId,
         collection: args.collection?.trim() || "Tersimpan",
         createdAt: Date.now(),
       });
+    } else if (shouldSave && existing && args.collection !== undefined) {
+      await ctx.db.patch(existing._id, {
+        collection: args.collection.trim() || "Tersimpan",
+      });
     }
-    return !existing;
+    return shouldSave;
   },
 });
 

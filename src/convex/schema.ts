@@ -136,9 +136,21 @@ const schema = defineSchema(
       kind: v.string(),
       title: v.string(),
       body: v.string(),
+      channel: v.optional(v.union(v.literal("in_app"), v.literal("whatsapp"))),
+      providerMessageId: v.optional(v.string()),
       read: v.optional(v.boolean()),
       createdAt: v.number(),
     }).index("byUser", ["userId"]),
+
+    vendorPhotos: defineTable({
+      vendorId: v.id("vendors"),
+      storageId: v.string(),
+      caption: v.optional(v.string()),
+      active: v.optional(v.boolean()),
+      createdAt: v.number(),
+    })
+      .index("byVendor", ["vendorId"])
+      .index("byVendorActive", ["vendorId", "active"]),
 
     serviceRequests: defineTable({
       requesterId: v.id("users"),
@@ -203,6 +215,8 @@ const schema = defineSchema(
     notificationPreferences: defineTable({
       userId: v.id("users"),
       whatsappUpdates: v.optional(v.boolean()),
+      whatsappPhone: v.optional(v.string()),
+      whatsappOptInAt: v.optional(v.number()),
       areaUpdates: v.optional(v.boolean()),
       requestUpdates: v.optional(v.boolean()),
       updatedAt: v.number(),

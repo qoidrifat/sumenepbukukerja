@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
+import { api } from "./_generated/api";
 
 const categoryValidator = v.union(
   v.literal("Servis Teknik"),
@@ -143,6 +144,11 @@ export const createRequest = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await ctx.scheduler.runAfter(
+      0,
+      api.whatsapp.sendRequestCreatedNotifications,
+      { requestId },
+    );
     // Do not fan out a notification to every account by default. Users opt
     // in explicitly, and the cap keeps a busy board from creating unbounded
     // notification rows in a small deployment.
@@ -210,6 +216,11 @@ export const claimRequest = mutation({
     });
     if (request.requesterId !== userId) {
       await notifyUser(ctx, request.requesterId, "request_update", "Permintaan Anda ditawari", `Seseorang telah menawarkan bantuan untuk "${request.title}".`);
+      await ctx.scheduler.runAfter(
+        0,
+        api.whatsapp.sendRequestStatusNotification,
+        { requestId: args.requestId, status: "claimed" },
+      );
     }
     return args.requestId;
   },
@@ -233,6 +244,11 @@ export const updateRequestStatus = mutation({
       completedAt: args.status === "completed" ? now : undefined,
       updatedAt: now,
     });
+    await ctx.scheduler.runAfter(
+      0,
+      api.whatsapp.sendRequestStatusNotification,
+      { requestId: args.requestId, status: args.status },
+    );
     return args.requestId;
   },
 });
@@ -361,6 +377,27 @@ export const recordInteraction = mutation({
     const vendor = await ctx.db.get(args.vendorId);
     if (!vendor) return null;
     const now = Date.now();
+    if (args.kind !== "view") {
+      const recent = await ctx.db
+        .query("vendorInteractions")
+        .withIndex("byUser", (q) => q.eq("userId", userId))
+        .collect();
+      const duplicate = recent.find(
+        (item) =>
+          item.vendorId === args.vendorId &&
+          item.kind === args.kind &&
+          item.requestId === args.requestId &&
+          now - item.updatedAt < 5 * 60 * 1000,
+      );
+      if (duplicate) {
+        await ctx.db.patch(duplicate._id, {
+          status: args.status ?? duplicate.status,
+          note: args.note?.trim() || duplicate.note,
+          updatedAt: now,
+        });
+        return duplicate._id;
+      }
+    }
     return await ctx.db.insert("vendorInteractions", {
       userId,
       vendorId: args.vendorId,
@@ -383,8 +420,16 @@ export const listInteractions = query({
       .query("vendorInteractions")
       .withIndex("byUser", (q) => q.eq("userId", userId))
       .collect();
+    const seen = new Set<string>();
     const visible = rows
-      .sort((a, b) => b.createdAt - a.createdAt)
+      .filter((item) => item.kind === "whatsapp" || item.kind === "request")
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .filter((item) => {
+        const key = `${item.vendorId}:${item.requestId ?? "direct"}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .slice(0, Math.min(Math.max(args.limit ?? 40, 1), 100));
     return Promise.all(
       visible.map(async (interaction) => {
@@ -393,6 +438,9 @@ export const listInteractions = query({
           ...interaction,
           vendorName: vendor?.name ?? "Listing",
           vendorSlug: vendor?.slug,
+          vendorPhone: vendor?.phone,
+          vendorCategory: vendor?.category,
+          vendorLandmark: vendor?.landmark,
         };
       }),
     );
@@ -459,6 +507,7 @@ export const getNotificationPreferences = query({
 export const setNotificationPreferences = mutation({
   args: {
     whatsappUpdates: v.optional(v.boolean()),
+    whatsappPhone: v.optional(v.string()),
     areaUpdates: v.optional(v.boolean()),
     requestUpdates: v.optional(v.boolean()),
   },
@@ -468,8 +517,20 @@ export const setNotificationPreferences = mutation({
       .query("notificationPreferences")
       .withIndex("byUser", (q) => q.eq("userId", userId))
       .unique();
+    const phone = (args.whatsappPhone ?? current?.whatsappPhone ?? "")
+      .replace(/\D/g, "")
+      .replace(/^0/, "62");
+    const whatsappUpdates =
+      args.whatsappUpdates ?? current?.whatsappUpdates ?? false;
+    if (whatsappUpdates && (phone.length < 10 || phone.length > 15)) {
+      throw new Error("Masukkan nomor WhatsApp yang valid sebelum mengaktifkan notifikasi");
+    }
     const next = {
-      whatsappUpdates: args.whatsappUpdates ?? current?.whatsappUpdates ?? false,
+      whatsappUpdates,
+      whatsappPhone: phone || undefined,
+      whatsappOptInAt: whatsappUpdates
+        ? current?.whatsappOptInAt ?? Date.now()
+        : undefined,
       areaUpdates: args.areaUpdates ?? current?.areaUpdates ?? false,
       requestUpdates: args.requestUpdates ?? current?.requestUpdates ?? false,
     };
@@ -484,6 +545,144 @@ export const setNotificationPreferences = mutation({
     });
   },
 });
+
+export const listVendorPhotos = query({
+  args: { vendorId: v.id("vendors") },
+  handler: async (ctx, args) => {
+    const vendor = await ctx.db.get(args.vendorId);
+    if (!vendor || vendor.status !== "active") return [];
+    const rows = await ctx.db
+      .query("vendorPhotos")
+      .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
+      .collect();
+    const visible = rows
+      .filter((photo) => photo.active !== false)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 12);
+    return Promise.all(
+      visible.map(async (photo) => ({
+        ...photo,
+        url: await ctx.storage.getUrl(photo.storageId),
+      })),
+    );
+  },
+});
+
+export const createVendorPhoto = mutation({
+  args: {
+    vendorId: v.id("vendors"),
+    storageId: v.string(),
+    caption: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireUser(ctx);
+    const vendor = await ctx.db.get(args.vendorId);
+    if (!vendor) throw new Error("Listing tidak ditemukan");
+    if (!args.storageId) throw new Error("Foto belum berhasil diunggah");
+    return await ctx.db.insert("vendorPhotos", {
+      vendorId: args.vendorId,
+      storageId: args.storageId,
+      caption: args.caption?.trim() || undefined,
+      active: true,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const removeVendorPhoto = mutation({
+  args: { id: v.id("vendorPhotos") },
+  handler: async (ctx, args) => {
+    await requireUser(ctx);
+    const photo = await ctx.db.get(args.id);
+    if (!photo) throw new Error("Foto tidak ditemukan");
+    await ctx.db.delete(args.id);
+    return args.id;
+  },
+});
+
+export const listCommunityMetrics = query({
+  args: {},
+  handler: async (ctx) => {
+    const [vendors, requests, users, favorites, photos] = await Promise.all([
+      ctx.db.query("vendors").collect(),
+      ctx.db.query("serviceRequests").collect(),
+      ctx.db.query("users").collect(),
+      ctx.db.query("favorites").collect(),
+      ctx.db.query("vendorPhotos").collect(),
+    ]);
+    const activeVendors = vendors.filter((vendor) => vendor.status === "active");
+    const photoVendorIds = new Set(
+      photos.filter((photo) => photo.active !== false).map((photo) => photo.vendorId),
+    );
+    const searches = activeVendors.reduce(
+      (total, vendor) => total + Number(vendor.searchImpressions ?? 0),
+      0,
+    );
+    const whatsappClicks = activeVendors.reduce(
+      (total, vendor) => total + Number(vendor.whatsappClicks ?? 0),
+      0,
+    );
+    const responseValues = activeVendors
+      .map((vendor) => Number(vendor.responseMinutes ?? 0))
+      .filter((value) => value > 0);
+    const returningUsers = new Set(favorites.map((favorite) => favorite.userId));
+    const completeListings = activeVendors.filter(
+      (vendor) =>
+        vendor.price.trim().length > 0 &&
+        vendor.hours.trim().length > 0 &&
+        (Boolean(vendor.photoId) || photoVendorIds.has(vendor._id)),
+    );
+    const byCategory = Object.fromEntries(
+      categoryOptionsForMetrics.map((category) => [
+        category,
+        activeVendors.filter((vendor) => vendor.category === category).length,
+      ]),
+    );
+    const byArea = Object.fromEntries(
+      Array.from(new Set(activeVendors.map((vendor) => vendor.landmark)))
+        .filter((area) => Boolean(area))
+        .map((area) => [
+          area,
+          activeVendors.filter((vendor) => vendor.landmark === area).length,
+        ]),
+    );
+    return {
+      activeListings: activeVendors.length,
+      searches,
+      whatsappClicks,
+      searchToWhatsappRate: searches > 0
+        ? Math.round((whatsappClicks / searches) * 100)
+        : 0,
+      averageResponseMinutes: responseValues.length > 0
+        ? Math.round(
+            responseValues.reduce((total, value) => total + value, 0) /
+              responseValues.length,
+          )
+        : 0,
+      completedRequests: requests.filter((request) => request.status === "completed").length,
+      completeListingRate: activeVendors.length > 0
+        ? Math.round((completeListings.length / activeVendors.length) * 100)
+        : 0,
+      completeListings: completeListings.length,
+      listingsWithPhotos: activeVendors.filter(
+        (vendor) => Boolean(vendor.photoId) || photoVendorIds.has(vendor._id),
+      ).length,
+      returningSaverRate: users.length > 0
+        ? Math.round((returningUsers.size / users.length) * 100)
+        : 0,
+      byCategory,
+      byArea,
+    };
+  },
+});
+
+const categoryOptionsForMetrics = [
+  "Servis Teknik",
+  "Hajatan & Acara",
+  "Kuliner",
+  "Transportasi",
+  "Jasa Umum",
+] as const;
 
 export const createReport = mutation({
   args: {

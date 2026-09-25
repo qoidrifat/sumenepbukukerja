@@ -1,19 +1,28 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
   ArrowRight,
+  Bookmark,
+  Clock3,
   Check,
   ChevronRight,
   Compass,
   Home,
   MapPin,
   MessageCircle,
+  Navigation,
   Search,
   Store,
   X,
+  SlidersHorizontal,
+  Sparkles,
+  Share2,
+  LocateFixed,
+  GitCompare,
 } from "lucide-react";
 import { categoryOptions, landmarkLabel, landmarks, type Category, type Vendor } from "@/lib/catalog";
-import { useCatalogVendors } from "@/lib/catalog-store";
+import { useCatalogActions, useCatalogVendors, useFavorites } from "@/lib/catalog-store";
+import { categoryActionLabel, isOpenNow, needSuggestions, searchByNeed } from "@/lib/catalog-data";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
@@ -42,12 +51,14 @@ function Brand({ compact = false }: { compact?: boolean }) {
 
 function WhatsAppButton({ vendor, landmark, className = "" }: { vendor: Vendor; landmark: string; className?: string }) {
   const href = generateWhatsAppLink({ phone: vendor.phone, vendorName: vendor.name, category: vendor.category, landmark });
+  const { click } = useCatalogActions();
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
       onClick={() => {
+        if ("_id" in vendor) void click({ id: vendor._id as never, kind: "whatsapp" });
         try {
           localStorage.setItem(`sumenep-buku-kerja-clicks:${vendor.slug}`, String(Number(localStorage.getItem(`sumenep-buku-kerja-clicks:${vendor.slug}`) ?? 0) + 1));
         } catch {
@@ -57,7 +68,7 @@ function WhatsAppButton({ vendor, landmark, className = "" }: { vendor: Vendor; 
       className={`flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 py-3 text-center text-base font-extrabold text-[#082f1e] shadow-sm transition-[filter,box-shadow] duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${className}`}
     >
       <MessageCircle className="size-5 shrink-0" aria-hidden="true" />
-      <span>Chat WhatsApp Sekarang</span>
+      <span>{categoryActionLabel[vendor.category]}</span>
     </a>
   );
 }
@@ -106,7 +117,14 @@ function BottomNav() {
   );
 }
 
-function VendorCard({ vendor, landmark }: { vendor: Vendor; landmark: string }) {
+function VendorCard({ vendor, landmark, saved, onSave, onCompare }: { vendor: Vendor; landmark: string; saved: boolean; onSave: () => void; onCompare: () => void }) {
+  const { click } = useCatalogActions();
+  const share = async () => {
+    const text = `${vendor.name} — ${vendor.description}`;
+    if ("_id" in vendor) void click({ id: vendor._id as never, kind: "share" });
+    if (navigator.share) await navigator.share({ title: vendor.name, text, url: `${window.location.origin}/v/${vendor.slug}` }).catch(() => undefined);
+    else await navigator.clipboard?.writeText(`${text} ${window.location.origin}/v/${vendor.slug}`);
+  };
   return (
     <article className="group flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-[box-shadow,border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md">
       <div className="flex min-h-12 items-center gap-4 p-4">
@@ -121,8 +139,9 @@ function VendorCard({ vendor, landmark }: { vendor: Vendor; landmark: string }) 
           </div>
           <h3 className="text-[clamp(1.05rem,2.5vw,1.25rem)] font-extrabold leading-snug tracking-[-0.025em] text-slate-950">{vendor.name}</h3>
           <p className="mt-1 line-clamp-2 text-base leading-6 text-slate-600">{vendor.description}</p>
+          {vendor.featured && <span className="mt-2 inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-sm font-extrabold text-amber-800"><Sparkles className="size-3.5" />Pilihan warga</span>}
         </div>
-        <ChevronRight className="hidden size-5 shrink-0 text-slate-400 transition-transform group-hover:translate-x-1 sm:block" aria-hidden="true" />
+        <div className="flex shrink-0 flex-col gap-1"><button type="button" onClick={onSave} className={`flex min-h-12 min-w-12 items-center justify-center rounded-lg ${saved ? "bg-blue-100 text-blue-700" : "text-slate-500 hover:bg-blue-50 hover:text-blue-700"}`} aria-label={saved ? "Hapus dari tersimpan" : "Simpan listing"}><Bookmark className={`size-5 ${saved ? "fill-current" : ""}`} /></button><button type="button" onClick={onCompare} className="flex min-h-12 min-w-12 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" aria-label="Bandingkan listing"><GitCompare className="size-5" /></button><button type="button" onClick={share} className="flex min-h-12 min-w-12 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" aria-label="Bagikan listing"><Share2 className="size-5" /></button></div>
       </div>
       <div className="mt-auto border-t border-slate-100 px-4 pb-4 pt-3">
         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium text-slate-600">
@@ -219,28 +238,36 @@ function FilterSection({ activeLandmark, setActiveLandmark }: { activeLandmark: 
 function Catalog({ activeLandmark, vendors }: { activeLandmark: string; vendors: Vendor[] }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<"Semua" | Category>("Semua");
-  const filtered = useMemo(() => vendors.filter((vendor) => {
+  const [openNow, setOpenNow] = useState(false);
+  const [compare, setCompare] = useState<string[]>([]);
+  const [showMap, setShowMap] = useState(false);
+  const favorites = useFavorites();
+  const filtered = useMemo(() => searchByNeed(vendors, query).filter((vendor) => {
     const matchesLandmark = activeLandmark === "all" || vendor.landmark === activeLandmark;
     const matchesCategory = category === "Semua" || vendor.category === category;
+    const matchesOpen = !openNow || isOpenNow(vendor.hours);
     const normalized = query.trim().toLowerCase();
     const matchesQuery = !normalized || [vendor.name, vendor.description, vendor.category, ...vendor.tags].join(" ").toLowerCase().includes(normalized);
-    return matchesLandmark && matchesCategory && matchesQuery;
-  }), [activeLandmark, category, query]);
+    return matchesLandmark && matchesCategory && matchesOpen && matchesQuery;
+  }), [activeLandmark, category, openNow, query]);
 
   return (
     <section id="katalog" className="relative z-10 scroll-mt-16 bg-[#f7f8fc]">
       <div className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-14">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Katalog Usaha</p><h2 className="mt-2 text-[clamp(1.7rem,3.5vw,2.6rem)] font-black leading-tight tracking-[-0.045em] text-slate-950">Siapa yang bisa membantu hari ini?</h2><p className="mt-2 max-w-2xl text-base leading-7 text-slate-600">Cari dan telusuri catatan usaha yang sudah dipilih warga Sumenep.</p></div>
-          <label className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-700 shadow-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 lg:max-w-sm">
+          <div className="flex flex-col gap-2 sm:flex-row"><label className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-700 shadow-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 lg:max-w-sm">
             <Search className="size-5 shrink-0 text-blue-600" aria-hidden="true" /><span className="sr-only">Cari usaha atau jasa</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari usaha atau jasa..." className="min-h-12 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-slate-500" />{query && <button type="button" onClick={() => setQuery("")} className="flex size-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600" aria-label="Hapus pencarian"><X className="size-4" /></button>}
-          </label>
+          </label><button type="button" onClick={() => setOpenNow((value) => !value)} className={`min-h-12 shrink-0 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${openNow ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-700"}`}><Clock3 className="mr-1 inline size-4" />Buka sekarang</button><button type="button" onClick={() => setShowMap((value) => !value)} className={`min-h-12 shrink-0 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${showMap ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700"}`}><Navigation className="mr-1 inline size-4" />Peta</button></div>
         </div>
+        <div className="-mx-1 mt-4 flex min-h-12 gap-2 overflow-x-auto px-1 pb-2 [-webkit-overflow-scrolling:touch]">{needSuggestions.map((need) => <button key={need} type="button" onClick={() => setQuery(need)} className="min-h-12 shrink-0 rounded-full border border-amber-200 bg-amber-50 px-4 py-3 text-base font-extrabold text-amber-900 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">“{need}”</button>)}</div>
         <div className="-mx-1 mt-7 flex min-h-12 gap-2 overflow-x-auto px-1 pb-2 [-webkit-overflow-scrolling:touch]">
           {(["Semua", ...categoryOptions.map((item) => item.label)] as const).map((item) => <button key={item} type="button" onClick={() => setCategory(item)} className={`min-h-12 shrink-0 rounded-lg border px-4 py-3 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${category === item ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50"}`}>{item === "Semua" ? "Semua kategori" : `${categoryOptions.find((option) => option.label === item)?.icon} ${item}`}</button>)}
         </div>
         <div className="mt-6 flex items-center justify-between"><p className="text-base font-bold text-slate-600"><span className="text-slate-950">{filtered.length} usaha</span> ditemukan</p><span className="hidden text-sm font-semibold text-slate-500 sm:block">Diurutkan dari yang paling relevan</span></div>
-        {filtered.length > 0 ? <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 2xl:grid-cols-4">{filtered.map((vendor) => <VendorCard key={vendor.slug} vendor={vendor} landmark={activeLandmark} />)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><div className="mx-auto flex size-12 items-center justify-center rounded-full bg-blue-50 text-2xl" aria-hidden="true">⌕</div><h3 className="mt-4 text-xl font-black text-slate-950">Belum ada jasa yang cocok</h3><p className="mx-auto mt-2 max-w-md text-base leading-7 text-slate-600">Belum ada jasa di sekitar sini. Coba pilih patokan lain atau kata kunci yang lebih umum.</p></div>}
+        {showMap && <div className="mt-6 rounded-xl border border-blue-200 bg-[#edf3ff] p-4 sm:p-6"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-700">Peta kasar Sumenep</p><p className="mt-1 text-base font-semibold text-slate-600">Pilih patokan di atas untuk melihat usaha yang paling relevan.</p></div><LocateFixed className="size-6 text-blue-600" /></div><div className="relative mt-4 h-56 overflow-hidden rounded-xl border border-blue-200 bg-white sm:h-72"><div className="absolute inset-0 opacity-60" style={{ backgroundImage: "linear-gradient(#bdd2fb 1px, transparent 1px), linear-gradient(90deg, #bdd2fb 1px, transparent 1px)", backgroundSize: "32px 32px" }} /><div className="absolute left-[18%] top-[28%] h-32 w-3/4 rotate-12 rounded-[50%] border-[14px] border-blue-200 bg-blue-50" />{filtered.slice(0, 6).map((vendor, index) => <Link key={vendor.slug} to={`/v/${vendor.slug}`} className="absolute flex size-10 items-center justify-center rounded-full border-4 border-white bg-blue-600 text-sm font-black text-white shadow-md" style={{ left: `${18 + (index % 3) * 25}%`, top: `${22 + Math.floor(index / 3) * 38}%` }} aria-label={`Lihat ${vendor.name}`}><MapPin className="size-5" /></Link>)}</div></div>}
+        {compare.length > 0 && <div className="mt-5 flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3"><GitCompare className="size-5 text-blue-700" /><p className="text-base font-bold text-blue-900">{compare.length} listing dipilih untuk dibandingkan.</p><button type="button" onClick={() => setCompare([])} className="ml-auto min-h-12 rounded-lg px-3 text-base font-extrabold text-blue-700 hover:bg-blue-100">Bersihkan</button></div>}
+        {filtered.length > 0 ? <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 2xl:grid-cols-4">{filtered.map((vendor) => <VendorCard key={vendor.slug} vendor={vendor} landmark={activeLandmark} saved={favorites.isSaved(vendor._id ?? vendor.slug)} onSave={() => favorites.save(vendor._id ?? vendor.slug)} onCompare={() => setCompare((current) => current.includes(vendor.slug) ? current.filter((item) => item !== vendor.slug) : current.length < 3 ? [...current, vendor.slug] : current)} />)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><div className="mx-auto flex size-12 items-center justify-center rounded-full bg-blue-50 text-2xl" aria-hidden="true">⌕</div><h3 className="mt-4 text-xl font-black text-slate-950">Belum ada jasa yang cocok</h3><p className="mx-auto mt-2 max-w-md text-base leading-7 text-slate-600">Belum ada jasa di sekitar sini. Coba pilih patokan lain atau kata kunci yang lebih umum.</p></div>}
       </div>
     </section>
   );

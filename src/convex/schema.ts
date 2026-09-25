@@ -2,46 +2,129 @@ import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { Infer, v } from "convex/values";
 
-// default user roles. can add / remove based on the project as needed
 export const ROLES = {
   ADMIN: "admin",
   USER: "user",
   MEMBER: "member",
+  STAFF: "staff",
 } as const;
 
 export const roleValidator = v.union(
   v.literal(ROLES.ADMIN),
   v.literal(ROLES.USER),
   v.literal(ROLES.MEMBER),
+  v.literal(ROLES.STAFF),
 );
 export type Role = Infer<typeof roleValidator>;
 
+export const vendorStatusValidator = v.union(v.literal("draft"), v.literal("active"), v.literal("archived"));
+export const categoryValidator = v.union(
+  v.literal("Servis Teknik"),
+  v.literal("Hajatan & Acara"),
+  v.literal("Kuliner"),
+  v.literal("Transportasi"),
+  v.literal("Jasa Umum"),
+);
+
 const schema = defineSchema(
   {
-    // default auth tables using convex auth.
-    ...authTables, // do not remove or modify
-
-    // the users table is the default users table that is brought in by the authTables
+    ...authTables,
     users: defineTable({
-      name: v.optional(v.string()), // name of the user. do not remove
-      image: v.optional(v.string()), // image of the user. do not remove
-      email: v.optional(v.string()), // email of the user. do not remove
-      emailVerificationTime: v.optional(v.number()), // email verification time. do not remove
-      isAnonymous: v.optional(v.boolean()), // is the user anonymous. do not remove
+      name: v.optional(v.string()),
+      image: v.optional(v.string()),
+      email: v.optional(v.string()),
+      emailVerificationTime: v.optional(v.number()),
+      isAnonymous: v.optional(v.boolean()),
+      role: v.optional(roleValidator),
+    }).index("email", ["email"]),
 
-      role: v.optional(roleValidator), // role of the user. do not remove
-    }).index("email", ["email"]), // index for the email. do not remove or modify
+    businesses: defineTable({
+      name: v.string(),
+      ownerId: v.optional(v.string()),
+      description: v.optional(v.string()),
+      createdAt: v.number(),
+    }).index("byOwner", ["ownerId"]),
 
-    // add other tables here
+    vendors: defineTable({
+      slug: v.string(),
+      name: v.string(),
+      category: categoryValidator,
+      description: v.string(),
+      address: v.string(),
+      landmark: v.string(),
+      lat: v.optional(v.number()),
+      lng: v.optional(v.number()),
+      price: v.string(),
+      hours: v.string(),
+      phone: v.string(),
+      rating: v.string(),
+      reviewsCount: v.optional(v.number()),
+      accent: v.string(),
+      mark: v.string(),
+      tags: v.array(v.string()),
+      status: vendorStatusValidator,
+      featured: v.optional(v.boolean()),
+      verified: v.optional(v.boolean()),
+      photoId: v.optional(v.string()),
+      ownerId: v.optional(v.string()),
+      businessId: v.optional(v.string()),
+      subscriptionTier: v.optional(v.union(v.literal("free"), v.literal("featured"), v.literal("premium"))),
+      whatsappClicks: v.optional(v.number()),
+      shareClicks: v.optional(v.number()),
+      searchImpressions: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("bySlug", ["slug"])
+      .index("byStatus", ["status"])
+      .index("byLandmark", ["landmark"])
+      .index("byOwner", ["ownerId"]),
 
-    // tableName: defineTable({
-    //   ...
-    //   // table fields
-    // }).index("by_field", ["field"])
+    reviews: defineTable({
+      vendorId: v.id("vendors"),
+      authorId: v.optional(v.id("users")),
+      authorName: v.string(),
+      rating: v.number(),
+      body: v.string(),
+      helpful: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("byVendor", ["vendorId"])
+      .index("byCreatedAt", ["createdAt"]),
+
+    favorites: defineTable({
+      userId: v.id("users"),
+      vendorId: v.id("vendors"),
+      createdAt: v.number(),
+    })
+      .index("byUser", ["userId"])
+      .index("byUserVendor", ["userId", "vendorId"]),
+
+    notifications: defineTable({
+      userId: v.optional(v.id("users")),
+      email: v.optional(v.string()),
+      kind: v.string(),
+      title: v.string(),
+      body: v.string(),
+      read: v.optional(v.boolean()),
+      createdAt: v.number(),
+    }).index("byUser", ["userId"]),
+
+    staffMembers: defineTable({
+      userId: v.id("users"),
+      role: v.union(v.literal("admin"), v.literal("staff"), v.literal("viewer")),
+      createdAt: v.number(),
+    }).index("byUser", ["userId"]),
+
+    vendorSubscriptions: defineTable({
+      vendorId: v.id("vendors"),
+      tier: v.union(v.literal("free"), v.literal("featured"), v.literal("premium")),
+      status: v.union(v.literal("active"), v.literal("cancelled"), v.literal("past_due")),
+      startedAt: v.number(),
+      renewsAt: v.optional(v.number()),
+    }).index("byVendor", ["vendorId"]),
   },
-  {
-    schemaValidation: false,
-  },
+  { schemaValidation: false },
 );
 
 export default schema;

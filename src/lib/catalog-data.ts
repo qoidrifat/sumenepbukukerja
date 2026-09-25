@@ -1,0 +1,60 @@
+import type { Category, Vendor } from "./catalog";
+import { landmarks } from "./catalog";
+
+export const needSuggestions = ["servis pompa air", "buat dekorasi acara", "catering untuk warga", "bawa repair motor", "laundry kiloan"];
+
+export const categoryActionLabel: Record<Category, string> = {
+  "Servis Teknik": "Tanya harga",
+  "Hajatan & Acara": "Tanya paket",
+  Kuliner: "Tanya ketersediaan",
+  Transportasi: "Cek jadwal",
+  "Jasa Umum": "Tanya layanan",
+};
+
+export const isOpenNow = (hours: string) => {
+  const normalized = hours.toLowerCase();
+  if (normalized.includes("24 jam")) return true;
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const match = hours.match(/(\d{2})\.(\d{2})[–-](\d{2})\.(\d{2})/);
+  if (!match) return true;
+  const start = Number(match[1]) * 60 + Number(match[2]);
+  const end = Number(match[3]) * 60 + Number(match[4]);
+  return minutes >= start && minutes <= end;
+};
+
+export const profileCompleteness = (vendor: Vendor) => {
+  const fields = [vendor.name, vendor.category, vendor.description, vendor.address, vendor.landmark, vendor.price, vendor.hours, vendor.phone, vendor.tags.length ? "tags" : ""];
+  return Math.round((fields.filter(Boolean).length / fields.length) * 100);
+};
+
+export const qualityIssues = (vendor: Vendor) => {
+  const issues: string[] = [];
+  if (!vendor.phone || vendor.phone.replace(/\D/g, "").length < 10) issues.push("Nomor WhatsApp belum valid");
+  if (!vendor.address.trim()) issues.push("Alamat belum lengkap");
+  if (!vendor.price.trim()) issues.push("Harga awal belum diisi");
+  if (vendor.description.trim().length < 40) issues.push("Deskripsi terlalu pendek");
+  if (!vendor.tags.length) issues.push("Tag pencarian belum diisi");
+  return issues;
+};
+
+export const duplicateScore = (a: Vendor, b: Vendor) => {
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const name = normalize(a.name) === normalize(b.name) ? 0.6 : 0;
+  const phone = a.phone === b.phone ? 0.3 : 0;
+  const address = a.address.toLowerCase() === b.address.toLowerCase() ? 0.1 : 0;
+  return name + phone + address;
+};
+
+export const searchByNeed = (vendors: Vendor[], query: string) => {
+  const normalized = query.toLowerCase().trim();
+  if (!normalized) return vendors;
+  const synonyms: Record<string, string[]> = { pompa: ["pompa air", "listrik", "servis"], dekorasi: ["hajatan", "acara", "tenda"], catering: ["kuliner", "katering", "nasi kotak"], repair: ["servis", "motor", "teknik"], laundry: ["laundry", "cuci", "jasa umum"] };
+  const terms = normalized.split(/\s+/).flatMap((term) => synonyms[term] ?? [term]);
+  return vendors.filter((vendor) => { const haystack = [vendor.name, vendor.description, vendor.category, ...vendor.tags].join(" ").toLowerCase(); return terms.every((term) => haystack.includes(term)); });
+};
+
+export const landmarkCoordinates: Record<string, { lat: number; lng: number }> = { adipura: { lat: -7.005, lng: 114.443 }, trunojoyo: { lat: -7.009, lng: 114.448 }, anom: { lat: -7.015, lng: 114.44 }, keraton: { lat: -7.019, lng: 114.433 }, jamik: { lat: -7.011, lng: 114.437 } };
+
+export const distanceLabel = (distanceKm: number | undefined) => distanceKm === undefined ? "Jarak belum tersedia" : distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`;
+export const landmark = (id: string) => landmarks.find((item) => item.id === id)?.label ?? "Sumenep";

@@ -81,6 +81,9 @@ export const getWhatsappStatus = query({
       configured: config.configured,
       usesTemplate: Boolean(config.contentSid),
       webhookConfigured: Boolean(process.env.CONVEX_SITE_URL),
+      webhookUrl: process.env.CONVEX_SITE_URL
+        ? `${process.env.CONVEX_SITE_URL}/webhook/whatsapp`
+        : undefined,
       maskedFrom,
       deliveryCounts: {
         queued: counts.queued ?? 0,

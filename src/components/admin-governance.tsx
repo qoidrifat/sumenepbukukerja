@@ -66,7 +66,7 @@ export function AdminGovernance() {
           <p className="mt-2 text-sm leading-6 text-[#525252]">Masukkan key melalui tab Keys/API keys. Token tidak pernah ditampilkan atau disimpan di audit log.</p>
           <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
             <div className="border-2 border-[#121212] bg-[#F1EDE3] p-3"><dt className="font-bold text-[#525252]">Provider</dt><dd className="mt-1 font-black">{whatsapp?.configured ? "Terhubung" : "Belum dikonfigurasi"}</dd></div>
-            <div className="border-2 border-[#121212] bg-[#F1EDE3] p-3"><dt className="font-bold text-[#525252]">Webhook status</dt><dd className="mt-1 font-black">{whatsapp?.webhookConfigured ? "Aktif" : "Belum aktif"}</dd></div>
+            <div className="border-2 border-[#121212] bg-[#F1EDE3] p-3"><dt className="font-bold text-[#525252]">Webhook status</dt><dd className="mt-1 font-black">{whatsapp?.webhookConfigured ? "Aktif" : "Belum aktif"}</dd>{whatsapp?.webhookUrl ? <p className="mt-2 break-all text-xs font-bold text-[#525252]">URL untuk Twilio/Meta: <span className="text-[#1A1A1A]">{whatsapp.webhookUrl}</span></p> : null}</div>
             <div className="border-2 border-[#121212] bg-[#F1EDE3] p-3"><dt className="font-bold text-[#525252]">Nomor_FROM</dt><dd className="mt-1 break-all font-black">{whatsapp?.maskedFrom ?? "—"}</dd></div>
             <div className="border-2 border-[#121212] bg-[#F1EDE3] p-3"><dt className="font-bold text-[#525252]">Delivery</dt><dd className="mt-1 font-black">Queued {whatsapp?.deliveryCounts.queued ?? 0} · Sent {whatsapp?.deliveryCounts.sent ?? 0} · Delivered {whatsapp?.deliveryCounts.delivered ?? 0} · Failed {whatsapp?.deliveryCounts.failed ?? 0}</dd></div>
           </dl>

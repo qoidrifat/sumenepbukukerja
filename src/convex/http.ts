@@ -61,6 +61,11 @@ const twilioStatusWebhook = httpAction(async (ctx, request) => {
   return new Response("OK", { status: 200 });
 });
 
-http.route({ path: "/twilio/status", method: "POST", handler: twilioStatusWebhook });
+// Alias provider-agnostic agar URL webhook produksi bisa memakai
+// https://<domain>/webhook/whatsapp selain path bawaan Twilio.
+// Kedua path memakai handler dan validasi signature yang sama.
+for (const path of ["/twilio/status", "/webhook/whatsapp"]) {
+  http.route({ path, method: "POST", handler: twilioStatusWebhook });
+}
 
 export default http;

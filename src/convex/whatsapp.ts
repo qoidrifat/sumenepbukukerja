@@ -67,6 +67,33 @@ const twilioConfig = () => {
   };
 };
 
+// Meta WhatsApp Cloud API (gratis: pesan non-template gratis selama 24 jam
+// customer service window). Dipakai otomatis kalau kredensial Meta terisi.
+const metaConfig = () => {
+  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const templateName = process.env.WHATSAPP_TEMPLATE_NAME;
+  const appSecret = process.env.WHATSAPP_APP_SECRET;
+  return {
+    accessToken,
+    phoneNumberId,
+    templateName,
+    appSecret,
+    graphVersion: process.env.META_GRAPH_VERSION ?? "v21.0",
+    configured: Boolean(accessToken && phoneNumberId),
+  };
+};
+
+// Twilio dan Meta bisa berdampingan. WHATSAPP_PROVIDER memaksa pilihan,
+// selain itu provider terkonfigurasi yang dipakai.
+const activeProvider = () => {
+  const forced = process.env.WHATSAPP_PROVIDER?.toLowerCase();
+  if (forced === "meta" || forced === "twilio") return forced;
+  if (metaConfig().configured) return "meta";
+  if (twilioConfig().configured) return "twilio";
+  return "none";
+};
+
 export const getWhatsappStatus = query({
   args: {},
   handler: async (ctx) => {
@@ -77,9 +104,16 @@ export const getWhatsappStatus = query({
       return result;
     }, {});
     const maskedFrom = config.from ? config.from.replace(/\d/g, "•") : undefined;
+    const meta = metaConfig();
     return {
-      configured: config.configured,
-      usesTemplate: Boolean(config.contentSid),
+      configured: config.configured || meta.configured,
+      provider: activeProvider(),
+      twilioConfigured: config.configured,
+      metaConfigured: meta.configured,
+      metaPhoneNumberId: meta.phoneNumberId
+        ? `…${meta.phoneNumberId.slice(-4)}`
+        : undefined,
+      usesTemplate: Boolean(config.contentSid || meta.templateName),
       webhookConfigured: Boolean(process.env.CONVEX_SITE_URL),
       webhookUrl: process.env.CONVEX_SITE_URL
         ? `${process.env.CONVEX_SITE_URL}/webhook/whatsapp`
@@ -359,6 +393,61 @@ export const applyDeliveryStatus = internalMutation({
   },
 });
 
+async function sendViaMeta(
+  config: ReturnType<typeof metaConfig>,
+  input: { phone: string; title: string; body: string },
+): Promise<{ skipped: boolean; configured: boolean; messageId?: string }> {
+  if (!config.configured || !config.accessToken || !config.phoneNumberId) {
+    return { skipped: true, configured: false };
+  }
+  const payload: Record<string, unknown> = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: input.phone,
+  };
+  if (config.templateName) {
+    payload.type = "template";
+    payload.template = {
+      name: config.templateName,
+      language: { code: process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? "id" },
+      components: [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: input.title.slice(0, 200) },
+            { type: "text", text: input.body.slice(0, 700) },
+          ],
+        },
+      ],
+    };
+  } else {
+    payload.type = "text";
+    payload.text = { preview_url: false, body: `${input.title}\n\n${input.body}` };
+  }
+  const response = await fetch(
+    `https://graph.facebook.com/${config.graphVersion}/${config.phoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(12_000),
+    },
+  );
+  const result = (await response.json()) as {
+    messages?: Array<{ id?: string }>;
+    error?: { code?: number; message?: string };
+  };
+  if (!response.ok) {
+    const error = new Error("Meta menolak pesan") as Error & { providerCode?: string };
+    error.providerCode = safeErrorCode(result.error?.code ?? response.status);
+    throw error;
+  }
+  return { skipped: false, configured: true, messageId: result.messages?.[0]?.id };
+}
+
 async function sendWhatsappMessage(input: {
   phone: string;
   title: string;
@@ -368,6 +457,7 @@ async function sendWhatsappMessage(input: {
   configured: boolean;
   messageId?: string;
 }> {
+  if (activeProvider() === "meta") return await sendViaMeta(metaConfig(), input);
   const config = twilioConfig();
   if (!config.configured || !config.accountSid || !config.authToken || !config.from) {
     return { skipped: true, configured: false };
@@ -377,7 +467,7 @@ async function sendWhatsappMessage(input: {
     To: `whatsapp:${input.phone}`,
   });
   if (process.env.CONVEX_SITE_URL) {
-    payload.set("StatusCallback", `${process.env.CONVEX_SITE_URL.replace(/\/$/, "")}/twilio/status`);
+    payload.set("StatusCallback", `${process.env.CONVEX_SITE_URL.replace(/\/$/, "")}/webhook/whatsapp`);
   }
   if (config.contentSid) {
     payload.set("ContentSid", config.contentSid);
@@ -422,7 +512,7 @@ async function deliver(
     internal.whatsapp.notificationRecipients,
     { kind, entityId },
   );
-  if (!twilioConfig().configured) {
+  if (activeProvider() === "none") {
     return { configured: false, delivered: 0, skipped: recipients.length, failed: 0 };
   }
     let delivered = 0;

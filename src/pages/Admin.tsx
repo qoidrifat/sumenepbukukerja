@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { CodedBell, CodedSparkline, CodedStacked } from "@/components/codedvisuals";
+import { BorderGlow, Counter, GlassSurface, ScrollReveal } from "@/components/react-bits";
 import { categoryOptions, landmarks, type Category, type Vendor } from "@/lib/catalog";
 import { useAdminVendors, useCatalogActions } from "@/lib/catalog-store";
 import { duplicateScore, profileCompleteness, qualityIssues } from "@/lib/catalog-data";
@@ -122,7 +123,7 @@ function StatCard({
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-sm font-bold text-slate-500">{label}</p>
       <p className={`mt-2 inline-flex rounded-lg px-2 py-1 text-2xl font-black ${tones[tone]}`}>
-        {value}
+        <Counter value={value} />
       </p>
     </div>
   );
@@ -401,7 +402,8 @@ export default function Admin() {
         ) : null}
 
         <section className="mt-8 grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <BorderGlow className="rounded-2xl" glowColor="37,99,235" intensity={0.1}>
+            <div className="h-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-4 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
               <div>
                 <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
@@ -430,9 +432,10 @@ export default function Admin() {
             <p className="px-5 pb-5 text-xs leading-5 text-slate-500 sm:px-6 sm:pb-6">
               Grafik menampilkan distribusi klik WhatsApp antar listing aktif, bukan tren waktu. Nilainya langsung berasal dari query katalog.
             </p>
-          </div>
+            </div>
+          </BorderGlow>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <GlassSurface tint="light" className="rounded-2xl p-5 shadow-sm sm:p-6">
             <div className="grid items-center gap-3 sm:grid-cols-[10rem_1fr]">
               <div className="h-40 sm:h-44">
                 <CodedBell count={actionableCount} animated trigger="inView" hover className="h-full" />
@@ -472,7 +475,7 @@ export default function Admin() {
                 </div>
               )}
             </div>
-          </div>
+          </GlassSurface>
         </section>
 
         {draft ? (
@@ -599,7 +602,8 @@ export default function Admin() {
           </section>
         ) : null}
 
-        <section className="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        <ScrollReveal>
+          <section className="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
           <div className="flex items-center gap-3">
             <div className="flex size-11 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
               <ImagePlus className="size-5" />
@@ -628,7 +632,8 @@ export default function Admin() {
               </div>
             ))}
           </div>
-        </section>
+          </section>
+        </ScrollReveal>
       </main>
     </div>
   );

@@ -23,6 +23,7 @@ import {
   useVendorPhoto,
 } from "@/lib/catalog-store";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
+import { BlurText, GlassSurface, ScrollReveal } from "@/components/react-bits";
 import NotFound from "./NotFound";
 
 const focusRing =
@@ -147,6 +148,7 @@ function VendorProfileContent() {
       <main className="relative z-10 mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-12">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(340px,.7fr)] lg:items-start lg:gap-10">
           <div className="space-y-6">
+            <ScrollReveal>
             <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               {photoUrl ? (
                 <img
@@ -182,9 +184,11 @@ function VendorProfileContent() {
                     {vendor.verified ? "Mitra terverifikasi" : "Tercatat di katalog"}
                   </span>
                 </div>
-                <h1 className="mt-4 text-[clamp(1.8rem,5vw,3.2rem)] font-black leading-tight tracking-[-0.05em] text-slate-950">
-                  {vendor.name}
-                </h1>
+                <BlurText
+                  as="h1"
+                  text={vendor.name}
+                  className="mt-4 text-[clamp(1.8rem,5vw,3.2rem)] font-black leading-tight tracking-[-0.05em] text-slate-950"
+                />
                 <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">{vendor.description}</p>
                 <div className="mt-6 flex flex-wrap gap-2">
                   {vendor.tags.map((tag) => (
@@ -201,6 +205,7 @@ function VendorProfileContent() {
                 </div>
               </div>
             </section>
+            </ScrollReveal>
 
             <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
               <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Catatan warga</p>
@@ -280,7 +285,7 @@ function VendorProfileContent() {
           </div>
 
           <aside className="lg:sticky lg:top-24">
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <GlassSurface tint="blue" className="rounded-xl p-5 shadow-sm sm:p-6">
               <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Mulai dari sini</p>
               <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">Tanya langsung ke usaha ini.</h2>
               <p className="mt-3 text-base leading-7 text-slate-600">
@@ -315,7 +320,7 @@ function VendorProfileContent() {
                 <span className="text-lg" aria-hidden="true">✎</span>
                 <span>Transaksi dan kesepakatan tetap dilakukan langsung bersama mitra.</span>
               </div>
-            </div>
+            </GlassSurface>
           </aside>
         </div>
       </main>

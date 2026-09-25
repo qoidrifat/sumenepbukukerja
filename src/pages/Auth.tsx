@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/input-otp";
 import logo from "@/assets/logo.svg";
 import { useAuth } from "@/hooks/use-auth";
+import { AnimatedContent, GlassSurface, ScrollReveal, ShinyText } from "@/components/react-bits";
 
 interface AuthProps {
   redirectAfterAuth?: string;
@@ -105,12 +106,15 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           <ArrowLeft className="size-5" />Kembali
         </button>
         <span className="rounded-full border border-blue-200 bg-white/80 px-3 py-2 text-sm font-extrabold text-blue-700">
-          Akun warga
+          <ShinyText text="Akun warga" color="#1d4ed8" shineColor="#93c5fd" speed={4.5} />
         </span>
       </div>
 
       <div className="flex flex-1 items-center justify-center py-8">
-        <Card className="w-full max-w-md border-slate-200 bg-white/95 p-0 shadow-lg">
+        <ScrollReveal>
+          <GlassSurface tint="light" className="w-full max-w-md rounded-2xl p-0 shadow-lg">
+          <Card className="w-full border-slate-200 bg-white/95 p-0 shadow-lg">
+            <AnimatedContent animationKey={step === "signIn" ? "email" : step.email}>
           {step === "signIn" ? (
             <>
               <CardHeader className="text-center">
@@ -215,7 +219,10 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
               </form>
             </>
           )}
-        </Card>
+            </AnimatedContent>
+          </Card>
+          </GlassSurface>
+        </ScrollReveal>
       </div>
     </main>
   );

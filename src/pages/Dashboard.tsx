@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { ArrowRight, Bookmark, LayoutDashboard, LogOut, MapPin, MessageCircle, Settings2, Store } from "lucide-react";
+import { ArrowRight, Bookmark, LayoutDashboard, LogOut, MapPin, MessageCircle, Search, Settings2, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { landmarkLabel } from "@/lib/catalog";
@@ -8,6 +8,7 @@ import { categoryActionLabel } from "@/lib/catalog-data";
 import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { useNavigate } from "react-router";
+import { AnimatedContent, BorderGlow, Counter, GlassIcons, ScrollReveal } from "@/components/react-bits";
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
@@ -36,20 +37,24 @@ export default function Dashboard() {
               Simpan usaha yang sering Anda gunakan dan lanjutkan chatting dari satu tempat.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" className="min-h-12 rounded-lg text-base">
-              <Link to="/admin">
-                <Settings2 className="size-4" />Kelola katalog
-              </Link>
-            </Button>
-            <Button type="button" onClick={handleSignOut} className="min-h-12 rounded-lg text-base">
-              <LogOut className="size-4" />Keluar
-            </Button>
-          </div>
+          <Button type="button" onClick={handleSignOut} variant="outline" className="min-h-12 self-start rounded-lg text-base">
+            <LogOut className="size-4" />Keluar
+          </Button>
         </header>
 
+        <ScrollReveal>
+          <GlassIcons
+            ariaLabel="Akses cepat ruang warga"
+            items={[
+              { label: "Cari usaha", icon: <Search className="size-5" />, color: "blue", onClick: () => navigate("/#katalog") },
+              { label: "Kelola katalog", icon: <Settings2 className="size-5" />, color: "violet", onClick: () => navigate("/admin") },
+            ]}
+          />
+        </ScrollReveal>
+
         <section className="grid gap-4 sm:grid-cols-3">
-          <Card className="border-slate-200 bg-white shadow-sm">
+          <BorderGlow className="h-full rounded-xl" intensity={0.08}>
+          <Card className="h-full border-slate-200 bg-white shadow-sm">
             <CardHeader>
               <div className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
                 <Store className="size-5" />
@@ -57,11 +62,13 @@ export default function Dashboard() {
               <CardTitle className="text-lg">Katalog lokal</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-black text-slate-950">{vendors.length}</p>
+              <Counter value={vendors.length} className="text-3xl font-black text-slate-950" />
               <p className="mt-1 text-sm text-muted-foreground">usaha tersedia</p>
             </CardContent>
           </Card>
-          <Card className="border-slate-200 bg-white shadow-sm">
+          </BorderGlow>
+          <BorderGlow className="h-full rounded-xl" glowColor="180,83,9" intensity={0.08}>
+          <Card className="h-full border-slate-200 bg-white shadow-sm">
             <CardHeader>
               <div className="flex size-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
                 <Bookmark className="size-5" />
@@ -69,11 +76,13 @@ export default function Dashboard() {
               <CardTitle className="text-lg">Tersimpan</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-black text-slate-950">{savedVendors.length}</p>
+              <Counter value={savedVendors.length} className="text-3xl font-black text-slate-950" />
               <p className="mt-1 text-sm text-muted-foreground">listing pilihan Anda</p>
             </CardContent>
           </Card>
-          <Card className="border-slate-200 bg-white shadow-sm">
+          </BorderGlow>
+          <BorderGlow className="h-full rounded-xl" glowColor="4,120,87" intensity={0.08}>
+          <Card className="h-full border-slate-200 bg-white shadow-sm">
             <CardHeader>
               <div className="flex size-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
                 <LayoutDashboard className="size-5" />
@@ -86,6 +95,7 @@ export default function Dashboard() {
               </Link>
             </CardContent>
           </Card>
+          </BorderGlow>
         </section>
 
         <section>
@@ -99,6 +109,7 @@ export default function Dashboard() {
             </Link>
           </div>
 
+          <AnimatedContent animationKey={savedVendors.map((vendor) => vendor.slug).join("-") || "kosong"}>
           {savedVendors.length > 0 ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {savedVendors.map((vendor) => {
@@ -139,6 +150,7 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           )}
+          </AnimatedContent>
         </section>
       </div>
     </main>

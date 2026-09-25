@@ -47,10 +47,14 @@ const recordedSearches = new Map<string, number>();
 
 function NotebookMark({ className = "" }: { className?: string }) {
   return (
-    <div className={`relative flex size-11 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 ${className}`} aria-hidden="true">
-      <div className="absolute inset-y-1 left-1 w-0.5 rounded-full bg-blue-200" />
-      <div className="ml-1 flex size-7 items-center justify-center rounded-lg bg-blue-600 text-sm font-extrabold text-white shadow-sm">SB</div>
-    </div>
+    <img
+      src="/brand/logo-mark.svg"
+      alt=""
+      width={44}
+      height={44}
+      className={`size-11 shrink-0 rounded-xl object-contain ${className}`}
+      aria-hidden="true"
+    />
   );
 }
 

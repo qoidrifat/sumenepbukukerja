@@ -131,11 +131,21 @@ export function AdminHeader() {
           <span className="sm:hidden">Beranda</span>
         </Link>
 
-        <div className="min-w-0 text-right">
-          <p className="truncate text-base font-black uppercase tracking-[-0.035em] text-[#1A1A1A] sm:text-lg">
-            Sumenep Buku Kerja
-          </p>
-          <p className="mt-0.5 text-sm font-bold text-[#525252]">Ruang pengelola</p>
+        <div className="flex min-w-0 items-center justify-end gap-3 text-right">
+          <img
+            src="/brand/logo-mark.svg"
+            alt=""
+            width={40}
+            height={40}
+            className="size-10 shrink-0 rounded-lg border-2 border-[#121212] bg-white object-contain shadow-[2px_2px_0_#121212]"
+            aria-hidden="true"
+          />
+          <div className="min-w-0">
+            <p className="truncate text-base font-black uppercase tracking-[-0.035em] text-[#1A1A1A] sm:text-lg">
+              Sumenep Buku Kerja
+            </p>
+            <p className="mt-0.5 text-sm font-bold text-[#525252]">Ruang pengelola</p>
+          </div>
         </div>
 
         <span className="admin-status admin-status-confirmed shrink-0">

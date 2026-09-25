@@ -1,33 +1,69 @@
+import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
   AlertTriangle,
-  ArrowLeft,
   Archive,
+  ArrowUpRight,
+  Building2,
   Check,
   CheckCircle2,
+  Clock3,
+  Eye,
   FileCheck2,
-  ImagePlus,
+  Filter,
+  Inbox,
+  MapPin,
+  MessageCircle,
   Pencil,
+  Phone,
   Plus,
   Save,
+  Search,
+  ShieldCheck,
   Sparkles,
+  Store,
   Trash2,
   Upload,
+  UserRound,
   X,
+  type LucideIcon,
 } from "lucide-react";
-import { CodedBell, CodedSparkline, CodedStacked } from "@/components/codedvisuals";
-import { BorderGlow, Counter, GlassSurface, ScrollReveal } from "@/components/react-bits";
-import { PackageManager } from "@/components/community-widgets";
-import { categoryOptions, landmarks, type Category, type Vendor } from "@/lib/catalog";
-import { useAdminVendors, useCatalogActions, useOpenReports } from "@/lib/catalog-store";
+import { Switch } from "@/components/ui/switch";
+import {
+  categoryOptions,
+  landmarkLabel,
+  landmarks,
+  type Category,
+  type Vendor,
+} from "@/lib/catalog";
+import {
+  useAdminVendors,
+  useCatalogActions,
+  useOpenReports,
+  type VendorRecord,
+} from "@/lib/catalog-store";
 import { duplicateScore, profileCompleteness, qualityIssues } from "@/lib/catalog-data";
 
-const focusRing =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
+import {
+  AdminHeader,
+  AdminPackageManager,
+  Field,
+  SectionHeading,
+  formatDate,
+  formatPhone,
+  inputClass,
+  quietButtonClass,
+  secondaryButtonClass,
+  statusFilters,
+  statusInfo,
+  vendorUpdatePayload,
+  whatsappHref,
+  type ModerationFilter,
+  type PendingConfirmation,
+} from "@/components/admin-workspace";
 
-const inputClass =
-  "min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base text-slate-900 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+const EMPTY_ITEMS: VendorRecord[] = [];
 
 const emptyDraft = (): Vendor => ({
   slug: "",
@@ -53,89 +89,8 @@ const emptyDraft = (): Vendor => ({
   serviceRadiusKm: 10,
 });
 
-function AdminHeader() {
-  return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur-sm">
-      <div className="mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
-        <Link
-          to="/"
-          className={`flex min-h-12 items-center gap-2 rounded-lg px-2 text-base font-extrabold text-slate-800 hover:bg-blue-50 ${focusRing}`}
-        >
-          <ArrowLeft className="size-5" />
-          Kembali ke katalog
-        </Link>
-        <span className="text-lg font-black tracking-[-0.04em] text-slate-950">
-          Sumenep <span className="text-blue-600">Buku</span> Kerja
-          <span className="ml-2 rounded-full bg-amber-100 px-2 py-1 text-sm font-extrabold text-amber-800">
-            Admin
-          </span>
-        </span>
-      </div>
-    </header>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-  required = false,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  type?: string;
-  required?: boolean;
-}) {
-  return (
-    <label className="flex min-w-0 flex-col gap-2">
-      <span className="text-sm font-extrabold text-slate-800">
-        {label}
-        {required ? <span className="ml-1 text-blue-600">*</span> : null}
-      </span>
-      <input
-        required={required}
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className={inputClass}
-      />
-    </label>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "blue" | "amber" | "emerald" | "slate";
-}) {
-  const tones = {
-    blue: "bg-blue-50 text-blue-800",
-    amber: "bg-amber-50 text-amber-800",
-    emerald: "bg-emerald-50 text-emerald-800",
-    slate: "bg-slate-100 text-slate-700",
-  };
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-sm font-bold text-slate-500">{label}</p>
-      <p className={`mt-2 inline-flex rounded-lg px-2 py-1 text-2xl font-black ${tones[tone]}`}>
-        <Counter value={value} />
-      </p>
-    </div>
-  );
-}
-
 export default function Admin() {
-  const items = useAdminVendors() ?? [];
+  const items = useAdminVendors() ?? EMPTY_ITEMS;
   const reports = useOpenReports() ?? [];
   const {
     create,
@@ -152,6 +107,13 @@ export default function Admin() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<Vendor | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ModerationFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<"all" | Category>("all");
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] =
+    useState<PendingConfirmation>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const updateDraft = (changes: Partial<Vendor>) =>
     setDraft((current) => (current ? { ...current, ...changes } : current));
@@ -160,6 +122,7 @@ export default function Admin() {
     setDraft(null);
     setPhoto(null);
     setPhotoFile(null);
+    setPreview(null);
     setError("");
   };
 
@@ -169,14 +132,26 @@ export default function Admin() {
     setPhotoFile(null);
     setNotice("");
     setError("");
+    window.setTimeout(() => {
+      document.getElementById("admin-editor")?.scrollIntoView({
+        behavior: "auto",
+        block: "start",
+      });
+    }, 0);
   };
 
-  const startEdit = (vendor: Vendor) => {
+  const startEdit = (vendor: VendorRecord) => {
     setDraft({ ...vendor, reviews: vendor.reviewsCount ?? vendor.reviews });
     setPhoto(null);
     setPhotoFile(null);
     setNotice("");
     setError("");
+    window.setTimeout(() => {
+      document.getElementById("admin-editor")?.scrollIntoView({
+        behavior: "auto",
+        block: "start",
+      });
+    }, 0);
   };
 
   const handlePhoto = (file: File | undefined) => {
@@ -210,9 +185,13 @@ export default function Admin() {
           headers: { "Content-Type": photoFile.type || "image/jpeg" },
           body: photoFile,
         });
-        if (!response.ok) throw new Error("Foto gagal diunggah. Coba foto yang lebih kecil.");
+        if (!response.ok) {
+          throw new Error("Foto gagal diunggah. Coba foto yang lebih kecil.");
+        }
         const result = (await response.json()) as { storageId?: string };
-        if (!result.storageId) throw new Error("ID foto tidak diterima oleh penyimpanan.");
+        if (!result.storageId) {
+          throw new Error("ID foto tidak diterima oleh penyimpanan.");
+        }
         photoId = result.storageId;
       }
 
@@ -254,22 +233,144 @@ export default function Admin() {
       );
       resetEditor();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Listing gagal disimpan.");
+      setError(
+        caught instanceof Error ? caught.message : "Listing gagal disimpan.",
+      );
     } finally {
       setSaving(false);
     }
   };
 
-  const remove = async (slug: string) => {
-    const item = items.find((candidate) => candidate.slug === slug);
-    if (!item?._id || !window.confirm("Hapus listing ini dari katalog?")) return;
-
+  const runVendorUpdate = async (
+    vendor: VendorRecord,
+    changes: Partial<VendorRecord>,
+    successMessage: string,
+    actionName = "update",
+  ) => {
+    const actionKey = `${vendor._id}:${actionName}`;
+    setBusyAction(actionKey);
+    setError("");
     try {
-      await archive({ id: item._id as never });
-      if (draft?._id === item._id) resetEditor();
-      setNotice("Listing berhasil diarsipkan.");
+      await updateVendor({
+        id: vendor._id as never,
+        ...vendorUpdatePayload(vendor, changes),
+      });
+      setNotice(successMessage);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Listing gagal diarsipkan.");
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Status listing belum dapat diperbarui.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const approveVendor = async (vendor: VendorRecord) => {
+    await runVendorUpdate(
+      vendor,
+      { status: "active", verified: true },
+      `${vendor.name} disetujui dan ditandai terverifikasi.`,
+      "approve",
+    );
+  };
+
+  const toggleActive = async (vendor: VendorRecord) => {
+    const isActive = (vendor.status ?? "active") === "active";
+    if (isActive) {
+      const actionKey = `${vendor._id}:archive`;
+      setBusyAction(actionKey);
+      setError("");
+      try {
+        await archive({ id: vendor._id as never });
+        setNotice(`${vendor.name} dinonaktifkan.`);
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Listing belum dapat dinonaktifkan.",
+        );
+      } finally {
+        setBusyAction(null);
+      }
+      return;
+    }
+
+    await runVendorUpdate(
+      vendor,
+      { status: "active" },
+      `${vendor.name} dikembalikan ke katalog.`,
+      "activate",
+    );
+  };
+
+  const toggleFeatured = async (vendor: VendorRecord) => {
+    const actionKey = `${vendor._id}:featured`;
+    setBusyAction(actionKey);
+    setError("");
+    try {
+      await subscription({
+        vendorId: vendor._id as never,
+        tier: vendor.featured ? "free" : "featured",
+      });
+      setNotice(
+        vendor.featured
+          ? `${vendor.name} tidak lagi menjadi listing unggulan.`
+          : `${vendor.name} ditandai sebagai listing unggulan.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Status unggulan belum dapat diperbarui.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const confirmDestructiveAction = async () => {
+    if (!pendingConfirmation) return;
+    setConfirming(true);
+    setError("");
+    try {
+      await archive({ id: pendingConfirmation.vendor._id as never });
+      setNotice(
+        pendingConfirmation.kind === "reject"
+          ? `${pendingConfirmation.vendor.name} ditolak dan diarsipkan.`
+          : `${pendingConfirmation.vendor.name} dihapus dari katalog.`,
+      );
+      if (draft?._id === pendingConfirmation.vendor._id) resetEditor();
+      setPendingConfirmation(null);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Aksi belum dapat diselesaikan.",
+      );
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const updateReportStatus = async (
+    id: string,
+    status: "reviewing" | "resolved" | "dismissed",
+  ) => {
+    setBusyAction(`report:${id}`);
+    setError("");
+    try {
+      await updateReport({ id: id as never, status });
+      setNotice("Status laporan warga diperbarui.");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Laporan belum dapat diperbarui.",
+      );
+    } finally {
+      setBusyAction(null);
     }
   };
 
@@ -288,119 +389,289 @@ export default function Admin() {
   const incompleteItems = activeItems.filter(
     (item) => qualityIssues(item as Vendor).length > 0,
   );
-  const actionableCount = draftItems.length + archivedItems.length + incompleteItems.length;
+  const unclaimedItems = items.filter(
+    (item) => statusInfo(item).key === "unclaimed",
+  );
+  const confirmedItems = items.filter(
+    (item) => statusInfo(item).key === "confirmed",
+  );
+  const verifiedItems = items.filter(
+    (item) => statusInfo(item).key === "verified",
+  );
+  const missingPhoneItems = items.filter((item) => !item.phone.trim());
   const totalWhatsappClicks = items.reduce(
     (total, item) => total + Number(item.whatsappClicks ?? 0),
     0,
   );
-  const totalShareClicks = items.reduce(
-    (total, item) => total + Number(item.shareClicks ?? 0),
+  const actionableCount =
+    draftItems.length + archivedItems.length + incompleteItems.length;
+  const latestUpdate = items.reduce(
+    (latest, item) => Math.max(latest, item.updatedAt ?? 0),
     0,
   );
 
-  const clickPoints = useMemo(() => {
-    const values = activeItems
-      .map((item) => Number(item.whatsappClicks ?? 0))
-      .sort((a, b) => b - a)
-      .slice(0, 8);
-    if (values.length < 2) return [0, 0];
-    const max = Math.max(...values, 1);
-    return values.map((value) => value / max);
-  }, [activeItems]);
+  const filteredItems = useMemo(() => {
+    const needle = search
+      .trim()
+      .toLocaleLowerCase("id-ID")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
 
-  const fanCount = items.length >= 9 ? 9 : items.length >= 7 ? 7 : items.length >= 5 ? 5 : 3;
+    return items.filter((item) => {
+      const currentStatus = statusInfo(item).key;
+      const matchesStatus =
+        statusFilter === "all" || currentStatus === statusFilter;
+      const matchesCategory =
+        categoryFilter === "all" || item.category === categoryFilter;
+      const haystack = [
+        item.name,
+        item.category,
+        item.address,
+        landmarkLabel(item.landmark),
+        item.phone,
+        ...item.tags,
+      ]
+        .join(" ")
+        .toLocaleLowerCase("id-ID")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+      return matchesStatus && matchesCategory && (!needle || haystack.includes(needle));
+    });
+  }, [categoryFilter, items, search, statusFilter]);
+
+  const metrics: Array<{
+    label: string;
+    value: number;
+    note: string;
+    icon: LucideIcon;
+    tone: "orange" | "yellow" | "white" | "mint" | "stone" | "terracotta";
+  }> = [
+    {
+      label: "Belum Klaim",
+      value: unclaimedItems.length,
+      note: "Antrean pemeriksaan",
+      icon: UserRound,
+      tone: "orange",
+    },
+    {
+      label: "Terkonfirmasi",
+      value: confirmedItems.length,
+      note: "Pemilik terhubung",
+      icon: CheckCircle2,
+      tone: "yellow",
+    },
+    {
+      label: "Terverifikasi",
+      value: verifiedItems.length,
+      note: "Sudah dimoderasi",
+      icon: ShieldCheck,
+      tone: "mint",
+    },
+    {
+      label: "Tanpa Nomor",
+      value: missingPhoneItems.length,
+      note: "Kontak wajib diperiksa",
+      icon: Phone,
+      tone: "terracotta",
+    },
+    {
+      label: "Perlu Ditinjau",
+      value: incompleteItems.length + reports.length,
+      note: "Kualitas & laporan warga",
+      icon: AlertTriangle,
+      tone: "stone",
+    },
+    {
+      label: "Total Vendor",
+      value: items.length,
+      note: `${activeItems.length} aktif di katalog`,
+      icon: Store,
+      tone: "white",
+    },
+    {
+      label: "Klik WhatsApp",
+      value: totalWhatsappClicks,
+      note: "Interaksi terukur",
+      icon: MessageCircle,
+      tone: "yellow",
+    },
+  ];
+
+  const metricTone: Record<(typeof metrics)[number]["tone"], string> = {
+    orange: "bg-[#FF5A26] text-white",
+    yellow: "bg-[#FFE662] text-[#1A1A1A]",
+    white: "bg-white text-[#1A1A1A]",
+    mint: "bg-[#DCEBD7] text-[#24533A]",
+    stone: "bg-[#E7E5E4] text-[#44403C]",
+    terracotta: "bg-[#E9B4A7] text-[#7C2D12]",
+  };
+
   const notificationItems = [
     ...(draftItems.length
-      ? [{ title: `${draftItems.length} listing menunggu ditayangkan`, body: "Periksa status draft sebelum pelanggan dapat menemukannya.", tone: "amber" as const }]
+      ? [
+          {
+            title: `${draftItems.length} listing menunggu ditayangkan`,
+            body: "Periksa status draft sebelum pelanggan dapat menemukannya.",
+            icon: Clock3,
+          },
+        ]
       : []),
     ...(archivedItems.length
-      ? [{ title: `${archivedItems.length} listing diarsipkan`, body: "Arsip tidak tampil di katalog publik.", tone: "slate" as const }]
+      ? [
+          {
+            title: `${archivedItems.length} listing diarsipkan`,
+            body: "Arsip tidak tampil di katalog publik.",
+            icon: Archive,
+          },
+        ]
       : []),
     ...(incompleteItems.length
-      ? [{ title: `${incompleteItems.length} listing perlu dilengkapi`, body: "Nomor, alamat, harga, deskripsi, atau tag masih perlu diperiksa.", tone: "amber" as const }]
+      ? [
+          {
+            title: `${incompleteItems.length} listing perlu dilengkapi`,
+            body: "Nomor, alamat, harga, deskripsi, atau tag masih perlu diperiksa.",
+            icon: FileCheck2,
+          },
+        ]
       : []),
     ...(reports.length
-      ? [{ title: `${reports.length} laporan warga perlu ditinjau`, body: "Periksa laporan listing dari halaman moderation.", tone: "amber" as const }]
+      ? [
+          {
+            title: `${reports.length} laporan warga perlu ditinjau`,
+            body: "Periksa laporan listing dari halaman moderasi.",
+            icon: AlertTriangle,
+          },
+        ]
       : []),
   ];
 
   const previewContent = preview ? (
-    <section className="mb-8 rounded-xl border border-blue-200 bg-white p-5 shadow-sm sm:p-7">
-      <div className="flex items-center justify-between gap-3">
+    <section className="admin-panel admin-panel-lg mb-8 overflow-hidden">
+      <div className="flex items-start justify-between gap-3 border-b-2 border-[#121212] bg-[#FFE662] p-4 sm:p-6">
         <div>
-          <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
+          <p className="text-sm font-black uppercase tracking-[0.14em] text-[#525252]">
             Pratinjau pelanggan
           </p>
-          <h2 className="mt-1 text-2xl font-black text-slate-950">{preview.name || "Nama usaha"}</h2>
+          <h2 className="mt-1 text-[clamp(1.25rem,2vw,1.75rem)] font-black text-[#1A1A1A]">
+            {preview.name || "Nama usaha"}
+          </h2>
         </div>
         <button
           type="button"
           onClick={() => setPreview(null)}
-          className={`flex size-12 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 ${focusRing}`}
+          className="admin-icon-btn shrink-0"
           aria-label="Tutup pratinjau"
         >
           <X className="size-5" />
         </button>
       </div>
-      <div className={`mt-4 aspect-[16/9] rounded-xl bg-gradient-to-br ${preview.accent} p-5 text-white`}>
-        <span className="text-3xl font-black">{preview.mark}</span>
-        <p className="mt-4 text-2xl font-black">{preview.name || "Nama usaha"}</p>
-        <p className="mt-1 text-base">{preview.description || "Deskripsi usaha akan tampil di sini."}</p>
-      </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2">
-        <p className="text-sm font-bold text-slate-700">{preview.category}</p>
-        <p className="text-sm font-bold text-slate-700">{preview.address || "Alamat belum diisi"}</p>
-        <p className="text-sm font-bold text-slate-700">{preview.price || "Harga belum diisi"}</p>
-        <p className="text-sm font-bold text-slate-700">{preview.hours}</p>
+      <div className="grid gap-0 lg:grid-cols-[1.1fr_.9fr]">
+        <div
+          className={`flex min-h-64 flex-col justify-end bg-gradient-to-br ${preview.accent} p-6 text-white`}
+        >
+          <span className="text-4xl font-black tracking-[-0.05em]">
+            {preview.mark}
+          </span>
+          <p className="mt-6 text-[clamp(1.5rem,3vw,2.25rem)] font-black">
+            {preview.name || "Nama usaha"}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-0 bg-[#121212] lg:grid-cols-1">
+          {[
+            ["Kategori", preview.category],
+            ["Alamat", preview.address || "Alamat belum diisi"],
+            ["Harga", preview.price || "Harga belum diisi"],
+            ["Jam kerja", preview.hours],
+          ].map(([label, value]) => (
+            <div key={label} className="border-b-2 border-[#121212] bg-white p-4 last:border-b-0">
+              <p className="text-sm font-bold text-[#525252]">{label}</p>
+              <p className="mt-1 text-base font-black text-[#1A1A1A]">{value}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   ) : null;
 
   return (
-    <div className="min-h-dvh min-h-[100svh] bg-[#f7f8fc] pb-safe-nav lg:pb-10">
+    <div className="admin-workspace min-h-dvh min-h-[100svh] pb-[calc(2rem+env(safe-area-inset-bottom))] text-[#1A1A1A]">
       <AdminHeader />
-      <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <main className="admin-shell-frame mx-auto max-w-[1600px] px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10">
         {previewContent}
 
-        <section className="grid items-center gap-6 lg:grid-cols-[1fr_20rem]">
-          <div>
-            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
-              Ruang pengelola
-            </p>
-            <h1 className="mt-2 text-[clamp(2rem,4vw,3.5rem)] font-black tracking-[-0.055em] text-slate-950">
-              Kelola Buku Kerja
-            </h1>
-            <p className="mt-2 max-w-2xl text-base leading-7 text-slate-600">
-              Tambahkan, sunting, atau hapus catatan usaha yang muncul di katalog warga Sumenep.
-            </p>
-            <button
-              type="button"
-              onClick={startNew}
-              className={`mt-6 flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 text-base font-extrabold text-white hover:bg-blue-700 ${focusRing}`}
-            >
-              <Plus className="size-5" />Tambah listing
-            </button>
-          </div>
-          <div className="hidden h-64 overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm sm:block">
-            <CodedStacked
-              category="mixed"
-              count={fanCount}
-              label={`${items.length} catatan katalog`}
-              animated
-              trigger="inView"
-              className="h-full"
-            />
+        <section className="admin-panel admin-panel-lg overflow-hidden">
+          <div className="grid lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,.6fr)]">
+            <div className="p-5 sm:p-7 lg:p-9">
+              <div className="inline-flex items-center gap-2 border-2 border-[#121212] bg-[#FFE662] px-3 py-2 text-sm font-black uppercase tracking-[0.12em] shadow-[2px_2px_0_#121212]">
+                <span className="admin-sync-dot" aria-hidden="true" />
+                Meja kerja admin
+              </div>
+              <h1 className="mt-5 max-w-4xl text-[clamp(2rem,5vw,4rem)] font-black uppercase leading-[0.98] tracking-[-0.06em] text-[#1A1A1A]">
+                Triage katalog tanpa ribet.
+              </h1>
+              <p className="mt-4 max-w-3xl text-base leading-7 text-[#525252] sm:text-lg sm:leading-8">
+                Periksa, terverifikasi, aktifkan, dan arsipkan listing dari satu
+                ruang kerja yang tersinkon langsung dengan data Sumenep Buku Kerja.
+              </p>
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                <button
+                  type="button"
+                  onClick={startNew}
+                  className="admin-btn admin-btn-primary"
+                >
+                  <Plus className="size-5" />
+                  Tambah listing
+                </button>
+                <a href="#admin-triage" className="admin-btn admin-btn-secondary">
+                  <Inbox className="size-5" />
+                  Buka meja triage
+                </a>
+              </div>
+            </div>
+
+            <div className="border-t-2 border-[#121212] bg-[#F1EDE3] p-5 sm:p-7 lg:border-l-2 lg:border-t-0 lg:p-8">
+              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#525252]">
+                Ringkasan cepat
+              </p>
+              <dl className="mt-5 space-y-4">
+                <div className="border-b-2 border-[#121212] pb-4">
+                  <dt className="text-sm font-bold text-[#525252]">Listing aktif</dt>
+                  <dd className="mt-1 text-3xl font-black tracking-[-0.05em]">
+                    {activeItems.length}
+                  </dd>
+                </div>
+                <div className="border-b-2 border-[#121212] pb-4">
+                  <dt className="text-sm font-bold text-[#525252]">
+                    Butuh tindakan
+                  </dt>
+                  <dd className="mt-1 text-3xl font-black tracking-[-0.05em] text-[#C73E16]">
+                    {actionableCount}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-bold text-[#525252]">
+                    Pembaruan terakhir
+                  </dt>
+                  <dd className="mt-1 text-base font-black">{formatDate(latestUpdate)}</dd>
+                </div>
+              </dl>
+            </div>
           </div>
         </section>
 
         {notice ? (
-          <div className="mt-6 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-base font-bold text-blue-800">
-            <Check className="size-5" />
-            {notice}
+          <div
+            className="mt-5 flex items-start gap-3 border-2 border-[#121212] bg-[#FFE662] px-4 py-3 shadow-[3px_3px_0_#121212]"
+            role="status"
+          >
+            <Check className="mt-0.5 size-5 shrink-0" />
+            <p className="min-w-0 flex-1 text-base font-black text-[#1A1A1A]">
+              {notice}
+            </p>
             <button
               type="button"
               onClick={() => setNotice("")}
-              className={`ml-auto flex size-9 items-center justify-center rounded-lg hover:bg-blue-100 ${focusRing}`}
+              className="admin-icon-btn"
               aria-label="Tutup pemberitahuan"
             >
               <X className="size-4" />
@@ -409,265 +680,904 @@ export default function Admin() {
         ) : null}
 
         {error ? (
-          <div className="mt-6 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-base font-bold text-red-800">
+          <div
+            className="mt-5 flex items-start gap-3 border-2 border-[#121212] bg-[#E9B4A7] px-4 py-3 text-[#7C2D12] shadow-[3px_3px_0_#121212]"
+            role="alert"
+          >
             <AlertTriangle className="mt-0.5 size-5 shrink-0" />
-            {error}
+            <p className="text-base font-black">{error}</p>
           </div>
         ) : null}
 
-        <section className="mt-8 grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
-          <BorderGlow className="rounded-2xl" glowColor="37,99,235" intensity={0.1}>
-            <div className="h-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-4 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-              <div>
-                <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
-                  Ringkasan interaksi
-                </p>
-                <h2 className="mt-1 text-xl font-black text-slate-950">Data nyata dari katalog</h2>
-              </div>
-              <div className="min-w-[17rem]">
-                <CodedSparkline
-                  title="Klik WhatsApp"
-                  value={String(totalWhatsappClicks)}
-                  change={`${totalShareClicks} share`}
-                  trend="neutral"
-                  points={clickPoints}
-                  animated
-                  trigger="inView"
-                />
-              </div>
+        <section className="mt-8" aria-labelledby="operational-metrics-title">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#525252]">
+                Papan numerator
+              </p>
+              <h2
+                id="operational-metrics-title"
+                className="mt-1 text-[clamp(1.5rem,3vw,2.25rem)] font-black tracking-[-0.04em]"
+              >
+                7 metrik operasional
+              </h2>
             </div>
-            <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4 sm:p-6">
-              <StatCard label="Aktif" value={activeItems.length} tone="emerald" />
-              <StatCard label="Draft" value={draftItems.length} tone="amber" />
-              <StatCard label="Arsip" value={archivedItems.length} tone="slate" />
-              <StatCard label="Perlu lengkapi" value={incompleteItems.length} tone="blue" />
-            </div>
-            <p className="px-5 pb-5 text-xs leading-5 text-slate-500 sm:px-6 sm:pb-6">
-              Grafik menampilkan distribusi klik WhatsApp antar listing aktif, bukan tren waktu. Nilainya langsung berasal dari query katalog.
+            <p className="inline-flex items-center gap-2 text-sm font-bold text-[#525252]">
+              <span className="admin-sync-dot" aria-hidden="true" />
+              Reaktif terhadap query Convex
             </p>
-            </div>
-          </BorderGlow>
+          </div>
 
-          <GlassSurface tint="light" className="rounded-2xl p-5 shadow-sm sm:p-6">
-            <div className="grid items-center gap-3 sm:grid-cols-[10rem_1fr]">
-              <div className="h-40 sm:h-44">
-                <CodedBell count={actionableCount} animated trigger="inView" hover className="h-full" />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
+            {metrics.map((metric, index) => {
+              const Icon = metric.icon;
+              return (
+                <article
+                  key={metric.label}
+                  className={`admin-metric admin-metric-lg flex min-h-40 flex-col justify-between p-4 ${
+                    index === 0
+                      ? "bg-[#FF5A26] text-white"
+                      : index === 1
+                        ? "bg-[#FFE662] text-[#1A1A1A]"
+                        : "bg-[#FDFBF7] text-[#1A1A1A]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-base font-black leading-5">{metric.label}</p>
+                    <span
+                      className={`flex size-10 shrink-0 items-center justify-center border-2 border-[#121212] ${
+                        index === 0
+                          ? "bg-[#FFE662] text-[#1A1A1A]"
+                          : index === 1
+                            ? "bg-[#FF5A26] text-white"
+                            : metricTone[metric.tone]
+                      }`}
+                    >
+                      <Icon className="size-5" aria-hidden="true" />
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-[clamp(2rem,4vw,3rem)] font-black leading-none tracking-[-0.06em]">
+                      {metric.value.toLocaleString("id-ID")}
+                    </p>
+                    <p
+                      className={`mt-2 text-sm font-bold ${
+                        index === 0 ? "text-white" : "text-[#525252]"
+                      }`}
+                    >
+                      {metric.note}
+                    </p>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="mt-8 grid gap-5 xl:grid-cols-[.85fr_1.15fr]">
+          <div className="admin-panel overflow-hidden">
+            <SectionHeading
+              eyebrow="Papan aksi"
+              title="Yang perlu dikerjakan"
+              description="Prioritas berasal dari status listing, kelengkapan data, dan laporan warga."
+              icon={Inbox}
+            />
+            <div className="p-5 sm:p-6">
+              <div className="flex items-end justify-between gap-4 border-2 border-[#121212] bg-[#FFE662] p-4 shadow-[3px_3px_0_#121212]">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[0.12em] text-[#525252]">
+                    Antrean aktif
+                  </p>
+                  <p className="mt-1 text-4xl font-black tracking-[-0.06em]">
+                    {actionableCount}
+                  </p>
+                </div>
+                <p className="max-w-52 text-right text-sm font-bold leading-5 text-[#525252]">
+                  {actionableCount > 0
+                    ? "Prioritaskan nomor, kelengkapan, dan laporan."
+                    : "Tidak ada tindakan tertunda."}
+                </p>
               </div>
-              <div>
-                <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
-                  Notifikasi pengelola
-                </p>
-                <h2 className="mt-1 text-xl font-black text-slate-950">
-                  {actionableCount > 0 ? `${actionableCount} hal perlu dilihat` : "Semua listing beres"}
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Dihitung dari status draft, arsip, dan kelengkapan data saat ini.
-                </p>
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="border-2 border-[#121212] bg-[#FF5A26] p-3 text-white">
+                  <p className="text-sm font-bold">Belum diklaim</p>
+                  <p className="mt-1 text-3xl font-black">{unclaimedItems.length}</p>
+                </div>
+                <div className="border-2 border-[#121212] bg-[#DCEBD7] p-3 text-[#24533A]">
+                  <p className="text-sm font-bold">Terkonfirmasi</p>
+                  <p className="mt-1 text-3xl font-black">{confirmedItems.length}</p>
+                </div>
               </div>
             </div>
-            <div className="mt-4 space-y-2">
-              {notificationItems.length > 0 ? notificationItems.map((notification) => (
-                <div key={notification.title} className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  {notification.tone === "amber" ? (
-                    <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
-                  ) : (
-                    <Archive className="mt-0.5 size-4 shrink-0 text-slate-600" />
-                  )}
+          </div>
+
+          <div className="admin-panel overflow-hidden">
+            <SectionHeading
+              eyebrow="Pemberitahuan kerja"
+              title="Catatan terakhir"
+              description="Ringkasan perubahan kondisi katalog tanpa memindahkan tugas away dari meja triage."
+              icon={BellIcon}
+            />
+            <div className="space-y-3 p-4 sm:p-6">
+              {notificationItems.length > 0 ? (
+                notificationItems.map((notification) => {
+                  const Icon = notification.icon;
+                  return (
+                    <div
+                      key={notification.title}
+                      className="flex items-start gap-3 border-2 border-[#121212] bg-[#F5F0E5] p-3"
+                    >
+                      <span className="flex size-10 shrink-0 items-center justify-center border-2 border-[#121212] bg-white">
+                        <Icon className="size-5" aria-hidden="true" />
+                      </span>
+                      <div>
+                        <p className="text-base font-black text-[#1A1A1A]">
+                          {notification.title}
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-[#525252]">
+                          {notification.body}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="flex items-start gap-3 border-2 border-[#121212] bg-[#DCEBD7] p-4 text-[#24533A]">
+                  <CheckCircle2 className="mt-0.5 size-5 shrink-0" />
                   <div>
-                    <p className="text-sm font-extrabold text-slate-900">{notification.title}</p>
-                    <p className="mt-1 text-sm leading-5 text-slate-600">{notification.body}</p>
-                  </div>
-                </div>
-              )) : (
-                <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-700" />
-                  <div>
-                    <p className="text-sm font-extrabold text-emerald-900">Tidak ada tindakan tertunda</p>
-                    <p className="mt-1 text-sm leading-5 text-emerald-800">Katalog aktif sudah memiliki kelengkapan yang wajar.</p>
+                    <p className="text-base font-black">Katalog dalam kondisi baik</p>
+                    <p className="mt-1 text-sm leading-6">
+                      Tidak ada draft, arsip, atau data listing aktif yang perlu dilengkapi.
+                    </p>
                   </div>
                 </div>
               )}
             </div>
-          </GlassSurface>
+          </div>
         </section>
 
         {reports.length > 0 ? (
-          <section className="mt-6 rounded-2xl border border-red-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex items-center gap-3"><span className="flex size-11 items-center justify-center rounded-xl bg-red-50 text-red-700"><AlertTriangle className="size-5" /></span><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-red-700">Moderasi warga</p><h2 className="mt-1 text-xl font-black text-slate-950">Laporan perlu ditinjau</h2></div></div>
-            <div className="mt-4 space-y-3">{reports.map((report) => <div key={report._id} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-extrabold text-slate-950">{report.reason}</p><p className="mt-1 text-sm leading-6 text-slate-600">{report.details}</p></div><span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-extrabold text-red-700">{report.status}</span></div><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void updateReport({ id: report._id as never, status: "reviewing" })} className={`min-h-12 rounded-lg border border-amber-200 px-3 text-sm font-extrabold text-amber-800 ${focusRing}`}>Tandai ditinjau</button><button type="button" onClick={() => void updateReport({ id: report._id as never, status: "resolved" })} className={`min-h-12 rounded-lg border border-emerald-200 px-3 text-sm font-extrabold text-emerald-700 ${focusRing}`}>Selesaikan</button><button type="button" onClick={() => void updateReport({ id: report._id as never, status: "dismissed" })} className={`min-h-12 rounded-lg border border-slate-300 px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Abaikan</button></div></div>)}</div>
+          <section className="admin-panel mt-8 overflow-hidden">
+            <SectionHeading
+              eyebrow="Moderasi warga"
+              title="Laporan perlu ditinjau"
+              description="Periksa alasan, detail, dan tetapkan status laporan tanpa mengubah data listing."
+              icon={AlertTriangle}
+            />
+            <div className="grid gap-4 p-4 sm:p-6 lg:grid-cols-2">
+              {reports.map((report) => (
+                <article key={report._id} className="border-2 border-[#121212] bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-base font-black text-[#1A1A1A]">
+                        {report.reason}
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-[#525252]">
+                        {report.details}
+                      </p>
+                    </div>
+                    <span className="admin-status admin-status-inactive">
+                      {report.status}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    <button
+                      type="button"
+                      disabled={busyAction === `report:${report._id}`}
+                      onClick={() =>
+                        void updateReportStatus(report._id, "reviewing")
+                      }
+                      className="admin-btn admin-btn-highlight px-3"
+                    >
+                      Tandai ditinjau
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyAction === `report:${report._id}`}
+                      onClick={() =>
+                        void updateReportStatus(report._id, "resolved")
+                      }
+                      className="admin-btn bg-[#DCEBD7] px-3 text-[#24533A]"
+                    >
+                      Selesaikan
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyAction === `report:${report._id}`}
+                      onClick={() =>
+                        void updateReportStatus(report._id, "dismissed")
+                      }
+                      className="admin-btn admin-btn-secondary px-3"
+                    >
+                      Abaikan
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
           </section>
         ) : null}
 
         {draft ? (
-          <section className="mt-8 rounded-xl border border-blue-200 bg-white p-5 shadow-sm sm:p-7">
-            <div className="flex items-start justify-between gap-4">
+          <section id="admin-editor" className="admin-panel admin-panel-lg mt-8 scroll-mt-28 overflow-hidden">
+            <div className="flex flex-col gap-4 border-b-2 border-[#121212] bg-[#FFE662] p-4 sm:flex-row sm:items-start sm:justify-between sm:p-6">
               <div>
-                <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
+                <p className="text-sm font-black uppercase tracking-[0.14em] text-[#525252]">
                   {draft.slug ? "Sunting listing" : "Listing baru"}
                 </p>
-                <h2 className="mt-1 text-2xl font-black text-slate-950">Ceritakan usaha ini</h2>
+                <h2 className="mt-1 text-[clamp(1.5rem,3vw,2.25rem)] font-black tracking-[-0.04em]">
+                  Ceritakan usaha ini
+                </h2>
+                <p className="mt-1 text-base leading-7 text-[#525252]">
+                  Isi data yang bisa ditemukan dan dipercaya warga.
+                </p>
               </div>
               <button
                 type="button"
                 onClick={resetEditor}
-                className={`flex size-12 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 ${focusRing}`}
+                className="admin-icon-btn shrink-0"
                 aria-label="Tutup formulir"
               >
                 <X className="size-5" />
               </button>
             </div>
 
-            <div className="mt-6 grid gap-5 lg:grid-cols-2">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="p-4 sm:p-6 lg:p-8">
+              <div className="border-2 border-[#121212] bg-[#F1EDE3] p-4 sm:p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-sm font-extrabold text-slate-800">Kualitas listing</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-600">Kelengkapan {completeness}%</p>
+                    <p className="text-base font-black">Kualitas listing</p>
+                    <p className="mt-1 text-sm font-bold text-[#525252]">
+                      Kelengkapan {completeness}%
+                    </p>
                   </div>
-                  <div className="h-2 w-full max-w-xs overflow-hidden rounded-full bg-slate-200">
-                    <div className="h-full rounded-full bg-emerald-500" style={{ width: `${completeness}%` }} />
+                  <div
+                    className="admin-progress-track w-full sm:max-w-xs"
+                    role="progressbar"
+                    aria-label="Kelengkapan listing"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={completeness}
+                  >
+                    <div
+                      className="admin-progress-value"
+                      style={{ width: `${completeness}%` }}
+                    />
                   </div>
                 </div>
                 {issues.length > 0 ? (
-                  <p className="mt-3 text-sm font-bold text-amber-800">Perlu dilengkapi: {issues.join(" · ")}</p>
-                ) : null}
+                  <p className="mt-3 border-l-4 border-[#FF5A26] pl-3 text-sm font-black text-[#7C2D12]">
+                    Perlu dilengkapi: {issues.join(" · ")}
+                  </p>
+                ) : (
+                  <p className="mt-3 text-sm font-black text-[#24533A]">
+                    Data utama sudah lengkap.
+                  </p>
+                )}
                 {duplicate && duplicate.score >= 0.6 ? (
-                  <p className="mt-2 text-sm font-bold text-red-700">Duplikat mungkin: {duplicate.item.name}</p>
+                  <p className="mt-2 text-sm font-black text-[#7C2D12]">
+                    Potensi duplikat: {duplicate.item.name}
+                  </p>
                 ) : null}
               </div>
 
-              <Field label="Nama usaha" value={draft.name} onChange={(name) => updateDraft({ name })} placeholder="Contoh: Bengkel Svetrum" required />
-              <label className="flex min-w-0 flex-col gap-2">
-                <span className="text-sm font-extrabold text-slate-800">Kategori</span>
-                <select value={draft.category} onChange={(event) => updateDraft({ category: event.target.value as Category })} className={inputClass}>
-                  {categoryOptions.map((item) => <option key={item.label}>{item.label}</option>)}
-                </select>
-              </label>
-              <Field label="Nomor WhatsApp" value={draft.phone} onChange={(phone) => updateDraft({ phone })} placeholder="628xxxxxxxxxx" type="tel" required />
-              <Field label="Harga mulai dari" value={draft.price} onChange={(price) => updateDraft({ price })} placeholder="Mulai Rp50.000" />
-              <label className="flex min-w-0 flex-col gap-2">
-                <span className="text-sm font-extrabold text-slate-800">Patokan lokasi</span>
-                <select value={draft.landmark} onChange={(event) => updateDraft({ landmark: event.target.value })} className={inputClass}>
-                  {landmarks.filter((item) => item.id !== "all").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-              </label>
-              <Field
-                label="Latitude (opsional)"
-                value={draft.lat?.toString() ?? ""}
-                onChange={(value) => {
-                  const parsed = Number(value);
-                  updateDraft({ lat: value.trim() === "" || Number.isNaN(parsed) ? undefined : parsed });
-                }}
-                placeholder="-7.009"
-                type="number"
-              />
-              <Field
-                label="Longitude (opsional)"
-                value={draft.lng?.toString() ?? ""}
-                onChange={(value) => {
-                  const parsed = Number(value);
-                  updateDraft({ lng: value.trim() === "" || Number.isNaN(parsed) ? undefined : parsed });
-                }}
-                placeholder="114.448"
-                type="number"
-              />
-              <p className="text-sm leading-6 text-slate-500 lg:col-span-2">Isi koordinat agar listing ini dapat difilter berdasarkan jarak pengguna. Koordinat hanya dipakai untuk perhitungan jarak.</p>
-              <label className="flex min-w-0 flex-col gap-2">
-                <span className="text-sm font-extrabold text-slate-800">Status</span>
-                <select value={draft.status ?? "active"} onChange={(event) => updateDraft({ status: event.target.value as Vendor["status"] })} className={inputClass}>
-                  <option value="active">Aktif — tampil di katalog</option>
-                  <option value="draft">Draft — belum tampil</option>
-                  <option value="archived">Arsip — disembunyikan</option>
-                </select>
-              </label>
-              <Field label="Alamat lengkap" value={draft.address} onChange={(address) => updateDraft({ address })} placeholder="Jalan, nomor, atau keterangan lokasi" required />
-              <Field label="Jam kerja" value={draft.hours} onChange={(hours) => updateDraft({ hours })} placeholder="Setiap hari · 07.00–17.00" />
-              <label className="flex min-w-0 flex-col gap-2">
-                <span className="text-sm font-extrabold text-slate-800">Status ketersediaan</span>
-                <select value={draft.availability ?? "available"} onChange={(event) => updateDraft({ availability: event.target.value as Vendor["availability"] })} className={inputClass}>
-                  <option value="available">Tersedia</option>
-                  <option value="busy">Sedang sibuk</option>
-                  <option value="closed">Tutup sementara</option>
-                </select>
-              </label>
-              <Field label="Catatan ketersediaan" value={draft.availabilityNote ?? ""} onChange={(availabilityNote) => updateDraft({ availabilityNote })} placeholder="Contoh: Bisa datang hari ini setelah jam 3" />
-              <Field label="Rata-rata balas (menit)" value={draft.responseMinutes?.toString() ?? ""} onChange={(value) => updateDraft({ responseMinutes: value.trim() === "" || Number.isNaN(Number(value)) ? undefined : Number(value) })} placeholder="Contoh: 45" type="number" />
-              <Field label="Radius layanan (km)" value={draft.serviceRadiusKm?.toString() ?? ""} onChange={(value) => updateDraft({ serviceRadiusKm: value.trim() === "" || Number.isNaN(Number(value)) ? undefined : Number(value) })} placeholder="Contoh: 10" type="number" />
-              <label className="flex min-w-0 flex-col gap-2 lg:col-span-2">
-                <span className="text-sm font-extrabold text-slate-800">Deskripsi singkat</span>
-                <textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} placeholder="Ceritakan layanan yang tersedia atau keunggulan usaha ini." rows={3} className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-base leading-6 text-slate-900 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
-              </label>
-              <label className="flex min-w-0 flex-col gap-2">
-                <span className="text-sm font-extrabold text-slate-800">
-                  Foto usaha <span className="font-medium text-slate-500">(maks. 1 MB)</span>
-                </span>
-                <span className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-dashed border-blue-300 bg-blue-50 px-3 text-base font-bold text-blue-700 hover:bg-blue-100">
-                  <Upload className="size-5" />
-                  {photo ? "Foto dipilih — akan disimpan" : "Unggah foto (opsional)"}
-                  <input type="file" accept="image/*" onChange={(event) => handlePhoto(event.target.files?.[0])} className="sr-only" />
-                </span>
-                {photo ? <img src={photo} alt="Pratinjau foto usaha" className="mt-2 aspect-[16/9] w-full max-w-sm rounded-lg object-cover" /> : null}
-              </label>
-              <label className="flex min-w-0 flex-col gap-2">
-                <span className="text-sm font-extrabold text-slate-800">Tag pencarian</span>
-                <input value={draft.tags.join(", ")} onChange={(event) => updateDraft({ tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean) })} placeholder="servis, dekat, cepat" className={inputClass} />
-              </label>
-              <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 text-base font-bold text-slate-800">
-                <input type="checkbox" checked={draft.featured ?? false} onChange={(event) => updateDraft({ featured: event.target.checked })} className="size-5 accent-blue-600" />
-                <Sparkles className="size-5 text-amber-600" />Tampilkan sebagai pilihan warga
-              </label>
-              <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 text-base font-bold text-slate-800">
-                <input type="checkbox" checked={draft.verified ?? false} onChange={(event) => updateDraft({ verified: event.target.checked })} className="size-5 accent-blue-600" />
-                <FileCheck2 className="size-5 text-blue-600" />Tampilkan sebagai terverifikasi
-              </label>
-            </div>
+              <div className="mt-6 grid gap-5 lg:grid-cols-2">
+                <Field
+                  label="Nama usaha"
+                  value={draft.name}
+                  onChange={(name) => updateDraft({ name })}
+                  placeholder="Contoh: Bengkel Svetrum"
+                  required
+                />
+                <label className="flex min-w-0 flex-col gap-2">
+                  <span className="text-base font-black">Kategori</span>
+                  <select
+                    value={draft.category}
+                    onChange={(event) =>
+                      updateDraft({ category: event.target.value as Category })
+                    }
+                    className={inputClass}
+                  >
+                    {categoryOptions.map((item) => (
+                      <option key={item.label}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <Field
+                  label="Nomor WhatsApp"
+                  value={draft.phone}
+                  onChange={(phone) => updateDraft({ phone })}
+                  placeholder="628xxxxxxxxxx"
+                  type="tel"
+                  required
+                />
+                <Field
+                  label="Harga mulai dari"
+                  value={draft.price}
+                  onChange={(price) => updateDraft({ price })}
+                  placeholder="Mulai Rp50.000"
+                />
+                <label className="flex min-w-0 flex-col gap-2">
+                  <span className="text-base font-black">Patokan lokasi</span>
+                  <select
+                    value={draft.landmark}
+                    onChange={(event) => updateDraft({ landmark: event.target.value })}
+                    className={inputClass}
+                  >
+                    {landmarks
+                      .filter((item) => item.id !== "all")
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <Field
+                  label="Latitude (opsional)"
+                  value={draft.lat?.toString() ?? ""}
+                  onChange={(value) => {
+                    const parsed = Number(value);
+                    updateDraft({
+                      lat: value.trim() === "" || Number.isNaN(parsed) ? undefined : parsed,
+                    });
+                  }}
+                  placeholder="-7.009"
+                  type="number"
+                />
+                <Field
+                  label="Longitude (opsional)"
+                  value={draft.lng?.toString() ?? ""}
+                  onChange={(value) => {
+                    const parsed = Number(value);
+                    updateDraft({
+                      lng: value.trim() === "" || Number.isNaN(parsed) ? undefined : parsed,
+                    });
+                  }}
+                  placeholder="114.448"
+                  type="number"
+                />
+                <p className="text-sm leading-6 text-[#525252] lg:col-span-2">
+                  Isi koordinat agar listing dapat difilter berdasarkan jarak pengguna.
+                  Koordinat hanya dipakai untuk perhitungan jarak.
+                </p>
+                <label className="flex min-w-0 flex-col gap-2">
+                  <span className="text-base font-black">Status tayang</span>
+                  <select
+                    value={draft.status ?? "active"}
+                    onChange={(event) =>
+                      updateDraft({
+                        status: event.target.value as Vendor["status"],
+                      })
+                    }
+                    className={inputClass}
+                  >
+                    <option value="active">Aktif — tampil di katalog</option>
+                    <option value="draft">Draft — belum tampil</option>
+                    <option value="archived">Arsip — disembunyikan</option>
+                  </select>
+                </label>
+                <Field
+                  label="Alamat lengkap"
+                  value={draft.address}
+                  onChange={(address) => updateDraft({ address })}
+                  placeholder="Jalan, nomor, atau keterangan lokasi"
+                  required
+                />
+                <Field
+                  label="Jam kerja"
+                  value={draft.hours}
+                  onChange={(hours) => updateDraft({ hours })}
+                  placeholder="Setiap hari · 07.00–17.00"
+                />
+                <label className="flex min-w-0 flex-col gap-2">
+                  <span className="text-base font-black">Status ketersediaan</span>
+                  <select
+                    value={draft.availability ?? "available"}
+                    onChange={(event) =>
+                      updateDraft({
+                        availability: event.target.value as Vendor["availability"],
+                      })
+                    }
+                    className={inputClass}
+                  >
+                    <option value="available">Tersedia</option>
+                    <option value="busy">Sedang sibuk</option>
+                    <option value="closed">Tutup sementara</option>
+                  </select>
+                </label>
+                <Field
+                  label="Catatan ketersediaan"
+                  value={draft.availabilityNote ?? ""}
+                  onChange={(availabilityNote) => updateDraft({ availabilityNote })}
+                  placeholder="Contoh: Bisa datang hari ini setelah jam 3"
+                />
+                <Field
+                  label="Rata-rata balas (menit)"
+                  value={draft.responseMinutes?.toString() ?? ""}
+                  onChange={(value) =>
+                    updateDraft({
+                      responseMinutes:
+                        value.trim() === "" || Number.isNaN(Number(value))
+                          ? undefined
+                          : Number(value),
+                    })
+                  }
+                  placeholder="Contoh: 45"
+                  type="number"
+                />
+                <Field
+                  label="Radius layanan (km)"
+                  value={draft.serviceRadiusKm?.toString() ?? ""}
+                  onChange={(value) =>
+                    updateDraft({
+                      serviceRadiusKm:
+                        value.trim() === "" || Number.isNaN(Number(value))
+                          ? undefined
+                          : Number(value),
+                    })
+                  }
+                  placeholder="Contoh: 10"
+                  type="number"
+                />
+                <label className="flex min-w-0 flex-col gap-2 lg:col-span-2">
+                  <span className="text-base font-black">Deskripsi singkat</span>
+                  <textarea
+                    value={draft.description}
+                    onChange={(event) => updateDraft({ description: event.target.value })}
+                    placeholder="Ceritakan layanan yang tersedia atau keunggulan usaha ini."
+                    rows={3}
+                    className={inputClass}
+                  />
+                </label>
+                <label className="flex min-w-0 flex-col gap-2">
+                  <span className="text-base font-black">
+                    Foto usaha <span className="font-bold text-[#525252]">(maks. 1 MB)</span>
+                  </span>
+                  <span className="flex min-h-12 cursor-pointer items-center gap-3 border-2 border-dashed border-[#121212] bg-[#F1EDE3] px-3 text-base font-black text-[#1A1A1A] hover:bg-[#FFE662] focus-within:outline focus-within:outline-3 focus-within:outline-offset-2 focus-within:outline-[#FF5A26]">
+                    <Upload className="size-5 shrink-0" />
+                    {photo ? "Foto dipilih — akan disimpan" : "Unggah foto (opsional)"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(event) => handlePhoto(event.target.files?.[0])}
+                      className="sr-only"
+                    />
+                  </span>
+                  {photo ? (
+                    <img
+                      src={photo}
+                      alt="Pratinjau foto usaha"
+                      className="mt-2 aspect-[16/9] w-full max-w-sm border-2 border-[#121212] object-cover shadow-[3px_3px_0_#121212]"
+                    />
+                  ) : null}
+                </label>
+                <label className="flex min-w-0 flex-col gap-2">
+                  <span className="text-base font-black">Tag pencarian</span>
+                  <input
+                    value={draft.tags.join(", ")}
+                    onChange={(event) =>
+                      updateDraft({
+                        tags: event.target.value
+                          .split(",")
+                          .map((tag) => tag.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                    placeholder="servis, dekat, cepat"
+                    className={inputClass}
+                  />
+                </label>
+                <label className="flex min-h-12 cursor-pointer items-center gap-3 border-2 border-[#121212] bg-[#F1EDE3] px-3 text-base font-black hover:bg-[#FFE662] focus-within:outline focus-within:outline-3 focus-within:outline-offset-2 focus-within:outline-[#FF5A26]">
+                  <input
+                    type="checkbox"
+                    checked={draft.featured ?? false}
+                    onChange={(event) => updateDraft({ featured: event.target.checked })}
+                    className="admin-check"
+                  />
+                  <Sparkles className="size-5 text-[#FF5A26]" />
+                  Tampilkan sebagai pilihan warga
+                </label>
+                <label className="flex min-h-12 cursor-pointer items-center gap-3 border-2 border-[#121212] bg-[#F1EDE3] px-3 text-base font-black hover:bg-[#FFE662] focus-within:outline focus-within:outline-3 focus-within:outline-offset-2 focus-within:outline-[#FF5A26]">
+                  <input
+                    type="checkbox"
+                    checked={draft.verified ?? false}
+                    onChange={(event) => updateDraft({ verified: event.target.checked })}
+                    className="admin-check"
+                  />
+                  <FileCheck2 className="size-5 text-[#1A1A1A]" />
+                  Tampilkan sebagai terverifikasi
+                </label>
+              </div>
 
-            <div className="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => draft && setPreview(draft)} className={`min-h-12 rounded-lg border border-slate-300 px-5 text-base font-extrabold text-slate-700 hover:bg-slate-50 ${focusRing}`}>Pratinjau listing</button>
-              <button type="button" onClick={resetEditor} className={`min-h-12 rounded-lg border border-slate-300 px-5 text-base font-extrabold text-slate-700 hover:bg-slate-50 ${focusRing}`}>Batal</button>
-              <button type="button" onClick={save} disabled={!draft.name.trim() || !draft.phone.trim() || saving} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 text-base font-extrabold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}>
-                {saving ? <span className="size-5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> : <Save className="size-5" />}
-                {saving ? "Menyimpan..." : "Simpan listing"}
-              </button>
+              <div className="mt-6 flex flex-col gap-3 border-t-2 border-[#121212] pt-5 sm:flex-row sm:flex-wrap sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => draft && setPreview(draft)}
+                  className={secondaryButtonClass}
+                >
+                  <Eye className="size-5" />
+                  Pratinjau listing
+                </button>
+                <button type="button" onClick={resetEditor} className={quietButtonClass}>
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void save()}
+                  disabled={!draft.name.trim() || !draft.phone.trim() || saving}
+                  className="admin-btn admin-btn-primary"
+                >
+                  {saving ? (
+                    <span className="size-5 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none" />
+                  ) : (
+                    <Save className="size-5" />
+                  )}
+                  {saving ? "Menyimpan..." : "Simpan listing"}
+                </button>
+              </div>
             </div>
           </section>
         ) : null}
 
-        <ScrollReveal>
-          <section className="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-          <div className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
-              <ImagePlus className="size-5" />
+        <section id="admin-triage" className="admin-panel admin-panel-lg mt-8 scroll-mt-28 overflow-hidden">
+          <SectionHeading
+            eyebrow="Triage vendor"
+            title="Meja kerja listing"
+            description="Cari, saring, periksa nomor, lalu putuskan status tanpa meninggalkan halaman admin."
+            icon={Building2}
+            action={
+              <button
+                type="button"
+                onClick={startNew}
+                className="admin-btn admin-btn-primary"
+              >
+                <Plus className="size-5" />
+                Tambah
+              </button>
+            }
+          />
+
+          <div className="border-b-2 border-[#121212] bg-[#F1EDE3] p-4 sm:p-6">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(18rem,1fr)_13rem_13rem_auto]">
+              <label className="relative block">
+                <span className="sr-only">Cari listing</span>
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#525252]"
+                  aria-hidden="true"
+                />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Cari nama, kategori, alamat, atau nomor..."
+                className={`${inputClass} pl-11 sm:col-span-2 lg:col-span-1`}
+                type="search"
+                />
+              </label>
+              <label>
+                <span className="sr-only">Filter status vendor</span>
+                <select
+                  value={statusFilter}
+                  onChange={(event) =>
+                    setStatusFilter(event.target.value as ModerationFilter)
+                  }
+                  className={inputClass}
+                >
+                  {statusFilters.map((filter) => (
+                    <option key={filter.value} value={filter.value}>
+                      {filter.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="sr-only">Filter kategori</span>
+                <select
+                  value={categoryFilter}
+                  onChange={(event) =>
+                    setCategoryFilter(event.target.value as "all" | Category)
+                  }
+                  className={inputClass}
+                >
+                  <option value="all">Semua kategori</option>
+                  {categoryOptions.map((item) => (
+                    <option key={item.label} value={item.label}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setStatusFilter("all");
+                  setCategoryFilter("all");
+                }}
+                disabled={!search && statusFilter === "all" && categoryFilter === "all"}
+                className="admin-btn admin-btn-secondary"
+              >
+                <Filter className="size-5" />
+                Reset
+              </button>
             </div>
-            <div>
-              <h2 className="text-xl font-black text-slate-950">Listing di katalog</h2>
-              <p className="text-sm font-medium text-slate-600">{items.length} catatan</p>
-            </div>
+            <p className="mt-3 text-sm font-bold text-[#525252]">
+              Menampilkan {filteredItems.length} dari {items.length} listing
+            </p>
           </div>
-          <div className="mt-5 divide-y divide-slate-100">
-            {items.map((item) => (
-              <div key={item.slug} className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className={`flex size-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${item.accent} text-sm font-black text-white`}>{item.mark}</div>
-                  <div className="min-w-0">
-                    <p className="truncate text-base font-extrabold text-slate-950">{item.name}</p>
-                    <p className="mt-1 text-sm font-medium text-slate-600">{item.category} · {item.address || "Alamat belum diisi"}</p>
+
+          <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(13rem,.8fr)] gap-4 border-b-2 border-[#121212] bg-white px-6 py-3 text-sm font-black uppercase tracking-[0.1em] text-[#525252] lg:grid">
+            <span>Vendor & kategori</span>
+            <span>Status moderasi</span>
+            <span>Kontak, kualitas & aksi</span>
+          </div>
+
+          <div className="divide-y-2 divide-[#121212]">
+            {filteredItems.map((item) => {
+              const moderation = statusInfo(item);
+              const itemIssues = qualityIssues(item as Vendor);
+              const itemCompleteness = profileCompleteness(item);
+              const waHref = whatsappHref(item.phone);
+              const isActive = (item.status ?? "active") === "active";
+              const itemBusyPrefix = `${item._id}:`;
+
+              return (
+                <article
+                  key={item._id}
+                  className="grid gap-4 bg-white p-4 transition-colors hover:bg-[#FFFCF5] sm:p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(13rem,.8fr)] lg:px-6"
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div
+                      className={`flex size-14 shrink-0 items-center justify-center border-2 border-[#121212] bg-gradient-to-br ${item.accent} text-base font-black text-white shadow-[2px_2px_0_#121212]`}
+                      aria-hidden="true"
+                    >
+                      {item.mark}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="min-w-0 break-words text-lg font-black tracking-[-0.025em] text-[#1A1A1A]">
+                          {item.name}
+                        </h3>
+                        {!item.phone.trim() ? (
+                          <span className="admin-status admin-status-warning">
+                            Tanpa nomor
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 text-base font-black text-[#525252]">
+                        {item.category}
+                      </p>
+                      <p className="mt-1 flex items-start gap-1.5 text-sm leading-6 text-[#525252]">
+                        <MapPin className="mt-1 size-4 shrink-0" />
+                        {item.address || "Alamat belum diisi"} · {landmarkLabel(item.landmark)}
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-[#525252]">
+                        Diperbarui {formatDate(item.updatedAt)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex shrink-0 flex-wrap gap-2">
-                  <Link to={`/v/${item.slug}`} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-blue-200 px-4 text-base font-extrabold text-blue-700 hover:bg-blue-50 ${focusRing}`}>Lihat</Link>
-                  <button type="button" onClick={() => startEdit(item as Vendor)} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 text-base font-extrabold text-slate-700 hover:bg-slate-50 ${focusRing}`}><Pencil className="size-4" />Sunting</button>
-                  <button type="button" onClick={() => item._id && void subscription({ vendorId: item._id as never, tier: item.featured ? "free" : "featured" })} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-amber-200 px-4 text-base font-extrabold text-amber-800 hover:bg-amber-50 ${focusRing}`}>{item.featured ? "Jadikan biasa" : "Jadikan unggulan"}</button>
-                  <button type="button" onClick={() => remove(item.slug)} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-red-200 px-4 text-base font-extrabold text-red-700 hover:bg-red-50 ${focusRing}`}><Trash2 className="size-4" />Hapus</button>
-                </div>
-                {item._id ? <PackageManager vendorId={item._id} vendorName={item.name} /> : null}
+
+                  <div className="min-w-0">
+                    <span className={`admin-status admin-status-${moderation.key}`}>
+                      {moderation.label}
+                    </span>
+                    <p className="mt-2 text-sm leading-6 text-[#525252]">
+                      {moderation.hint}
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-[#1A1A1A]">
+                      Klaim: {item.ownerId || item.businessId ? "Ada" : "Belum ada"}
+                    </p>
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="border-2 border-[#121212] bg-[#F5F0E5] p-2">
+                        <p className="font-bold text-[#525252]">Kualitas</p>
+                        <p className="mt-0.5 text-base font-black">
+                          {itemCompleteness}%
+                        </p>
+                      </div>
+                      <div className="border-2 border-[#121212] bg-[#F5F0E5] p-2">
+                        <p className="font-bold text-[#525252]">Klik WA</p>
+                        <p className="mt-0.5 text-base font-black">
+                          {Number(item.whatsappClicks ?? 0).toLocaleString("id-ID")}
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="mt-2 flex items-center gap-2 break-all text-sm font-black">
+                      <Phone className="size-4 shrink-0" />
+                      {formatPhone(item.phone)}
+                    </p>
+                    {itemIssues.length > 0 ? (
+                      <p className="mt-1 text-sm font-bold text-[#7C2D12]">
+                        {itemIssues.length} data perlu dilengkapi
+                      </p>
+                    ) : null}
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {waHref ? (
+                        <a
+                          href={waHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="admin-btn admin-btn-secondary px-3"
+                        >
+                          <MessageCircle className="size-4" />
+                          Cek WA
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="admin-btn admin-btn-secondary px-3"
+                        >
+                          <MessageCircle className="size-4" />
+                          Cek WA
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={!item.phone.trim() || busyAction === `${itemBusyPrefix}approve`}
+                        onClick={() => void approveVendor(item)}
+                        className="admin-btn admin-btn-primary px-3"
+                      >
+                        <Check className="size-4" />
+                        Setujui
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingConfirmation({ kind: "reject", vendor: item })}
+                        className="admin-btn admin-btn-danger px-3"
+                      >
+                        <X className="size-4" />
+                        Tolak
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t-2 border-[#121212] pt-3">
+                      <label className="inline-flex min-h-12 items-center gap-2 border-2 border-[#121212] bg-[#F5F0E5] px-2">
+                        <span className="text-sm font-black">Aktif</span>
+                        <Switch
+                          checked={isActive}
+                          disabled={
+                            busyAction === `${itemBusyPrefix}archive` ||
+                            busyAction === `${itemBusyPrefix}activate`
+                          }
+                          onCheckedChange={() => void toggleActive(item)}
+                          className="admin-switch"
+                          aria-label={`${isActive ? "Nonaktifkan" : "Aktifkan"} ${item.name}`}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void toggleFeatured(item)}
+                        disabled={busyAction === `${itemBusyPrefix}featured`}
+                        className={`admin-btn px-3 ${item.featured ? "admin-btn-highlight" : "admin-btn-secondary"}`}
+                      >
+                        <Sparkles className="size-4" />
+                        {item.featured ? "Jadikan biasa" : "Jadikan unggulan"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingConfirmation({ kind: "delete", vendor: item })}
+                        className="admin-icon-btn"
+                        aria-label={`Hapus ${item.name}`}
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {isActive ? (
+                        <Link
+                          to={`/v/${item.slug}`}
+                          className="admin-btn admin-btn-secondary px-3"
+                        >
+                          <ArrowUpRight className="size-4" />
+                          Lihat
+                        </Link>
+                      ) : (
+                        <span className="inline-flex min-h-12 items-center border-2 border-[#121212] bg-[#E7E5E4] px-3 text-sm font-black text-[#525252]">
+                          Tidak tayang
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => startEdit(item)}
+                        className="admin-btn admin-btn-secondary px-3"
+                      >
+                        <Pencil className="size-4" />
+                        Sunting
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-3">
+                    <AdminPackageManager vendorId={item._id} vendorName={item.name} />
+                  </div>
+                </article>
+              );
+            })}
+
+            {filteredItems.length === 0 ? (
+              <div className="p-6 text-center sm:p-10">
+                <span className="mx-auto flex size-14 items-center justify-center border-2 border-[#121212] bg-[#FFE662] shadow-[3px_3px_0_#121212]">
+                  <Search className="size-6" />
+                </span>
+                <h3 className="mt-4 text-xl font-black">Listing tidak ditemukan</h3>
+                <p className="mx-auto mt-2 max-w-lg text-base leading-7 text-[#525252]">
+                  Ubah kata kunci atau reset filter untuk melihat seluruh data katalog.
+                </p>
               </div>
-            ))}
+            ) : null}
           </div>
-          </section>
-        </ScrollReveal>
+        </section>
       </main>
+
+      <AlertDialogPrimitive.Root
+        open={Boolean(pendingConfirmation)}
+        onOpenChange={(open) => {
+          if (!open && !confirming) setPendingConfirmation(null);
+        }}
+      >
+        <AlertDialogPrimitive.Portal>
+          <AlertDialogPrimitive.Overlay className="admin-confirm-overlay" />
+          <AlertDialogPrimitive.Content className="admin-confirm-content">
+            <div className="border-b-2 border-[#121212] bg-[#E9B4A7] p-5 sm:p-6">
+              <div className="flex items-start gap-3">
+                <span className="flex size-12 shrink-0 items-center justify-center border-2 border-[#121212] bg-white shadow-[2px_2px_0_#121212]">
+                  <AlertTriangle className="size-6 text-[#7C2D12]" />
+                </span>
+                <div>
+                  <AlertDialogPrimitive.Title className="text-[clamp(1.25rem,3vw,1.75rem)] font-black tracking-[-0.03em] text-[#1A1A1A]">
+                    {pendingConfirmation?.kind === "reject"
+                      ? "Tolak listing ini?"
+                      : "Hapus listing dari katalog?"}
+                  </AlertDialogPrimitive.Title>
+                  <AlertDialogPrimitive.Description className="mt-2 text-base leading-7 text-[#1A1A1A]">
+                    {pendingConfirmation?.kind === "reject"
+                      ? `${pendingConfirmation.vendor.name} akan ditolak dan diarsipkan. Data tetap disimpan di ruang admin, tetapi listing tidak tampil di katalog.`
+                      : `${pendingConfirmation?.vendor.name ?? "Listing ini"} akan diarsipkan dan tidak lagi tampil di katalog. Aksi ini tidak dapat dibatalkan dari halaman ini.`}
+                  </AlertDialogPrimitive.Description>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-6">
+              <AlertDialogPrimitive.Cancel
+                disabled={confirming}
+                className="admin-btn admin-btn-secondary"
+              >
+                Batalkan
+              </AlertDialogPrimitive.Cancel>
+              <button
+                type="button"
+                disabled={confirming}
+                onClick={() => void confirmDestructiveAction()}
+                className="admin-btn bg-[#FF5A26] text-white"
+              >
+                {confirming ? (
+                  <span className="size-5 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none" />
+                ) : pendingConfirmation?.kind === "reject" ? (
+                  <X className="size-5" />
+                ) : (
+                  <Trash2 className="size-5" />
+                )}
+                {confirming
+                  ? "Memproses..."
+                  : pendingConfirmation?.kind === "reject"
+                    ? "Ya, tolak listing"
+                    : "Ya, hapus listing"}
+              </button>
+            </div>
+          </AlertDialogPrimitive.Content>
+        </AlertDialogPrimitive.Portal>
+      </AlertDialogPrimitive.Root>
     </div>
   );
+}
+
+function BellIcon(props: React.ComponentProps<typeof Inbox>) {
+  return <Inbox {...props} />;
 }

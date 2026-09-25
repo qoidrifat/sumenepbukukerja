@@ -122,3 +122,357 @@
     }
   }
 }
+
+/* Admin-only Warm Brutalism layer. Never redefine public theme tokens here. */
+.admin-workspace {
+  --admin-canvas: #faf7ee;
+  --admin-surface: #fdfbf7;
+  --admin-white: #ffffff;
+  --admin-ink: #1a1a1a;
+  --admin-muted: #525252;
+  --admin-line: #121212;
+  --admin-orange: #ff5a26;
+  --admin-yellow: #ffe662;
+  --admin-mint: #dcebd7;
+  --admin-stone: #e7e5e4;
+  --admin-terracotta: #e9b4a7;
+  color: var(--admin-ink);
+  background-color: var(--admin-canvas);
+  background-image: radial-gradient(rgba(18, 18, 18, 0.075) 0.75px, transparent 0.75px);
+  background-size: 12px 12px;
+}
+
+.admin-workspace ::selection {
+  color: var(--admin-ink);
+  background: var(--admin-yellow);
+}
+
+.admin-workspace :where(a, button, input, select, textarea, summary, [role="switch"]):focus-visible,
+.admin-confirm-content :where(a, button):focus-visible {
+  outline: 3px solid #ff5a26;
+  outline-offset: 3px;
+}
+
+.admin-workspace .admin-shell-frame {
+  background: color-mix(in srgb, var(--admin-canvas) 94%, transparent);
+  border-inline: 0 solid var(--admin-line);
+}
+
+.admin-workspace .admin-panel,
+.admin-workspace .admin-card,
+.admin-workspace .admin-metric {
+  border: 2px solid var(--admin-line);
+  border-radius: 2px;
+  background: var(--admin-surface);
+  box-shadow: 3px 3px 0 0 var(--admin-line);
+}
+
+.admin-workspace .admin-panel-lg,
+.admin-workspace .admin-metric-lg {
+  box-shadow: 4px 4px 0 0 var(--admin-line);
+}
+
+.admin-workspace .admin-btn,
+.admin-workspace .admin-icon-btn,
+.admin-confirm-content .admin-btn {
+  min-height: 48px;
+  border: 2px solid var(--admin-line);
+  border-radius: 2px;
+  font-weight: 800;
+  box-shadow: 3px 3px 0 0 var(--admin-line);
+}
+
+.admin-workspace .admin-btn,
+.admin-confirm-content .admin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+}
+
+.admin-workspace .admin-icon-btn {
+  display: inline-flex;
+  width: 48px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.admin-workspace .admin-btn-primary {
+  color: #ffffff;
+  background: var(--admin-orange);
+}
+
+.admin-workspace .admin-btn-secondary,
+.admin-confirm-content .admin-btn-secondary {
+  color: var(--admin-ink);
+  background: var(--admin-white);
+}
+
+.admin-workspace .admin-btn-highlight {
+  color: var(--admin-ink);
+  background: var(--admin-yellow);
+}
+
+.admin-workspace .admin-btn-danger {
+  color: #7c2d12;
+  background: var(--admin-white);
+}
+
+.admin-workspace .admin-btn-quiet {
+  color: var(--admin-ink);
+  background: #f1ede3;
+  box-shadow: none;
+}
+
+.admin-workspace .admin-btn:disabled,
+.admin-workspace .admin-icon-btn:disabled,
+.admin-confirm-content .admin-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.admin-workspace .admin-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  border: 2px solid var(--admin-line);
+  border-radius: 2px;
+  color: var(--admin-ink);
+  background: var(--admin-white);
+  padding: 0.7rem 0.8rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  outline: none;
+  box-shadow: 2px 2px 0 0 var(--admin-line);
+}
+
+.admin-workspace textarea.admin-input {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.admin-workspace .admin-input::placeholder {
+  color: #737373;
+  opacity: 1;
+}
+
+.admin-workspace .admin-input:focus {
+  border-color: var(--admin-orange);
+  box-shadow: 4px 4px 0 0 var(--admin-line);
+}
+
+.admin-workspace .admin-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.admin-workspace .admin-status {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  border: 1.5px solid var(--admin-line);
+  border-radius: 2px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.875rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.admin-workspace .admin-status-verified {
+  color: #24533a;
+  background: var(--admin-mint);
+}
+
+.admin-workspace .admin-status-confirmed {
+  color: var(--admin-ink);
+  background: var(--admin-yellow);
+}
+
+.admin-workspace .admin-status-unclaimed {
+  color: #44403c;
+  background: var(--admin-stone);
+}
+
+.admin-workspace .admin-status-inactive {
+  color: #7c2d12;
+  background: var(--admin-terracotta);
+}
+
+.admin-workspace .admin-status-warning {
+  color: var(--admin-ink);
+  background: var(--admin-orange);
+}
+
+.admin-workspace .admin-check {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  accent-color: var(--admin-orange);
+}
+
+.admin-workspace .admin-switch {
+  position: relative;
+  width: 56px !important;
+  height: 48px !important;
+  flex: 0 0 auto;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.admin-workspace .admin-switch::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  left: 6px;
+  width: 40px;
+  height: 18px;
+  border: 2px solid var(--admin-line);
+  border-radius: 0;
+  background: var(--admin-stone);
+}
+
+.admin-workspace .admin-switch[data-state="checked"]::before {
+  background: var(--admin-mint);
+}
+
+.admin-workspace .admin-switch [data-slot="switch-thumb"] {
+  position: absolute;
+  z-index: 1;
+  top: 18px;
+  left: 9px !important;
+  width: 12px !important;
+  height: 12px !important;
+  border: 2px solid var(--admin-line);
+  border-radius: 0 !important;
+  background: var(--admin-white) !important;
+  transform: translateX(0) !important;
+  transition: transform 75ms ease;
+}
+
+.admin-workspace .admin-switch[data-state="checked"] [data-slot="switch-thumb"] {
+  transform: translateX(26px) !important;
+}
+
+.admin-workspace .admin-progress-track {
+  height: 12px;
+  overflow: hidden;
+  border: 2px solid var(--admin-line);
+  border-radius: 0;
+  background: var(--admin-white);
+}
+
+.admin-workspace .admin-progress-value {
+  height: 100%;
+  border-right: 2px solid var(--admin-line);
+  background: var(--admin-yellow);
+}
+
+.admin-workspace .admin-sync-dot {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border: 2px solid var(--admin-line);
+  border-radius: 999px;
+  background: var(--admin-orange);
+}
+
+.admin-workspace .admin-sync-dot::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border: 2px solid var(--admin-orange);
+  border-radius: inherit;
+  animation: admin-pulse 1.8s ease-out infinite;
+}
+
+.admin-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgb(18 18 18 / 68%);
+}
+
+.admin-confirm-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 90;
+  display: grid;
+  width: calc(100% - 2rem);
+  max-width: 34rem !important;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
+  border: 2px solid #121212 !important;
+  border-radius: 2px !important;
+  color: #1a1a1a;
+  background: #fdfbf7 !important;
+  padding: 0 !important;
+  box-shadow: 6px 6px 0 0 #121212 !important;
+  outline: none;
+}
+
+.admin-confirm-content:focus-visible {
+  outline: 4px solid #ff5a26;
+  outline-offset: 4px;
+}
+
+@keyframes admin-pulse {
+  from {
+    opacity: 0.8;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.45);
+  }
+}
+
+@media (min-width: 1024px) {
+  .admin-workspace .admin-shell-frame {
+    border-inline-width: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-workspace *,
+  .admin-workspace *::before,
+  .admin-workspace *::after,
+  .admin-confirm-content,
+  .admin-confirm-overlay {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .admin-workspace .admin-btn,
+  .admin-workspace .admin-icon-btn,
+  .admin-confirm-content .admin-btn,
+  .admin-workspace .admin-input,
+  .admin-workspace .admin-switch [data-slot="switch-thumb"] {
+    transition: transform 75ms ease, box-shadow 75ms ease, background-color 75ms ease, border-color 75ms ease;
+  }
+
+  .admin-workspace .admin-btn:hover:not(:disabled),
+  .admin-workspace .admin-icon-btn:hover:not(:disabled),
+  .admin-confirm-content .admin-btn:hover:not(:disabled) {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 0 #121212;
+  }
+
+  .admin-workspace .admin-btn:active:not(:disabled),
+  .admin-workspace .admin-icon-btn:active:not(:disabled),
+  .admin-confirm-content .admin-btn:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: none;
+  }
+}

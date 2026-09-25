@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Link, useParams } from "react-router";
 import {
+  AlertTriangle,
   ArrowLeft,
   Bookmark,
   CheckCircle2,
@@ -30,6 +31,40 @@ import NotFound from "./NotFound";
 const focusRing =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
 
+type CtaNotice = {
+  tone: "success" | "error";
+  text: string;
+};
+
+function CtaFeedback({
+  notice,
+  reduceMotion,
+  className = "",
+}: {
+  notice: CtaNotice | null;
+  reduceMotion: boolean;
+  className?: string;
+}) {
+  return (
+    <AnimatePresence initial={false} mode="wait">
+      {notice ? (
+        <motion.div
+          key={`${notice.tone}-${notice.text}`}
+          role={notice.tone === "error" ? "alert" : "status"}
+          initial={reduceMotion ? false : { opacity: 0, y: 6, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={reduceMotion ? undefined : { opacity: 0, y: -4, scale: 0.98 }}
+          transition={{ duration: reduceMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }}
+          className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm font-bold leading-5 ${notice.tone === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"} ${className}`}
+        >
+          {notice.tone === "error" ? <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" /> : <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}
+          <span>{notice.text}</span>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
 function ProfileLoading() {
   return (
     <main className="flex min-h-dvh min-h-[100svh] items-center justify-center bg-[#f7f8fc] px-4">
@@ -53,7 +88,14 @@ function VendorProfileContent() {
   const [reviewNotice, setReviewNotice] = useState("");
   const [reviewError, setReviewError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [ctaNotice, setCtaNotice] = useState<CtaNotice | null>(null);
   const reduceMotion = useReducedMotion() ?? false;
+
+  useEffect(() => {
+    if (!ctaNotice) return;
+    const timeout = window.setTimeout(() => setCtaNotice(null), 3600);
+    return () => window.clearTimeout(timeout);
+  }, [ctaNotice]);
 
   if (vendor === undefined) return <ProfileLoading />;
   if (vendor === null) return <NotFound />;
@@ -78,16 +120,25 @@ function VendorProfileContent() {
     } catch {
       // Analytics must never block WhatsApp.
     }
+    setCtaNotice({ tone: "success", text: "WhatsApp siap dibuka. Lihat tab atau aplikasi WhatsApp Anda." });
   };
 
   const share = async () => {
     const text = `${vendor.name} — ${vendor.description}`;
     if (vendor._id) void click({ id: vendor._id as never, kind: "share" });
     const url = `${window.location.origin}/v/${vendor.slug}`;
-    if (navigator.share) {
-      await navigator.share({ title: vendor.name, text, url }).catch(() => undefined);
-    } else {
-      await navigator.clipboard?.writeText(`${text} ${url}`);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: vendor.name, text, url });
+        setCtaNotice({ tone: "success", text: "Tautan siap dibagikan." });
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(`${text} ${url}`);
+        setCtaNotice({ tone: "success", text: "Tautan listing disalin ke clipboard." });
+      } else {
+        setCtaNotice({ tone: "error", text: "Browser belum mendukung menyalin tautan." });
+      }
+    } catch {
+      setCtaNotice({ tone: "error", text: "Tautan belum dibagikan. Coba lagi sebentar lagi." });
     }
   };
 
@@ -119,7 +170,7 @@ function VendorProfileContent() {
   };
 
   return (
-    <div className="min-h-dvh min-h-[100svh] bg-[#f7f8fc] pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-12">
+    <div className="min-h-dvh min-h-[100svh] overflow-x-hidden bg-[#f7f8fc] pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-12">
       <motion.header
         initial={reduceMotion ? false : { opacity: 0, y: -16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -191,8 +242,8 @@ function VendorProfileContent() {
                   <div className="absolute -bottom-24 left-10 size-64 rounded-full border border-white/20" />
                   <div className="absolute inset-0 flex items-center justify-center">
                     <motion.span
-                      animate={reduceMotion ? undefined : { y: [0, -7, 0] }}
-                      transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut" }}
+                      whileHover={reduceMotion ? undefined : { scale: 1.04, y: -3 }}
+                      transition={{ duration: 0.2 }}
                       className="flex size-24 items-center justify-center rounded-2xl border border-white/40 bg-white/20 text-3xl font-black text-white backdrop-blur-sm sm:size-32"
                     >
                       {vendor.mark}
@@ -427,6 +478,9 @@ function VendorProfileContent() {
                   <Bookmark className={`size-5 ${saved ? "fill-blue-600 text-blue-600" : "text-slate-600"}`} />
                 </motion.button>
               </div>
+              <div className="hidden lg:block">
+                <CtaFeedback notice={ctaNotice} reduceMotion={reduceMotion} className="mt-4" />
+              </div>
               <div className="mt-5 flex items-start gap-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold leading-6 text-slate-700">
                 <span className="text-lg" aria-hidden="true">✎</span>
                 <span>Transaksi dan kesepakatan tetap dilakukan langsung bersama mitra.</span>
@@ -436,6 +490,9 @@ function VendorProfileContent() {
         </div>
       </main>
 
+      <div className="pointer-events-none fixed inset-x-4 bottom-[calc(6.75rem+env(safe-area-inset-bottom))] z-[60] lg:hidden">
+        <CtaFeedback notice={ctaNotice} reduceMotion={reduceMotion} className="mx-auto max-w-md" />
+      </div>
       <div className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white p-3 pb-[calc(.75rem+env(safe-area-inset-bottom))] lg:hidden">
         <div className="mx-auto grid max-w-md grid-cols-[3rem_1fr] gap-2">
           <motion.button

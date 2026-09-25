@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { Link } from "react-router";
 import {
   ArrowRight,
@@ -286,6 +287,8 @@ function Catalog({
   const [compare, setCompare] = useState<string[]>([]);
   const [showMap, setShowMap] = useState(false);
   const [distanceLimit, setDistanceLimit] = useState<number | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const reduceMotion = useReducedMotion() ?? false;
   const favorites = useFavorites();
 
   const vendorsWithDistance = useMemo(() => {
@@ -337,14 +340,39 @@ function Catalog({
             <p className="mt-2 max-w-2xl text-base leading-7 text-slate-600">Cari dan telusuri catatan usaha yang sudah dipilih warga Sumenep.</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <label className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-700 shadow-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 lg:max-w-sm">
-              <Search className="size-5 shrink-0 text-blue-600" aria-hidden="true" />
+            <label className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-700 shadow-sm transition-[border-color,box-shadow] focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 lg:max-w-sm">
+              <motion.span
+                animate={searchFocused && !reduceMotion ? { scale: 1.12, rotate: -7 } : { scale: 1, rotate: 0 }}
+                transition={{ duration: 0.2 }}
+                className="inline-flex shrink-0"
+              >
+                <Search className="size-5 text-blue-600" aria-hidden="true" />
+              </motion.span>
               <span className="sr-only">Cari usaha atau jasa</span>
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari usaha atau jasa..." className="min-h-12 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-slate-500" />
+              <input
+                value={query}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Cari usaha atau jasa..."
+                className="min-h-12 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-slate-500"
+              />
               {query ? <button type="button" onClick={() => setQuery("")} className="flex size-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600" aria-label="Hapus pencarian"><X className="size-4" /></button> : null}
             </label>
-            <button type="button" onClick={() => setOpenNow((value) => !value)} className={`min-h-12 shrink-0 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${openNow ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-700"}`}><Clock3 className="mr-1 inline size-4" />Buka sekarang</button>
-            <button type="button" onClick={() => setShowMap((value) => !value)} className={`min-h-12 shrink-0 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${showMap ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700"}`}><Navigation className="mr-1 inline size-4" />Peta</button>
+            <motion.button
+              type="button"
+              onClick={() => setOpenNow((value) => !value)}
+              whileHover={reduceMotion ? undefined : { y: -2 }}
+              whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+              className={`min-h-12 shrink-0 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${openNow ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-700"}`}
+            ><Clock3 className="mr-1 inline size-4" />Buka sekarang</motion.button>
+            <motion.button
+              type="button"
+              onClick={() => setShowMap((value) => !value)}
+              whileHover={reduceMotion ? undefined : { y: -2 }}
+              whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+              className={`min-h-12 shrink-0 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${showMap ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700"}`}
+            ><Navigation className="mr-1 inline size-4" />Peta</motion.button>
           </div>
         </div>
 
@@ -357,10 +385,17 @@ function Catalog({
                 <p className="mt-1 text-sm leading-6 text-slate-600">Izinkan browser memakai lokasi Anda untuk menghitung jarak ke setiap listing.</p>
               </div>
             </div>
-            <button type="button" onClick={handleLocationRequest} disabled={locationStatus === "loading" || locationStatus === "unsupported"} className={`flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:cursor-not-allowed disabled:opacity-60 ${location ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"}`}>
+            <motion.button
+              type="button"
+              onClick={handleLocationRequest}
+              disabled={locationStatus === "loading" || locationStatus === "unsupported"}
+              whileHover={reduceMotion || locationStatus === "loading" ? undefined : { y: -2 }}
+              whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+              className={`flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:cursor-not-allowed disabled:opacity-60 ${location ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"}`}
+            >
               {locationStatus === "loading" ? <Loader2 className="size-5 animate-spin" /> : <LocateFixed className="size-5" />}
               {locationStatus === "loading" ? "Mencari lokasi..." : location ? "Perbarui lokasi" : "Gunakan lokasi saya"}
-            </button>
+            </motion.button>
           </div>
           {locationError ? <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold leading-6 text-red-700">{locationError}</p> : null}
           {location ? (
@@ -398,7 +433,7 @@ function Catalog({
             ]}
           />
         </div>
-        <div className="mt-6 flex items-center justify-between"><p className="text-base font-bold text-slate-600"><span className="text-slate-950">{filtered.length} usaha</span> ditemukan</p><span className="hidden text-sm font-semibold text-slate-500 sm:block">{location ? "Diurutkan dari jarak terdekat" : "Diurutkan dari yang paling relevan"}</span></div>
+        <div className="mt-6 flex items-center justify-between"><p className="text-base font-bold text-slate-600"><Counter value={filtered.length} suffix=" usaha" className="text-slate-950" /> ditemukan</p><span className="hidden text-sm font-semibold text-slate-500 sm:block">{location ? "Diurutkan dari jarak terdekat" : "Diurutkan dari yang paling relevan"}</span></div>
         {showMap ? <div className="mt-6 rounded-xl border border-blue-200 bg-[#edf3ff] p-4 sm:p-6"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-700">Peta kasar Sumenep</p><p className="mt-1 text-base font-semibold text-slate-600">Pilih patokan di atas untuk melihat usaha yang paling relevan.</p></div><LocateFixed className="size-6 text-blue-600" /></div><div className="relative mt-4 h-56 overflow-hidden rounded-xl border border-blue-200 bg-white sm:h-72"><div className="absolute inset-0 opacity-60" style={{ backgroundImage: "linear-gradient(#bdd2fb 1px, transparent 1px), linear-gradient(90deg, #bdd2fb 1px, transparent 1px)", backgroundSize: "32px 32px" }} /><div className="absolute left-[18%] top-[28%] h-32 w-3/4 rotate-12 rounded-[50%] border-[14px] border-blue-200 bg-blue-50" />{location ? <div className="absolute left-[48%] top-[46%] z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" aria-label="Lokasi Anda"><span className="size-5 rounded-full border-4 border-white bg-emerald-500 shadow-md" /><span className="rounded bg-slate-900 px-1.5 py-1 text-[10px] font-bold text-white">Anda</span></div> : null}{filtered.slice(0, 6).map((vendor, index) => <Link key={vendor.slug} to={`/v/${vendor.slug}`} className="absolute flex size-10 items-center justify-center rounded-full border-4 border-white bg-blue-600 text-sm font-black text-white shadow-md" style={{ left: `${18 + (index % 3) * 25}%`, top: `${22 + Math.floor(index / 3) * 38}%` }} aria-label={`Lihat ${vendor.name}`}><MapPin className="size-5" /></Link>)}</div></div> : null}
         {compare.length > 0 ? <div className="mt-5 flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3"><GitCompare className="size-5 text-blue-700" /><p className="text-base font-bold text-blue-900">{compare.length} listing dipilih untuk dibandingkan.</p><button type="button" onClick={() => setCompare([])} className="ml-auto min-h-12 rounded-lg px-3 text-base font-extrabold text-blue-700 hover:bg-blue-100">Bersihkan</button></div> : null}
         <AnimatedContent

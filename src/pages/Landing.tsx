@@ -17,10 +17,12 @@ import {
   Share2,
   LocateFixed,
   GitCompare,
+  Loader2,
 } from "lucide-react";
 import { categoryOptions, landmarkLabel, landmarks, type Category, type Vendor } from "@/lib/catalog";
 import { useCatalogActions, useCatalogVendors, useFavorites } from "@/lib/catalog-store";
-import { categoryActionLabel, isOpenNow, needSuggestions, searchByNeed } from "@/lib/catalog-data";
+import { categoryActionLabel, distanceFilterOptions, distanceKmBetween, distanceLabel, isOpenNow, needSuggestions, searchByNeed } from "@/lib/catalog-data";
+import { useUserLocation, type UserLocation, type UserLocationStatus } from "@/hooks/use-user-location";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
 
@@ -142,9 +144,9 @@ function VendorCard({ vendor, landmark, saved, onSave, onCompare }: { vendor: Ve
         <div className="flex shrink-0 flex-col gap-1"><button type="button" onClick={onSave} className={`flex min-h-12 min-w-12 items-center justify-center rounded-lg ${saved ? "bg-blue-100 text-blue-700" : "text-slate-500 hover:bg-blue-50 hover:text-blue-700"}`} aria-label={saved ? "Hapus dari tersimpan" : "Simpan listing"}><Bookmark className={`size-5 ${saved ? "fill-current" : ""}`} /></button><button type="button" onClick={onCompare} className="flex min-h-12 min-w-12 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" aria-label="Bandingkan listing"><GitCompare className="size-5" /></button><button type="button" onClick={share} className="flex min-h-12 min-w-12 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" aria-label="Bagikan listing"><Share2 className="size-5" /></button></div>
       </div>
       <div className="mt-auto border-t border-slate-100 px-4 pb-4 pt-3">
-        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium text-slate-600">
-          <span className="inline-flex items-center gap-1.5"><MapPin className="size-4 text-blue-600" aria-hidden="true" />{landmarkLabel(vendor.landmark)}</span>
-          <span className="font-extrabold text-slate-800">{vendor.price}</span>
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium text-slate-600">           <span className="inline-flex items-center gap-1.5"><MapPin className="size-4 text-blue-600" aria-hidden="true" />{landmarkLabel(vendor.landmark)}</span>
+           {vendor.distanceKm !== undefined ? <span className="inline-flex items-center gap-1.5 font-bold text-emerald-700"><LocateFixed className="size-4" aria-hidden="true" />{distanceLabel(vendor.distanceKm)} dari Anda</span> : null}
+           <span className="font-extrabold text-slate-800">{vendor.price}</span>
         </div>
         <WhatsAppButton vendor={vendor} landmark={landmark} />
       </div>
@@ -246,39 +248,131 @@ function FilterSection({ activeLandmark, setActiveLandmark }: { activeLandmark: 
   );
 }
 
-function Catalog({ activeLandmark, vendors }: { activeLandmark: string; vendors: Vendor[] }) {
+function Catalog({
+  activeLandmark,
+  vendors,
+  location,
+  locationStatus,
+  locationError,
+  onRequestLocation,
+  onClearLocation,
+}: {
+  activeLandmark: string;
+  vendors: Vendor[];
+  location: UserLocation | null;
+  locationStatus: UserLocationStatus;
+  locationError: string | null;
+  onRequestLocation: () => void;
+  onClearLocation: () => void;
+}) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<"Semua" | Category>("Semua");
   const [openNow, setOpenNow] = useState(false);
   const [compare, setCompare] = useState<string[]>([]);
   const [showMap, setShowMap] = useState(false);
+  const [distanceLimit, setDistanceLimit] = useState<number | null>(null);
   const favorites = useFavorites();
-  const filtered = useMemo(() => searchByNeed(vendors, query).filter((vendor) => {
-    const matchesLandmark = activeLandmark === "all" || vendor.landmark === activeLandmark;
-    const matchesCategory = category === "Semua" || vendor.category === category;
-    const matchesOpen = !openNow || isOpenNow(vendor.hours);
+
+  const vendorsWithDistance = useMemo(() => {
+    if (!location) return vendors;
+    return vendors.map((vendor) => ({
+      ...vendor,
+      distanceKm: distanceKmBetween(location, vendor),
+    }));
+  }, [location, vendors]);
+
+  const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    const matchesQuery = !normalized || [vendor.name, vendor.description, vendor.category, ...vendor.tags].join(" ").toLowerCase().includes(normalized);
-    return matchesLandmark && matchesCategory && matchesOpen && matchesQuery;
-  }), [activeLandmark, category, openNow, query, vendors]);
+    const result = searchByNeed(vendorsWithDistance, query).filter((vendor) => {
+      const matchesLandmark = activeLandmark === "all" || vendor.landmark === activeLandmark;
+      const matchesCategory = category === "Semua" || vendor.category === category;
+      const matchesOpen = !openNow || isOpenNow(vendor.hours);
+      const matchesQuery = !normalized || [vendor.name, vendor.description, vendor.category, ...vendor.tags].join(" ").toLowerCase().includes(normalized);
+      const matchesDistance = !location || distanceLimit === null || (vendor.distanceKm !== undefined && vendor.distanceKm <= distanceLimit);
+      return matchesLandmark && matchesCategory && matchesOpen && matchesQuery && matchesDistance;
+    });
+
+    if (location) {
+      return [...result].sort((a, b) => {
+        if (a.distanceKm === undefined) return 1;
+        if (b.distanceKm === undefined) return -1;
+        return a.distanceKm - b.distanceKm;
+      });
+    }
+    return result;
+  }, [activeLandmark, category, distanceLimit, location, openNow, query, vendorsWithDistance]);
+
+  const handleLocationRequest = () => {
+    if (!location) setDistanceLimit(5);
+    onRequestLocation();
+  };
+
+  const handleClearLocation = () => {
+    setDistanceLimit(null);
+    onClearLocation();
+  };
 
   return (
     <section id="katalog" className="relative z-10 scroll-mt-16 bg-[#f7f8fc]">
       <div className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-14">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Katalog Usaha</p><h2 className="mt-2 text-[clamp(1.7rem,3.5vw,2.6rem)] font-black leading-tight tracking-[-0.045em] text-slate-950">Siapa yang bisa membantu hari ini?</h2><p className="mt-2 max-w-2xl text-base leading-7 text-slate-600">Cari dan telusuri catatan usaha yang sudah dipilih warga Sumenep.</p></div>
-          <div className="flex flex-col gap-2 sm:flex-row"><label className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-700 shadow-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 lg:max-w-sm">
-            <Search className="size-5 shrink-0 text-blue-600" aria-hidden="true" /><span className="sr-only">Cari usaha atau jasa</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari usaha atau jasa..." className="min-h-12 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-slate-500" />{query && <button type="button" onClick={() => setQuery("")} className="flex size-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600" aria-label="Hapus pencarian"><X className="size-4" /></button>}
-          </label><button type="button" onClick={() => setOpenNow((value) => !value)} className={`min-h-12 shrink-0 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${openNow ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-700"}`}><Clock3 className="mr-1 inline size-4" />Buka sekarang</button><button type="button" onClick={() => setShowMap((value) => !value)} className={`min-h-12 shrink-0 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${showMap ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700"}`}><Navigation className="mr-1 inline size-4" />Peta</button></div>
+          <div>
+            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Katalog Usaha</p>
+            <h2 className="mt-2 text-[clamp(1.7rem,3.5vw,2.6rem)] font-black leading-tight tracking-[-0.045em] text-slate-950">Siapa yang bisa membantu hari ini?</h2>
+            <p className="mt-2 max-w-2xl text-base leading-7 text-slate-600">Cari dan telusuri catatan usaha yang sudah dipilih warga Sumenep.</p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <label className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-700 shadow-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 lg:max-w-sm">
+              <Search className="size-5 shrink-0 text-blue-600" aria-hidden="true" />
+              <span className="sr-only">Cari usaha atau jasa</span>
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari usaha atau jasa..." className="min-h-12 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-slate-500" />
+              {query ? <button type="button" onClick={() => setQuery("")} className="flex size-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600" aria-label="Hapus pencarian"><X className="size-4" /></button> : null}
+            </label>
+            <button type="button" onClick={() => setOpenNow((value) => !value)} className={`min-h-12 shrink-0 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${openNow ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-700"}`}><Clock3 className="mr-1 inline size-4" />Buka sekarang</button>
+            <button type="button" onClick={() => setShowMap((value) => !value)} className={`min-h-12 shrink-0 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${showMap ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700"}`}><Navigation className="mr-1 inline size-4" />Peta</button>
+          </div>
         </div>
+
+        <div className="mt-5 rounded-xl border border-blue-200 bg-white p-4 shadow-sm sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><LocateFixed className="size-5" aria-hidden="true" /></div>
+              <div className="min-w-0">
+                <p className="text-base font-extrabold text-slate-950">Cari yang paling dekat</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">Izinkan browser memakai lokasi Anda untuk menghitung jarak ke setiap listing.</p>
+              </div>
+            </div>
+            <button type="button" onClick={handleLocationRequest} disabled={locationStatus === "loading" || locationStatus === "unsupported"} className={`flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-lg border px-4 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:cursor-not-allowed disabled:opacity-60 ${location ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"}`}>
+              {locationStatus === "loading" ? <Loader2 className="size-5 animate-spin" /> : <LocateFixed className="size-5" />}
+              {locationStatus === "loading" ? "Mencari lokasi..." : location ? "Perbarui lokasi" : "Gunakan lokasi saya"}
+            </button>
+          </div>
+          {locationError ? <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold leading-6 text-red-700">{locationError}</p> : null}
+          {location ? (
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <p className="text-sm font-bold text-emerald-800">Lokasi aktif · akurasi sekitar {Math.round(location.accuracy)} m</p>
+                <button type="button" onClick={handleClearLocation} className="min-h-12 self-start rounded-lg px-3 text-left text-sm font-extrabold text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:self-auto">Matikan filter lokasi</button>
+              </div>
+              <div className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1 [-webkit-overflow-scrolling:touch]" aria-label="Filter radius jarak">
+                <button type="button" aria-pressed={distanceLimit === null} onClick={() => setDistanceLimit(null)} className={`min-h-12 shrink-0 rounded-lg border px-4 py-3 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${distanceLimit === null ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700"}`}>Semua jarak</button>
+                {distanceFilterOptions.map((option) => (
+                  <button key={option} type="button" aria-pressed={distanceLimit === option} onClick={() => setDistanceLimit(option)} className={`min-h-12 shrink-0 rounded-lg border px-4 py-3 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${distanceLimit === option ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50"}`}>≤ {option} km</button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-500">Jarak bersifat perkiraan berdasarkan koordinat katalog. Lokasi Anda hanya diproses di browser dan tidak disimpan di Buku Kerja.</p>
+            </div>
+          ) : null}
+        </div>
+
         <div className="-mx-1 mt-4 flex min-h-12 gap-2 overflow-x-auto px-1 pb-2 [-webkit-overflow-scrolling:touch]">{needSuggestions.map((need) => <button key={need} type="button" onClick={() => setQuery(need)} className="min-h-12 shrink-0 rounded-full border border-amber-200 bg-amber-50 px-4 py-3 text-base font-extrabold text-amber-900 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">“{need}”</button>)}</div>
         <div className="-mx-1 mt-7 flex min-h-12 gap-2 overflow-x-auto px-1 pb-2 [-webkit-overflow-scrolling:touch]">
           {(["Semua", ...categoryOptions.map((item) => item.label)] as const).map((item) => <button key={item} type="button" onClick={() => setCategory(item)} className={`min-h-12 shrink-0 rounded-lg border px-4 py-3 text-base font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${category === item ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50"}`}>{item === "Semua" ? "Semua kategori" : `${categoryOptions.find((option) => option.label === item)?.icon} ${item}`}</button>)}
         </div>
-        <div className="mt-6 flex items-center justify-between"><p className="text-base font-bold text-slate-600"><span className="text-slate-950">{filtered.length} usaha</span> ditemukan</p><span className="hidden text-sm font-semibold text-slate-500 sm:block">Diurutkan dari yang paling relevan</span></div>
-        {showMap && <div className="mt-6 rounded-xl border border-blue-200 bg-[#edf3ff] p-4 sm:p-6"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-700">Peta kasar Sumenep</p><p className="mt-1 text-base font-semibold text-slate-600">Pilih patokan di atas untuk melihat usaha yang paling relevan.</p></div><LocateFixed className="size-6 text-blue-600" /></div><div className="relative mt-4 h-56 overflow-hidden rounded-xl border border-blue-200 bg-white sm:h-72"><div className="absolute inset-0 opacity-60" style={{ backgroundImage: "linear-gradient(#bdd2fb 1px, transparent 1px), linear-gradient(90deg, #bdd2fb 1px, transparent 1px)", backgroundSize: "32px 32px" }} /><div className="absolute left-[18%] top-[28%] h-32 w-3/4 rotate-12 rounded-[50%] border-[14px] border-blue-200 bg-blue-50" />{filtered.slice(0, 6).map((vendor, index) => <Link key={vendor.slug} to={`/v/${vendor.slug}`} className="absolute flex size-10 items-center justify-center rounded-full border-4 border-white bg-blue-600 text-sm font-black text-white shadow-md" style={{ left: `${18 + (index % 3) * 25}%`, top: `${22 + Math.floor(index / 3) * 38}%` }} aria-label={`Lihat ${vendor.name}`}><MapPin className="size-5" /></Link>)}</div></div>}
-        {compare.length > 0 && <div className="mt-5 flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3"><GitCompare className="size-5 text-blue-700" /><p className="text-base font-bold text-blue-900">{compare.length} listing dipilih untuk dibandingkan.</p><button type="button" onClick={() => setCompare([])} className="ml-auto min-h-12 rounded-lg px-3 text-base font-extrabold text-blue-700 hover:bg-blue-100">Bersihkan</button></div>}
-        {filtered.length > 0 ? <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 2xl:grid-cols-4">{filtered.map((vendor) => <VendorCard key={vendor.slug} vendor={vendor} landmark={activeLandmark} saved={favorites.isSaved(vendor.slug)} onSave={() => favorites.save(vendor.slug, vendor._id)} onCompare={() => setCompare((current) => current.includes(vendor.slug) ? current.filter((item) => item !== vendor.slug) : current.length < 3 ? [...current, vendor.slug] : current)} />)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><div className="mx-auto flex size-12 items-center justify-center rounded-full bg-blue-50 text-2xl" aria-hidden="true">⌕</div><h3 className="mt-4 text-xl font-black text-slate-950">Belum ada jasa yang cocok</h3><p className="mx-auto mt-2 max-w-md text-base leading-7 text-slate-600">Belum ada jasa di sekitar sini. Coba pilih patokan lain atau kata kunci yang lebih umum.</p></div>}
+        <div className="mt-6 flex items-center justify-between"><p className="text-base font-bold text-slate-600"><span className="text-slate-950">{filtered.length} usaha</span> ditemukan</p><span className="hidden text-sm font-semibold text-slate-500 sm:block">{location ? "Diurutkan dari jarak terdekat" : "Diurutkan dari yang paling relevan"}</span></div>
+        {showMap ? <div className="mt-6 rounded-xl border border-blue-200 bg-[#edf3ff] p-4 sm:p-6"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-700">Peta kasar Sumenep</p><p className="mt-1 text-base font-semibold text-slate-600">Pilih patokan di atas untuk melihat usaha yang paling relevan.</p></div><LocateFixed className="size-6 text-blue-600" /></div><div className="relative mt-4 h-56 overflow-hidden rounded-xl border border-blue-200 bg-white sm:h-72"><div className="absolute inset-0 opacity-60" style={{ backgroundImage: "linear-gradient(#bdd2fb 1px, transparent 1px), linear-gradient(90deg, #bdd2fb 1px, transparent 1px)", backgroundSize: "32px 32px" }} /><div className="absolute left-[18%] top-[28%] h-32 w-3/4 rotate-12 rounded-[50%] border-[14px] border-blue-200 bg-blue-50" />{location ? <div className="absolute left-[48%] top-[46%] z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" aria-label="Lokasi Anda"><span className="size-5 rounded-full border-4 border-white bg-emerald-500 shadow-md" /><span className="rounded bg-slate-900 px-1.5 py-1 text-[10px] font-bold text-white">Anda</span></div> : null}{filtered.slice(0, 6).map((vendor, index) => <Link key={vendor.slug} to={`/v/${vendor.slug}`} className="absolute flex size-10 items-center justify-center rounded-full border-4 border-white bg-blue-600 text-sm font-black text-white shadow-md" style={{ left: `${18 + (index % 3) * 25}%`, top: `${22 + Math.floor(index / 3) * 38}%` }} aria-label={`Lihat ${vendor.name}`}><MapPin className="size-5" /></Link>)}</div></div> : null}
+        {compare.length > 0 ? <div className="mt-5 flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3"><GitCompare className="size-5 text-blue-700" /><p className="text-base font-bold text-blue-900">{compare.length} listing dipilih untuk dibandingkan.</p><button type="button" onClick={() => setCompare([])} className="ml-auto min-h-12 rounded-lg px-3 text-base font-extrabold text-blue-700 hover:bg-blue-100">Bersihkan</button></div> : null}
+        {filtered.length > 0 ? <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 2xl:grid-cols-4">{filtered.map((vendor) => <VendorCard key={vendor.slug} vendor={vendor} landmark={landmarkLabel(vendor.landmark)} saved={favorites.isSaved(vendor.slug)} onSave={() => favorites.save(vendor.slug, vendor._id)} onCompare={() => setCompare((current) => current.includes(vendor.slug) ? current.filter((item) => item !== vendor.slug) : current.length < 3 ? [...current, vendor.slug] : current)} />)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><div className="mx-auto flex size-12 items-center justify-center rounded-full bg-blue-50 text-2xl" aria-hidden="true">⌕</div><h3 className="mt-4 text-xl font-black text-slate-950">{location && distanceLimit !== null ? "Belum ada usaha dalam radius ini" : "Belum ada jasa yang cocok"}</h3><p className="mx-auto mt-2 max-w-md text-base leading-7 text-slate-600">{location && distanceLimit !== null ? "Coba pilih radius yang lebih jauh, atau matikan filter lokasi." : "Belum ada jasa di sekitar sini. Coba pilih patokan lain atau kata kunci yang lebih umum."}</p></div>}
       </div>
     </section>
   );
@@ -337,12 +431,28 @@ function Footer() {
   return <footer className="relative z-10 bg-slate-950 text-white"><div className="mx-auto flex max-w-[1600px] flex-col gap-5 px-4 py-8 sm:px-6 lg:flex-row lg:items-end lg:justify-between lg:px-10 lg:py-10"><div><div className="flex items-center gap-3"><NotebookMark className="border-white/20 bg-white/10" /><span className="text-xl font-black tracking-[-0.04em]">Sumenep <span className="text-blue-300">Buku</span> Kerja</span></div><p className="mt-3 max-w-sm text-base leading-7 text-slate-300">Buku kerja lokal untuk warga Sumenep. Temukan usaha, lalu hubungi langsung lewat WhatsApp.</p></div><div className="text-sm font-semibold text-slate-400 lg:text-right"><p>Dibuat untuk warga Sumenep, Madura</p><p className="mt-1">© 2025 Sumenep Buku Kerja</p></div></div></footer>;
 }
 
-function DirectoryContent() {
+function DirectoryContent({
+  vendors,
+  location,
+  locationStatus,
+  locationError,
+  onRequestLocation,
+  onClearLocation,
+}: {
+  vendors: Vendor[];
+  location: UserLocation | null;
+  locationStatus: UserLocationStatus;
+  locationError: string | null;
+  onRequestLocation: () => void;
+  onClearLocation: () => void;
+}) {
   const [activeLandmark, setActiveLandmark] = useState("all");
-  const catalogVendors = useCatalogVendors();
-  return <><TopNav /><NotebookBackdrop /><Hero vendorCount={catalogVendors.length} onBrowse={() => document.getElementById("katalog")?.scrollIntoView({ behavior: "smooth" })} /><FilterSection activeLandmark={activeLandmark} setActiveLandmark={setActiveLandmark} /><Catalog activeLandmark={activeLandmark} vendors={catalogVendors} /><HowItWorks /><LocalCategories /><Footer /><BottomNav /></>;
+  return <><TopNav /><NotebookBackdrop /><Hero vendorCount={vendors.length} onBrowse={() => document.getElementById("katalog")?.scrollIntoView({ behavior: "smooth" })} /><FilterSection activeLandmark={activeLandmark} setActiveLandmark={setActiveLandmark} /><Catalog activeLandmark={activeLandmark} vendors={vendors} location={location} locationStatus={locationStatus} locationError={locationError} onRequestLocation={onRequestLocation} onClearLocation={onClearLocation} /><HowItWorks /><LocalCategories /><Footer /><BottomNav /></>;
 }
 
 export default function Landing() {
-  return <><AppShell><DirectoryContent /></AppShell><WebShell><DirectoryContent /></WebShell></>;
+  const catalogVendors = useCatalogVendors();
+  const { location, status, error, requestLocation, clearLocation } = useUserLocation();
+  const locationState = { vendors: catalogVendors, location, locationStatus: status, locationError: error, onRequestLocation: requestLocation, onClearLocation: clearLocation };
+  return <><AppShell><DirectoryContent {...locationState} /></AppShell><WebShell><DirectoryContent {...locationState} /></WebShell></>;
 }

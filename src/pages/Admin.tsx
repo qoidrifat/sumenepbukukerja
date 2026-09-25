@@ -214,6 +214,8 @@ export default function Admin() {
         description: draft.description.trim(),
         address: draft.address.trim(),
         landmark: draft.landmark,
+        lat: draft.lat,
+        lng: draft.lng,
         price: draft.price.trim(),
         hours: draft.hours.trim(),
         phone: draft.phone.replace(/\D/g, ""),
@@ -526,6 +528,27 @@ export default function Admin() {
                   {landmarks.filter((item) => item.id !== "all").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                 </select>
               </label>
+              <Field
+                label="Latitude (opsional)"
+                value={draft.lat?.toString() ?? ""}
+                onChange={(value) => {
+                  const parsed = Number(value);
+                  updateDraft({ lat: value.trim() === "" || Number.isNaN(parsed) ? undefined : parsed });
+                }}
+                placeholder="-7.009"
+                type="number"
+              />
+              <Field
+                label="Longitude (opsional)"
+                value={draft.lng?.toString() ?? ""}
+                onChange={(value) => {
+                  const parsed = Number(value);
+                  updateDraft({ lng: value.trim() === "" || Number.isNaN(parsed) ? undefined : parsed });
+                }}
+                placeholder="114.448"
+                type="number"
+              />
+              <p className="text-sm leading-6 text-slate-500 lg:col-span-2">Isi koordinat agar listing ini dapat difilter berdasarkan jarak pengguna. Koordinat hanya dipakai untuk perhitungan jarak.</p>
               <label className="flex min-w-0 flex-col gap-2">
                 <span className="text-sm font-extrabold text-slate-800">Status</span>
                 <select value={draft.status ?? "active"} onChange={(event) => updateDraft({ status: event.target.value as Vendor["status"] })} className={inputClass}>

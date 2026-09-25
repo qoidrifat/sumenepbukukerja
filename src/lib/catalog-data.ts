@@ -56,5 +56,16 @@ export const searchByNeed = (vendors: Vendor[], query: string) => {
 
 export const landmarkCoordinates: Record<string, { lat: number; lng: number }> = { adipura: { lat: -7.005, lng: 114.443 }, trunojoyo: { lat: -7.009, lng: 114.448 }, anom: { lat: -7.015, lng: 114.44 }, keraton: { lat: -7.019, lng: 114.433 }, jamik: { lat: -7.011, lng: 114.437 } };
 
+export const distanceKmBetween = (from: { lat: number; lng: number }, to: { lat?: number; lng?: number }) => {
+  if (to.lat === undefined || to.lng === undefined) return undefined;
+  const earthRadiusKm = 6371;
+  const radians = (degrees: number) => (degrees * Math.PI) / 180;
+  const dLat = radians(to.lat - from.lat);
+  const dLng = radians(to.lng - from.lng);
+  const a = Math.min(1, Math.max(0, Math.sin(dLat / 2) ** 2 + Math.cos(radians(from.lat)) * Math.cos(radians(to.lat)) * Math.sin(dLng / 2) ** 2));
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
 export const distanceLabel = (distanceKm: number | undefined) => distanceKm === undefined ? "Jarak belum tersedia" : distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`;
+export const distanceFilterOptions = [1, 3, 5, 10] as const;
 export const landmark = (id: string) => landmarks.find((item) => item.id === id)?.label ?? "Sumenep";

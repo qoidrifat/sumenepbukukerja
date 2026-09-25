@@ -29,6 +29,7 @@ export type VendorRecord = Vendor & {
 const STORAGE_KEY = "sumenep-buku-kerja-favorites";
 const CATALOG_SEED_EVENT = "sumenep-catalog-seed-updated";
 let catalogSeedState: "idle" | "requested" | "ready" = "idle";
+let catalogSyncRequested = false;
 
 function readFavorites(): string[] {
   try {
@@ -61,20 +62,18 @@ function useCatalogRemote() {
 
   useEffect(() => {
     if (remote === undefined) return;
-    if (remote.length > 0) {
-      catalogSeedState = "ready";
-      return;
-    }
-    if (catalogSeedState !== "idle") return;
+    if (remote.length > 0) catalogSeedState = "ready";
+    if (catalogSyncRequested) return;
 
-    catalogSeedState = "requested";
+    catalogSyncRequested = true;
+    catalogSeedState = remote.length === 0 ? "requested" : "ready";
     void ensureSeeded()
       .then((inserted) => {
-        catalogSeedState = inserted === 0 ? "ready" : "requested";
+        if (inserted === 0) catalogSeedState = "ready";
         window.dispatchEvent(new Event(CATALOG_SEED_EVENT));
       })
       .catch((error) => {
-        catalogSeedState = "idle";
+        if (remote.length === 0) catalogSeedState = "idle";
         console.warn("Catalog seed could not be created:", error);
       });
   }, [ensureSeeded, remote]);

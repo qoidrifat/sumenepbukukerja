@@ -7,6 +7,9 @@ export type Vendor = {
   description: string;
   address: string;
   landmark: string;
+  lat?: number;
+  lng?: number;
+  distanceKm?: number;
   price: string;
   hours: string;
   phone: string;
@@ -58,6 +61,8 @@ export const vendors: Vendor[] = [
     description: "Jasa tukang,-cat, dan perbaikan rumah. Diterima pekerjaan kecil maupun besar.",
     address: "Jl. Trunojoyo No. 88, Sumenep",
     landmark: "trunojoyo",
+    lat: -7.009,
+    lng: 114.448,
     price: "Mulai Rp35.000",
     hours: "Setiap hari · 07.00–17.00",
     phone: "6281234567890",
@@ -74,6 +79,8 @@ export const vendors: Vendor[] = [
     description: "Nasi kotak, tumpeng, dan paket acara dengan cita rasa rumahan khas Madura.",
     address: "Kawasan Pasar Anom Baru, Sumenep",
     landmark: "anom",
+    lat: -7.015,
+    lng: 114.44,
     price: "Mulai Rp18.000/porsi",
     hours: "Senin–Minggu · 06.00–14.00",
     phone: "6282345678901",
@@ -90,6 +97,8 @@ export const vendors: Vendor[] = [
     description: "Bantu dekorasi ringan, tenda, kursi, dan perlengkapan acara sederhana.",
     address: "Jl. Keraton No. 12, Sumenep",
     landmark: "keraton",
+    lat: -7.019,
+    lng: 114.433,
     price: "Mulai Rp250.000",
     hours: "Setiap hari · 08.00–20.00",
     phone: "6283456789012",
@@ -106,6 +115,8 @@ export const vendors: Vendor[] = [
     description: "Antar-jemput dan charter lokal untuk perjalanan penting di dalam Sumenep.",
     address: "Area Masjid Jamik, Sumenep",
     landmark: "jamik",
+    lat: -7.011,
+    lng: 114.437,
     price: "Mulai Rp25.000",
     hours: "Setiap hari · 05.00–22.00",
     phone: "6284567890123",
@@ -122,6 +133,8 @@ export const vendors: Vendor[] = [
     description: "Servis pompa air, listrik, dan elektronik rumah dengan teknisi berpengalaman.",
     address: "Taman Bunga, Sumenep",
     landmark: "adipura",
+    lat: -7.005,
+    lng: 114.443,
     price: "Mulai Rp50.000",
     hours: "Senin–Sabtu · 07.00–18.00",
     phone: "6285678901234",
@@ -138,6 +151,8 @@ export const vendors: Vendor[] = [
     description: "Cuci satuan, kiloan, dan jas. Dijemput bila berada di area pusat Sumenep.",
     address: "Jl. Trunojoyo, Sumenep",
     landmark: "trunojoyo",
+    lat: -7.0095,
+    lng: 114.4485,
     price: "Mulai Rp8.000/kg",
     hours: "Setiap hari · 07.00–19.00",
     phone: "6286789012345",

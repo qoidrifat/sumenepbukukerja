@@ -174,7 +174,16 @@ export const ensureCatalogSeeded = mutation({
         .query("vendors")
         .withIndex("bySlug", (q) => q.eq("slug", vendor.slug))
         .unique();
-      if (existing) continue;
+      if (existing) {
+        const coordinatePatch = {
+          ...(existing.lat !== vendor.lat ? { lat: vendor.lat } : {}),
+          ...(existing.lng !== vendor.lng ? { lng: vendor.lng } : {}),
+        };
+        if (Object.keys(coordinatePatch).length > 0) {
+          await ctx.db.patch(existing._id, coordinatePatch);
+        }
+        continue;
+      }
 
       await ctx.db.insert("vendors", {
         slug: vendor.slug,
@@ -183,6 +192,8 @@ export const ensureCatalogSeeded = mutation({
         description: vendor.description,
         address: vendor.address,
         landmark: vendor.landmark,
+        lat: vendor.lat,
+        lng: vendor.lng,
         price: vendor.price,
         hours: vendor.hours,
         phone: vendor.phone,

@@ -464,6 +464,10 @@ export function useOpenReports() {
   return useQuery(api.community.listReports, {});
 }
 
+export function useOwnerVendors() {
+  return useQuery(api.vendors.listForOwner, {}) as VendorRecord[] | undefined;
+}
+
 export function useAdminVendors(status?: "draft" | "active" | "archived") {
   return useQuery(
     api.vendors.listForAdmin,

@@ -167,6 +167,20 @@ export const getImageUrl = query({
   },
 });
 
+export const listForOwner = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const rows = await ctx.db
+      .query("vendors")
+      .withIndex("byOwner", (q) => q.eq("ownerId", userId))
+      .collect();
+    return rows
+      .map((vendor) => ({ ...vendor, reviews: vendor.reviewsCount ?? 0 }))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  },
+});
+
 export const listForAdmin = query({
   args: {
     status: v.optional(
@@ -275,6 +289,7 @@ export const createVendor = mutation({
   args: vendorFields,
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
+    const privileged = await hasStaffAccess(ctx, userId);
     const phone = normalizeWhatsAppPhone(args.phone);
     if (!phone) throw new Error("Masukkan nomor WhatsApp yang valid");
     const now = Date.now();
@@ -300,14 +315,14 @@ export const createVendor = mutation({
       price: args.price,
       hours: args.hours,
       phone,
-      rating: args.rating ?? "Baru",
+      rating: privileged ? args.rating ?? "Baru" : "Baru",
       reviewsCount: 0,
       accent: args.accent ?? "from-blue-600 to-cyan-400",
       mark: args.mark ?? args.name.slice(0, 2).toUpperCase(),
       tags: args.tags ?? [],
       status: args.status ?? "active",
-      featured: args.featured ?? false,
-      verified: args.verified ?? false,
+      featured: privileged ? args.featured ?? false : false,
+      verified: privileged ? args.verified ?? false : false,
       photoId: args.photoId,
       lat: args.lat,
       lng: args.lng,
@@ -335,7 +350,8 @@ export const updateVendor = mutation({
     const { id, ...changes } = args;
     const current = await ctx.db.get(id);
     if (!current) throw new Error("Listing tidak ditemukan");
-    await requireVendorManager(ctx, current);
+    const userId = await requireVendorManager(ctx, current);
+    const privileged = await hasStaffAccess(ctx, userId);
     const phone = normalizeWhatsAppPhone(changes.phone);
     if (!phone) throw new Error("Masukkan nomor WhatsApp yang valid");
 
@@ -353,13 +369,13 @@ export const updateVendor = mutation({
       price: changes.price,
       hours: changes.hours,
       phone,
-      rating: changes.rating,
-      accent: changes.accent,
-      mark: changes.mark,
-      tags: changes.tags,
+      rating: privileged ? changes.rating : current.rating,
+      accent: changes.accent === undefined ? current.accent : changes.accent,
+      mark: changes.mark === undefined ? current.mark : changes.mark,
+      tags: changes.tags === undefined ? current.tags : changes.tags,
       status: changes.status,
-      featured: changes.featured,
-      verified: changes.verified,
+      featured: privileged ? changes.featured : current.featured,
+      verified: privileged ? changes.verified : current.verified,
       photoId: changes.photoId === undefined ? current.photoId : changes.photoId,
       lat: changes.lat,
       lng: changes.lng,
@@ -629,8 +645,9 @@ export const setSubscription = mutation({
     tier: v.union(v.literal("free"), v.literal("featured"), v.literal("premium")),
   },
   handler: async (ctx, args) => {
+    await requireStaff(ctx);
     const vendor = await ctx.db.get(args.vendorId);
-    await requireVendorManager(ctx, vendor);
+    if (!vendor) throw new Error("Listing tidak ditemukan");
     await ctx.db.patch(args.vendorId, {
       subscriptionTier: args.tier,
       featured: args.tier !== "free",

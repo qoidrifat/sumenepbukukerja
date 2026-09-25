@@ -85,7 +85,7 @@ export const notificationRecipients = internalQuery({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const users = await ctx.db.query("users").collect();
+    const preferences = await ctx.db.query("notificationPreferences").collect();
     const isVendorKind = args.kind === "vendor_created" || args.kind === "vendor_updated";
     const request = isVendorKind
       ? null
@@ -126,21 +126,18 @@ export const notificationRecipients = internalQuery({
           : `${vendor.name} di ${areaLabels[vendor.landmark] ?? vendor.landmark} memiliki informasi terbaru.`;
     }
 
-    const recipients = [];
-    for (const user of users) {
+    const recipients: DeliveryRecipient[] = [];
+    for (const preference of preferences) {
+      const userId = preference.userId;
+      const user = await ctx.db.get(userId);
       if (
         request &&
-        ((args.kind === "request_created" && user._id === request.requesterId) ||
-          (args.kind === "request_status" && user._id !== request.requesterId))
+        ((args.kind === "request_created" && userId === request.requesterId) ||
+          (args.kind === "request_status" && userId !== request.requesterId))
       ) {
         continue;
       }
-      const preference = await ctx.db
-        .query("notificationPreferences")
-        .withIndex("byUser", (q) => q.eq("userId", user._id))
-        .unique();
       if (
-        !preference ||
         preference.whatsappUpdates !== true ||
         !preference.whatsappOptInAt ||
         !normalizePhone(preference.whatsappPhone ?? "")
@@ -157,14 +154,14 @@ export const notificationRecipients = internalQuery({
       if (args.kind === "vendor_updated" && vendor) {
         const favorites = await ctx.db
           .query("favorites")
-          .withIndex("byUser", (q) => q.eq("userId", user._id))
+          .withIndex("byUser", (q) => q.eq("userId", userId))
           .collect();
         if (!favorites.some((favorite) => favorite.vendorId === vendor._id)) continue;
       }
 
       const recent = await ctx.db
         .query("notifications")
-        .withIndex("byUser", (q) => q.eq("userId", user._id))
+        .withIndex("byUser", (q) => q.eq("userId", userId))
         .collect();
       const deliveryKey =
         args.kind === "request_status"
@@ -178,8 +175,8 @@ export const notificationRecipients = internalQuery({
       if (lastDay.length >= 3) continue;
 
       recipients.push({
-        userId: user._id,
-        name: user.name ?? "Warga Sumenep",
+        userId,
+        name: user?.name ?? "Warga Sumenep",
         phone: normalizePhone(preference.whatsappPhone ?? "")!,
         title,
         body,

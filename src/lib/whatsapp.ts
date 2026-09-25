@@ -2,6 +2,11 @@ export const sanitizePhoneNumber = (phone: string) => phone.replace(/\D/g, "").r
 
 export type WhatsAppIntent = "general" | "availability" | "price" | "estimate" | "request";
 
+export const recommendedWhatsAppIntent = (category: string): WhatsAppIntent =>
+  category === "Kuliner" || category === "Transportasi"
+    ? "availability"
+    : "price";
+
 export const generateWhatsAppMessage = ({
   vendorName,
   category,

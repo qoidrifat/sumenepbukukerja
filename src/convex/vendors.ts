@@ -4,6 +4,7 @@ import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import { vendors as seedVendors } from "../lib/catalog";
 import type { DataModel } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 
 const slugify = (value: string) =>
   value
@@ -11,6 +12,12 @@ const slugify = (value: string) =>
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "") || "usaha";
+
+const normalizeWhatsAppPhone = (phone: string) => {
+  const digits = phone.replace(/\D/g, "");
+  const normalized = digits.startsWith("0") ? `62${digits.slice(1)}` : digits;
+  return normalized.length >= 10 && normalized.length <= 15 ? normalized : undefined;
+};
 
 const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
   const earthRadiusKm = 6371;
@@ -28,6 +35,45 @@ async function requireUser(
 ) {
   const userId = await getAuthUserId(ctx);
   if (!userId) throw new Error("Masuk untuk mengakses ruang pengelola");
+  return userId;
+}
+
+async function hasStaffAccess(
+  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+  userId: DataModel["users"]["document"]["_id"],
+) {
+  const user = await ctx.db.get(userId);
+  const membership = await ctx.db
+    .query("staffMembers")
+    .withIndex("byUser", (q) => q.eq("userId", userId))
+    .unique();
+  return (
+    user?.role === "admin" ||
+    user?.role === "staff" ||
+    membership?.role === "admin" ||
+    membership?.role === "staff"
+  );
+}
+
+async function requireStaff(
+  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+) {
+  const userId = await requireUser(ctx);
+  if (!(await hasStaffAccess(ctx, userId))) {
+    throw new Error("Hanya pengelola yang dapat mengakses ruang ini");
+  }
+  return userId;
+}
+
+async function requireVendorManager(
+  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+  vendor: DataModel["vendors"]["document"] | null,
+) {
+  const userId = await requireUser(ctx);
+  if (!vendor) throw new Error("Listing tidak ditemukan");
+  if (vendor.ownerId !== userId && !(await hasStaffAccess(ctx, userId))) {
+    throw new Error("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
+  }
   return userId;
 }
 
@@ -128,7 +174,7 @@ export const listForAdmin = query({
     ),
   },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
+    await requireStaff(ctx);
     const rows = args.status
       ? await ctx.db
           .query("vendors")
@@ -228,7 +274,9 @@ export const ensureCatalogSeeded = mutation({
 export const createVendor = mutation({
   args: vendorFields,
   handler: async (ctx, args) => {
-    await requireUser(ctx);
+    const userId = await requireUser(ctx);
+    const phone = normalizeWhatsAppPhone(args.phone);
+    if (!phone) throw new Error("Masukkan nomor WhatsApp yang valid");
     const now = Date.now();
     const base = slugify(args.name);
     const existing = await ctx.db
@@ -237,7 +285,7 @@ export const createVendor = mutation({
       .unique();
     const slug = existing ? `${base}-${now.toString(36).slice(-4)}` : base;
 
-    return await ctx.db.insert("vendors", {
+    const vendorId = await ctx.db.insert("vendors", {
       name: args.name.trim(),
       category: args.category as
         | "Servis Teknik"
@@ -245,12 +293,13 @@ export const createVendor = mutation({
         | "Kuliner"
         | "Transportasi"
         | "Jasa Umum",
+      ownerId: userId,
       description: args.description,
       address: args.address,
       landmark: args.landmark,
       price: args.price,
       hours: args.hours,
-      phone: args.phone.replace(/\D/g, ""),
+      phone,
       rating: args.rating ?? "Baru",
       reviewsCount: 0,
       accent: args.accent ?? "from-blue-600 to-cyan-400",
@@ -271,16 +320,24 @@ export const createVendor = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.whatsapp.sendVendorCreatedNotifications,
+      { vendorId },
+    );
+    return vendorId;
   },
 });
 
 export const updateVendor = mutation({
   args: { id: v.id("vendors"), ...vendorFields },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
     const { id, ...changes } = args;
     const current = await ctx.db.get(id);
     if (!current) throw new Error("Listing tidak ditemukan");
+    await requireVendorManager(ctx, current);
+    const phone = normalizeWhatsAppPhone(changes.phone);
+    if (!phone) throw new Error("Masukkan nomor WhatsApp yang valid");
 
     await ctx.db.patch(id, {
       name: changes.name,
@@ -295,7 +352,7 @@ export const updateVendor = mutation({
       landmark: changes.landmark,
       price: changes.price,
       hours: changes.hours,
-      phone: changes.phone.replace(/\D/g, ""),
+      phone,
       rating: changes.rating,
       accent: changes.accent,
       mark: changes.mark,
@@ -313,6 +370,11 @@ export const updateVendor = mutation({
       serviceRadiusKm: changes.serviceRadiusKm === undefined ? current.serviceRadiusKm : changes.serviceRadiusKm,
       updatedAt: Date.now(),
     });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.whatsapp.sendVendorUpdatedNotifications,
+      { vendorId: id },
+    );
     return id;
   },
 });
@@ -320,9 +382,8 @@ export const updateVendor = mutation({
 export const archiveVendor = mutation({
   args: { id: v.id("vendors") },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
     const current = await ctx.db.get(args.id);
-    if (!current) throw new Error("Listing tidak ditemukan");
+    await requireVendorManager(ctx, current);
     await ctx.db.patch(args.id, {
       status: "archived",
       featured: false,
@@ -426,6 +487,51 @@ export const addReview = mutation({
   },
 });
 
+export const syncLocalFavorites = mutation({
+  args: {
+    items: v.array(
+      v.object({
+        slug: v.string(),
+        collection: v.optional(v.string()),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const uniqueSlugs = Array.from(
+      new Set(args.items.map((item) => item.slug.trim()).filter(Boolean)),
+    ).slice(0, 100);
+    let imported = 0;
+
+    for (const slug of uniqueSlugs) {
+      const vendor = await ctx.db
+        .query("vendors")
+        .withIndex("bySlug", (q) => q.eq("slug", slug))
+        .unique();
+      if (!vendor || vendor.status !== "active") continue;
+      const existing = await ctx.db
+        .query("favorites")
+        .withIndex("byUserVendor", (q) =>
+          q.eq("userId", userId).eq("vendorId", vendor._id),
+        )
+        .unique();
+      if (existing) continue;
+      const requestedCollection = args.items.find(
+        (item) => item.slug.trim() === slug,
+      )?.collection?.trim();
+      await ctx.db.insert("favorites", {
+        userId,
+        vendorId: vendor._id,
+        collection: requestedCollection || "Tersimpan",
+        createdAt: Date.now(),
+      });
+      imported += 1;
+    }
+
+    return imported;
+  },
+});
+
 export const toggleFavorite = mutation({
   args: {
     vendorId: v.id("vendors"),
@@ -523,9 +629,8 @@ export const setSubscription = mutation({
     tier: v.union(v.literal("free"), v.literal("featured"), v.literal("premium")),
   },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
     const vendor = await ctx.db.get(args.vendorId);
-    if (!vendor) throw new Error("Listing tidak ditemukan");
+    await requireVendorManager(ctx, vendor);
     await ctx.db.patch(args.vendorId, {
       subscriptionTier: args.tier,
       featured: args.tier !== "free",

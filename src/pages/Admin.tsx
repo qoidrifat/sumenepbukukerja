@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Archive,
   ArrowUpRight,
+  BarChart3,
   Building2,
   Check,
   CheckCircle2,
@@ -40,6 +41,8 @@ import {
 import {
   useAdminVendors,
   useCatalogActions,
+  useCommunityMetrics,
+  useCurrentAccess,
   useOpenReports,
   type VendorRecord,
 } from "@/lib/catalog-store";
@@ -65,6 +68,14 @@ import {
 
 const EMPTY_ITEMS: VendorRecord[] = [];
 
+const toDateTimeLocal = (timestamp?: number) => {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  return new Date(timestamp - date.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
+};
+
 const emptyDraft = (): Vendor => ({
   slug: "",
   name: "",
@@ -89,9 +100,37 @@ const emptyDraft = (): Vendor => ({
   serviceRadiusKm: 10,
 });
 
+function AdminGate() {
+  const access = useCurrentAccess();
+  if (access === undefined) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center bg-[#FAF7EE] p-6 text-[#1A1A1A]">
+        <p className="font-black">Memeriksa akses pengelola...</p>
+      </main>
+    );
+  }
+  if (!access.isStaff) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center bg-[#FAF7EE] p-6 text-[#1A1A1A]">
+        <div className="max-w-md border-2 border-[#121212] bg-white p-6 text-center shadow-[4px_4px_0_#121212]">
+          <h1 className="text-2xl font-black">Akses pengelola diperlukan</h1>
+          <p className="mt-3 leading-7 text-[#525252]">Akun ini belum memiliki peran admin atau staff. Hubungi pengelola Buku Kerja untuk membuka ruang ini.</p>
+          <Link to="/" className="admin-btn admin-btn-secondary mt-5 inline-flex">Kembali ke katalog</Link>
+        </div>
+      </main>
+    );
+  }
+  return <AdminWorkspace />;
+}
+
 export default function Admin() {
+  return <AdminGate />;
+}
+
+function AdminWorkspace() {
   const items = useAdminVendors() ?? EMPTY_ITEMS;
   const reports = useOpenReports() ?? [];
+  const communityMetrics = useCommunityMetrics();
   const {
     create,
     update: updateVendor,
@@ -216,6 +255,7 @@ export default function Admin() {
         photoId,
         availability: draft.availability ?? "available",
         availabilityNote: draft.availabilityNote,
+        nextAvailableAt: draft.nextAvailableAt,
         responseMinutes: draft.responseMinutes,
         serviceRadiusKm: draft.serviceRadiusKm,
       };
@@ -497,6 +537,45 @@ export default function Admin() {
     },
   ];
 
+  const impactMetrics = [
+    {
+      label: "Pencarian → WhatsApp",
+      value: `${communityMetrics?.searchToWhatsappRate ?? 0}%`,
+      note: `${communityMetrics?.whatsappClicks ?? 0} klik dari ${communityMetrics?.searches ?? 0} impression`,
+      icon: Search,
+    },
+    {
+      label: "Respons rata-rata",
+      value: `${communityMetrics?.averageResponseMinutes ?? 0} mnt`,
+      note: " estimasi yang dicantumkan listing",
+      icon: Clock3,
+    },
+    {
+      label: "Permintaan selesai",
+      value: String(communityMetrics?.completedRequests ?? 0),
+      note: "permintaan warga telah selesai",
+      icon: CheckCircle2,
+    },
+    {
+      label: "Listing lengkap",
+      value: `${communityMetrics?.completeListingRate ?? 0}%`,
+      note: "harga, jam kerja, dan foto",
+      icon: FileCheck2,
+    },
+    {
+      label: "Warga menyimpan favorit",
+      value: `${communityMetrics?.returningSaverRate ?? 0}%`,
+      note: "akun dengan minimal satu favorit",
+      icon: UserRound,
+    },
+    {
+      label: "Listing aktif",
+      value: String(communityMetrics?.activeListings ?? 0),
+      note: `${communityMetrics?.listingsWithPhotos ?? 0} listing memiliki foto`,
+      icon: Store,
+    },
+  ];
+
   const metricTone: Record<(typeof metrics)[number]["tone"], string> = {
     orange: "bg-[#FF5A26] text-white",
     yellow: "bg-[#FFE662] text-[#1A1A1A]",
@@ -751,6 +830,59 @@ export default function Admin() {
                 </article>
               );
             })}
+          </div>
+        </section>
+
+        <section className="mt-8" aria-labelledby="community-impact-title">
+          <SectionHeading
+            eyebrow="Dampak komunitas"
+            title="Metrik warga"
+            description="Angka dihitung reaktif dari pencarian, klik WhatsApp, permintaan, favorit, dan kelengkapan listing."
+            icon={BarChart3}
+          />
+          <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-6 lg:grid-cols-3">
+            {impactMetrics.map((metric) => {
+              const Icon = metric.icon;
+              return (
+                <article key={metric.label} className="admin-metric min-h-36 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-base font-black leading-5">{metric.label}</p>
+                    <span className="flex size-10 shrink-0 items-center justify-center border-2 border-[#121212] bg-[#FFE662]">
+                      <Icon className="size-5" aria-hidden="true" />
+                    </span>
+                  </div>
+                  <p className="mt-5 text-3xl font-black tracking-[-0.06em]">
+                    {metric.value}
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-[#525252]">
+                    {metric.note}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+          <div className="grid gap-4 border-t-2 border-[#121212] p-4 sm:p-6 lg:grid-cols-2">
+            <div>
+              <h3 className="text-lg font-black">Listing aktif per kategori</h3>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {Object.entries(communityMetrics?.byCategory ?? {}).map(([category, count]) => (
+                  <span key={category} className="border-2 border-[#121212] bg-white px-3 py-2 text-sm font-black">
+                    {category}: {count}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h3 className="text-lg font-black">Listing aktif per area</h3>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {Object.entries(communityMetrics?.byArea ?? {}).map(([area, count]) => (
+                  <span key={area} className="border-2 border-[#121212] bg-white px-3 py-2 text-sm font-black">
+                    {landmarkLabel(area)}: {count}
+                  </span>
+                ))}
+                {!communityMetrics ? <span className="text-sm font-bold text-[#525252]">Memuat data area...</span> : null}
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1092,6 +1224,19 @@ export default function Admin() {
                   value={draft.availabilityNote ?? ""}
                   onChange={(availabilityNote) => updateDraft({ availabilityNote })}
                   placeholder="Contoh: Bisa datang hari ini setelah jam 3"
+                />
+                <Field
+                  label="Perkiraan tersedia lagi"
+                  value={toDateTimeLocal(draft.nextAvailableAt)}
+                  onChange={(value) => {
+                    const timestamp = value ? new Date(value).getTime() : NaN;
+                    updateDraft({
+                      nextAvailableAt:
+                        Number.isNaN(timestamp) ? undefined : timestamp,
+                    });
+                  }}
+                  placeholder="Pilih tanggal dan jam"
+                  type="datetime-local"
                 />
                 <Field
                   label="Rata-rata balas (menit)"

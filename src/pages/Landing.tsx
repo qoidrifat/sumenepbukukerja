@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Link } from "react-router";
 import {
@@ -25,7 +25,7 @@ import { categoryOptions, landmarkLabel, landmarks, type Category, type Vendor }
 import { useCatalogActions, useCatalogVendors, useFavorites } from "@/lib/catalog-store";
 import { categoryActionLabel, distanceFilterOptions, distanceKmBetween, distanceLabel, isOpenNow, needSuggestions, searchByNeed } from "@/lib/catalog-data";
 import { useUserLocation, type UserLocation, type UserLocationStatus } from "@/hooks/use-user-location";
-import { generateWhatsAppLink } from "@/lib/whatsapp";
+import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
 import { AccessibilityControls, AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
 import {
@@ -43,6 +43,7 @@ import {
 } from "@/components/react-bits";
 
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
+const recordedSearches = new Map<string, number>();
 
 function NotebookMark({ className = "" }: { className?: string }) {
   return (
@@ -66,7 +67,13 @@ function Brand({ compact = false }: { compact?: boolean }) {
 }
 
 function WhatsAppButton({ vendor, landmark, className = "" }: { vendor: Vendor; landmark: string; className?: string }) {
-  const href = generateWhatsAppLink({ phone: vendor.phone, vendorName: vendor.name, category: vendor.category, landmark });
+  const href = generateWhatsAppLink({
+    phone: vendor.phone,
+    vendorName: vendor.name,
+    category: vendor.category,
+    landmark,
+    intent: recommendedWhatsAppIntent(vendor.category),
+  });
   const { click, interaction } = useCatalogActions();
   return (
     <a
@@ -75,7 +82,7 @@ function WhatsAppButton({ vendor, landmark, className = "" }: { vendor: Vendor; 
       rel="noreferrer"
       onClick={() => {
         if ("_id" in vendor) {
-          void click({ id: vendor._id as never, kind: "whatsapp" });
+          void click({ id: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
           void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
         }
         try {
@@ -143,7 +150,7 @@ function VendorCard({ vendor, landmark, saved, onSave, onCompare }: { vendor: Ve
   const share = async () => {
     const text = `${vendor.name} — ${vendor.description}`;
     if ("_id" in vendor) {
-      void click({ id: vendor._id as never, kind: "share" });
+      void click({ id: vendor._id as never, kind: "share" }).catch(() => undefined);
       void interaction({ vendorId: vendor._id as never, kind: "share" }).catch(() => undefined);
     }
     if (navigator.share) await navigator.share({ title: vendor.name, text, url: `${window.location.origin}/v/${vendor.slug}` }).catch(() => undefined);
@@ -303,6 +310,7 @@ function Catalog({
   const [searchFocused, setSearchFocused] = useState(false);
   const reduceMotion = useReducedMotion() ?? false;
   const favorites = useFavorites();
+  const { recordSearch } = useCatalogActions();
 
   const vendorsWithDistance = useMemo(() => {
     if (!location) return vendors;
@@ -317,7 +325,7 @@ function Catalog({
     const result = searchByNeed(vendorsWithDistance, query).filter((vendor) => {
       const matchesLandmark = activeLandmark === "all" || vendor.landmark === activeLandmark;
       const matchesCategory = category === "Semua" || vendor.category === category;
-      const matchesOpen = !openNow || isOpenNow(vendor.hours);
+      const matchesOpen = !openNow || isOpenNow(vendor.hours, vendor.availability);
       const matchesQuery = !normalized || [vendor.name, vendor.description, vendor.category, ...vendor.tags].join(" ").toLowerCase().includes(normalized);
       const matchesDistance = !location || distanceLimit === null || (vendor.distanceKm !== undefined && vendor.distanceKm <= distanceLimit);
       return matchesLandmark && matchesCategory && matchesOpen && matchesQuery && matchesDistance;
@@ -332,6 +340,30 @@ function Catalog({
     }
     return result;
   }, [activeLandmark, category, distanceLimit, location, openNow, query, vendorsWithDistance]);
+
+  const trackedVendorIds = useMemo(
+    () => filtered.flatMap((vendor) => (vendor._id ? [vendor._id as never] : [])),
+    [filtered],
+  );
+  const trackedVendorKey = trackedVendorIds.join(",");
+
+  useEffect(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (normalizedQuery.length < 2 || trackedVendorIds.length === 0) return;
+
+    const searchKey = `${normalizedQuery}|${trackedVendorKey}`;
+    const timer = window.setTimeout(() => {
+      const lastRecordedAt = recordedSearches.get(searchKey) ?? 0;
+      if (Date.now() - lastRecordedAt < 30 * 60 * 1000) return;
+      recordedSearches.set(searchKey, Date.now());
+      void recordSearch({
+        vendorIds: trackedVendorIds,
+        query: normalizedQuery,
+      }).catch(() => undefined);
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [query, recordSearch, trackedVendorIds, trackedVendorKey]);
 
   const handleLocationRequest = () => {
     if (!location) setDistanceLimit(5);

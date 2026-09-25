@@ -6,7 +6,7 @@ import { landmarkLabel } from "@/lib/catalog";
 import { useCatalogVendors, useCatalogActions, useFavorites } from "@/lib/catalog-store";
 import { categoryActionLabel } from "@/lib/catalog-data";
 import { useAuth } from "@/hooks/use-auth";
-import { generateWhatsAppLink } from "@/lib/whatsapp";
+import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useNavigate } from "react-router";
 import { AnimatedContent, BorderGlow, Counter, GlassIcons, ScrollReveal } from "@/components/react-bits";
 import { AccessibilityControls, InteractionHistory, MyRequestHistory, NotificationCenter } from "@/components/community-widgets";
@@ -16,7 +16,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const vendors = useCatalogVendors();
   const favorites = useFavorites();
-  const { interaction } = useCatalogActions();
+  const { click, interaction } = useCatalogActions();
   const savedVendors = vendors.filter((vendor) => favorites.isSaved(vendor.slug));
 
   const handleSignOut = async () => {
@@ -118,7 +118,13 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {savedVendors.map((vendor) => {
                 const landmark = landmarkLabel(vendor.landmark);
-                const href = generateWhatsAppLink({ phone: vendor.phone, vendorName: vendor.name, category: vendor.category, landmark });
+                const href = generateWhatsAppLink({
+                  phone: vendor.phone,
+                  vendorName: vendor.name,
+                  category: vendor.category,
+                  landmark,
+                  intent: recommendedWhatsAppIntent(vendor.category),
+                });
                 return (
                   <article key={vendor.slug} className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex items-start gap-3">
@@ -132,7 +138,7 @@ export default function Dashboard() {
                     <p className="mt-4 line-clamp-2 text-base leading-6 text-slate-600">{vendor.description}</p>
                     <p className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-slate-600"><MapPin className="size-4 text-blue-600" />{landmark}</p>
                     <div className="mt-auto grid grid-cols-[1fr_3rem] gap-2 pt-5">
-                      <a href={href} target="_blank" rel="noreferrer" onClick={() => { if (vendor._id) void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined); }} className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 text-base font-extrabold text-[#082f1e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+                      <a href={href} target="_blank" rel="noreferrer" onClick={() => { if (vendor._id) { void click({ id: vendor._id as never, kind: "whatsapp" }).catch(() => undefined); void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined); } }} className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 text-base font-extrabold text-[#082f1e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
                         <MessageCircle className="size-5" />{categoryActionLabel[vendor.category]}
                       </a>
                       <Link to={`/v/${vendor.slug}`} className="flex min-h-12 items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50" aria-label={`Lihat ${vendor.name}`}>

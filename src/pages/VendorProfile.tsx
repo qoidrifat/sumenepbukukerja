@@ -23,6 +23,7 @@ import {
   useFavorites,
   useVendor,
   useVendorPhoto,
+  useVendorPhotos,
 } from "@/lib/catalog-store";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { BlurText, GlassSurface, ScrollReveal } from "@/components/react-bits";
@@ -88,6 +89,7 @@ function VendorProfileContent() {
   const { slug } = useParams();
   const vendor = useVendor(slug);
   const photoUrl = useVendorPhoto(vendor?.photoId);
+  const photos = useVendorPhotos(vendor?._id);
   const favorites = useFavorites();
   const { click, review, interaction } = useCatalogActions();
   const [reviewName, setReviewName] = useState("");
@@ -145,7 +147,7 @@ function VendorProfileContent() {
 
   const trackWhatsApp = () => {
     if (vendor._id) {
-      void click({ id: vendor._id as never, kind: "whatsapp" });
+      void click({ id: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
       void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
     }
     try {
@@ -164,7 +166,7 @@ function VendorProfileContent() {
   const share = async () => {
     const text = `${vendor.name} — ${vendor.description}`;
     if (vendor._id) {
-      void click({ id: vendor._id as never, kind: "share" });
+      void click({ id: vendor._id as never, kind: "share" }).catch(() => undefined);
       void interaction({ vendorId: vendor._id as never, kind: "share" }).catch(() => undefined);
     }
     const url = `${window.location.origin}/v/${vendor.slug}`;
@@ -335,6 +337,19 @@ function VendorProfileContent() {
                   {vendor.responseMinutes ? <span className="rounded-full bg-slate-50 px-3 py-1.5">Rata-rata membalas {vendor.responseMinutes} menit</span> : null}
                   {vendor.serviceRadiusKm ? <span className="rounded-full bg-slate-50 px-3 py-1.5">Area layanan {vendor.serviceRadiusKm} km</span> : null}
                 </div>
+                {photos && photos.length > 0 ? (
+                  <section className="mt-6 border-t border-slate-200 pt-6" aria-labelledby="vendor-gallery-title">
+                    <h2 id="vendor-gallery-title" className="text-lg font-black text-slate-950">Galeri hasil pekerjaan</h2>
+                    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                      {photos.map((photo) => (
+                        <figure key={photo._id} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                          <img src={photo.url ?? ""} alt={photo.caption ?? `Foto hasil pekerjaan ${vendor.name}`} className="aspect-[4/3] w-full object-cover" loading="lazy" />
+                          {photo.caption ? <figcaption className="px-3 py-2 text-xs font-semibold text-slate-600">{photo.caption}</figcaption> : null}
+                        </figure>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
                 <PackageList vendorId={vendor._id} />
                 <div className="mt-5"><ReportListingButton vendorId={vendor._id} /></div>
               </div>
@@ -539,7 +554,7 @@ function VendorProfileContent() {
               <div className="mt-4 border-t border-slate-200 pt-4">
                 <p className="text-sm font-extrabold text-slate-800">Simpan ke koleksi</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {["Untuk rumah", "Biasanya pesan", "Minggu ini"].map((collection) => <button key={collection} type="button" onClick={() => favorites.setCollection(vendor.slug, vendor._id, collection)} className={`min-h-12 rounded-lg border px-3 text-sm font-extrabold ${favorites.collectionFor(vendor.slug) === collection ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:bg-blue-50"} ${focusRing}`}>{collection}</button>)}
+                  {["Untuk rumah", "Biasanya pesan", "Minggu ini", "Mendesak"].map((collection) => <button key={collection} type="button" onClick={() => favorites.setCollection(vendor.slug, vendor._id, collection)} className={`min-h-12 rounded-lg border px-3 text-sm font-extrabold ${favorites.collectionFor(vendor.slug) === collection ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:bg-blue-50"} ${focusRing}`}>{collection}</button>)}
                 </div>
               </div>
               <div className="mt-5 flex items-start gap-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold leading-6 text-slate-700">

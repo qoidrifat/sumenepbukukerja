@@ -3,7 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
-import { api } from "./_generated/api";
+import { internal } from "./_generated/api";
 
 const categoryValidator = v.union(
   v.literal("Servis Teknik"),
@@ -42,6 +42,45 @@ async function requireUser(
 ) {
   const userId = await getAuthUserId(ctx);
   if (!userId) throw new Error("Masuk untuk menggunakan fitur warga");
+  return userId;
+}
+
+async function hasStaffAccess(
+  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+  userId: DataModel["users"]["document"]["_id"],
+) {
+  const user = await ctx.db.get(userId);
+  const membership = await ctx.db
+    .query("staffMembers")
+    .withIndex("byUser", (q) => q.eq("userId", userId))
+    .unique();
+  return (
+    user?.role === "admin" ||
+    user?.role === "staff" ||
+    membership?.role === "admin" ||
+    membership?.role === "staff"
+  );
+}
+
+async function requireStaff(
+  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+) {
+  const userId = await requireUser(ctx);
+  if (!(await hasStaffAccess(ctx, userId))) {
+    throw new Error("Hanya pengelola yang dapat mengakses data ini");
+  }
+  return userId;
+}
+
+async function requireVendorManager(
+  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+  vendor: DataModel["vendors"]["document"] | null,
+) {
+  const userId = await requireUser(ctx);
+  if (!vendor) throw new Error("Listing tidak ditemukan");
+  if (vendor.ownerId !== userId && !(await hasStaffAccess(ctx, userId))) {
+    throw new Error("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
+  }
   return userId;
 }
 
@@ -146,7 +185,7 @@ export const createRequest = mutation({
     });
     await ctx.scheduler.runAfter(
       0,
-      api.whatsapp.sendRequestCreatedNotifications,
+      internal.whatsapp.sendRequestCreatedNotifications,
       { requestId },
     );
     // Do not fan out a notification to every account by default. Users opt
@@ -161,12 +200,28 @@ export const createRequest = mutation({
         .withIndex("byUser", (q) => q.eq("userId", candidate._id))
         .unique();
       if (preferences?.requestUpdates !== true) continue;
+      const body = `${title} — ${args.landmark === "all" ? "sekitar Sumenep" : landmarkLabelForNotification(args.landmark)}`;
+      const recentNotifications = await ctx.db
+        .query("notifications")
+        .withIndex("byUser", (q) => q.eq("userId", candidate._id))
+        .collect();
+      const recentRequestNotifications = recentNotifications.filter(
+        (notification) =>
+          notification.kind === "request" &&
+          now - notification.createdAt < 24 * 60 * 60 * 1000,
+      );
+      if (
+        recentRequestNotifications.length >= 3 ||
+        recentRequestNotifications.some((notification) => notification.body === body)
+      ) {
+        continue;
+      }
       await notifyUser(
         ctx,
         candidate._id,
         "request",
         "Permintaan baru di Sumenep",
-        `${title} — ${args.landmark === "all" ? "sekitar Sumenep" : landmarkLabelForNotification(args.landmark)}`,
+        body,
       );
       notified += 1;
     }
@@ -175,7 +230,7 @@ export const createRequest = mutation({
 });
 
 const landmarkLabelForNotification = (landmark: string) =>
-  ({ adipura: "Taman Bunga / Adipura", trunojoyo: "Jl. Trunojoyo", anom: "Pasar Anom Baru", keraton: "Keraton / Labang Mesem", jamik: "Masjid Jamik" }[landmark] ?? landmark);
+  ({ adipura: "Taman Bunga / Adipura", trunojoyo: "Jl. Trunojoyo", anom: "Pasar Anom Baru", keraton: "Keraton / Labang Mesem", jamik: "Masjid Jamik", "kota-lama": "Kota Lama", kalianget: "Kalianget", bluto: "Bluto", pragaan: "Pragaan" }[landmark] ?? landmark);
 
 export const claimRequest = mutation({
   args: {
@@ -189,15 +244,7 @@ export const claimRequest = mutation({
     if (!request || request.status !== "open") throw new Error("Permintaan sudah tidak tersedia");
     if (!vendor || vendor.status !== "active") throw new Error("Listing tidak tersedia");
     if (request.requesterId === userId) throw new Error("Anda tidak dapat menawarkan permintaan milik sendiri");
-    const user = await ctx.db.get(userId);
-    const staffMembership = await ctx.db
-      .query("staffMembers")
-      .withIndex("byUser", (q) => q.eq("userId", userId))
-      .unique();
-    const isStaff = user?.role === "admin" || user?.role === "staff" || Boolean(staffMembership);
-    if (vendor.ownerId && vendor.ownerId !== userId && !isStaff) {
-      throw new Error("Hanya pemilik listing atau pengelola yang dapat menawarkan permintaan ini");
-    }
+    await requireVendorManager(ctx, vendor);
     const now = Date.now();
     await ctx.db.patch(args.requestId, {
       status: "claimed",
@@ -218,7 +265,7 @@ export const claimRequest = mutation({
       await notifyUser(ctx, request.requesterId, "request_update", "Permintaan Anda ditawari", `Seseorang telah menawarkan bantuan untuk "${request.title}".`);
       await ctx.scheduler.runAfter(
         0,
-        api.whatsapp.sendRequestStatusNotification,
+        internal.whatsapp.sendRequestStatusNotification,
         { requestId: args.requestId, status: "claimed" },
       );
     }
@@ -238,15 +285,25 @@ export const updateRequestStatus = mutation({
     if (request.requesterId !== userId) {
       throw new Error("Hanya pembuat permintaan yang dapat memperbarui status");
     }
+    if (request.status === "completed" || request.status === "cancelled") {
+      throw new Error("Permintaan ini sudah selesai atau dibatalkan");
+    }
     const now = Date.now();
     await ctx.db.patch(args.requestId, {
       status: args.status,
       completedAt: args.status === "completed" ? now : undefined,
       updatedAt: now,
     });
+    await notifyUser(
+      ctx,
+      userId,
+      "request_update",
+      args.status === "completed" ? "Permintaan selesai" : "Permintaan dibatalkan",
+      `"${request.title}" telah ${args.status === "completed" ? "ditandai selesai" : "dibatalkan"}.`,
+    );
     await ctx.scheduler.runAfter(
       0,
-      api.whatsapp.sendRequestStatusNotification,
+      internal.whatsapp.sendRequestStatusNotification,
       { requestId: args.requestId, status: args.status },
     );
     return args.requestId;
@@ -279,9 +336,8 @@ const packageFields = {
 export const createPackage = mutation({
   args: packageFields,
   handler: async (ctx, args) => {
-    await requireUser(ctx);
     const vendor = await ctx.db.get(args.vendorId);
-    if (!vendor) throw new Error("Listing tidak ditemukan");
+    await requireVendorManager(ctx, vendor);
     const name = args.name.trim();
     const description = args.description.trim();
     if (name.length < 2 || description.length < 5) throw new Error("Nama dan deskripsi paket belum lengkap");
@@ -311,10 +367,10 @@ export const updatePackage = mutation({
     active: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
     const { id, ...changes } = args;
     const current = await ctx.db.get(id);
     if (!current) throw new Error("Paket tidak ditemukan");
+    await requireVendorManager(ctx, await ctx.db.get(current.vendorId));
     await ctx.db.patch(id, {
       name: changes.name.trim(),
       description: changes.description.trim(),
@@ -331,9 +387,9 @@ export const updatePackage = mutation({
 export const removePackage = mutation({
   args: { id: v.id("vendorPackages") },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
     const current = await ctx.db.get(args.id);
     if (!current) throw new Error("Paket tidak ditemukan");
+    await requireVendorManager(ctx, await ctx.db.get(current.vendorId));
     await ctx.db.delete(args.id);
   },
 });
@@ -348,9 +404,8 @@ export const updateAvailability = mutation({
     serviceRadiusKm: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
     const vendor = await ctx.db.get(args.vendorId);
-    if (!vendor) throw new Error("Listing tidak ditemukan");
+    await requireVendorManager(ctx, vendor);
     await ctx.db.patch(args.vendorId, {
       availability: args.availability,
       availabilityNote: args.availabilityNote?.trim() || undefined,
@@ -517,9 +572,11 @@ export const setNotificationPreferences = mutation({
       .query("notificationPreferences")
       .withIndex("byUser", (q) => q.eq("userId", userId))
       .unique();
-    const phone = (args.whatsappPhone ?? current?.whatsappPhone ?? "")
+    const previousPhone = current?.whatsappPhone ?? "";
+    const phone = (args.whatsappPhone ?? previousPhone)
       .replace(/\D/g, "")
       .replace(/^0/, "62");
+    const phoneChanged = phone !== previousPhone;
     const whatsappUpdates =
       args.whatsappUpdates ?? current?.whatsappUpdates ?? false;
     if (whatsappUpdates && (phone.length < 10 || phone.length > 15)) {
@@ -529,7 +586,9 @@ export const setNotificationPreferences = mutation({
       whatsappUpdates,
       whatsappPhone: phone || undefined,
       whatsappOptInAt: whatsappUpdates
-        ? current?.whatsappOptInAt ?? Date.now()
+        ? current?.whatsappOptInAt && !phoneChanged
+          ? current.whatsappOptInAt
+          : Date.now()
         : undefined,
       areaUpdates: args.areaUpdates ?? current?.areaUpdates ?? false,
       requestUpdates: args.requestUpdates ?? current?.requestUpdates ?? false,
@@ -575,9 +634,8 @@ export const createVendorPhoto = mutation({
     caption: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
     const vendor = await ctx.db.get(args.vendorId);
-    if (!vendor) throw new Error("Listing tidak ditemukan");
+    await requireVendorManager(ctx, vendor);
     if (!args.storageId) throw new Error("Foto belum berhasil diunggah");
     return await ctx.db.insert("vendorPhotos", {
       vendorId: args.vendorId,
@@ -592,9 +650,9 @@ export const createVendorPhoto = mutation({
 export const removeVendorPhoto = mutation({
   args: { id: v.id("vendorPhotos") },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
     const photo = await ctx.db.get(args.id);
     if (!photo) throw new Error("Foto tidak ditemukan");
+    await requireVendorManager(ctx, await ctx.db.get(photo.vendorId));
     await ctx.db.delete(args.id);
     return args.id;
   },
@@ -603,6 +661,7 @@ export const removeVendorPhoto = mutation({
 export const listCommunityMetrics = query({
   args: {},
   handler: async (ctx) => {
+    await requireStaff(ctx);
     const [vendors, requests, users, favorites, photos] = await Promise.all([
       ctx.db.query("vendors").collect(),
       ctx.db.query("serviceRequests").collect(),
@@ -695,7 +754,50 @@ export const createReport = mutation({
     const userId = await getAuthUserId(ctx);
     const reason = args.reason.trim();
     const details = args.details.trim();
-    if (reason.length < 3 || details.length < 5) throw new Error("Ceritakan alasan laporan dengan lebih lengkap");
+    if (Boolean(args.vendorId) === Boolean(args.requestId)) {
+      throw new Error("Laporan harus menunjuk satu listing atau satu permintaan");
+    }
+    if (reason.length < 3 || details.length < 5 || details.length > 1000) {
+      throw new Error("Ceritakan alasan laporan dengan lebih lengkap");
+    }
+
+    const [vendor, request] = await Promise.all([
+      args.vendorId ? ctx.db.get(args.vendorId) : Promise.resolve(null),
+      args.requestId ? ctx.db.get(args.requestId) : Promise.resolve(null),
+    ]);
+    if (args.vendorId && !vendor) throw new Error("Listing yang dilaporkan tidak ditemukan");
+    if (args.requestId && !request) throw new Error("Permintaan yang dilaporkan tidak ditemukan");
+
+    const now = Date.now();
+    const existingReports = await ctx.db.query("reports").collect();
+    const sameTarget = (report: (typeof existingReports)[number]) =>
+      report.vendorId === args.vendorId && report.requestId === args.requestId;
+    const duplicate = existingReports.some(
+      (report) =>
+        sameTarget(report) &&
+        report.reason === reason &&
+        report.details === details &&
+        now - report.createdAt < 6 * 60 * 60 * 1000,
+    );
+    if (duplicate) throw new Error("Laporan serupa sudah dikirim baru saja");
+
+    const recentTargetReports = existingReports.filter(
+      (report) => sameTarget(report) && now - report.createdAt < 60 * 60 * 1000,
+    );
+    const recentReporterReports = userId
+      ? existingReports.filter(
+          (report) =>
+            report.reporterId === userId &&
+            now - report.createdAt < 24 * 60 * 60 * 1000,
+        )
+      : recentTargetReports;
+    if (
+      recentReporterReports.length >= (userId ? 10 : 5) ||
+      recentTargetReports.length >= 20
+    ) {
+      throw new Error("Terlalu banyak laporan untuk target ini. Coba lagi nanti");
+    }
+
     return await ctx.db.insert("reports", {
       reporterId: userId ?? undefined,
       vendorId: args.vendorId,
@@ -703,8 +805,8 @@ export const createReport = mutation({
       reason,
       details,
       status: "open",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
     });
   },
 });
@@ -715,7 +817,7 @@ export const updateReport = mutation({
     status: v.union(v.literal("reviewing"), v.literal("resolved"), v.literal("dismissed")),
   },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
+    await requireStaff(ctx);
     const report = await ctx.db.get(args.id);
     if (!report) throw new Error("Laporan tidak ditemukan");
     await ctx.db.patch(args.id, { status: args.status, updatedAt: Date.now() });
@@ -726,7 +828,7 @@ export const updateReport = mutation({
 export const listReports = query({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
+    await requireStaff(ctx);
     const reports = await ctx.db.query("reports").collect();
     return reports
       .filter((report) => report.status === "open" || report.status === "reviewing")

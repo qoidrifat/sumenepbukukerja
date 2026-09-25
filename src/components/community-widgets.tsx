@@ -13,12 +13,14 @@ import {
   X,
 } from "lucide-react";
 import { categoryOptions, landmarkLabel, landmarks, type Category, type Vendor } from "@/lib/catalog";
+import { distanceLabel } from "@/lib/catalog-data";
 import {
   useCatalogActions,
   useCatalogVendors,
   useMyInteractions,
   useNotificationPreferences,
   useNotifications,
+  useWhatsappStatus,
   useServiceRequests,
   useVendorPackages,
   type NotificationPreferences,
@@ -178,7 +180,7 @@ function RequestCard({ request }: { request: ServiceRequest }) {
   const vendors = useCatalogVendors();
   const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
-  const { claimRequest } = useCatalogActions();
+  const { claimRequest, click, interaction } = useCatalogActions();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const matches = vendors
@@ -251,7 +253,7 @@ function RequestCard({ request }: { request: ServiceRequest }) {
                         {busy ? "Mengirim..." : "Tawarkan bantuan"}
                       </button>
                     ) : null}
-                    <a href={whatsappHref} target="_blank" rel="noreferrer" className={`inline-flex min-h-12 items-center rounded-lg bg-[#25D366] px-3 text-sm font-extrabold text-[#082f1e] ${focusRing}`}>Tanya via WhatsApp</a>
+                    <a href={whatsappHref} target="_blank" rel="noreferrer" onClick={() => { if (vendor._id) { void click({ id: vendor._id as never, kind: "whatsapp" }).catch(() => undefined); void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined); } }} className={`inline-flex min-h-12 items-center rounded-lg bg-[#25D366] px-3 text-sm font-extrabold text-[#082f1e] ${focusRing}`}>Tanya via WhatsApp</a>
                   </div>
                 </div>
               );
@@ -352,32 +354,190 @@ export function InteractionHistory() {
 export function NotificationCenter() {
   const notifications = useNotifications();
   const preferences = useNotificationPreferences();
-  const { markNotificationsRead, setNotificationPreferences } = useCatalogActions();
+  const whatsappStatus = useWhatsappStatus();
+  const {
+    markNotificationsRead,
+    setNotificationPreferences,
+    sendTestWhatsapp,
+  } = useCatalogActions();
   const [preferenceError, setPreferenceError] = useState("");
+  const [whatsappPhoneDraft, setWhatsappPhoneDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [testNotice, setTestNotice] = useState("");
   const unread = notifications?.filter((item) => !item.read).length ?? 0;
   const prefs: NotificationPreferences = preferences
-    ? { whatsappUpdates: preferences.whatsappUpdates ?? false, areaUpdates: preferences.areaUpdates ?? false, requestUpdates: preferences.requestUpdates ?? false }
+    ? {
+        whatsappUpdates: preferences.whatsappUpdates ?? false,
+        areaUpdates: preferences.areaUpdates ?? false,
+        requestUpdates: preferences.requestUpdates ?? false,
+      }
     : { whatsappUpdates: false, areaUpdates: false, requestUpdates: false };
-  const toggle = async (key: keyof NotificationPreferences) => {
+
+  const whatsappPhone =
+    whatsappPhoneDraft ?? preferences?.whatsappPhone ?? "";
+
+  const toggle = async (
+    key: "whatsappUpdates" | "areaUpdates" | "requestUpdates",
+  ) => {
     setPreferenceError("");
+    setSaving(true);
     try {
-      await setNotificationPreferences({ [key]: !prefs[key] });
+      if (key === "whatsappUpdates") {
+        await setNotificationPreferences({
+          whatsappUpdates: !prefs.whatsappUpdates,
+          whatsappPhone,
+        });
+      } else {
+        await setNotificationPreferences({ [key]: !prefs[key] });
+      }
     } catch (caught) {
-      setPreferenceError(caught instanceof Error ? caught.message : "Preferensi belum dapat disimpan.");
+      setPreferenceError(
+        caught instanceof Error
+          ? caught.message
+          : "Preferensi belum dapat disimpan.",
+      );
+    } finally {
+      setSaving(false);
     }
   };
+
+  const sendTest = async () => {
+    setPreferenceError("");
+    setTestNotice("");
+    setSaving(true);
+    try {
+      await sendTestWhatsapp({});
+      setTestNotice("Pesan uji berhasil dikirim ke nomor WhatsApp.");
+    } catch (caught) {
+      setTestNotice(
+        caught instanceof Error
+          ? caught.message
+          : "Pesan uji belum dapat dikirim.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3"><span className="relative flex size-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><Bell className="size-5" />{unread > 0 ? <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-black text-white">{unread > 9 ? "9+" : unread}</span> : null}</span><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Pemberitahuan</p><h2 className="mt-1 text-xl font-black text-slate-950">Yang perlu Anda tahu</h2></div></div>
-        {unread > 0 ? <button type="button" onClick={() => void markNotificationsRead({})} className={`min-h-12 rounded-lg px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-50 ${focusRing}`}>Tandai dibaca</button> : null}
+        <div className="flex items-center gap-3">
+          <span className="relative flex size-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
+            <Bell className="size-5" />
+            {unread > 0 ? (
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-black text-white">
+                {unread > 9 ? "9+" : unread}
+              </span>
+            ) : null}
+          </span>
+          <div>
+            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
+              Pemberitahuan
+            </p>
+            <h2 className="mt-1 text-xl font-black text-slate-950">
+              Yang perlu Anda tahu
+            </h2>
+          </div>
+        </div>
+        {unread > 0 ? (
+          <button
+            type="button"
+            onClick={() => void markNotificationsRead({})}
+            className={`min-h-12 rounded-lg px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-50 ${focusRing}`}
+          >
+            Tandai dibaca
+          </button>
+        ) : null}
       </div>
-      <p className="mt-3 text-sm leading-6 text-slate-600">Notifikasi yang tampil di sini bersifat opt-in. Integrasi WhatsApp Business API belum aktif, jadi pilihan WhatsApp hanya menyimpan preferensi.</p>
+
+      <p className="mt-3 text-sm leading-6 text-slate-600">
+        Notifikasi bersifat opt-in dan dibatasi maksimal tiga pesan WhatsApp per
+        hari.{" "}
+        {whatsappStatus === undefined
+          ? "Status pengiriman sedang dimuat."
+          : whatsappStatus.configured
+            ? "WhatsApp Business API sudah terkonfigurasi."
+            : "WhatsApp Business API belum dikonfigurasi; preferensi tetap dapat disimpan."}
+      </p>
+
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
-        {([["whatsappUpdates", "Preferensi WhatsApp"], ["areaUpdates", "Info area (dalam aplikasi)"], ["requestUpdates", "Permintaan baru (dalam aplikasi)"]] as const).map(([key, label]) => <label key={key} className="flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-700"><input type="checkbox" checked={prefs[key]} onChange={() => void toggle(key)} className="size-4 accent-blue-600" />{label}</label>)}
+        {(
+          [
+            ["whatsappUpdates", "WhatsApp"],
+            ["areaUpdates", "Info area (dalam aplikasi)"],
+            ["requestUpdates", "Permintaan baru (dalam aplikasi)"],
+          ] as const
+        ).map(([key, label]) => (
+          <label
+            key={key}
+            className="flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-700"
+          >
+            <input
+              type="checkbox"
+              checked={prefs[key]}
+              disabled={saving}
+              onChange={() => void toggle(key)}
+              className="size-4 accent-blue-600"
+            />
+            {label}
+          </label>
+        ))}
       </div>
-      {preferenceError ? <p className="mt-2 text-sm font-bold text-red-700" role="alert">{preferenceError}</p> : null}
-      {notifications && notifications.length > 0 ? <div className="mt-4 space-y-2">{notifications.slice(0, 5).map((item) => <div key={item._id} className={`rounded-lg border p-3 ${item.read ? "border-slate-200 bg-white" : "border-blue-200 bg-blue-50"}`}><p className="text-sm font-extrabold text-slate-900">{item.title}</p><p className="mt-1 text-sm leading-5 text-slate-600">{item.body}</p></div>)}</div> : <p className="mt-4 text-sm leading-6 text-slate-600">Belum ada notifikasi. Pilihan di atas bisa diubah kapan saja.</p>}
+
+      <label className="mt-3 flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <span className="text-sm font-extrabold text-slate-800">
+          Nomor WhatsApp untuk notifikasi
+        </span>
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <input
+            type="tel"
+            inputMode="tel"
+            value={whatsappPhone}
+            onChange={(event) => setWhatsappPhoneDraft(event.target.value)}
+            placeholder="08xxxxxxxxxx atau 62xxxxxxxxxx"
+            className={inputClass}
+            autoComplete="tel"
+          />
+          <button
+            type="button"
+            disabled={saving || !prefs.whatsappUpdates || !whatsappStatus?.configured}
+            onClick={() => void sendTest()}
+            className={`min-h-12 rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+          >
+            {saving ? "Memproses..." : "Kirim pesan uji"}
+          </button>
+        </div>
+      </label>
+
+      {preferenceError ? (
+        <p className="mt-2 text-sm font-bold text-red-700" role="alert">
+          {preferenceError}
+        </p>
+      ) : null}
+      {testNotice ? (
+        <p className="mt-2 text-sm font-bold text-blue-700" role="status">
+          {testNotice}
+        </p>
+      ) : null}
+
+      {notifications && notifications.length > 0 ? (
+        <div className="mt-4 space-y-2">
+          {notifications.slice(0, 5).map((item) => (
+            <div
+              key={item._id}
+              className={`rounded-lg border p-3 ${item.read ? "border-slate-200 bg-white" : "border-blue-200 bg-blue-50"}`}
+            >
+              <p className="text-sm font-extrabold text-slate-900">{item.title}</p>
+              <p className="mt-1 text-sm leading-5 text-slate-600">{item.body}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm leading-6 text-slate-600">
+          Belum ada notifikasi. Pilihan di atas bisa diubah kapan saja.
+        </p>
+      )}
     </section>
   );
 }
@@ -443,12 +603,18 @@ export function PackageManager({ vendorId, vendorName }: { vendorId: string; ven
 }
 
 export function CompareTray({ vendors, selected, onRemove, onClear }: { vendors: Vendor[]; selected: string[]; onRemove: (slug: string) => void; onClear: () => void }) {
+  const { click, interaction } = useCatalogActions();
   const selectedVendors = vendors.filter((vendor) => selected.includes(vendor.slug));
   if (selectedVendors.length === 0) return null;
+  const trackWhatsApp = (vendor: Vendor) => {
+    if (!vendor._id) return;
+    void click({ id: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
+    void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
+  };
   return (
     <section className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm sm:p-5" aria-labelledby="compare-title">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-700">Bandingkan listing</p><h2 id="compare-title" className="mt-1 text-lg font-black text-slate-950">Pilih yang paling pas</h2></div><button type="button" onClick={onClear} className={`min-h-12 rounded-lg px-3 text-sm font-extrabold text-blue-700 hover:bg-white ${focusRing}`}>Bersihkan</button></div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{selectedVendors.map((vendor) => <div key={vendor.slug} className="rounded-xl border border-blue-100 bg-white p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-extrabold text-blue-700">{vendor.category}</p><h3 className="mt-1 font-black text-slate-950">{vendor.name}</h3></div><button type="button" onClick={() => onRemove(vendor.slug)} className={`flex size-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 ${focusRing}`} aria-label={`Hapus ${vendor.name} dari perbandingan`}><X className="size-4" /></button></div><div className="mt-4 space-y-2 text-sm"><p className="flex items-center gap-2"><MapPin className="size-4 text-blue-600" />{landmarkLabel(vendor.landmark)}</p><p className="flex items-center gap-2"><Clock3 className="size-4 text-blue-600" />{vendor.hours}</p><p className="flex items-center gap-2"><Star className="size-4 fill-amber-500 text-amber-500" />{vendor.rating} · {vendor.reviews} ulasan</p><p className="flex items-center gap-2"><ShieldCheck className="size-4 text-blue-600" />{vendor.verified ? "Terverifikasi" : "Belum diverifikasi"}</p><p className="font-black text-slate-900">{vendor.price}</p></div><a href={generateWhatsAppLink({ phone: vendor.phone, vendorName: vendor.name, category: vendor.category, landmark: landmarkLabel(vendor.landmark), intent: "availability" })} target="_blank" rel="noreferrer" className={`mt-4 flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-3 text-sm font-extrabold text-[#082f1e] ${focusRing}`}>Tanya ketersediaan</a></div>)}</div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{selectedVendors.map((vendor) => <div key={vendor.slug} className="rounded-xl border border-blue-100 bg-white p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-extrabold text-blue-700">{vendor.category}</p><h3 className="mt-1 font-black text-slate-950">{vendor.name}</h3></div><button type="button" onClick={() => onRemove(vendor.slug)} className={`flex size-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 ${focusRing}`} aria-label={`Hapus ${vendor.name} dari perbandingan`}><X className="size-4" /></button></div><div className="mt-4 space-y-2 text-sm"><p className="flex items-center gap-2"><MapPin className="size-4 text-blue-600" />{landmarkLabel(vendor.landmark)}{vendor.distanceKm !== undefined ? ` · ${distanceLabel(vendor.distanceKm)}` : ""}</p><p className="flex items-center gap-2"><Clock3 className="size-4 text-blue-600" />{vendor.hours}</p><p className="flex items-center gap-2"><Star className="size-4 fill-amber-500 text-amber-500" />{vendor.rating} · {vendor.reviews} ulasan</p><p className="flex items-center gap-2"><Clock3 className="size-4 text-blue-600" />{vendor.responseMinutes ? `Rata-rata membalas ${vendor.responseMinutes} menit` : "Waktu balas belum diisi"}</p><p className="flex items-center gap-2"><ShieldCheck className="size-4 text-blue-600" />{vendor.verified ? "Terverifikasi" : "Belum diverifikasi"}</p><p className="font-black text-slate-900">{vendor.price}</p></div><a href={generateWhatsAppLink({ phone: vendor.phone, vendorName: vendor.name, category: vendor.category, landmark: landmarkLabel(vendor.landmark), intent: "availability" })} target="_blank" rel="noreferrer" onClick={() => trackWhatsApp(vendor)} className={`mt-4 flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-3 text-sm font-extrabold text-[#082f1e] ${focusRing}`}>Tanya ketersediaan</a></div>)}</div>
     </section>
   );
 }

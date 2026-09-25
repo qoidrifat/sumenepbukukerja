@@ -111,6 +111,7 @@ export function vendorUpdatePayload(
     photoId: next.photoId,
     availability: next.availability ?? "available",
     availabilityNote: next.availabilityNote,
+    nextAvailableAt: next.nextAvailableAt,
     responseMinutes: next.responseMinutes,
     serviceRadiusKm: next.serviceRadiusKm,
   };

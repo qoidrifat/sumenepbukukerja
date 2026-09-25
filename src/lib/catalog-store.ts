@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useMutation, useQuery, useConvexAuth } from "convex/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAction, useMutation, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { vendors as seedVendors, vendorBySlug, type Vendor } from "./catalog";
 
@@ -208,24 +208,24 @@ function useStoredFavorites() {
     };
   }, []);
 
-  const toggleLocal = (slug: string) => {
-    setLocal((current) => {
-      const next = current.includes(slug)
-        ? current.filter((item) => item !== slug)
-        : [...current, slug];
-      persistFavorites(next);
-      if (!next.includes(slug)) {
-        setCollections((currentCollections) => {
-          if (!(slug in currentCollections)) return currentCollections;
-          const nextCollections = { ...currentCollections };
-          delete nextCollections[slug];
-          persistCollections(nextCollections);
-          window.dispatchEvent(new Event("sumenep-favorite-collections-updated"));
-          return nextCollections;
-        });
-      }
-      return next;
-    });
+  const setLocalSaved = (slug: string, saved: boolean) => {
+    if (local.includes(slug) === saved) return;
+    const next = saved
+      ? Array.from(new Set([...local, slug]))
+      : local.filter((item) => item !== slug);
+    persistFavorites(next);
+    setLocal(next);
+
+    if (!saved) {
+      setCollections((currentCollections) => {
+        if (!(slug in currentCollections)) return currentCollections;
+        const nextCollections = { ...currentCollections };
+        delete nextCollections[slug];
+        persistCollections(nextCollections);
+        window.dispatchEvent(new Event("sumenep-favorite-collections-updated"));
+        return nextCollections;
+      });
+    }
   };
 
   const setLocalCollection = (slug: string, collection: string) => {
@@ -237,50 +237,123 @@ function useStoredFavorites() {
     });
   };
 
-  return { local, collections, toggleLocal, setLocalCollection } as const;
+  const clearLocal = useCallback((slugsToClear: string[]) => {
+    const cleared = new Set(slugsToClear);
+    setLocal((current) => {
+      const next = current.filter((slug) => !cleared.has(slug));
+      if (next.length === current.length) return current;
+      persistFavorites(next);
+      return next;
+    });
+    setCollections((currentCollections) => {
+      const nextCollections = { ...currentCollections };
+      let changed = false;
+      slugsToClear.forEach((slug) => {
+        if (slug in nextCollections) {
+          delete nextCollections[slug];
+          changed = true;
+        }
+      });
+      if (!changed) return currentCollections;
+      persistCollections(nextCollections);
+      window.dispatchEvent(new Event("sumenep-favorite-collections-updated"));
+      return nextCollections;
+    });
+  }, []);
+
+  return { local, collections, setLocalSaved, setLocalCollection, clearLocal } as const;
 }
 
 export function useVendorPhoto(photoId: string | undefined) {
   return useQuery(api.vendors.getImageUrl, { storageId: photoId ?? "" });
 }
 
+export function useVendorPhotos(vendorId: string | undefined) {
+  return useQuery(
+    api.community.listVendorPhotos,
+    vendorId ? { vendorId: vendorId as never } : "skip",
+  );
+}
+
 export function useFavorites() {
   const { isAuthenticated } = useConvexAuth();
   const remote = useQuery(api.vendors.listFavorites, {});
   const favorite = useMutation(api.vendors.toggleFavorite);
-  const setRemoteCollection = useMutation(api.vendors.setFavoriteCollection);
-  const { local, collections: localCollections, toggleLocal, setLocalCollection } = useStoredFavorites();
-  const remoteCollections = new Map(remote?.map((item) => [item.slug, item.collection ?? "Tersimpan"]) ?? []);
-  const slugs = new Set(remote?.map((item) => item.slug) ?? []);
-  local.forEach((slug) => slugs.add(slug));
+  const syncLocalFavorites = useMutation(api.vendors.syncLocalFavorites);
+  const {
+    local,
+    collections: localCollections,
+    setLocalSaved,
+    setLocalCollection,
+    clearLocal,
+  } = useStoredFavorites();
+  const attemptedSync = useRef(new Set<string>());
+  const remoteLoaded = remote !== undefined;
+  const remoteSlugs = useMemo(
+    () => new Set(remote?.map((item) => item.slug) ?? []),
+    [remote],
+  );
+  const remoteCollections = useMemo(
+    () =>
+      new Map(
+        remote?.map((item) => [item.slug, item.collection ?? "Tersimpan"]) ?? [],
+      ),
+    [remote],
+  );
+  const slugs = new Set(
+    isAuthenticated && remoteLoaded
+      ? remote?.map((item) => item.slug) ?? []
+      : local,
+  );
+  const pendingLocalItems = useMemo(
+    () =>
+      isAuthenticated && remoteLoaded
+        ? local
+            .filter((slug) => !remoteSlugs.has(slug))
+            .map((slug) => ({
+              slug,
+              collection: localCollections[slug] ?? "Tersimpan",
+            }))
+        : [],
+    [isAuthenticated, local, localCollections, remoteLoaded, remoteSlugs],
+  );
+  const pendingSyncKey = pendingLocalItems
+    .map((item) => `${item.slug}:${item.collection}`)
+    .sort()
+    .join("|");
+
+  useEffect(() => {
+    if (!pendingSyncKey || attemptedSync.current.has(pendingSyncKey)) return;
+    attemptedSync.current.add(pendingSyncKey);
+    const items = pendingLocalItems.slice(0, 100);
+    void syncLocalFavorites({ items })
+      .then(() => clearLocal(items.map((item) => item.slug)))
+      .catch(() => attemptedSync.current.delete(pendingSyncKey));
+  }, [clearLocal, pendingLocalItems, pendingSyncKey, syncLocalFavorites]);
 
   const save = (slug: string, vendorId?: string, collection = "Tersimpan") => {
-    // Authenticated saves are server-authoritative. Keeping the local copy in
-    // lockstep with a blind toggle can resurrect a favorite after a failed or
-    // stale remote mutation, especially when localStorage was cleared.
-    if (isAuthenticated && vendorId) {
-      void favorite({ vendorId: vendorId as never, collection }).catch(() => undefined);
+    const shouldSave = !slugs.has(slug);
+    if (!isAuthenticated || !vendorId) {
+      setLocalSaved(slug, shouldSave);
+      if (shouldSave && collection !== "Tersimpan") setLocalCollection(slug, collection);
       return;
     }
-    toggleLocal(slug);
-    if (collection !== "Tersimpan") setLocalCollection(slug, collection);
+    void favorite({
+      vendorId: vendorId as never,
+      collection,
+      saved: shouldSave,
+    }).catch(() => undefined);
   };
 
   const setCollection = (slug: string, vendorId: string | undefined, collection: string) => {
+    setLocalSaved(slug, true);
     setLocalCollection(slug, collection);
-    if (!isAuthenticated || !vendorId || remote === undefined) return;
-
-    const remoteHasFavorite = remote.some((item) => item.slug === slug);
-    if (remoteHasFavorite) {
-      void setRemoteCollection({ vendorId: vendorId as never, collection }).catch(() => undefined);
-      return;
-    }
-
-    // Selecting a collection also saves the listing, so the label cannot point
-    // at a favorite that does not exist on the account.
-    void favorite({ vendorId: vendorId as never, collection })
-      .then((saved) => saved ? setRemoteCollection({ vendorId: vendorId as never, collection }) : undefined)
-      .catch(() => undefined);
+    if (!isAuthenticated || !vendorId) return;
+    void favorite({
+      vendorId: vendorId as never,
+      collection,
+      saved: true,
+    }).catch(() => undefined);
   };
 
   return {
@@ -298,7 +371,9 @@ export function useCatalogActions() {
   const update = useMutation(api.vendors.updateVendor);
   const archive = useMutation(api.vendors.archiveVendor);
   const click = useMutation(api.vendors.incrementClick);
+  const recordSearch = useMutation(api.vendors.recordSearch);
   const favorite = useMutation(api.vendors.toggleFavorite);
+  const syncLocalFavorites = useMutation(api.vendors.syncLocalFavorites);
   const review = useMutation(api.vendors.addReview);
   const feedback = useMutation(api.vendors.submitFeedback);
   const subscription = useMutation(api.vendors.setSubscription);
@@ -316,12 +391,15 @@ export function useCatalogActions() {
   const setNotificationPreferences = useMutation(api.community.setNotificationPreferences);
   const createReport = useMutation(api.community.createReport);
   const updateReport = useMutation(api.community.updateReport);
+  const sendTestWhatsapp = useAction(api.whatsapp.sendTestWhatsapp);
   return {
     create,
     update,
     archive,
     click,
+    recordSearch,
     favorite,
+    syncLocalFavorites,
     review,
     feedback,
     subscription,
@@ -339,6 +417,7 @@ export function useCatalogActions() {
     setNotificationPreferences,
     createReport,
     updateReport,
+    sendTestWhatsapp,
   };
 }
 
@@ -367,6 +446,18 @@ export function useNotifications() {
 
 export function useNotificationPreferences() {
   return useQuery(api.community.getNotificationPreferences, {});
+}
+
+export function useWhatsappStatus() {
+  return useQuery(api.whatsapp.getWhatsappStatus, {});
+}
+
+export function useCommunityMetrics() {
+  return useQuery(api.community.listCommunityMetrics, {});
+}
+
+export function useCurrentAccess() {
+  return useQuery(api.users.currentAccess, {});
 }
 
 export function useOpenReports() {

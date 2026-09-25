@@ -14,3 +14,23 @@ export const currentUser = query({
     return await ctx.db.get(userId);
   },
 });
+
+export const currentAccess = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return { isStaff: false };
+    const user = await ctx.db.get(userId);
+    const membership = await ctx.db
+      .query("staffMembers")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .unique();
+    return {
+      isStaff:
+        user?.role === "admin" ||
+        user?.role === "staff" ||
+        membership?.role === "admin" ||
+        membership?.role === "staff",
+    };
+  },
+});

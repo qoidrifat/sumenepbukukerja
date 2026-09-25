@@ -3,15 +3,20 @@ import type { GenericActionCtx } from "convex/server";
 import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import type { DataModel } from "./_generated/dataModel";
-import { api } from "./_generated/api";
+import { internal } from "./_generated/api";
 
 const notificationKindValidator = v.union(
   v.literal("request_created"),
   v.literal("request_status"),
+  v.literal("vendor_created"),
   v.literal("vendor_updated"),
 );
 
-type NotificationKind = "request_created" | "request_status" | "vendor_updated";
+type NotificationKind =
+  | "request_created"
+  | "request_status"
+  | "vendor_created"
+  | "vendor_updated";
 type DeliveryResult = {
   configured: boolean;
   delivered: number;
@@ -81,20 +86,14 @@ export const notificationRecipients = internalQuery({
   handler: async (ctx, args) => {
     const now = Date.now();
     const users = await ctx.db.query("users").collect();
-    const request =
-      args.kind === "request_created" || args.kind === "request_status"
-        ? await ctx.db.get(args.entityId as DataModel["serviceRequests"]["document"]["_id"])
-        : null;
-    const vendor =
-      args.kind === "vendor_updated"
-        ? await ctx.db.get(args.entityId as DataModel["vendors"]["document"]["_id"])
-        : null;
-    if (
-      (args.kind !== "vendor_updated" && !request) ||
-      (args.kind === "vendor_updated" && !vendor)
-    ) {
-      return [];
-    }
+    const isVendorKind = args.kind === "vendor_created" || args.kind === "vendor_updated";
+    const request = isVendorKind
+      ? null
+      : await ctx.db.get(args.entityId as DataModel["serviceRequests"]["document"]["_id"]);
+    const vendor = isVendorKind
+      ? await ctx.db.get(args.entityId as DataModel["vendors"]["document"]["_id"])
+      : null;
+    if (isVendorKind ? !vendor : !request) return [];
 
     let title = "Informasi Buku Kerja";
     let body = "Ada pembaruan baru di Sumenep Buku Kerja.";
@@ -115,13 +114,27 @@ export const notificationRecipients = internalQuery({
       }
     }
     if (vendor) {
-      title = vendor.featured ? "Listing unggulan diperbarui" : "Listing lokal diperbarui";
-      body = `${vendor.name} di ${areaLabels[vendor.landmark] ?? vendor.landmark} memiliki informasi terbaru.`;
+      title =
+        args.kind === "vendor_created"
+          ? "Listing baru di sekitar Anda"
+          : vendor.featured
+            ? "Listing unggulan diperbarui"
+            : "Listing lokal diperbarui";
+      body =
+        args.kind === "vendor_created"
+          ? `${vendor.name} baru tayang di ${areaLabels[vendor.landmark] ?? vendor.landmark}.`
+          : `${vendor.name} di ${areaLabels[vendor.landmark] ?? vendor.landmark} memiliki informasi terbaru.`;
     }
 
     const recipients = [];
     for (const user of users) {
-      if (request && user._id === request.requesterId) continue;
+      if (
+        request &&
+        ((args.kind === "request_created" && user._id === request.requesterId) ||
+          (args.kind === "request_status" && user._id !== request.requesterId))
+      ) {
+        continue;
+      }
       const preference = await ctx.db
         .query("notificationPreferences")
         .withIndex("byUser", (q) => q.eq("userId", user._id))
@@ -136,8 +149,8 @@ export const notificationRecipients = internalQuery({
       }
       if (
         (args.kind === "request_created" && preference.requestUpdates !== true) ||
-        (args.kind === "request_status" && preference.requestUpdates !== true) ||
-        (args.kind === "vendor_updated" && preference.areaUpdates !== true)
+        ((args.kind === "vendor_created" || args.kind === "vendor_updated") &&
+          preference.areaUpdates !== true)
       ) {
         continue;
       }
@@ -153,7 +166,10 @@ export const notificationRecipients = internalQuery({
         .query("notifications")
         .withIndex("byUser", (q) => q.eq("userId", user._id))
         .collect();
-      const deliveryKey = `whatsapp:${args.kind}:${args.entityId}`;
+      const deliveryKey =
+        args.kind === "request_status"
+          ? `whatsapp:${args.kind}:${args.entityId}:${request?.status ?? "unknown"}`
+          : `whatsapp:${args.kind}:${args.entityId}`;
       if (recent.some((item) => item.kind === deliveryKey)) continue;
       const lastDay = recent.filter(
         (item) =>
@@ -271,7 +287,7 @@ async function deliver(
   entityId: string,
 ): Promise<DeliveryResult> {
   const recipients: DeliveryRecipient[] = await ctx.runQuery(
-    api.whatsapp.notificationRecipients,
+    internal.whatsapp.notificationRecipients,
     { kind, entityId },
   );
   if (!twilioConfig().configured) {
@@ -287,7 +303,7 @@ async function deliver(
         body: recipient.body,
       });
       if (result.skipped) continue;
-      await ctx.runMutation(api.whatsapp.recordWhatsappDelivery, {
+      await ctx.runMutation(internal.whatsapp.recordWhatsappDelivery, {
         userId: recipient.userId,
         kind: recipient.deliveryKey,
         title: recipient.title,
@@ -318,6 +334,12 @@ export const sendRequestStatusNotification = internalAction({
     deliver(ctx, "request_status", args.requestId),
 });
 
+export const sendVendorCreatedNotifications = internalAction({
+  args: { vendorId: v.id("vendors") },
+  handler: async (ctx, args): Promise<DeliveryResult> =>
+    deliver(ctx, "vendor_created", args.vendorId),
+});
+
 export const sendVendorUpdatedNotifications = internalAction({
   args: { vendorId: v.id("vendors") },
   handler: async (ctx, args): Promise<DeliveryResult> =>
@@ -330,10 +352,10 @@ export const sendTestWhatsapp = action({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Masuk untuk menguji notifikasi WhatsApp");
     const preference = await ctx.runQuery(
-      api.whatsapp.preferencesForUser,
+      internal.whatsapp.preferencesForUser,
       { userId },
     );
-    const phone = normalizePhone(preference?.whatsappPhone ?? "");
+    const phone = normalizePhone(preference?.phone ?? "");
     if (
       !phone ||
       preference?.whatsappUpdates !== true ||
@@ -348,7 +370,7 @@ export const sendTestWhatsapp = action({
     });
     if (result.skipped) throw new Error("Integrasi WhatsApp belum dikonfigurasi");
     if (result.messageId) {
-      await ctx.runMutation(api.whatsapp.recordWhatsappDelivery, {
+      await ctx.runMutation(internal.whatsapp.recordWhatsappDelivery, {
         userId,
         kind: "whatsapp:test",
         title: "WhatsApp aktif",

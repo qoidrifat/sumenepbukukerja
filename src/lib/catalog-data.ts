@@ -11,7 +11,11 @@ export const categoryActionLabel: Record<Category, string> = {
   "Jasa Umum": "Tanya layanan",
 };
 
-export const isOpenNow = (hours: string) => {
+export const isOpenNow = (
+  hours: string,
+  availability: "available" | "busy" | "closed" = "available",
+) => {
+  if (availability === "closed") return false;
   const normalized = hours.toLowerCase();
   if (normalized.includes("24 jam")) return true;
   const now = new Date();
@@ -56,7 +60,7 @@ export const searchByNeed = (vendors: Vendor[], query: string) => {
   return vendors.filter((vendor) => { const haystack = [vendor.name, vendor.description, vendor.category, ...vendor.tags].join(" ").toLowerCase(); return terms.every((term) => haystack.includes(term)); });
 };
 
-export const landmarkCoordinates: Record<string, { lat: number; lng: number }> = { adipura: { lat: -7.005, lng: 114.443 }, trunojoyo: { lat: -7.009, lng: 114.448 }, anom: { lat: -7.015, lng: 114.44 }, keraton: { lat: -7.019, lng: 114.433 }, jamik: { lat: -7.011, lng: 114.437 } };
+export const landmarkCoordinates: Record<string, { lat: number; lng: number }> = { adipura: { lat: -7.005, lng: 113.862 }, trunojoyo: { lat: -7.009, lng: 113.868 }, anom: { lat: -7.015, lng: 113.86 }, keraton: { lat: -7.019, lng: 113.857 }, jamik: { lat: -7.011, lng: 113.858 }, "kota-lama": { lat: -7.005, lng: 113.861 }, kalianget: { lat: -7.0552167, lng: 113.9419448 }, bluto: { lat: -7.1046076, lng: 113.8112876 }, pragaan: { lat: -7.1118904, lng: 113.6558819 } };
 
 export const distanceKmBetween = (from: { lat: number; lng: number }, to: { lat?: number; lng?: number }) => {
   if (to.lat === undefined || to.lng === undefined) return undefined;

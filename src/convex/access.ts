@@ -64,7 +64,8 @@ export async function requireVendorManager(
   const userId = await requireUser(ctx);
   if (!vendor) throw new Error("Listing tidak ditemukan");
   const access = await getStaffAccess(ctx, userId);
-  if (vendor.ownerId !== userId && (!access || access.role === "viewer")) {
+  if (access?.role === "viewer") throw new Error("Viewer hanya dapat melihat data");
+  if (vendor.ownerId !== userId && !access) {
     throw new Error("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
   }
   return { userId, access };

@@ -75,12 +75,19 @@ async function hasStaffAccess(
     .query("staffMembers")
     .withIndex("byUser", (q) => q.eq("userId", userId))
     .unique();
-  return (
-    user?.role === "admin" ||
-    user?.role === "staff" ||
-    membership?.role === "admin" ||
-    membership?.role === "staff"
-  );
+  if (membership) return membership.role === "admin" || membership.role === "staff";
+  return user?.role === "admin" || user?.role === "staff";
+}
+
+async function isViewer(
+  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+  userId: DataModel["users"]["document"]["_id"],
+) {
+  const membership = await ctx.db
+    .query("staffMembers")
+    .withIndex("byUser", (q) => q.eq("userId", userId))
+    .unique();
+  return membership?.role === "viewer";
 }
 
 async function requireStaff(
@@ -99,6 +106,7 @@ async function requireVendorManager(
 ) {
   const userId = await requireUser(ctx);
   if (!vendor) throw new Error("Listing tidak ditemukan");
+  if (await isViewer(ctx, userId)) throw new Error("Viewer hanya dapat melihat data");
   if (vendor.ownerId !== userId && !(await hasStaffAccess(ctx, userId))) {
     throw new Error("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
   }
@@ -640,23 +648,23 @@ export const updateAvailability = mutation({
   handler: async (ctx, args) => {
     const vendor = await ctx.db.get(args.vendorId);
     const actorId = await requireVendorManager(ctx, vendor);
-    await ctx.db.patch(args.vendorId, {
+    const next = {
       availability: args.availability,
-      availabilityNote: args.availabilityNote?.trim() || undefined,
-      nextAvailableAt: args.nextAvailableAt,
-      responseMinutes: args.responseMinutes,
-      serviceRadiusKm: args.serviceRadiusKm,
-      updatedAt: Date.now(),
-    });
+      availabilityNote: args.availabilityNote === undefined ? vendor?.availabilityNote : args.availabilityNote.trim() || undefined,
+      nextAvailableAt: args.nextAvailableAt === undefined ? vendor?.nextAvailableAt : args.nextAvailableAt,
+      responseMinutes: args.responseMinutes === undefined ? vendor?.responseMinutes : args.responseMinutes,
+      serviceRadiusKm: args.serviceRadiusKm === undefined ? vendor?.serviceRadiusKm : args.serviceRadiusKm,
+    };
+    await ctx.db.patch(args.vendorId, { ...next, updatedAt: Date.now() });
     await writeListingHistory(ctx, {
       vendorId: args.vendorId,
       actorId,
       changes: [
-        { field: "availability", oldValue: vendor?.availability, newValue: args.availability },
-        { field: "availabilityNote", oldValue: vendor?.availabilityNote, newValue: args.availabilityNote },
-        { field: "nextAvailableAt", oldValue: vendor?.nextAvailableAt, newValue: args.nextAvailableAt },
-        { field: "responseMinutes", oldValue: vendor?.responseMinutes, newValue: args.responseMinutes },
-        { field: "serviceRadiusKm", oldValue: vendor?.serviceRadiusKm, newValue: args.serviceRadiusKm },
+        { field: "availability", oldValue: vendor?.availability, newValue: next.availability },
+        { field: "availabilityNote", oldValue: vendor?.availabilityNote, newValue: next.availabilityNote },
+        { field: "nextAvailableAt", oldValue: vendor?.nextAvailableAt, newValue: next.nextAvailableAt },
+        { field: "responseMinutes", oldValue: vendor?.responseMinutes, newValue: next.responseMinutes },
+        { field: "serviceRadiusKm", oldValue: vendor?.serviceRadiusKm, newValue: next.serviceRadiusKm },
       ],
       reason: "availability_update",
     });
@@ -854,6 +862,12 @@ export const setNotificationPreferences = mutation({
       if (whatsappUpdates && current.whatsappUpdates !== true) {
         await recordEvent(ctx, { event: "notification_opted_in", userId, metadata: { channel: "whatsapp" } });
       }
+      if (args.areaUpdates === true && current.areaUpdates !== true) {
+        await recordEvent(ctx, { event: "notification_opted_in", userId, metadata: { channel: "area" } });
+      }
+      if (args.requestUpdates === true && current.requestUpdates !== true) {
+        await recordEvent(ctx, { event: "notification_opted_in", userId, metadata: { channel: "request" } });
+      }
       return current._id;
     }
     const id = await ctx.db.insert("notificationPreferences", {
@@ -863,6 +877,12 @@ export const setNotificationPreferences = mutation({
     });
     if (whatsappUpdates) {
       await recordEvent(ctx, { event: "notification_opted_in", userId, metadata: { channel: "whatsapp" } });
+    }
+    if (args.areaUpdates === true) {
+      await recordEvent(ctx, { event: "notification_opted_in", userId, metadata: { channel: "area" } });
+    }
+    if (args.requestUpdates === true) {
+      await recordEvent(ctx, { event: "notification_opted_in", userId, metadata: { channel: "request" } });
     }
     return id;
   },

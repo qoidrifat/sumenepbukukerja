@@ -81,6 +81,10 @@ export const submitVendorClaim = mutation({
   },
 });
 
+// Public roadmap name kept alongside the descriptive internal name used by
+// older clients. Both references point to the same server mutation.
+export const claimVendorListing = submitVendorClaim;
+
 export const listVendorClaims = query({
   args: { vendorId: v.id("vendors") },
   handler: async (ctx, args) => {

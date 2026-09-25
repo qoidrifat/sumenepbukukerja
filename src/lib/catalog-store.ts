@@ -499,7 +499,7 @@ export function useCatalogActions() {
   const moderatePhoto = useMutation(api.community.moderateVendorPhoto);
   const createPhoto = useMutation(api.community.createVendorPhoto);
   const removePhoto = useMutation(api.community.removeVendorPhoto);
-  const submitClaim = useMutation(api.claims.submitVendorClaim);
+  const submitClaim = useMutation(api.claims.claimVendorListing);
   const reviewClaim = useMutation(api.claims.reviewVendorClaim);
   const offerRequest = useMutation(api.offers.offerRequest);
   const acceptOffer = useMutation(api.offers.acceptRequestOffer);

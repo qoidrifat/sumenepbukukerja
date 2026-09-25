@@ -13,5 +13,8 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium-desktop", use: { ...devices["Desktop Chrome"] } },
+    { name: "chromium-android", use: { ...devices["Pixel 5"] } },
+  ],
 });

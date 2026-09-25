@@ -50,12 +50,19 @@ async function hasStaffAccess(
     .query("staffMembers")
     .withIndex("byUser", (q) => q.eq("userId", userId))
     .unique();
-  return (
-    user?.role === "admin" ||
-    user?.role === "staff" ||
-    membership?.role === "admin" ||
-    membership?.role === "staff"
-  );
+  if (membership) return membership.role === "admin" || membership.role === "staff";
+  return user?.role === "admin" || user?.role === "staff";
+}
+
+async function isViewer(
+  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+  userId: DataModel["users"]["document"]["_id"],
+) {
+  const membership = await ctx.db
+    .query("staffMembers")
+    .withIndex("byUser", (q) => q.eq("userId", userId))
+    .unique();
+  return membership?.role === "viewer";
 }
 
 async function requireStaff(
@@ -74,6 +81,7 @@ async function requireVendorManager(
 ) {
   const userId = await requireUser(ctx);
   if (!vendor) throw new Error("Listing tidak ditemukan");
+  if (await isViewer(ctx, userId)) throw new Error("Viewer hanya dapat melihat data");
   if (vendor.ownerId !== userId && !(await hasStaffAccess(ctx, userId))) {
     throw new Error("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
   }
@@ -292,6 +300,7 @@ export const createVendor = mutation({
   args: vendorFields,
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
+    if (await isViewer(ctx, userId)) throw new Error("Viewer hanya dapat melihat data");
     const privileged = await hasStaffAccess(ctx, userId);
     const phone = normalizeWhatsAppPhone(args.phone);
     if (!phone) throw new Error("Masukkan nomor WhatsApp yang valid");

@@ -9,9 +9,9 @@ export const generateWhatsAppMessage = ({
   category: string;
   landmark: string;
 }) => {
-  const intro = `Halo ${vendorName}, saya melihat jasa Anda di SumenepKerja.`;
+  const intro = `Halo ${vendorName}, saya melihat listing Anda di Sumenep Buku Kerja.`;
   const categoryContext = category === "Kuliner" ? "Mau tanya paket dan ketersediaan." : "Mau tanya layanan dan harga.";
-  return `${intro} ${categoryContext} Saya Pills ${landmark === "all" ? "di sekitar Sumenep" : `di sekitar ${landmark}`}.`;
+  return `${intro} ${categoryContext} Saya berada di ${landmark === "all" ? "sekitar Sumenep" : `sekitar ${landmark}`}.`;
 };
 
 export const generateWhatsAppLink = ({

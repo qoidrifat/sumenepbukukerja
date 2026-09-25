@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router";
 import { ArrowLeft, CheckCircle2, Clock3, MapPin, MessageCircle, Phone, Store } from "lucide-react";
-import { landmarkLabel, vendorBySlug } from "@/lib/catalog";
+import { landmarkLabel } from "@/lib/catalog";
+import { useCatalogVendors } from "@/lib/catalog-store";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import NotFound from "./NotFound";
 
@@ -8,7 +9,8 @@ const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible
 
 function VendorProfileContent() {
   const { slug } = useParams();
-  const vendor = slug ? vendorBySlug(slug) : undefined;
+  const items = useCatalogVendors();
+  const vendor = items.find((item) => item.slug === slug);
   if (!vendor) return <NotFound />;
   const landmark = landmarkLabel(vendor.landmark);
   const waHref = generateWhatsAppLink({ phone: vendor.phone, vendorName: vendor.name, category: vendor.category, landmark });
@@ -18,7 +20,7 @@ function VendorProfileContent() {
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur-sm">
         <div className="mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
           <Link to="/#katalog" className={`flex min-h-12 items-center gap-2 rounded-lg px-2 text-base font-extrabold text-slate-800 hover:bg-blue-50 hover:text-blue-700 ${focusRing}`}><ArrowLeft className="size-5" />Kembali ke katalog</Link>
-          <Link to="/" className={`flex min-h-12 items-center gap-2 rounded-lg px-2 text-lg font-black tracking-[-0.04em] text-slate-950 hover:bg-blue-50 ${focusRing}`}>Sumenep<span className="text-blue-600">Kerja</span></Link>
+          <Link to="/" className={`flex min-h-12 items-center gap-2 rounded-lg px-2 text-lg font-black tracking-[-0.04em] text-slate-950 hover:bg-blue-50 ${focusRing}`}>Sumenep <span className="text-blue-600">Buku</span> Kerja</Link>
         </div>
       </header>
       <main className="relative z-10 mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-12">

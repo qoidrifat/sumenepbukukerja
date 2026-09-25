@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { vendors as seedVendors, vendorBySlug, type Vendor } from "./catalog";
+import { enqueueOfflineMutation, flushOfflineQueue } from "./offline-queue";
 
 export type VendorReview = {
   _id: string;
@@ -36,11 +37,45 @@ export type ServiceRequest = {
   landmark: string;
   budget?: string;
   neededAt?: number;
-  status: "open" | "claimed" | "completed" | "cancelled";
+  status: "open" | "claimed" | "completed" | "cancelled" | "expired";
   vendorId?: string;
   vendorName?: string;
   createdAt: number;
   updatedAt: number;
+};
+
+export type ListingClaim = {
+  _id: string;
+  vendorId: string;
+  requesterId: string;
+  whatsappPhone: string;
+  email: string;
+  businessAddress: string;
+  evidenceStorageId?: string;
+  status: "pending" | "verified" | "rejected";
+  reviewNote?: string;
+  reviewedAt?: number;
+  createdAt: number;
+  vendorName?: string;
+  requesterName?: string;
+  requesterEmail?: string;
+};
+
+export type RequestOffer = {
+  _id: string;
+  requestId: string;
+  vendorId: string;
+  offeredBy: string;
+  vendorName?: string;
+  message?: string;
+  status: "offered" | "accepted" | "withdrawn" | "expired";
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type OwnerRequest = ServiceRequest & {
+  vendorMatches: Array<{ vendorId: string; name: string; distanceKm?: number; responseMinutes?: number }>;
+  offers: RequestOffer[];
 };
 
 export type VendorPackage = {
@@ -84,10 +119,32 @@ export type NotificationPreferences = {
 const STORAGE_KEY = "sumenep-buku-kerja-favorites";
 const COLLECTION_STORAGE_KEY = "sumenep-buku-kerja-favorite-collections";
 const CATALOG_SEED_EVENT = "sumenep-catalog-seed-updated";
+const CATALOG_SNAPSHOT_KEY = "sumenep-buku-kerja-catalog-snapshot";
+const CATALOG_SNAPSHOT_EVENT = "sumenep-catalog-snapshot-updated";
 let catalogSeedState: "idle" | "requested" | "ready" = "idle";
 let catalogSyncRequested = false;
 
 type LocalCollections = Record<string, string>;
+
+function readCatalogSnapshot(): Vendor[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const value = JSON.parse(window.localStorage.getItem(CATALOG_SNAPSHOT_KEY) ?? "[]");
+    return Array.isArray(value) ? value.filter((item): item is Vendor => Boolean(item && typeof item.slug === "string")) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistCatalogSnapshot(vendors: Vendor[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CATALOG_SNAPSHOT_KEY, JSON.stringify(vendors.slice(0, 500)));
+  } catch {
+    // A storage quota error must not block the live catalog.
+  }
+  window.dispatchEvent(new Event(CATALOG_SNAPSHOT_EVENT));
+}
 
 function readFavorites(): string[] {
   if (typeof window === "undefined") return [];
@@ -144,7 +201,10 @@ function useCatalogRemote() {
 
   useEffect(() => {
     if (remote === undefined) return;
-    if (remote.length > 0) catalogSeedState = "ready";
+    if (remote.length > 0) {
+      catalogSeedState = "ready";
+      persistCatalogSnapshot(remote as Vendor[]);
+    }
     if (catalogSyncRequested) return;
 
     catalogSyncRequested = true;
@@ -169,16 +229,22 @@ export function useCatalogSeedBootstrap() {
 
 export function useCatalogVendors() {
   const remote = useCatalogRemote();
+  const [, setSnapshotRevision] = useState(0);
+  useEffect(() => {
+    const refresh = () => setSnapshotRevision((revision) => revision + 1);
+    window.addEventListener(CATALOG_SNAPSHOT_EVENT, refresh);
+    return () => window.removeEventListener(CATALOG_SNAPSHOT_EVENT, refresh);
+  }, []);
   if (remote && remote.length > 0) return remote as Vendor[];
   if (remote && catalogSeedState === "ready") return [];
-  return seedVendors;
+  return readCatalogSnapshot().length > 0 ? readCatalogSnapshot() : seedVendors;
 }
 
 export function useVendor(slug: string | undefined) {
   const remote = useQuery(api.vendors.getBySlug, { slug: slug ?? "" });
 
   if (remote === undefined) {
-    const local = vendorBySlug(slug ?? "");
+    const local = readCatalogSnapshot().find((item) => item.slug === slug) ?? vendorBySlug(slug ?? "");
     return local ? { ...local, reviewItems: [] } : undefined;
   }
   if (remote === null) return null;
@@ -193,7 +259,19 @@ export function useVendor(slug: string | undefined) {
 
 function useStoredFavorites() {
   const [local, setLocal] = useState<string[]>(readFavorites);
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const [collections, setCollections] = useState<LocalCollections>(readLocalCollections);
+
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
 
   useEffect(() => {
     const sync = () => {
@@ -261,7 +339,7 @@ function useStoredFavorites() {
     });
   }, []);
 
-  return { local, collections, setLocalSaved, setLocalCollection, clearLocal } as const;
+  return { local, collections, online, setLocalSaved, setLocalCollection, clearLocal } as const;
 }
 
 export function useVendorPhoto(photoId: string | undefined) {
@@ -283,6 +361,7 @@ export function useFavorites() {
   const {
     local,
     collections: localCollections,
+    online,
     setLocalSaved,
     setLocalCollection,
     clearLocal,
@@ -323,7 +402,21 @@ export function useFavorites() {
     .join("|");
 
   useEffect(() => {
-    if (!pendingSyncKey || attemptedSync.current.has(pendingSyncKey)) return;
+    if (!isAuthenticated || !online) return;
+    void flushOfflineQueue({
+      favorite: async (payload) => {
+        if (typeof payload.vendorId !== "string") return;
+        await favorite({
+          vendorId: payload.vendorId as never,
+          saved: payload.saved !== false,
+          collection: typeof payload.collection === "string" ? payload.collection : undefined,
+        });
+      },
+    });
+  }, [favorite, isAuthenticated, online]);
+
+  useEffect(() => {
+    if (!pendingSyncKey || !online || attemptedSync.current.has(pendingSyncKey)) return;
     attemptedSync.current.add(pendingSyncKey);
     const items = pendingLocalItems.slice(0, 100);
     void syncLocalFavorites({ items })
@@ -338,11 +431,15 @@ export function useFavorites() {
       if (shouldSave && collection !== "Tersimpan") setLocalCollection(slug, collection);
       return;
     }
+    setLocalSaved(slug, shouldSave);
+    if (shouldSave && collection !== "Tersimpan") setLocalCollection(slug, collection);
     void favorite({
       vendorId: vendorId as never,
       collection,
       saved: shouldSave,
-    }).catch(() => undefined);
+    }).catch(() => {
+      enqueueOfflineMutation("favorite", { vendorId, collection, saved: shouldSave });
+    });
   };
 
   const setCollection = (slug: string, vendorId: string | undefined, collection: string) => {
@@ -353,7 +450,9 @@ export function useFavorites() {
       vendorId: vendorId as never,
       collection,
       saved: true,
-    }).catch(() => undefined);
+    }).catch(() => {
+      enqueueOfflineMutation("favorite", { vendorId, collection, saved: true });
+    });
   };
 
   return {
@@ -391,6 +490,15 @@ export function useCatalogActions() {
   const setNotificationPreferences = useMutation(api.community.setNotificationPreferences);
   const createReport = useMutation(api.community.createReport);
   const updateReport = useMutation(api.community.updateReport);
+  const moderatePhoto = useMutation(api.community.moderateVendorPhoto);
+  const createPhoto = useMutation(api.community.createVendorPhoto);
+  const removePhoto = useMutation(api.community.removeVendorPhoto);
+  const submitClaim = useMutation(api.claims.submitVendorClaim);
+  const reviewClaim = useMutation(api.claims.reviewVendorClaim);
+  const offerRequest = useMutation(api.offers.offerRequest);
+  const withdrawOffer = useMutation(api.offers.withdrawOffer);
+  const reopenRequest = useMutation(api.community.reopenRequest);
+  const track = useMutation(api.analytics.track);
   const sendTestWhatsapp = useAction(api.whatsapp.sendTestWhatsapp);
   return {
     create,
@@ -417,12 +525,21 @@ export function useCatalogActions() {
     setNotificationPreferences,
     createReport,
     updateReport,
+    moderatePhoto,
+    createPhoto,
+    removePhoto,
+    submitClaim,
+    reviewClaim,
+    offerRequest,
+    withdrawOffer,
+    reopenRequest,
+    track,
     sendTestWhatsapp,
   };
 }
 
 export function useServiceRequests(args: {
-  status?: "open" | "claimed" | "completed" | "cancelled";
+  status?: "open" | "claimed" | "completed" | "cancelled" | "expired";
   landmark?: string;
   category?: Vendor["category"];
   search?: string;
@@ -473,6 +590,55 @@ export function useAdminVendors(status?: "draft" | "active" | "archived") {
     api.vendors.listForAdmin,
     status ? { status } : {},
   ) as VendorRecord[] | undefined;
+}
+
+export function usePendingClaims() {
+  return useQuery(api.claims.listPendingClaims, {}) as ListingClaim[] | undefined;
+}
+
+export function useStaffMembers() {
+  return useQuery(api.users.listStaff, {});
+}
+
+export function useStaffInvites() {
+  return useQuery(api.users.listStaffInvites, {});
+}
+
+export function useAuditLogs() {
+  return useQuery(api.users.listAuditLogs, { limit: 80 });
+}
+
+export function useAnalyticsMetrics() {
+  return useQuery(api.analytics.adminMetrics, {});
+}
+
+export function useOwnerRequests() {
+  return useQuery(api.offers.listOwnerRequests, {}) as OwnerRequest[] | undefined;
+}
+
+export function useMatchingRequests(vendorId?: string) {
+  return useQuery(
+    api.offers.listMatchingRequests,
+    vendorId ? { vendorId: vendorId as never } : {},
+  ) as OwnerRequest[] | undefined;
+}
+
+export function useRequestOffers(requestId: string | undefined) {
+  return useQuery(
+    api.offers.listRequestOffers,
+    requestId ? { requestId: requestId as never } : "skip",
+  );
+}
+
+export function usePhotosForModeration() {
+  return useQuery(api.community.listPhotosForModeration, {});
+}
+
+export function useListingHistory(vendorId: string | undefined) {
+  return useQuery(
+    api.users.listListingHistory,
+    vendorId ? { vendorId: vendorId as never } : "skip",
+  );
 }
 
 export { readFavorites, persistFavorites };

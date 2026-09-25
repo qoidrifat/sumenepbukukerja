@@ -30,6 +30,7 @@ export const requestStatusValidator = v.union(
   v.literal("claimed"),
   v.literal("completed"),
   v.literal("cancelled"),
+  v.literal("expired"),
 );
 export const availabilityStatusValidator = v.union(
   v.literal("available"),
@@ -147,10 +148,15 @@ const schema = defineSchema(
       storageId: v.string(),
       caption: v.optional(v.string()),
       active: v.optional(v.boolean()),
+      moderationStatus: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected"))),
+      moderationNote: v.optional(v.string()),
+      moderatedBy: v.optional(v.id("users")),
+      moderatedAt: v.optional(v.number()),
       createdAt: v.number(),
     })
       .index("byVendor", ["vendorId"])
-      .index("byVendorActive", ["vendorId", "active"]),
+      .index("byVendorActive", ["vendorId", "active"])
+      .index("byModeration", ["moderationStatus"]),
 
     serviceRequests: defineTable({
       requesterId: v.id("users"),
@@ -158,18 +164,25 @@ const schema = defineSchema(
       description: v.string(),
       category: categoryValidator,
       landmark: v.string(),
+      lat: v.optional(v.number()),
+      lng: v.optional(v.number()),
       budget: v.optional(v.string()),
       neededAt: v.optional(v.number()),
       status: requestStatusValidator,
       vendorId: v.optional(v.id("vendors")),
       claimedAt: v.optional(v.number()),
       completedAt: v.optional(v.number()),
+      expiresAt: v.optional(v.number()),
+      cancelledReason: v.optional(v.string()),
+      reopenedAt: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
     })
       .index("byStatus", ["status"])
       .index("byLandmark", ["landmark"])
       .index("byRequester", ["requesterId"])
+      .index("byVendor", ["vendorId"])
+      .index("byExpiresAt", ["expiresAt"])
       .index("byCreatedAt", ["createdAt"]),
 
     vendorPackages: defineTable({
@@ -226,7 +239,118 @@ const schema = defineSchema(
       userId: v.id("users"),
       role: v.union(v.literal("admin"), v.literal("staff"), v.literal("viewer")),
       createdAt: v.number(),
-    }).index("byUser", ["userId"]),
+      updatedAt: v.optional(v.number()),
+    })
+      .index("byUser", ["userId"])
+      .index("byRole", ["role"]),
+
+    auditLogs: defineTable({
+      action: v.string(),
+      actorId: v.optional(v.id("users")),
+      vendorId: v.optional(v.id("vendors")),
+      requestId: v.optional(v.id("serviceRequests")),
+      entityId: v.optional(v.string()),
+      oldValue: v.optional(v.string()),
+      newValue: v.optional(v.string()),
+      metadata: v.optional(v.any()),
+      createdAt: v.number(),
+    })
+      .index("byActor", ["actorId"])
+      .index("byVendor", ["vendorId"])
+      .index("byAction", ["action"])
+      .index("byCreatedAt", ["createdAt"]),
+
+    staffInvites: defineTable({
+      email: v.string(),
+      role: v.union(v.literal("admin"), v.literal("staff"), v.literal("viewer")),
+      tokenHash: v.string(),
+      invitedBy: v.id("users"),
+      expiresAt: v.number(),
+      acceptedAt: v.optional(v.number()),
+      acceptedBy: v.optional(v.id("users")),
+      revokedAt: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("byEmail", ["email"])
+      .index("byTokenHash", ["tokenHash"])
+      .index("byExpiresAt", ["expiresAt"]),
+
+    listingClaims: defineTable({
+      vendorId: v.id("vendors"),
+      requesterId: v.id("users"),
+      whatsappPhone: v.string(),
+      email: v.string(),
+      businessAddress: v.string(),
+      evidenceStorageId: v.optional(v.string()),
+      status: v.union(v.literal("pending"), v.literal("verified"), v.literal("rejected")),
+      reviewNote: v.optional(v.string()),
+      reviewedBy: v.optional(v.id("users")),
+      reviewedAt: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("byVendor", ["vendorId"])
+      .index("byStatus", ["status"])
+      .index("byRequester", ["requesterId"]),
+
+    listingHistory: defineTable({
+      vendorId: v.id("vendors"),
+      actorId: v.optional(v.id("users")),
+      changes: v.array(v.object({
+        field: v.string(),
+        oldValue: v.optional(v.string()),
+        newValue: v.optional(v.string()),
+      })),
+      reason: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("byVendor", ["vendorId"])
+      .index("byCreatedAt", ["createdAt"]),
+
+    requestOffers: defineTable({
+      requestId: v.id("serviceRequests"),
+      vendorId: v.id("vendors"),
+      offeredBy: v.id("users"),
+      message: v.optional(v.string()),
+      status: v.union(v.literal("offered"), v.literal("accepted"), v.literal("withdrawn"), v.literal("expired")),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("byRequest", ["requestId"])
+      .index("byVendor", ["vendorId"])
+      .index("byRequestVendor", ["requestId", "vendorId"]),
+
+    analyticsEvents: defineTable({
+      event: v.string(),
+      userId: v.optional(v.id("users")),
+      anonymousId: v.optional(v.string()),
+      vendorId: v.optional(v.id("vendors")),
+      requestId: v.optional(v.id("serviceRequests")),
+      metadata: v.optional(v.any()),
+      createdAt: v.number(),
+    })
+      .index("byEvent", ["event"])
+      .index("byCreatedAt", ["createdAt"])
+      .index("byVendor", ["vendorId"]),
+
+    whatsappDeliveries: defineTable({
+      deliveryKey: v.string(),
+      userId: v.id("users"),
+      providerMessageId: v.optional(v.string()),
+      status: v.union(v.literal("queued"), v.literal("sent"), v.literal("delivered"), v.literal("failed")),
+      attempts: v.number(),
+      title: v.string(),
+      body: v.string(),
+      lastErrorCode: v.optional(v.string()),
+      nextAttemptAt: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("byDeliveryKey", ["deliveryKey"])
+      .index("byProviderMessageId", ["providerMessageId"])
+      .index("byStatus", ["status"])
+      .index("byUser", ["userId"])
+      .index("byNextAttempt", ["nextAttemptAt"]),
 
     vendorSubscriptions: defineTable({
       vendorId: v.id("vendors"),

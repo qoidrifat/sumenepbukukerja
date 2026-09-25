@@ -42,7 +42,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useNavigate } from "react-router";
 import { AnimatedContent, BorderGlow, Counter, GlassIcons, ScrollReveal } from "@/components/react-bits";
-import { AccessibilityControls, InteractionHistory, MyRequestHistory, NotificationCenter } from "@/components/community-widgets";
+import { AccessibilityControls, InteractionHistory, MyRequestHistory, NotificationCenter, OwnerGalleryManager, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
 
 type OwnerAvailability = NonNullable<Vendor["availability"]>;
 
@@ -342,9 +342,9 @@ function OwnerListingManager() {
       const draft = ownerDraftFromVendor(vendor);
       await update({
         id: vendor._id as never,
-        ...ownerListingPayload({ ...draft, status: "active" }, vendor.photoId),
+        ...ownerListingPayload({ ...draft, status: "draft" }, vendor.photoId),
       });
-      setNotice(`${vendor.name} dikembalikan ke katalog.`);
+      setNotice(`${vendor.name} dikirim ke moderasi. Admin akan memeriksa sebelum tayang.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Listing belum dapat diaktifkan.");
     } finally {
@@ -400,10 +400,11 @@ function OwnerListingManager() {
                 {vendor.status === "active" ? (
                   <button type="button" disabled={busyId === vendor._id} onClick={() => void archiveListing(vendor)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-sm font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-50"><Archive className="size-4" />Nonaktifkan</button>
                 ) : (
-                  <button type="button" disabled={busyId === vendor._id} onClick={() => void activateListing(vendor)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-50 disabled:opacity-50"><RotateCcw className="size-4" />Aktifkan</button>
+                  <button type="button" disabled={busyId === vendor._id} onClick={() => void activateListing(vendor)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-50 disabled:opacity-50"><RotateCcw className="size-4" />Ajukan moderasi</button>
                 )}
                 {vendor.status === "active" ? <Link to={`/v/${vendor.slug}`} className="inline-flex min-h-10 items-center rounded-lg px-2 text-sm font-extrabold text-blue-700 hover:bg-blue-50">Lihat listing <ArrowRight className="size-4" /></Link> : null}
               </div>
+              <OwnerGalleryManager vendorId={vendor._id} vendorName={vendor.name} />
             </article>
           ))}
         </div>
@@ -497,6 +498,7 @@ export default function Dashboard() {
         </ScrollReveal>
 
         <AccessibilityControls />
+        <PwaControls />
 
         <section className="grid gap-4 sm:grid-cols-3">
           <BorderGlow className="h-full rounded-xl" intensity={0.08}>
@@ -545,6 +547,7 @@ export default function Dashboard() {
         </section>
 
         <OwnerListingManager />
+        <OwnerRequestWorkspace />
 
         <section>
           <div className="mb-4 flex items-end justify-between gap-4">

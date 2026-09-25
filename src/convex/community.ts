@@ -1,9 +1,12 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { recordEvent } from "./analytics";
+import { writeAudit } from "./audit";
+import { requireManagementViewer } from "./access";
 
 const categoryValidator = v.union(
   v.literal("Servis Teknik"),
@@ -17,6 +20,7 @@ const requestStatusValidator = v.union(
   v.literal("claimed"),
   v.literal("completed"),
   v.literal("cancelled"),
+  v.literal("expired"),
 );
 const availabilityStatusValidator = v.union(
   v.literal("available"),
@@ -121,8 +125,9 @@ export const listRequests = query({
       : await ctx.db.query("serviceRequests").collect();
     const search = args.search?.trim().toLowerCase();
     const visible = rows
-      .filter((request) => args.mine || request.status !== "cancelled")
+      .filter((request) => args.mine || (request.status !== "cancelled" && request.status !== "expired"))
       .filter((request) => !args.mine || request.requesterId === requesterId)
+      .filter((request) => request.status !== "open" || !request.expiresAt || request.expiresAt > Date.now())
       .filter((request) => !args.landmark || args.landmark === "all" || request.landmark === args.landmark)
       .filter((request) => !args.category || request.category === args.category)
       .filter(
@@ -157,8 +162,11 @@ export const createRequest = mutation({
     description: v.string(),
     category: categoryValidator,
     landmark: v.string(),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
     budget: v.optional(v.string()),
     neededAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
@@ -171,18 +179,31 @@ export const createRequest = mutation({
       throw new Error("Ceritakan kebutuhan dalam 10–1000 karakter");
     }
     const now = Date.now();
+    const expiresAt = Math.min(
+      Math.max(args.expiresAt ?? now + 14 * 24 * 60 * 60 * 1000, now + 60 * 60 * 1000),
+      now + 90 * 24 * 60 * 60 * 1000,
+    );
     const requestId = await ctx.db.insert("serviceRequests", {
       requesterId: userId,
       title,
       description,
       category: args.category,
       landmark: args.landmark,
+      lat: args.lat,
+      lng: args.lng,
       budget: args.budget?.trim() || undefined,
       neededAt: args.neededAt,
       status: "open",
+      expiresAt,
       createdAt: now,
       updatedAt: now,
     });
+    await recordEvent(ctx, { event: "request_created", userId, requestId });
+    await ctx.scheduler.runAfter(
+      expiresAt - now,
+      internal.community.expireRequest,
+      { requestId },
+    );
     await ctx.scheduler.runAfter(
       0,
       internal.whatsapp.sendRequestCreatedNotifications,
@@ -229,6 +250,24 @@ export const createRequest = mutation({
   },
 });
 
+export const expireRequest = internalMutation({
+  args: { requestId: v.id("serviceRequests") },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.status !== "open" || !request.expiresAt || request.expiresAt > Date.now()) return;
+    const now = Date.now();
+    await ctx.db.patch(args.requestId, { status: "expired", updatedAt: now });
+    await recordEvent(ctx, { event: "request_expired", requestId: args.requestId });
+    const offers = await ctx.db
+      .query("requestOffers")
+      .withIndex("byRequest", (q) => q.eq("requestId", args.requestId))
+      .collect();
+    for (const offer of offers.filter((item) => item.status === "offered")) {
+      await ctx.db.patch(offer._id, { status: "expired", updatedAt: now });
+    }
+  },
+});
+
 const landmarkLabelForNotification = (landmark: string) =>
   ({ adipura: "Taman Bunga / Adipura", trunojoyo: "Jl. Trunojoyo", anom: "Pasar Anom Baru", keraton: "Keraton / Labang Mesem", jamik: "Masjid Jamik", "kota-lama": "Kota Lama", kalianget: "Kalianget", bluto: "Bluto", pragaan: "Pragaan" }[landmark] ?? landmark);
 
@@ -244,14 +283,39 @@ export const claimRequest = mutation({
     if (!request || request.status !== "open") throw new Error("Permintaan sudah tidak tersedia");
     if (!vendor || vendor.status !== "active") throw new Error("Listing tidak tersedia");
     if (request.requesterId === userId) throw new Error("Anda tidak dapat menawarkan permintaan milik sendiri");
+    if (vendor.category !== request.category) throw new Error("Listing tidak cocok dengan kategori permintaan");
+    if (request.landmark !== "all" && vendor.landmark !== request.landmark) {
+      throw new Error("Listing berada di area yang berbeda dari permintaan");
+    }
     await requireVendorManager(ctx, vendor);
     const now = Date.now();
+    const offers = await ctx.db
+      .query("requestOffers")
+      .withIndex("byRequest", (q) => q.eq("requestId", args.requestId))
+      .collect();
+    const existingOffer = offers.find((offer) => offer.vendorId === args.vendorId);
+    if (existingOffer) {
+      await ctx.db.patch(existingOffer._id, { status: "accepted", updatedAt: now });
+    } else {
+      await ctx.db.insert("requestOffers", {
+        requestId: args.requestId,
+        vendorId: args.vendorId,
+        offeredBy: userId,
+        status: "accepted",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    for (const offer of offers.filter((item) => item.vendorId !== args.vendorId && item.status === "offered")) {
+      await ctx.db.patch(offer._id, { status: "withdrawn", updatedAt: now });
+    }
     await ctx.db.patch(args.requestId, {
       status: "claimed",
       vendorId: args.vendorId,
       claimedAt: now,
       updatedAt: now,
     });
+    await recordEvent(ctx, { event: "request_claimed", userId, vendorId: args.vendorId, requestId: args.requestId });
     await ctx.db.insert("vendorInteractions", {
       userId,
       vendorId: args.vendorId,
@@ -277,6 +341,7 @@ export const updateRequestStatus = mutation({
   args: {
     requestId: v.id("serviceRequests"),
     status: v.union(v.literal("completed"), v.literal("cancelled")),
+    reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
@@ -285,15 +350,30 @@ export const updateRequestStatus = mutation({
     if (request.requesterId !== userId) {
       throw new Error("Hanya pembuat permintaan yang dapat memperbarui status");
     }
-    if (request.status === "completed" || request.status === "cancelled") {
+    if (["completed", "cancelled", "expired"].includes(request.status)) {
       throw new Error("Permintaan ini sudah selesai atau dibatalkan");
+    }
+    if (args.status === "cancelled" && (args.reason?.trim().length ?? 0) < 5) {
+      throw new Error("Cantumkan alasan pembatalan agar mitra tidak salah menunggu");
     }
     const now = Date.now();
     await ctx.db.patch(args.requestId, {
       status: args.status,
       completedAt: args.status === "completed" ? now : undefined,
+      cancelledReason: args.status === "cancelled" ? args.reason?.trim() : undefined,
       updatedAt: now,
     });
+    await writeAudit(ctx, {
+      action: "request.status_changed",
+      actorId: userId,
+      requestId: args.requestId,
+      oldValue: request.status,
+      newValue: args.status,
+      metadata: { reason: args.reason?.trim() || undefined },
+    });
+    if (args.status === "completed") {
+      await recordEvent(ctx, { event: "request_completed", userId, requestId: args.requestId });
+    }
     await notifyUser(
       ctx,
       userId,
@@ -306,6 +386,37 @@ export const updateRequestStatus = mutation({
       internal.whatsapp.sendRequestStatusNotification,
       { requestId: args.requestId, status: args.status },
     );
+    return args.requestId;
+  },
+});
+
+export const reopenRequest = mutation({
+  args: { requestId: v.id("serviceRequests") },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.requesterId !== userId) throw new Error("Permintaan tidak ditemukan");
+    if (request.status !== "cancelled" && request.status !== "expired") throw new Error("Hanya permintaan batal atau kedaluwarsa yang dapat dibuka kembali");
+    const now = Date.now();
+    const expiresAt = now + 14 * 24 * 60 * 60 * 1000;
+    await ctx.db.patch(args.requestId, {
+      status: "open",
+      vendorId: undefined,
+      claimedAt: undefined,
+      completedAt: undefined,
+      cancelledReason: undefined,
+      reopenedAt: now,
+      expiresAt,
+      updatedAt: now,
+    });
+    const offers = await ctx.db
+      .query("requestOffers")
+      .withIndex("byRequest", (q) => q.eq("requestId", args.requestId))
+      .collect();
+    for (const offer of offers.filter((item) => item.status === "withdrawn" || item.status === "expired")) {
+      await ctx.db.patch(offer._id, { status: "expired", updatedAt: now });
+    }
+    await ctx.scheduler.runAfter(expiresAt - now, internal.community.expireRequest, { requestId: args.requestId });
     return args.requestId;
   },
 });
@@ -453,6 +564,16 @@ export const recordInteraction = mutation({
         return duplicate._id;
       }
     }
+    const eventName = args.kind === "view"
+      ? "listing_opened"
+      : args.kind === "call"
+        ? "call_clicked"
+        : args.kind === "share"
+          ? "share_clicked"
+          : args.kind === "whatsapp"
+            ? "whatsapp_clicked"
+            : "request_matched";
+    await recordEvent(ctx, { event: eventName, userId, vendorId: args.vendorId, requestId: args.requestId });
     return await ctx.db.insert("vendorInteractions", {
       userId,
       vendorId: args.vendorId,
@@ -595,13 +716,20 @@ export const setNotificationPreferences = mutation({
     };
     if (current) {
       await ctx.db.patch(current._id, { ...next, updatedAt: Date.now() });
+      if (whatsappUpdates && current.whatsappUpdates !== true) {
+        await recordEvent(ctx, { event: "notification_opted_in", userId, metadata: { channel: "whatsapp" } });
+      }
       return current._id;
     }
-    return await ctx.db.insert("notificationPreferences", {
+    const id = await ctx.db.insert("notificationPreferences", {
       userId,
       ...next,
       updatedAt: Date.now(),
     });
+    if (whatsappUpdates) {
+      await recordEvent(ctx, { event: "notification_opted_in", userId, metadata: { channel: "whatsapp" } });
+    }
+    return id;
   },
 });
 
@@ -614,9 +742,11 @@ export const listVendorPhotos = query({
       .query("vendorPhotos")
       .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
       .collect();
+    const viewerId = await getAuthUserId(ctx);
+    const canSeePending = viewerId === vendor.ownerId;
     const visible = rows
-      .filter((photo) => photo.active !== false)
-      .sort((a, b) => b.createdAt - a.createdAt)
+      .filter((photo) => photo.active !== false && (canSeePending || (photo.moderationStatus !== "pending" && photo.moderationStatus !== "rejected")))
+      .sort((a, b) => a.createdAt - b.createdAt)
       .slice(0, 12);
     return Promise.all(
       visible.map(async (photo) => ({
@@ -635,15 +765,26 @@ export const createVendorPhoto = mutation({
   },
   handler: async (ctx, args) => {
     const vendor = await ctx.db.get(args.vendorId);
-    await requireVendorManager(ctx, vendor);
+    const actorId = await requireVendorManager(ctx, vendor);
     if (!args.storageId) throw new Error("Foto belum berhasil diunggah");
-    return await ctx.db.insert("vendorPhotos", {
+    const currentPhotos = await ctx.db
+      .query("vendorPhotos")
+      .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
+      .collect();
+    if (currentPhotos.filter((photo) => photo.active !== false).length >= 12) {
+      throw new Error("Maksimal 12 foto per listing");
+    }
+    const photoId = await ctx.db.insert("vendorPhotos", {
       vendorId: args.vendorId,
       storageId: args.storageId,
       caption: args.caption?.trim() || undefined,
       active: true,
+      moderationStatus: "pending",
       createdAt: Date.now(),
     });
+    await writeAudit(ctx, { action: "photo.uploaded", actorId, vendorId: args.vendorId, entityId: photoId });
+    await recordEvent(ctx, { event: "photo_uploaded", userId: actorId, vendorId: args.vendorId });
+    return photoId;
   },
 });
 
@@ -653,15 +794,74 @@ export const removeVendorPhoto = mutation({
     const photo = await ctx.db.get(args.id);
     if (!photo) throw new Error("Foto tidak ditemukan");
     await requireVendorManager(ctx, await ctx.db.get(photo.vendorId));
+    const vendor = await ctx.db.get(photo.vendorId);
     await ctx.db.delete(args.id);
+    if (vendor?.photoId === photo.storageId) {
+      const remaining = await ctx.db
+        .query("vendorPhotos")
+        .withIndex("byVendor", (q) => q.eq("vendorId", photo.vendorId))
+        .collect();
+      const nextPhoto = remaining
+        .filter((item) => item.active !== false && item.moderationStatus !== "pending" && item.moderationStatus !== "rejected")
+        .sort((a, b) => a.createdAt - b.createdAt)[0];
+      await ctx.db.patch(photo.vendorId, { photoId: nextPhoto?.storageId, updatedAt: Date.now() });
+    }
     return args.id;
+  },
+});
+
+export const moderateVendorPhoto = mutation({
+  args: {
+    id: v.id("vendorPhotos"),
+    decision: v.union(v.literal("approved"), v.literal("rejected")),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actorId = await requireStaff(ctx);
+    const photo = await ctx.db.get(args.id);
+    if (!photo) throw new Error("Foto tidak ditemukan");
+    await ctx.db.patch(args.id, {
+      moderationStatus: args.decision,
+      moderationNote: args.note?.trim() || undefined,
+      moderatedBy: actorId,
+      moderatedAt: Date.now(),
+      active: args.decision === "approved" ? true : false,
+    });
+    const vendor = await ctx.db.get(photo.vendorId);
+    if (vendor && !vendor.photoId && args.decision === "approved") {
+      await ctx.db.patch(photo.vendorId, { photoId: photo.storageId, updatedAt: Date.now() });
+    }
+    await writeAudit(ctx, {
+      action: "photo.moderated",
+      actorId,
+      vendorId: photo.vendorId,
+      entityId: args.id,
+      newValue: { decision: args.decision },
+    });
+    return args.id;
+  },
+});
+
+export const listPhotosForModeration = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    const photos = await ctx.db
+      .query("vendorPhotos")
+      .withIndex("byModeration", (q) => q.eq("moderationStatus", "pending"))
+      .collect();
+    return Promise.all(photos.map(async (photo) => ({
+      ...photo,
+      url: await ctx.storage.getUrl(photo.storageId),
+      vendorName: (await ctx.db.get(photo.vendorId))?.name,
+    })));
   },
 });
 
 export const listCommunityMetrics = query({
   args: {},
   handler: async (ctx) => {
-    await requireStaff(ctx);
+    await requireManagementViewer(ctx);
     const [vendors, requests, users, favorites, photos] = await Promise.all([
       ctx.db.query("vendors").collect(),
       ctx.db.query("serviceRequests").collect(),
@@ -671,7 +871,7 @@ export const listCommunityMetrics = query({
     ]);
     const activeVendors = vendors.filter((vendor) => vendor.status === "active");
     const photoVendorIds = new Set(
-      photos.filter((photo) => photo.active !== false).map((photo) => photo.vendorId),
+      photos.filter((photo) => photo.active !== false && photo.moderationStatus !== "rejected" && photo.moderationStatus !== "pending").map((photo) => photo.vendorId),
     );
     const searches = activeVendors.reduce(
       (total, vendor) => total + Number(vendor.searchImpressions ?? 0),
@@ -729,6 +929,13 @@ export const listCommunityMetrics = query({
       returningSaverRate: users.length > 0
         ? Math.round((returningUsers.size / users.length) * 100)
         : 0,
+      listingsWithoutPrice: activeVendors.filter((vendor) => !vendor.price.trim()).length,
+      listingsWithoutPhotos: activeVendors.filter((vendor) => !vendor.photoId && !photoVendorIds.has(vendor._id)).length,
+      listingsWithoutHours: activeVendors.filter((vendor) => !vendor.hours.trim()).length,
+      expiredRequests: requests.filter((request) => request.status === "expired").length,
+      mostResponsiveProvider: activeVendors
+        .filter((vendor) => (vendor.responseMinutes ?? 0) > 0)
+        .sort((a, b) => (a.responseMinutes ?? 0) - (b.responseMinutes ?? 0))[0]?.name,
       byCategory,
       byArea,
     };
@@ -817,10 +1024,19 @@ export const updateReport = mutation({
     status: v.union(v.literal("reviewing"), v.literal("resolved"), v.literal("dismissed")),
   },
   handler: async (ctx, args) => {
-    await requireStaff(ctx);
+    const actorId = await requireStaff(ctx);
     const report = await ctx.db.get(args.id);
     if (!report) throw new Error("Laporan tidak ditemukan");
     await ctx.db.patch(args.id, { status: args.status, updatedAt: Date.now() });
+    await writeAudit(ctx, {
+      action: "report.moderated",
+      actorId,
+      vendorId: report.vendorId,
+      requestId: report.requestId,
+      entityId: args.id,
+      oldValue: report.status,
+      newValue: args.status,
+    });
     return args.id;
   },
 });
@@ -828,7 +1044,7 @@ export const updateReport = mutation({
 export const listReports = query({
   args: {},
   handler: async (ctx) => {
-    await requireStaff(ctx);
+    await requireManagementViewer(ctx);
     const reports = await ctx.db.query("reports").collect();
     return reports
       .filter((report) => report.status === "open" || report.status === "reviewing")

@@ -5,6 +5,9 @@ import { v } from "convex/values";
 import { vendors as seedVendors } from "../lib/catalog";
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { recordEvent } from "./analytics";
+import { writeAudit, writeListingHistory } from "./audit";
+import { requireManagementViewer } from "./access";
 
 const slugify = (value: string) =>
   value
@@ -188,7 +191,7 @@ export const listForAdmin = query({
     ),
   },
   handler: async (ctx, args) => {
-    await requireStaff(ctx);
+    await requireManagementViewer(ctx);
     const rows = args.status
       ? await ctx.db
           .query("vendors")
@@ -320,7 +323,9 @@ export const createVendor = mutation({
       accent: args.accent ?? "from-blue-600 to-cyan-400",
       mark: args.mark ?? args.name.slice(0, 2).toUpperCase(),
       tags: args.tags ?? [],
-      status: args.status ?? "active",
+      // Owner-created listings enter moderation as drafts. Only a staff
+      // member can publish a listing, so a URL or client flag cannot bypass it.
+      status: privileged ? args.status ?? "draft" : "draft",
       featured: privileged ? args.featured ?? false : false,
       verified: privileged ? args.verified ?? false : false,
       photoId: args.photoId,
@@ -335,6 +340,20 @@ export const createVendor = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await writeAudit(ctx, {
+      action: "listing.created",
+      actorId: userId,
+      vendorId,
+      newValue: { status: privileged ? args.status ?? "draft" : "draft" },
+    });
+    if ((privileged ? args.status ?? "draft" : "draft") === "active") {
+      await recordEvent(ctx, {
+        event: "listing_published",
+        userId,
+        vendorId,
+        metadata: { source: "create" },
+      });
+    }
     await ctx.scheduler.runAfter(
       0,
       internal.whatsapp.sendVendorCreatedNotifications,
@@ -355,7 +374,12 @@ export const updateVendor = mutation({
     const phone = normalizeWhatsAppPhone(changes.phone);
     if (!phone) throw new Error("Masukkan nomor WhatsApp yang valid");
 
-    await ctx.db.patch(id, {
+    const nextStatus = privileged
+      ? changes.status
+      : changes.status === "active"
+        ? current.status
+        : changes.status;
+    const next = {
       name: changes.name,
       category: changes.category as
         | "Servis Teknik"
@@ -373,7 +397,7 @@ export const updateVendor = mutation({
       accent: changes.accent === undefined ? current.accent : changes.accent,
       mark: changes.mark === undefined ? current.mark : changes.mark,
       tags: changes.tags === undefined ? current.tags : changes.tags,
-      status: changes.status,
+      status: nextStatus,
       featured: privileged ? changes.featured : current.featured,
       verified: privileged ? changes.verified : current.verified,
       photoId: changes.photoId === undefined ? current.photoId : changes.photoId,
@@ -384,8 +408,48 @@ export const updateVendor = mutation({
       nextAvailableAt: changes.nextAvailableAt === undefined ? current.nextAvailableAt : changes.nextAvailableAt,
       responseMinutes: changes.responseMinutes === undefined ? current.responseMinutes : changes.responseMinutes,
       serviceRadiusKm: changes.serviceRadiusKm === undefined ? current.serviceRadiusKm : changes.serviceRadiusKm,
-      updatedAt: Date.now(),
+    };
+    const trackedFields = [
+      "name", "category", "description", "address", "landmark", "price", "hours",
+      "phone", "rating", "accent", "mark", "tags", "status", "featured",
+      "verified", "photoId", "lat", "lng", "availability", "availabilityNote",
+      "nextAvailableAt", "responseMinutes", "serviceRadiusKm",
+    ] as const;
+    const historyChanges = trackedFields.flatMap((field) => {
+      const before = current[field];
+      const after = next[field];
+      return JSON.stringify(before) === JSON.stringify(after)
+        ? []
+        : [{ field, oldValue: before, newValue: after }];
     });
+    await ctx.db.patch(id, { ...next, updatedAt: Date.now() });
+    await writeListingHistory(ctx, { vendorId: id, actorId: userId, changes: historyChanges });
+    if (current.status !== next.status) {
+      await writeAudit(ctx, {
+        action: next.status === "archived" ? "listing.archived" : next.status === "active" ? "listing.published" : "listing.status_changed",
+        actorId: userId,
+        vendorId: id,
+        oldValue: current.status,
+        newValue: next.status,
+      });
+    }
+    if (current.verified !== next.verified) {
+      await writeAudit(ctx, {
+        action: "listing.verified",
+        actorId: userId,
+        vendorId: id,
+        oldValue: current.verified ?? false,
+        newValue: next.verified ?? false,
+      });
+    }
+    if (current.status !== next.status) {
+      await recordEvent(ctx, {
+        event: next.status === "archived" ? "listing_archived" : next.status === "active" ? "listing_published" : "listing_published",
+        userId,
+        vendorId: id,
+        metadata: { source: "update" },
+      });
+    }
     await ctx.scheduler.runAfter(
       0,
       internal.whatsapp.sendVendorUpdatedNotifications,
@@ -399,12 +463,21 @@ export const archiveVendor = mutation({
   args: { id: v.id("vendors") },
   handler: async (ctx, args) => {
     const current = await ctx.db.get(args.id);
-    await requireVendorManager(ctx, current);
+    const actorId = await requireVendorManager(ctx, current);
+    const now = Date.now();
     await ctx.db.patch(args.id, {
       status: "archived",
       featured: false,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
+    await writeAudit(ctx, {
+      action: "listing.archived",
+      actorId,
+      vendorId: args.id,
+      oldValue: current?.status,
+      newValue: "archived",
+    });
+    await recordEvent(ctx, { event: "listing_archived", userId: actorId, vendorId: args.id });
   },
 });
 
@@ -437,6 +510,11 @@ export const incrementClick = mutation({
       [key]: (current[key] ?? 0) + 1,
       updatedAt: current.updatedAt,
     });
+    if (kind === "whatsapp") {
+      await recordEvent(ctx, { event: "whatsapp_clicked", vendorId: args.id });
+    } else if (kind === "share") {
+      await recordEvent(ctx, { event: "share_clicked", vendorId: args.id });
+    }
   },
 });
 
@@ -460,6 +538,11 @@ export const recordSearch = mutation({
             searchImpressions: (vendor!.searchImpressions ?? 0) + 1,
           }),
         ),
+    );
+    await Promise.all(
+      vendors
+        .filter((vendor) => vendor?.status === "active")
+        .map((vendor) => recordEvent(ctx, { event: "search_impression", vendorId: vendor!._id, metadata: { queryLength: normalized.length } })),
     );
     return vendors.filter((vendor) => vendor?.status === "active").length;
   },

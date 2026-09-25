@@ -4,12 +4,18 @@ import {
   AlertTriangle,
   ArrowRight,
   Bell,
+  CheckCircle2,
   Clock3,
+  Cloud,
+  Download,
+  ImagePlus,
   MapPin,
+  RefreshCw,
   Package,
   Send,
   ShieldCheck,
   Star,
+  WifiOff,
   X,
 } from "lucide-react";
 import { categoryOptions, landmarkLabel, landmarks, type Category, type Vendor } from "@/lib/catalog";
@@ -19,16 +25,19 @@ import {
   useCatalogVendors,
   useMyInteractions,
   useNotificationPreferences,
+  useOwnerRequests,
   useNotifications,
   useWhatsappStatus,
   useServiceRequests,
   useVendorPackages,
+  useVendorPhotos,
   type NotificationPreferences,
   type ServiceRequest,
 } from "@/lib/catalog-store";
 import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { AnimatedContent, ScrollReveal } from "@/components/react-bits";
+import { useOfflineQueue } from "@/lib/offline-queue";
 
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
 const inputClass = "min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base text-slate-900 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
@@ -176,7 +185,11 @@ function RequestForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-function RequestCard({ request }: { request: ServiceRequest }) {
+type RequestWithExpiry = Omit<ServiceRequest, "status"> & {
+  status: ServiceRequest["status"] | "expired";
+};
+
+function RequestCard({ request }: { request: RequestWithExpiry }) {
   const vendors = useCatalogVendors();
   const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
@@ -312,7 +325,7 @@ export function RequestBoard() {
 
 export function MyRequestHistory() {
   const requests = useServiceRequests({ mine: true, limit: 100 });
-  const { updateRequest } = useCatalogActions();
+  const { updateRequest, reopenRequest } = useCatalogActions();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const ownRequests = requests ?? [];
@@ -320,7 +333,12 @@ export function MyRequestHistory() {
     setUpdatingId(id);
     setNotice("");
     try {
-      await updateRequest({ requestId: id as never, status });
+      const reason = status === "cancelled" ? window.prompt("Alasan pembatalan (minimal 5 karakter)") : undefined;
+      if (status === "cancelled" && (!reason || reason.trim().length < 5)) {
+        setNotice("Alasan pembatalan belum diisi.");
+        return;
+      }
+      await updateRequest({ requestId: id as never, status, reason: reason || undefined });
       setNotice(status === "completed" ? "Permintaan ditandai selesai." : "Permintaan dibatalkan.");
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : "Status permintaan belum dapat diperbarui.");
@@ -538,6 +556,174 @@ export function NotificationCenter() {
           Belum ada notifikasi. Pilihan di atas bisa diubah kapan saja.
         </p>
       )}
+    </section>
+  );
+}
+
+export function OwnerGalleryManager({ vendorId, vendorName }: { vendorId: string; vendorName: string }) {
+  const photos = useVendorPhotos(vendorId) ?? [];
+  const { generateUploadUrl, createPhoto, removePhoto } = useCatalogActions();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const upload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setBusy(true);
+    setMessage("");
+    let uploaded = 0;
+    try {
+      for (const file of Array.from(files).slice(0, 12)) {
+        if (file.size > 1_000_000) {
+          setMessage("Setiap foto maksimal 1 MB.");
+          continue;
+        }
+        if (photos.length + uploaded >= 12) {
+          setMessage("Maksimal 12 foto per listing.");
+          break;
+        }
+        const uploadUrl = await generateUploadUrl();
+        const response = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": file.type || "image/jpeg" },
+          body: file,
+        });
+        if (!response.ok) throw new Error("Foto gagal diunggah.");
+        const result = (await response.json()) as { storageId?: string };
+        if (!result.storageId) throw new Error("ID foto belum diterima.");
+        await createPhoto({ vendorId: vendorId as never, storageId: result.storageId, caption: file.name.slice(0, 120) });
+        uploaded += 1;
+      }
+      if (uploaded > 0) setMessage(`${uploaded} foto masuk antrean moderasi.`);
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "Foto belum dapat diunggah.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <details className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+      <summary className={`flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-sm font-extrabold text-slate-800 ${focusRing}`}>
+        <span className="inline-flex items-center gap-2"><ImagePlus className="size-4 text-blue-600" />Galeri foto ({photos.length}/12)</span>
+        <span className="text-xs text-slate-500">Kelola</span>
+      </summary>
+      <div className="mt-3 space-y-3">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {photos.map((photo) => (
+            <figure key={photo._id} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+              <img src={photo.url} alt={photo.caption || `Foto ${vendorName}`} className="aspect-square w-full object-cover" loading="lazy" />
+              <figcaption className="flex items-center justify-between gap-1 px-2 py-1 text-[11px] text-slate-600">
+                <span>{photo.moderationStatus === "pending" ? "Menunggu moderasi" : photo.moderationStatus === "rejected" ? "Ditolak" : "Tampil"}</span>
+                <button type="button" disabled={busy} onClick={() => { if (window.confirm("Hapus foto ini?")) void removePhoto({ id: photo._id as never }).catch((caught) => setMessage(caught instanceof Error ? caught.message : "Foto belum dapat dihapus.")); }} className={`font-black text-red-700 ${focusRing}`} aria-label={`Hapus foto ${vendorName}`}>Hapus</button>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+        <label className="flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-blue-300 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-600">
+          <ImagePlus className="size-5" aria-hidden="true" />
+          {busy ? "Mengunggah..." : "Pilih beberapa foto (maks. 1 MBeach)"}
+          <input type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" disabled={busy} onChange={(event) => void upload(event.target.files)} />
+        </label>
+        {message ? <p className="text-sm font-bold text-blue-700" role="status">{message}</p> : null}
+      </div>
+    </details>
+  );
+}
+
+export function OwnerRequestWorkspace() {
+  const requests = useOwnerRequests() ?? [];
+  const { claimRequest, offerRequest, withdrawOffer } = useCatalogActions();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+
+  const act = async (requestId: string, vendorId: string, action: "claim" | "offer" | "withdraw", offerId?: string) => {
+    setBusyId(requestId);
+    setMessage("");
+    try {
+      if (action === "claim") await claimRequest({ requestId: requestId as never, vendorId: vendorId as never });
+      if (action === "offer") await offerRequest({ requestId: requestId as never, vendorId: vendorId as never });
+      if (action === "withdraw" && offerId) await withdrawOffer({ offerId: offerId as never });
+      setMessage(action === "claim" ? "Permintaan diklaim. Resident bisa melihat Freelance Anda." : action === "offer" ? "Tawaran dicatat dan masuk riwayat request." : "Tawaran ditarik.");
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "Aksi request belum dapat diselesaikan.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="owner-request-title">
+      <div className="flex items-start gap-3">
+        <span className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Send className="size-5" aria-hidden="true" /></span>
+        <div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Ruang pemilik</p><h2 id="owner-request-title" className="mt-1 text-xl font-black text-slate-950">Request yang cocok</h2><p className="mt-1 text-sm leading-6 text-slate-600">Diurutkan dari jarak, area layanan, dan kecepatan respons listing Anda.</p></div>
+      </div>
+      {requests.length === 0 ? <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">Belum ada request yang cocok dengan listing Anda.</p> : <div className="mt-4 space-y-3">{requests.map((request) => {
+        const firstMatch = request.vendorMatches?.[0];
+        const ownOffer = request.offers?.find((offer) => offer.vendorId === firstMatch?.vendorId);
+        return <article key={request._id} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-extrabold text-slate-950">{request.title}</p><p className="mt-1 text-sm text-slate-600">{request.category} · {landmarkLabel(request.landmark)} · {request.requesterName}</p></div><span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-extrabold text-blue-800">{request.status}</span></div><div className="mt-2 flex flex-wrap gap-3 text-xs font-bold text-slate-500"><span>Jarak {firstMatch?.distanceKm !== undefined ? `${firstMatch.distanceKm.toFixed(1)} km` : "area"}</span>{request.neededAt ? <span>Dibutuhkan {formatRequestDate(request.neededAt)}</span> : null}{request.budget ? <span>Anggaran {request.budget}</span> : null}</div><div className="mt-3 flex flex-wrap gap-2">{request.status === "open" && firstMatch ? <><button type="button" disabled={busyId === request._id} onClick={() => void act(request._id, firstMatch.vendorId, "claim")} className={`min-h-11 rounded-lg bg-blue-600 px-3 text-sm font-extrabold text-white disabled:opacity-50 ${focusRing}`}>Saya bisa membantu</button><button type="button" disabled={busyId === request._id} onClick={() => void act(request._id, firstMatch.vendorId, ownOffer ? "withdraw" : "offer", ownOffer?._id)} className={`min-h-11 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 disabled:opacity-50 ${focusRing}`}>{ownOffer ? "Tarik tawaran" : "Catat tawaran"}</button></> : null}</div>{request.offers?.length ? <details className="mt-2 text-sm text-slate-600"><summary className={`cursor-pointer font-bold ${focusRing}`}>Riwayat tawaran ({request.offers.length})</summary><ul className="mt-2 space-y-1">{request.offers.map((offer) => <li key={offer._id}>{offer.vendorName ?? "Listing"} · {offer.status}</li>)}</ul></details> : null}</article>;
+      })}</div>}
+      {message ? <p className="mt-3 text-sm font-bold text-blue-700" role="status">{message}</p> : null}
+    </section>
+  );
+}
+
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
+
+export function PwaControls() {
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [updateReady, setUpdateReady] = useState(false);
+  const { online, pendingCount } = useOfflineQueue();
+
+  useEffect(() => {
+    const onInstall = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type === "UPDATE_READY") setUpdateReady(true);
+    };
+    window.addEventListener("beforeinstallprompt", onInstall);
+    navigator.serviceWorker?.addEventListener("message", onServiceWorkerMessage);
+    if (navigator.serviceWorker?.controller) {
+      void navigator.serviceWorker.getRegistration().then((registration) => {
+        if (registration?.waiting) setUpdateReady(true);
+      });
+    }
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onInstall);
+      navigator.serviceWorker?.removeEventListener("message", onServiceWorkerMessage);
+    };
+  }, []);
+
+  const update = async () => {
+    const registration = await navigator.serviceWorker?.getRegistration();
+    if (!registration) return;
+    await registration.update();
+    registration.waiting?.postMessage({ type: "SKIP_WAITING" });
+    setUpdateReady(false);
+  };
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="Status aplikasi dan sinkronisasi">
+      <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-700">
+        {online ? <Cloud className="size-5 text-emerald-600" aria-hidden="true" /> : <WifiOff className="size-5 text-amber-600" aria-hidden="true" />}
+        <span role="status">{online ? (pendingCount > 0 ? `${pendingCount} perubahan menunggu koneksi` : "Data tersinkron") : "Mode offline — perubahan disimpan di perangkat"}</span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {installPrompt ? (
+          <button type="button" onClick={() => void installPrompt.prompt().then(() => setInstallPrompt(null))} className={`inline-flex min-h-11 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 ${focusRing}`}>
+            <Download className="size-4" aria-hidden="true" />Pasang aplikasi
+          </button>
+        ) : null}
+        {updateReady ? (
+          <button type="button" onClick={() => void update()} className={`inline-flex min-h-11 items-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-extrabold text-white ${focusRing}`}>
+            <RefreshCw className="size-4" aria-hidden="true" />Perbarui aplikasi
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }

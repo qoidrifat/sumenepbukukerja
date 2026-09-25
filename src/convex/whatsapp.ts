@@ -69,11 +69,25 @@ const twilioConfig = () => {
 
 export const getWhatsappStatus = query({
   args: {},
-  handler: async () => {
+  handler: async (ctx) => {
     const config = twilioConfig();
+    const deliveries = await ctx.db.query("whatsappDeliveries").collect();
+    const counts = deliveries.reduce<Record<string, number>>((result, delivery) => {
+      result[delivery.status] = (result[delivery.status] ?? 0) + 1;
+      return result;
+    }, {});
+    const maskedFrom = config.from ? config.from.replace(/\d/g, "•") : undefined;
     return {
       configured: config.configured,
       usesTemplate: Boolean(config.contentSid),
+      webhookConfigured: Boolean(process.env.CONVEX_SITE_URL),
+      maskedFrom,
+      deliveryCounts: {
+        queued: counts.queued ?? 0,
+        sent: counts.sent ?? 0,
+        delivered: counts.delivered ?? 0,
+        failed: counts.failed ?? 0,
+      },
     };
   },
 });
@@ -163,16 +177,25 @@ export const notificationRecipients = internalQuery({
         .query("notifications")
         .withIndex("byUser", (q) => q.eq("userId", userId))
         .collect();
+      const deliveries = await ctx.db
+        .query("whatsappDeliveries")
+        .withIndex("byUser", (q) => q.eq("userId", userId))
+        .collect();
+      
       const deliveryKey =
         args.kind === "request_status"
           ? `whatsapp:${args.kind}:${args.entityId}:${request?.status ?? "unknown"}`
           : `whatsapp:${args.kind}:${args.entityId}`;
+      if (deliveries.some((delivery) => delivery.deliveryKey === deliveryKey)) continue;
       if (recent.some((item) => item.kind === deliveryKey)) continue;
       const lastDay = recent.filter(
         (item) =>
           item.channel === "whatsapp" && now - item.createdAt < 24 * 60 * 60 * 1000,
       );
-      if (lastDay.length >= 3) continue;
+      const recentDeliveries = deliveries.filter(
+        (delivery) => now - delivery.createdAt < 24 * 60 * 60 * 1000,
+      );
+      if (lastDay.length + recentDeliveries.length >= 3) continue;
 
       recipients.push({
         userId,
@@ -207,25 +230,115 @@ export const preferencesForUser = internalQuery({
   },
 });
 
-export const recordWhatsappDelivery = internalMutation({
+const safeErrorCode = (value: unknown) => {
+  const code = typeof value === "string" || typeof value === "number" ? String(value) : "provider_error";
+  return code.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "provider_error";
+};
+
+export const queueWhatsappDelivery = internalMutation({
   args: {
     userId: v.id("users"),
-    kind: v.string(),
+    deliveryKey: v.string(),
     title: v.string(),
     body: v.string(),
-    providerMessageId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("notifications", {
+    const existing = await ctx.db
+      .query("whatsappDeliveries")
+      .withIndex("byDeliveryKey", (q) => q.eq("deliveryKey", args.deliveryKey))
+      .unique();
+    if (existing) return { id: existing._id, shouldSend: false, status: existing.status, attempts: existing.attempts };
+    const id = await ctx.db.insert("whatsappDeliveries", {
+      deliveryKey: args.deliveryKey,
       userId: args.userId,
-      kind: args.kind,
+      status: "queued",
+      attempts: 0,
       title: args.title,
       body: args.body,
-      channel: "whatsapp",
-      providerMessageId: args.providerMessageId,
-      read: true,
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     });
+    return { id, shouldSend: true, status: "queued" as const, attempts: 0 };
+  },
+});
+
+export const markWhatsappSent = internalMutation({
+  args: { id: v.id("whatsappDeliveries"), providerMessageId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const current = await ctx.db.get(args.id);
+    if (!current) return;
+    const now = Date.now();
+    await ctx.db.patch(args.id, {
+      status: "sent",
+      attempts: current.attempts + 1,
+      providerMessageId: args.providerMessageId,
+      lastErrorCode: undefined,
+      nextAttemptAt: undefined,
+      updatedAt: now,
+    });
+    const notifications = await ctx.db.query("notifications").withIndex("byUser", (q) => q.eq("userId", current.userId)).collect();
+    if (!notifications.some((notification) => notification.kind === current.deliveryKey)) {
+      await ctx.db.insert("notifications", {
+        userId: current.userId,
+        kind: current.deliveryKey,
+        title: current.title,
+        body: current.body,
+        channel: "whatsapp",
+        providerMessageId: args.providerMessageId,
+        read: true,
+        createdAt: now,
+      });
+    }
+  },
+});
+
+export const markWhatsappFailed = internalMutation({
+  args: { id: v.id("whatsappDeliveries"), errorCode: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const current = await ctx.db.get(args.id);
+    if (!current) return;
+    const attempts = current.attempts + 1;
+    const nextAttemptAt = attempts < 3 ? Date.now() + attempts * 60_000 : undefined;
+    await ctx.db.patch(args.id, {
+      status: "failed",
+      attempts,
+      lastErrorCode: safeErrorCode(args.errorCode),
+      nextAttemptAt,
+      updatedAt: Date.now(),
+    });
+    if (nextAttemptAt) {
+      await ctx.scheduler.runAfter(attempts * 60_000, internal.whatsapp.retryWhatsappDelivery, { deliveryId: args.id });
+    }
+  },
+});
+
+export const deliveryForRetry = internalQuery({
+  args: { deliveryId: v.id("whatsappDeliveries") },
+  handler: async (ctx, args) => await ctx.db.get(args.deliveryId),
+});
+
+export const applyDeliveryStatus = internalMutation({
+  args: {
+    providerMessageId: v.string(),
+    status: v.union(v.literal("queued"), v.literal("sent"), v.literal("delivered"), v.literal("failed")),
+    errorCode: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const delivery = await ctx.db
+      .query("whatsappDeliveries")
+      .withIndex("byProviderMessageId", (q) => q.eq("providerMessageId", args.providerMessageId))
+      .unique();
+    if (!delivery) return false;
+    const now = Date.now();
+    await ctx.db.patch(delivery._id, {
+      status: args.status,
+      lastErrorCode: args.status === "failed" ? safeErrorCode(args.errorCode) : undefined,
+      updatedAt: now,
+    });
+    if (args.status === "failed" && delivery.attempts < 3) {
+      await ctx.scheduler.runAfter(delivery.attempts * 60_000, internal.whatsapp.retryWhatsappDelivery, { deliveryId: delivery._id });
+    }
+    return true;
   },
 });
 
@@ -246,6 +359,9 @@ async function sendWhatsappMessage(input: {
     From: config.from,
     To: `whatsapp:${input.phone}`,
   });
+  if (process.env.CONVEX_SITE_URL) {
+    payload.set("StatusCallback", `${process.env.CONVEX_SITE_URL.replace(/\/$/, "")}/twilio/status`);
+  }
   if (config.contentSid) {
     payload.set("ContentSid", config.contentSid);
     payload.set(
@@ -270,10 +386,12 @@ async function sendWhatsappMessage(input: {
   const result = (await response.json()) as {
     sid?: string;
     message?: string;
-    error_message?: string;
+    code?: string | number;
   };
   if (!response.ok) {
-    throw new Error(result.error_message || result.message || "Twilio menolak pesan");
+    const error = new Error("Twilio menolak pesan") as Error & { providerCode?: string };
+    error.providerCode = safeErrorCode(result.code ?? response.status);
+    throw error;
   }
   return { skipped: false, configured: true, messageId: result.sid };
 }
@@ -290,30 +408,35 @@ async function deliver(
   if (!twilioConfig().configured) {
     return { configured: false, delivered: 0, skipped: recipients.length, failed: 0 };
   }
-  let delivered = 0;
-  let failed = 0;
-  for (const recipient of recipients) {
-    try {
-      const result = await sendWhatsappMessage({
-        phone: recipient.phone,
-        title: recipient.title,
-        body: recipient.body,
-      });
-      if (result.skipped) continue;
-      await ctx.runMutation(internal.whatsapp.recordWhatsappDelivery, {
+    let delivered = 0;
+    let failed = 0;
+    for (const recipient of recipients) {
+      const queued = await ctx.runMutation(internal.whatsapp.queueWhatsappDelivery, {
         userId: recipient.userId,
-        kind: recipient.deliveryKey,
+        deliveryKey: recipient.deliveryKey,
         title: recipient.title,
         body: recipient.body,
-        providerMessageId: result.messageId,
       });
-      delivered += 1;
-    } catch (error) {
-      failed += 1;
-      console.warn("WhatsApp delivery failed", error);
+      if (!queued.shouldSend) continue;
+      try {
+        const result = await sendWhatsappMessage({
+          phone: recipient.phone,
+          title: recipient.title,
+          body: recipient.body,
+        });
+        if (result.skipped) continue;
+        await ctx.runMutation(internal.whatsapp.markWhatsappSent, {
+          id: queued.id,
+          providerMessageId: result.messageId,
+        });
+        delivered += 1;
+      } catch (error) {
+        failed += 1;
+        const code = error && typeof error === "object" && "providerCode" in error ? String(error.providerCode) : "provider_error";
+        await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: queued.id, errorCode: code });
+      }
     }
-  }
-  return { configured: true, delivered, skipped: 0, failed };
+    return { configured: true, delivered, skipped: 0, failed };
 }
 
 export const sendRequestCreatedNotifications = internalAction({
@@ -343,6 +466,29 @@ export const sendVendorUpdatedNotifications = internalAction({
     deliver(ctx, "vendor_updated", args.vendorId),
 });
 
+export const retryWhatsappDelivery = internalAction({
+  args: { deliveryId: v.id("whatsappDeliveries") },
+  handler: async (ctx, args) => {
+    const delivery = await ctx.runQuery(internal.whatsapp.deliveryForRetry, { deliveryId: args.deliveryId });
+    if (!delivery || delivery.status === "delivered" || delivery.status === "sent" || delivery.attempts >= 3) return { sent: false };
+    if (!twilioConfig().configured) return { sent: false };
+    try {
+      // The phone is intentionally stored only in the notification preference.
+      const preference = await ctx.runQuery(internal.whatsapp.preferencesForUser, { userId: delivery.userId });
+      const phone = normalizePhone(preference?.phone ?? "");
+      if (!phone) return { sent: false };
+      const sent = await sendWhatsappMessage({ phone, title: delivery.title, body: delivery.body });
+      if (sent.skipped) return { sent: false };
+      await ctx.runMutation(internal.whatsapp.markWhatsappSent, { id: delivery._id, providerMessageId: sent.messageId });
+      return { sent: true };
+    } catch (error) {
+      const code = error && typeof error === "object" && "providerCode" in error ? String(error.providerCode) : "provider_error";
+      await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: delivery._id, errorCode: code });
+      return { sent: false };
+    }
+  },
+});
+
 export const sendTestWhatsapp = action({
   args: {},
   handler: async (ctx): Promise<{ sent: boolean }> => {
@@ -366,14 +512,15 @@ export const sendTestWhatsapp = action({
       body: `Halo ${preference.name}, notifikasi WhatsApp Anda sudah aktif.`,
     });
     if (result.skipped) throw new Error("Integrasi WhatsApp belum dikonfigurasi");
-    if (result.messageId) {
-      await ctx.runMutation(internal.whatsapp.recordWhatsappDelivery, {
-        userId,
-        kind: "whatsapp:test",
-        title: "WhatsApp aktif",
-        body: "Pesan uji berhasil dikirim.",
-        providerMessageId: result.messageId,
-      });
+    const deliveryKey = `whatsapp:test:${userId}:${new Date().toISOString().slice(0, 10)}`;
+    const queued = await ctx.runMutation(internal.whatsapp.queueWhatsappDelivery, {
+      userId,
+      deliveryKey,
+      title: "WhatsApp aktif",
+      body: "Pesan uji berhasil dikirim.",
+    });
+    if (queued.shouldSend) {
+      await ctx.runMutation(internal.whatsapp.markWhatsappSent, { id: queued.id, providerMessageId: result.messageId });
     }
     return { sent: true };
   },

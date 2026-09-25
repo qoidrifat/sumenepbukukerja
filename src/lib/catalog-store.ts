@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { vendors as seedVendors, vendorBySlug, type Vendor } from "./catalog";
 
@@ -26,27 +26,109 @@ export type VendorRecord = Vendor & {
   reviewItems?: VendorReview[];
 };
 
+export type ServiceRequest = {
+  _id: string;
+  requesterId: string;
+  requesterName: string;
+  title: string;
+  description: string;
+  category: Vendor["category"];
+  landmark: string;
+  budget?: string;
+  neededAt?: number;
+  status: "open" | "claimed" | "completed" | "cancelled";
+  vendorId?: string;
+  vendorName?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type VendorPackage = {
+  _id: string;
+  vendorId: string;
+  name: string;
+  description: string;
+  price: string;
+  duration?: string;
+  area?: string;
+  active?: boolean;
+};
+
+export type VendorInteraction = {
+  _id: string;
+  vendorId: string;
+  vendorName: string;
+  vendorSlug?: string;
+  kind: "whatsapp" | "share" | "call" | "view" | "request";
+  status: "opened" | "waiting" | "completed" | "dismissed";
+  note?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type NotificationItem = {
+  _id: string;
+  kind: string;
+  title: string;
+  body: string;
+  read?: boolean;
+  createdAt: number;
+};
+
+export type NotificationPreferences = {
+  whatsappUpdates: boolean;
+  areaUpdates: boolean;
+  requestUpdates: boolean;
+};
+
 const STORAGE_KEY = "sumenep-buku-kerja-favorites";
+const COLLECTION_STORAGE_KEY = "sumenep-buku-kerja-favorite-collections";
 const CATALOG_SEED_EVENT = "sumenep-catalog-seed-updated";
 let catalogSeedState: "idle" | "requested" | "ready" = "idle";
 let catalogSyncRequested = false;
 
+type LocalCollections = Record<string, string>;
+
 function readFavorites(): string[] {
+  if (typeof window === "undefined") return [];
   try {
-    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
+    const value = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "[]");
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
   } catch {
     return [];
   }
 }
 
-function persistFavorites(slugs: string[]) {
+function readLocalCollections(): LocalCollections {
+  if (typeof window === "undefined") return {};
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(slugs));
+    const value = JSON.parse(window.localStorage.getItem(COLLECTION_STORAGE_KEY) ?? "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value).filter(([slug, collection]) => typeof slug === "string" && typeof collection === "string"),
+    ) as LocalCollections;
+  } catch {
+    return {};
+  }
+}
+
+function persistFavorites(slugs: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(slugs));
   } catch {
     // A blocked storage API must not prevent browsing or contacting a vendor.
   }
   window.dispatchEvent(new Event("sumenep-favorites-updated"));
+}
+
+function persistCollections(collections: LocalCollections) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(COLLECTION_STORAGE_KEY, JSON.stringify(collections));
+  } catch {
+    // Collection labels are a convenience; losing them must not break favorites.
+  }
 }
 
 function useCatalogRemote() {
@@ -111,11 +193,19 @@ export function useVendor(slug: string | undefined) {
 
 function useStoredFavorites() {
   const [local, setLocal] = useState<string[]>(readFavorites);
+  const [collections, setCollections] = useState<LocalCollections>(readLocalCollections);
 
   useEffect(() => {
-    const sync = () => setLocal(readFavorites());
+    const sync = () => {
+      setLocal(readFavorites());
+      setCollections(readLocalCollections());
+    };
     window.addEventListener("sumenep-favorites-updated", sync);
-    return () => window.removeEventListener("sumenep-favorites-updated", sync);
+    window.addEventListener("sumenep-favorite-collections-updated", sync);
+    return () => {
+      window.removeEventListener("sumenep-favorites-updated", sync);
+      window.removeEventListener("sumenep-favorite-collections-updated", sync);
+    };
   }, []);
 
   const toggleLocal = (slug: string) => {
@@ -124,11 +214,30 @@ function useStoredFavorites() {
         ? current.filter((item) => item !== slug)
         : [...current, slug];
       persistFavorites(next);
+      if (!next.includes(slug)) {
+        setCollections((currentCollections) => {
+          if (!(slug in currentCollections)) return currentCollections;
+          const nextCollections = { ...currentCollections };
+          delete nextCollections[slug];
+          persistCollections(nextCollections);
+          window.dispatchEvent(new Event("sumenep-favorite-collections-updated"));
+          return nextCollections;
+        });
+      }
       return next;
     });
   };
 
-  return [local, toggleLocal] as const;
+  const setLocalCollection = (slug: string, collection: string) => {
+    setCollections((current) => {
+      const next = { ...current, [slug]: collection || "Tersimpan" };
+      persistCollections(next);
+      window.dispatchEvent(new Event("sumenep-favorite-collections-updated"));
+      return next;
+    });
+  };
+
+  return { local, collections, toggleLocal, setLocalCollection } as const;
 }
 
 export function useVendorPhoto(photoId: string | undefined) {
@@ -136,20 +245,42 @@ export function useVendorPhoto(photoId: string | undefined) {
 }
 
 export function useFavorites() {
+  const { isAuthenticated } = useConvexAuth();
   const remote = useQuery(api.vendors.listFavorites, {});
   const favorite = useMutation(api.vendors.toggleFavorite);
-  const [local, toggleLocal] = useStoredFavorites();
+  const setRemoteCollection = useMutation(api.vendors.setFavoriteCollection);
+  const { local, collections: localCollections, toggleLocal, setLocalCollection } = useStoredFavorites();
+  const remoteCollections = new Map(remote?.map((item) => [item.slug, item.collection ?? "Tersimpan"]) ?? []);
   const slugs = new Set(remote?.map((item) => item.slug) ?? []);
-
   local.forEach((slug) => slugs.add(slug));
 
-  const save = (slug: string, vendorId?: string) => {
-    toggleLocal(slug);
-    if (vendorId) {
-      void favorite({ vendorId: vendorId as never }).catch(() => {
-        // Anonymous visitors keep the local favorite; signed-in users sync remotely.
-      });
+  const save = (slug: string, vendorId?: string, collection = "Tersimpan") => {
+    // Authenticated saves are server-authoritative. Keeping the local copy in
+    // lockstep with a blind toggle can resurrect a favorite after a failed or
+    // stale remote mutation, especially when localStorage was cleared.
+    if (isAuthenticated && vendorId) {
+      void favorite({ vendorId: vendorId as never, collection }).catch(() => undefined);
+      return;
     }
+    toggleLocal(slug);
+    if (collection !== "Tersimpan") setLocalCollection(slug, collection);
+  };
+
+  const setCollection = (slug: string, vendorId: string | undefined, collection: string) => {
+    setLocalCollection(slug, collection);
+    if (!isAuthenticated || !vendorId || remote === undefined) return;
+
+    const remoteHasFavorite = remote.some((item) => item.slug === slug);
+    if (remoteHasFavorite) {
+      void setRemoteCollection({ vendorId: vendorId as never, collection }).catch(() => undefined);
+      return;
+    }
+
+    // Selecting a collection also saves the listing, so the label cannot point
+    // at a favorite that does not exist on the account.
+    void favorite({ vendorId: vendorId as never, collection })
+      .then((saved) => saved ? setRemoteCollection({ vendorId: vendorId as never, collection }) : undefined)
+      .catch(() => undefined);
   };
 
   return {
@@ -157,6 +288,8 @@ export function useFavorites() {
     isSaved: (slug: string) => slugs.has(slug),
     local,
     save,
+    collectionFor: (slug: string) => remoteCollections.get(slug) ?? localCollections[slug] ?? "Tersimpan",
+    setCollection,
   };
 }
 
@@ -170,6 +303,19 @@ export function useCatalogActions() {
   const feedback = useMutation(api.vendors.submitFeedback);
   const subscription = useMutation(api.vendors.setSubscription);
   const generateUploadUrl = useMutation(api.vendors.generateUploadUrl);
+  const availability = useMutation(api.community.updateAvailability);
+  const interaction = useMutation(api.community.recordInteraction);
+  const updateInteraction = useMutation(api.community.updateInteraction);
+  const createRequest = useMutation(api.community.createRequest);
+  const claimRequest = useMutation(api.community.claimRequest);
+  const updateRequest = useMutation(api.community.updateRequestStatus);
+  const createPackage = useMutation(api.community.createPackage);
+  const updatePackage = useMutation(api.community.updatePackage);
+  const removePackage = useMutation(api.community.removePackage);
+  const markNotificationsRead = useMutation(api.community.markNotificationsRead);
+  const setNotificationPreferences = useMutation(api.community.setNotificationPreferences);
+  const createReport = useMutation(api.community.createReport);
+  const updateReport = useMutation(api.community.updateReport);
   return {
     create,
     update,
@@ -180,7 +326,51 @@ export function useCatalogActions() {
     feedback,
     subscription,
     generateUploadUrl,
+    availability,
+    interaction,
+    updateInteraction,
+    createRequest,
+    claimRequest,
+    updateRequest,
+    createPackage,
+    updatePackage,
+    removePackage,
+    markNotificationsRead,
+    setNotificationPreferences,
+    createReport,
+    updateReport,
   };
+}
+
+export function useServiceRequests(args: {
+  status?: "open" | "claimed" | "completed" | "cancelled";
+  landmark?: string;
+  category?: Vendor["category"];
+  search?: string;
+  limit?: number;
+  mine?: boolean;
+} = {}) {
+  return useQuery(api.community.listRequests, args);
+}
+
+export function useVendorPackages(vendorId?: string) {
+  return useQuery(api.community.listPackages, vendorId ? { vendorId: vendorId as never } : {});
+}
+
+export function useMyInteractions() {
+  return useQuery(api.community.listInteractions, {});
+}
+
+export function useNotifications() {
+  return useQuery(api.community.listNotifications, {});
+}
+
+export function useNotificationPreferences() {
+  return useQuery(api.community.getNotificationPreferences, {});
+}
+
+export function useOpenReports() {
+  return useQuery(api.community.listReports, {});
 }
 
 export function useAdminVendors(status?: "draft" | "active" | "archived") {

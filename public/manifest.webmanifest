@@ -1,12 +1,15 @@
 {
-  "name": "SumenepKerja",
-  "short_name": "SumenepKerja",
-  "description": "Katalog lokal Sumenep untuk menemukan usaha dan chat lewat WhatsApp.",
+  "name": "Sumenep Buku Kerja",
+  "short_name": "Buku Kerja",
+  "description": "Direktori lokal, papan kebutuhan, dan katalog WhatsApp untuk warga Sumenep.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#F7F8FC",
-  "theme_color": "#F7F8FC",
+  "theme_color": "#2563EB",
   "lang": "id",
+  "dir": "ltr",
+  "categories": ["business", "shopping", "social"],
   "icons": [
     {
       "src": "/logo.svg",
@@ -14,5 +17,9 @@
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
+  ],
+  "shortcuts": [
+    { "name": "Cari usaha", "short_name": "Cari", "url": "/#katalog" },
+    { "name": "Posting kebutuhan", "short_name": "Butuh bantuan", "url": "/#permintaan" }
   ]
 }

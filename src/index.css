@@ -77,6 +77,21 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  html[data-large-text="true"] {
+    font-size: 18px;
+  }
+
+  html[data-high-contrast="true"] {
+    --background: #ffffff;
+    --foreground: #000000;
+    --card: #ffffff;
+    --card-foreground: #000000;
+    --muted: #f1f5f9;
+    --muted-foreground: #334155;
+    --border: #94a3b8;
+    --primary: #1d4ed8;
+  }
+
   button,
   a,
   input,

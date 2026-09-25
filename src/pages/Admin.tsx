@@ -18,8 +18,9 @@ import {
 } from "lucide-react";
 import { CodedBell, CodedSparkline, CodedStacked } from "@/components/codedvisuals";
 import { BorderGlow, Counter, GlassSurface, ScrollReveal } from "@/components/react-bits";
+import { PackageManager } from "@/components/community-widgets";
 import { categoryOptions, landmarks, type Category, type Vendor } from "@/lib/catalog";
-import { useAdminVendors, useCatalogActions } from "@/lib/catalog-store";
+import { useAdminVendors, useCatalogActions, useOpenReports } from "@/lib/catalog-store";
 import { duplicateScore, profileCompleteness, qualityIssues } from "@/lib/catalog-data";
 
 const focusRing =
@@ -46,6 +47,10 @@ const emptyDraft = (): Vendor => ({
   status: "active",
   featured: false,
   verified: false,
+  availability: "available",
+  availabilityNote: "",
+  responseMinutes: 60,
+  serviceRadiusKm: 10,
 });
 
 function AdminHeader() {
@@ -131,12 +136,14 @@ function StatCard({
 
 export default function Admin() {
   const items = useAdminVendors() ?? [];
+  const reports = useOpenReports() ?? [];
   const {
     create,
     update: updateVendor,
     archive,
     subscription,
     generateUploadUrl,
+    updateReport,
   } = useCatalogActions();
   const [draft, setDraft] = useState<(Vendor & { _id?: string }) | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -228,6 +235,10 @@ export default function Admin() {
         featured: draft.featured ?? false,
         verified: draft.verified ?? false,
         photoId,
+        availability: draft.availability ?? "available",
+        availabilityNote: draft.availabilityNote,
+        responseMinutes: draft.responseMinutes,
+        serviceRadiusKm: draft.serviceRadiusKm,
       };
 
       if (draft._id) {
@@ -307,6 +318,9 @@ export default function Admin() {
       : []),
     ...(incompleteItems.length
       ? [{ title: `${incompleteItems.length} listing perlu dilengkapi`, body: "Nomor, alamat, harga, deskripsi, atau tag masih perlu diperiksa.", tone: "amber" as const }]
+      : []),
+    ...(reports.length
+      ? [{ title: `${reports.length} laporan warga perlu ditinjau`, body: "Periksa laporan listing dari halaman moderation.", tone: "amber" as const }]
       : []),
   ];
 
@@ -478,6 +492,13 @@ export default function Admin() {
           </GlassSurface>
         </section>
 
+        {reports.length > 0 ? (
+          <section className="mt-6 rounded-2xl border border-red-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex items-center gap-3"><span className="flex size-11 items-center justify-center rounded-xl bg-red-50 text-red-700"><AlertTriangle className="size-5" /></span><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-red-700">Moderasi warga</p><h2 className="mt-1 text-xl font-black text-slate-950">Laporan perlu ditinjau</h2></div></div>
+            <div className="mt-4 space-y-3">{reports.map((report) => <div key={report._id} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-extrabold text-slate-950">{report.reason}</p><p className="mt-1 text-sm leading-6 text-slate-600">{report.details}</p></div><span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-extrabold text-red-700">{report.status}</span></div><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void updateReport({ id: report._id as never, status: "reviewing" })} className={`min-h-12 rounded-lg border border-amber-200 px-3 text-sm font-extrabold text-amber-800 ${focusRing}`}>Tandai ditinjau</button><button type="button" onClick={() => void updateReport({ id: report._id as never, status: "resolved" })} className={`min-h-12 rounded-lg border border-emerald-200 px-3 text-sm font-extrabold text-emerald-700 ${focusRing}`}>Selesaikan</button><button type="button" onClick={() => void updateReport({ id: report._id as never, status: "dismissed" })} className={`min-h-12 rounded-lg border border-slate-300 px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Abaikan</button></div></div>)}</div>
+          </section>
+        ) : null}
+
         {draft ? (
           <section className="mt-8 rounded-xl border border-blue-200 bg-white p-5 shadow-sm sm:p-7">
             <div className="flex items-start justify-between gap-4">
@@ -562,6 +583,17 @@ export default function Admin() {
               </label>
               <Field label="Alamat lengkap" value={draft.address} onChange={(address) => updateDraft({ address })} placeholder="Jalan, nomor, atau keterangan lokasi" required />
               <Field label="Jam kerja" value={draft.hours} onChange={(hours) => updateDraft({ hours })} placeholder="Setiap hari · 07.00–17.00" />
+              <label className="flex min-w-0 flex-col gap-2">
+                <span className="text-sm font-extrabold text-slate-800">Status ketersediaan</span>
+                <select value={draft.availability ?? "available"} onChange={(event) => updateDraft({ availability: event.target.value as Vendor["availability"] })} className={inputClass}>
+                  <option value="available">Tersedia</option>
+                  <option value="busy">Sedang sibuk</option>
+                  <option value="closed">Tutup sementara</option>
+                </select>
+              </label>
+              <Field label="Catatan ketersediaan" value={draft.availabilityNote ?? ""} onChange={(availabilityNote) => updateDraft({ availabilityNote })} placeholder="Contoh: Bisa datang hari ini setelah jam 3" />
+              <Field label="Rata-rata balas (menit)" value={draft.responseMinutes?.toString() ?? ""} onChange={(value) => updateDraft({ responseMinutes: value.trim() === "" || Number.isNaN(Number(value)) ? undefined : Number(value) })} placeholder="Contoh: 45" type="number" />
+              <Field label="Radius layanan (km)" value={draft.serviceRadiusKm?.toString() ?? ""} onChange={(value) => updateDraft({ serviceRadiusKm: value.trim() === "" || Number.isNaN(Number(value)) ? undefined : Number(value) })} placeholder="Contoh: 10" type="number" />
               <label className="flex min-w-0 flex-col gap-2 lg:col-span-2">
                 <span className="text-sm font-extrabold text-slate-800">Deskripsi singkat</span>
                 <textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} placeholder="Ceritakan layanan yang tersedia atau keunggulan usaha ini." rows={3} className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-base leading-6 text-slate-900 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
@@ -629,6 +661,7 @@ export default function Admin() {
                   <button type="button" onClick={() => item._id && void subscription({ vendorId: item._id as never, tier: item.featured ? "free" : "featured" })} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-amber-200 px-4 text-base font-extrabold text-amber-800 hover:bg-amber-50 ${focusRing}`}>{item.featured ? "Jadikan biasa" : "Jadikan unggulan"}</button>
                   <button type="button" onClick={() => remove(item.slug)} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-red-200 px-4 text-base font-extrabold text-red-700 hover:bg-red-50 ${focusRing}`}><Trash2 className="size-4" />Hapus</button>
                 </div>
+                {item._id ? <PackageManager vendorId={item._id} vendorName={item.name} /> : null}
               </div>
             ))}
           </div>

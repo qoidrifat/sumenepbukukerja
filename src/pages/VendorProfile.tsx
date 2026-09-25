@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Link, useParams } from "react-router";
 import {
@@ -26,6 +26,7 @@ import {
 } from "@/lib/catalog-store";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { BlurText, GlassSurface, ScrollReveal } from "@/components/react-bits";
+import { AvailabilityBadge, PackageList, ReportListingButton } from "@/components/community-widgets";
 import NotFound from "./NotFound";
 
 const focusRing =
@@ -35,6 +36,13 @@ type CtaNotice = {
   tone: "success" | "error";
   text: string;
 };
+
+function formatNextAvailable(timestamp: number) {
+  return new Intl.DateTimeFormat("id-ID", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+}
 
 function CtaFeedback({
   notice,
@@ -81,7 +89,7 @@ function VendorProfileContent() {
   const vendor = useVendor(slug);
   const photoUrl = useVendorPhoto(vendor?.photoId);
   const favorites = useFavorites();
-  const { click, review } = useCatalogActions();
+  const { click, review, interaction } = useCatalogActions();
   const [reviewName, setReviewName] = useState("");
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewBody, setReviewBody] = useState("");
@@ -89,7 +97,17 @@ function VendorProfileContent() {
   const [reviewError, setReviewError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [ctaNotice, setCtaNotice] = useState<CtaNotice | null>(null);
+  const viewedVendorId = useRef<string | undefined>(undefined);
   const reduceMotion = useReducedMotion() ?? false;
+
+  useEffect(() => {
+    const vendorId = vendor?._id;
+    // React StrictMode intentionally runs effects twice in development. Do not
+    // turn that into duplicate "view" rows in the resident interaction history.
+    if (!vendorId || viewedVendorId.current === vendorId) return;
+    viewedVendorId.current = vendorId;
+    void interaction({ vendorId: vendorId as never, kind: "view" }).catch(() => undefined);
+  }, [interaction, vendor?._id]);
 
   useEffect(() => {
     if (!ctaNotice) return;
@@ -106,6 +124,21 @@ function VendorProfileContent() {
     vendorName: vendor.name,
     category: vendor.category,
     landmark,
+    intent: "availability",
+  });
+  const priceHref = generateWhatsAppLink({
+    phone: vendor.phone,
+    vendorName: vendor.name,
+    category: vendor.category,
+    landmark,
+    intent: "price",
+  });
+  const estimateHref = generateWhatsAppLink({
+    phone: vendor.phone,
+    vendorName: vendor.name,
+    category: vendor.category,
+    landmark,
+    intent: "estimate",
   });
   const saved = favorites.isSaved(vendor.slug);
   const reviewItems = vendor.reviewItems ?? [];
@@ -113,6 +146,7 @@ function VendorProfileContent() {
   const trackWhatsApp = () => {
     if (vendor._id) {
       void click({ id: vendor._id as never, kind: "whatsapp" });
+      void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
     }
     try {
       const key = `sumenep-buku-kerja-clicks:${vendor.slug}`;
@@ -123,9 +157,16 @@ function VendorProfileContent() {
     setCtaNotice({ tone: "success", text: "WhatsApp siap dibuka. Lihat tab atau aplikasi WhatsApp Anda." });
   };
 
+  const trackCall = () => {
+    if (vendor._id) void interaction({ vendorId: vendor._id as never, kind: "call" }).catch(() => undefined);
+  };
+
   const share = async () => {
     const text = `${vendor.name} — ${vendor.description}`;
-    if (vendor._id) void click({ id: vendor._id as never, kind: "share" });
+    if (vendor._id) {
+      void click({ id: vendor._id as never, kind: "share" });
+      void interaction({ vendorId: vendor._id as never, kind: "share" }).catch(() => undefined);
+    }
     const url = `${window.location.origin}/v/${vendor.slug}`;
     try {
       if (navigator.share) {
@@ -256,6 +297,7 @@ function VendorProfileContent() {
                   <span className="inline-flex rounded-full bg-blue-50 px-3 py-1.5 text-sm font-extrabold text-blue-700">
                     {vendor.category}
                   </span>
+                  <AvailabilityBadge vendor={vendor} />
                   <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1.5 text-sm font-extrabold text-amber-800">
                     <Star className="size-4 fill-current" />{vendor.rating} ({vendor.reviews})
                   </span>
@@ -287,6 +329,14 @@ function VendorProfileContent() {
                   <Info reduceMotion={reduceMotion} icon={Store} label="Mulai dari" value={vendor.price} />
                   <Info reduceMotion={reduceMotion} icon={Phone} label="Kontak" value={vendor.phone.replace(/^62/, "0")} />
                 </div>
+                {vendor.availabilityNote ? <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold leading-6 text-amber-900">{vendor.availabilityNote}</p> : null}
+                {vendor.nextAvailableAt ? <p className="mt-3 text-sm font-bold text-slate-700">Perkiraan tersedia lagi: {formatNextAvailable(vendor.nextAvailableAt)}</p> : null}
+                <div className="mt-4 flex flex-wrap gap-2 text-sm font-bold text-slate-600">
+                  {vendor.responseMinutes ? <span className="rounded-full bg-slate-50 px-3 py-1.5">Rata-rata membalas {vendor.responseMinutes} menit</span> : null}
+                  {vendor.serviceRadiusKm ? <span className="rounded-full bg-slate-50 px-3 py-1.5">Area layanan {vendor.serviceRadiusKm} km</span> : null}
+                </div>
+                <PackageList vendorId={vendor._id} />
+                <div className="mt-5"><ReportListingButton vendorId={vendor._id} /></div>
               </div>
             </motion.section>
             </ScrollReveal>
@@ -455,14 +505,19 @@ function VendorProfileContent() {
                 </motion.span>
                 {categoryActionLabel[vendor.category]}
               </motion.a>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <motion.a href={priceHref} target="_blank" rel="noreferrer" onClick={trackWhatsApp} whileHover={reduceMotion ? undefined : { y: -2 }} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 ${focusRing}`}><span>💰</span>Tanya harga</motion.a>
+                <motion.a href={estimateHref} target="_blank" rel="noreferrer" onClick={trackWhatsApp} whileHover={reduceMotion ? undefined : { y: -2 }} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 ${focusRing}`}><Clock3 className="size-4" />Tanya estimasi</motion.a>
+              </div>
               <div className="mt-3 grid grid-cols-[1fr_3rem] gap-2">
                 <motion.a
                   href={`tel:${vendor.phone}`}
+                  onClick={trackCall}
                   whileHover={reduceMotion ? undefined : { y: -2 }}
                   whileTap={reduceMotion ? undefined : { scale: 0.98 }}
                   className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-base font-extrabold text-slate-800 hover:border-blue-300 hover:bg-blue-50 ${focusRing}`}
                 >
-                  <Phone className="size-5 text-blue-600" />Simpan nomor
+                  <Phone className="size-5 text-blue-600" />Telepon mitra
                 </motion.a>
                 <motion.button
                   type="button"
@@ -480,6 +535,12 @@ function VendorProfileContent() {
               </div>
               <div className="hidden lg:block">
                 <CtaFeedback notice={ctaNotice} reduceMotion={reduceMotion} className="mt-4" />
+              </div>
+              <div className="mt-4 border-t border-slate-200 pt-4">
+                <p className="text-sm font-extrabold text-slate-800">Simpan ke koleksi</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {["Untuk rumah", "Biasanya pesan", "Minggu ini"].map((collection) => <button key={collection} type="button" onClick={() => favorites.setCollection(vendor.slug, vendor._id, collection)} className={`min-h-12 rounded-lg border px-3 text-sm font-extrabold ${favorites.collectionFor(vendor.slug) === collection ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:bg-blue-50"} ${focusRing}`}>{collection}</button>)}
+                </div>
               </div>
               <div className="mt-5 flex items-start gap-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold leading-6 text-slate-700">
                 <span className="text-lg" aria-hidden="true">✎</span>

@@ -3,18 +3,20 @@ import { ArrowRight, Bookmark, LayoutDashboard, LogOut, MapPin, MessageCircle, S
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { landmarkLabel } from "@/lib/catalog";
-import { useCatalogVendors, useFavorites } from "@/lib/catalog-store";
+import { useCatalogVendors, useCatalogActions, useFavorites } from "@/lib/catalog-store";
 import { categoryActionLabel } from "@/lib/catalog-data";
 import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { useNavigate } from "react-router";
 import { AnimatedContent, BorderGlow, Counter, GlassIcons, ScrollReveal } from "@/components/react-bits";
+import { AccessibilityControls, InteractionHistory, MyRequestHistory, NotificationCenter } from "@/components/community-widgets";
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const vendors = useCatalogVendors();
   const favorites = useFavorites();
+  const { interaction } = useCatalogActions();
   const savedVendors = vendors.filter((vendor) => favorites.isSaved(vendor.slug));
 
   const handleSignOut = async () => {
@@ -51,6 +53,8 @@ export default function Dashboard() {
             ]}
           />
         </ScrollReveal>
+
+        <AccessibilityControls />
 
         <section className="grid gap-4 sm:grid-cols-3">
           <BorderGlow className="h-full rounded-xl" intensity={0.08}>
@@ -121,13 +125,14 @@ export default function Dashboard() {
                       <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${vendor.accent} text-sm font-black text-white`}>{vendor.mark}</span>
                       <div className="min-w-0">
                         <p className="text-sm font-extrabold text-blue-700">{vendor.category}</p>
+                        <p className="mt-1 text-xs font-bold text-slate-500">Koleksi: {favorites.collectionFor(vendor.slug)}</p>
                         <h3 className="mt-1 text-lg font-black leading-snug text-slate-950">{vendor.name}</h3>
                       </div>
                     </div>
                     <p className="mt-4 line-clamp-2 text-base leading-6 text-slate-600">{vendor.description}</p>
                     <p className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-slate-600"><MapPin className="size-4 text-blue-600" />{landmark}</p>
                     <div className="mt-auto grid grid-cols-[1fr_3rem] gap-2 pt-5">
-                      <a href={href} target="_blank" rel="noreferrer" className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 text-base font-extrabold text-[#082f1e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+                      <a href={href} target="_blank" rel="noreferrer" onClick={() => { if (vendor._id) void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined); }} className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 text-base font-extrabold text-[#082f1e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
                         <MessageCircle className="size-5" />{categoryActionLabel[vendor.category]}
                       </a>
                       <Link to={`/v/${vendor.slug}`} className="flex min-h-12 items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50" aria-label={`Lihat ${vendor.name}`}>
@@ -152,6 +157,12 @@ export default function Dashboard() {
           )}
           </AnimatedContent>
         </section>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <InteractionHistory />
+          <NotificationCenter />
+        </div>
+        <MyRequestHistory />
       </div>
     </main>
   );

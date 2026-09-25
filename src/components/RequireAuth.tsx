@@ -48,7 +48,7 @@ export function RequireAuth({
   }
 
   if (!isAuthenticated) {
-    const returnTo = `${location.pathname}${location.search}`;
+    const returnTo = `${location.pathname}${location.search}${location.hash}`;
     const signInHref = `/auth?returnTo=${encodeURIComponent(returnTo)}`;
 
     if (redirectImmediately) {

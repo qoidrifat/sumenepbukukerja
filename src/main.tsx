@@ -89,6 +89,16 @@ const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 
 function CatalogBootstrap() {
   useCatalogSeedBootstrap();
+  useEffect(() => {
+    // The managed dev server has HMR and a live Convex connection. Registering
+    // the offline shell there can serve stale HTML/assets and obscure runtime
+    // errors, so it is enabled only for a production build.
+    if (import.meta.env.PROD && "serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/sw.js").catch((error) => {
+        console.warn("Offline shell could not be registered:", error);
+      });
+    }
+  }, []);
   return null;
 }
 

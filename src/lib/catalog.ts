@@ -28,6 +28,11 @@ export type Vendor = {
   shareClicks?: number;
   searchImpressions?: number;
   subscriptionTier?: "free" | "featured" | "premium";
+  availability?: "available" | "busy" | "closed";
+  availabilityNote?: string;
+  nextAvailableAt?: number;
+  responseMinutes?: number;
+  serviceRadiusKm?: number;
   ownerId?: string;
   businessId?: string;
   reviewItems?: Array<{ _id: string; authorName: string; rating: number; body: string; createdAt: number }>;

@@ -161,6 +161,11 @@ const vendorFields = {
   photoId: v.optional(v.string()),
   lat: v.optional(v.number()),
   lng: v.optional(v.number()),
+  availability: v.optional(v.union(v.literal("available"), v.literal("busy"), v.literal("closed"))),
+  availabilityNote: v.optional(v.string()),
+  nextAvailableAt: v.optional(v.number()),
+  responseMinutes: v.optional(v.number()),
+  serviceRadiusKm: v.optional(v.number()),
 };
 
 export const ensureCatalogSeeded = mutation({
@@ -205,6 +210,10 @@ export const ensureCatalogSeeded = mutation({
         status: "active",
         featured: vendor.featured ?? false,
         verified: vendor.verified ?? false,
+        availability: vendor.availability ?? "available",
+        availabilityNote: vendor.availabilityNote,
+        responseMinutes: vendor.responseMinutes,
+        serviceRadiusKm: vendor.serviceRadiusKm,
         createdAt: now + index,
         updatedAt: now + index,
       });
@@ -252,6 +261,11 @@ export const createVendor = mutation({
       photoId: args.photoId,
       lat: args.lat,
       lng: args.lng,
+      availability: args.availability ?? "available",
+      availabilityNote: args.availabilityNote?.trim() || undefined,
+      nextAvailableAt: args.nextAvailableAt,
+      responseMinutes: args.responseMinutes,
+      serviceRadiusKm: args.serviceRadiusKm,
       slug,
       createdAt: now,
       updatedAt: now,
@@ -291,6 +305,11 @@ export const updateVendor = mutation({
       photoId: changes.photoId === undefined ? current.photoId : changes.photoId,
       lat: changes.lat,
       lng: changes.lng,
+      availability: changes.availability ?? current.availability,
+      availabilityNote: changes.availabilityNote === undefined ? current.availabilityNote : changes.availabilityNote,
+      nextAvailableAt: changes.nextAvailableAt === undefined ? current.nextAvailableAt : changes.nextAvailableAt,
+      responseMinutes: changes.responseMinutes === undefined ? current.responseMinutes : changes.responseMinutes,
+      serviceRadiusKm: changes.serviceRadiusKm === undefined ? current.serviceRadiusKm : changes.serviceRadiusKm,
       updatedAt: Date.now(),
     });
     return id;
@@ -382,7 +401,10 @@ export const addReview = mutation({
 });
 
 export const toggleFavorite = mutation({
-  args: { vendorId: v.id("vendors") },
+  args: {
+    vendorId: v.id("vendors"),
+    collection: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
     const vendor = await ctx.db.get(args.vendorId);
@@ -398,6 +420,7 @@ export const toggleFavorite = mutation({
       await ctx.db.insert("favorites", {
         userId,
         vendorId: args.vendorId,
+        collection: args.collection?.trim() || "Tersimpan",
         createdAt: Date.now(),
       });
     }
@@ -418,11 +441,28 @@ export const listFavorites = query({
       rows.map(async (favorite) => {
         const vendor = await ctx.db.get(favorite.vendorId);
         return vendor
-          ? { vendorId: favorite.vendorId, slug: vendor.slug, createdAt: favorite.createdAt }
+          ? { vendorId: favorite.vendorId, slug: vendor.slug, collection: favorite.collection ?? "Tersimpan", createdAt: favorite.createdAt }
           : null;
       }),
     );
     return favorites.filter((favorite): favorite is NonNullable<typeof favorite> => favorite !== null);
+  },
+});
+
+export const setFavoriteCollection = mutation({
+  args: {
+    vendorId: v.id("vendors"),
+    collection: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const existing = await ctx.db
+      .query("favorites")
+      .withIndex("byUserVendor", (q) => q.eq("userId", userId).eq("vendorId", args.vendorId))
+      .unique();
+    if (!existing) throw new Error("Simpan listing sebelum memilih koleksi");
+    await ctx.db.patch(existing._id, { collection: args.collection.trim() || "Tersimpan" });
+    return existing._id;
   },
 });
 

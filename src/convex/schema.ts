@@ -25,6 +25,30 @@ export const categoryValidator = v.union(
   v.literal("Transportasi"),
   v.literal("Jasa Umum"),
 );
+export const requestStatusValidator = v.union(
+  v.literal("open"),
+  v.literal("claimed"),
+  v.literal("completed"),
+  v.literal("cancelled"),
+);
+export const availabilityStatusValidator = v.union(
+  v.literal("available"),
+  v.literal("busy"),
+  v.literal("closed"),
+);
+export const interactionKindValidator = v.union(
+  v.literal("whatsapp"),
+  v.literal("share"),
+  v.literal("call"),
+  v.literal("view"),
+  v.literal("request"),
+);
+export const interactionStatusValidator = v.union(
+  v.literal("opened"),
+  v.literal("waiting"),
+  v.literal("completed"),
+  v.literal("dismissed"),
+);
 
 const schema = defineSchema(
   {
@@ -72,6 +96,11 @@ const schema = defineSchema(
       whatsappClicks: v.optional(v.number()),
       shareClicks: v.optional(v.number()),
       searchImpressions: v.optional(v.number()),
+      availability: v.optional(availabilityStatusValidator),
+      availabilityNote: v.optional(v.string()),
+      nextAvailableAt: v.optional(v.number()),
+      responseMinutes: v.optional(v.number()),
+      serviceRadiusKm: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
     })
@@ -95,6 +124,7 @@ const schema = defineSchema(
     favorites: defineTable({
       userId: v.id("users"),
       vendorId: v.id("vendors"),
+      collection: v.optional(v.string()),
       createdAt: v.number(),
     })
       .index("byUser", ["userId"])
@@ -108,6 +138,74 @@ const schema = defineSchema(
       body: v.string(),
       read: v.optional(v.boolean()),
       createdAt: v.number(),
+    }).index("byUser", ["userId"]),
+
+    serviceRequests: defineTable({
+      requesterId: v.id("users"),
+      title: v.string(),
+      description: v.string(),
+      category: categoryValidator,
+      landmark: v.string(),
+      budget: v.optional(v.string()),
+      neededAt: v.optional(v.number()),
+      status: requestStatusValidator,
+      vendorId: v.optional(v.id("vendors")),
+      claimedAt: v.optional(v.number()),
+      completedAt: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("byStatus", ["status"])
+      .index("byLandmark", ["landmark"])
+      .index("byRequester", ["requesterId"])
+      .index("byCreatedAt", ["createdAt"]),
+
+    vendorPackages: defineTable({
+      vendorId: v.id("vendors"),
+      name: v.string(),
+      description: v.string(),
+      price: v.string(),
+      duration: v.optional(v.string()),
+      area: v.optional(v.string()),
+      active: v.optional(v.boolean()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("byVendor", ["vendorId"])
+      .index("byVendorActive", ["vendorId", "active"]),
+
+    vendorInteractions: defineTable({
+      userId: v.id("users"),
+      vendorId: v.id("vendors"),
+      requestId: v.optional(v.id("serviceRequests")),
+      kind: interactionKindValidator,
+      status: interactionStatusValidator,
+      note: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("byUser", ["userId"])
+      .index("byVendor", ["vendorId"]),
+
+    reports: defineTable({
+      reporterId: v.optional(v.id("users")),
+      vendorId: v.optional(v.id("vendors")),
+      requestId: v.optional(v.id("serviceRequests")),
+      reason: v.string(),
+      details: v.string(),
+      status: v.union(v.literal("open"), v.literal("reviewing"), v.literal("resolved"), v.literal("dismissed")),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("byStatus", ["status"])
+      .index("byVendor", ["vendorId"]),
+
+    notificationPreferences: defineTable({
+      userId: v.id("users"),
+      whatsappUpdates: v.optional(v.boolean()),
+      areaUpdates: v.optional(v.boolean()),
+      requestUpdates: v.optional(v.boolean()),
+      updatedAt: v.number(),
     }).index("byUser", ["userId"]),
 
     staffMembers: defineTable({

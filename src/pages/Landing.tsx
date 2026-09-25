@@ -6,6 +6,7 @@ import {
   Bookmark,
   Clock3,
   Check,
+  ClipboardList,
   Compass,
   Home,
   MapPin,
@@ -26,6 +27,7 @@ import { categoryActionLabel, distanceFilterOptions, distanceKmBetween, distance
 import { useUserLocation, type UserLocation, type UserLocationStatus } from "@/hooks/use-user-location";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
+import { AccessibilityControls, AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
 import {
   AnimatedContent,
   AnimatedList,
@@ -65,14 +67,17 @@ function Brand({ compact = false }: { compact?: boolean }) {
 
 function WhatsAppButton({ vendor, landmark, className = "" }: { vendor: Vendor; landmark: string; className?: string }) {
   const href = generateWhatsAppLink({ phone: vendor.phone, vendorName: vendor.name, category: vendor.category, landmark });
-  const { click } = useCatalogActions();
+  const { click, interaction } = useCatalogActions();
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
       onClick={() => {
-        if ("_id" in vendor) void click({ id: vendor._id as never, kind: "whatsapp" });
+        if ("_id" in vendor) {
+          void click({ id: vendor._id as never, kind: "whatsapp" });
+          void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
+        }
         try {
           localStorage.setItem(`sumenep-buku-kerja-clicks:${vendor.slug}`, String(Number(localStorage.getItem(`sumenep-buku-kerja-clicks:${vendor.slug}`) ?? 0) + 1));
         } catch {
@@ -90,6 +95,7 @@ function TopNav({ active = "Beranda" }: { active?: string }) {
   const links = [
     { label: "Beranda", icon: Home, to: "/" },
     { label: "Katalog Usaha", icon: Store, to: "/#katalog" },
+    { label: "Permintaan warga", icon: ClipboardList, to: "/#permintaan" },
     { label: "Cara Pakai", icon: Compass, to: "/#cara-pakai" },
   ];
   return (
@@ -106,6 +112,7 @@ function TopNav({ active = "Beranda" }: { active?: string }) {
         <a href="#katalog" className={`hidden min-h-12 items-center justify-center rounded-lg bg-blue-600 px-5 text-base font-extrabold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 lg:flex`}>
           Cari jasa <Search className="ml-2 size-4" aria-hidden="true" />
         </a>
+        <div className="hidden lg:block"><AccessibilityControls /></div>
       </div>
     </header>
   );
@@ -115,14 +122,15 @@ function BottomNav() {
   const items = [
     { label: "Beranda", icon: Home, href: "#beranda" },
     { label: "Katalog", icon: Store, href: "#katalog" },
+    { label: "Permintaan", icon: ClipboardList, href: "#permintaan" },
     { label: "Cara Pakai", icon: Compass, href: "#cara-pakai" },
   ];
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] lg:hidden" aria-label="Navigasi bawah">
       <div className="mx-auto flex h-16 max-w-md items-center justify-around">
         {items.map(({ label, icon: Icon, href }) => (
-          <a key={label} href={href} className={`flex min-h-12 min-w-[84px] flex-col items-center justify-center gap-1 rounded-lg px-2 text-sm font-bold text-slate-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${label === "Beranda" ? "text-blue-700" : ""}`}>
-            <Icon className="size-5" aria-hidden="true" /><span>{label}</span>
+          <a key={label} href={href} className={`flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 text-xs font-bold text-slate-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:min-w-[84px] sm:text-sm ${label === "Beranda" ? "text-blue-700" : ""}`}>
+            <Icon className="size-5" aria-hidden="true" /><span className="max-w-full truncate">{label}</span>
           </a>
         ))}
       </div>
@@ -131,10 +139,13 @@ function BottomNav() {
 }
 
 function VendorCard({ vendor, landmark, saved, onSave, onCompare }: { vendor: Vendor; landmark: string; saved: boolean; onSave: () => void; onCompare: () => void }) {
-  const { click } = useCatalogActions();
+  const { click, interaction } = useCatalogActions();
   const share = async () => {
     const text = `${vendor.name} — ${vendor.description}`;
-    if ("_id" in vendor) void click({ id: vendor._id as never, kind: "share" });
+    if ("_id" in vendor) {
+      void click({ id: vendor._id as never, kind: "share" });
+      void interaction({ vendorId: vendor._id as never, kind: "share" }).catch(() => undefined);
+    }
     if (navigator.share) await navigator.share({ title: vendor.name, text, url: `${window.location.origin}/v/${vendor.slug}` }).catch(() => undefined);
     else await navigator.clipboard?.writeText(`${text} ${window.location.origin}/v/${vendor.slug}`);
   };
@@ -151,6 +162,7 @@ function VendorCard({ vendor, landmark, saved, onSave, onCompare }: { vendor: Ve
           <div className="mb-1 flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-blue-50 px-2.5 py-1 text-sm font-bold text-blue-700">{vendor.category}</span>
             <span className="inline-flex items-center gap-1 text-sm font-bold text-amber-700"><span aria-hidden="true">★</span> {vendor.rating} <span className="font-medium text-slate-500">({vendor.reviews})</span></span>
+            <AvailabilityBadge vendor={vendor} />
           </div>
           <h3 className="text-[clamp(1.05rem,2.5vw,1.25rem)] font-extrabold leading-snug tracking-[-0.025em] text-slate-950">{vendor.name}</h3>
           <p className="mt-1 line-clamp-2 text-base leading-6 text-slate-600">{vendor.description}</p>
@@ -193,8 +205,9 @@ function Hero({ onBrowse, vendorCount }: { onBrowse: () => void; vendorCount: nu
             Katalog lokal warga Sumenep
           </div>           <h1 className="max-w-2xl text-[clamp(2.2rem,6vw,4.8rem)] font-black leading-[0.98] tracking-[-0.065em] text-slate-950">Kebutuhan harian,<br /><span className="relative inline-block text-blue-600"><ShinyText text="dekat rumah." color="#2563eb" shineColor="#93c5fd" speed={4} /><span className="absolute -bottom-1 left-1 h-2 w-[92%] -rotate-1 rounded-full bg-amber-200/80" aria-hidden="true" /></span></h1>
           <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600 sm:text-xl">Buku kerja kecil untuk menemukan jasa, usaha, dan orang terdekat di sekitar Sumenep. Tanpa akun, tanpa aplikasi tambahan — langsung chat lewat WhatsApp.</p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <button type="button" onClick={onBrowse} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-3 text-base font-extrabold text-white shadow-sm transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2`}>Mulai cari jasa <ArrowRight className="size-5" aria-hidden="true" /></button>
+            <a href="#permintaan" className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-5 py-3 text-base font-extrabold text-blue-700 transition-colors hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2`}><ClipboardList className="size-5" />Butuh jasa?</a>
             <a href="#cara-pakai" className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 text-base font-extrabold text-slate-800 transition-colors hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2`}>Cara kerjanya <span aria-hidden="true">↓</span></a>
           </div>           <div className="mt-8 flex flex-wrap gap-x-6 gap-y-3 text-sm font-bold text-slate-600">
              <span className="inline-flex items-center gap-2"><Check className="size-4 text-blue-600" />Kontak langsung</span>
@@ -436,6 +449,7 @@ function Catalog({
         <div className="mt-6 flex items-center justify-between"><p className="text-base font-bold text-slate-600"><Counter value={filtered.length} suffix=" usaha" className="text-slate-950" /> ditemukan</p><span className="hidden text-sm font-semibold text-slate-500 sm:block">{location ? "Diurutkan dari jarak terdekat" : "Diurutkan dari yang paling relevan"}</span></div>
         {showMap ? <div className="mt-6 rounded-xl border border-blue-200 bg-[#edf3ff] p-4 sm:p-6"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-700">Peta kasar Sumenep</p><p className="mt-1 text-base font-semibold text-slate-600">Pilih patokan di atas untuk melihat usaha yang paling relevan.</p></div><LocateFixed className="size-6 text-blue-600" /></div><div className="relative mt-4 h-56 overflow-hidden rounded-xl border border-blue-200 bg-white sm:h-72"><div className="absolute inset-0 opacity-60" style={{ backgroundImage: "linear-gradient(#bdd2fb 1px, transparent 1px), linear-gradient(90deg, #bdd2fb 1px, transparent 1px)", backgroundSize: "32px 32px" }} /><div className="absolute left-[18%] top-[28%] h-32 w-3/4 rotate-12 rounded-[50%] border-[14px] border-blue-200 bg-blue-50" />{location ? <div className="absolute left-[48%] top-[46%] z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" aria-label="Lokasi Anda"><span className="size-5 rounded-full border-4 border-white bg-emerald-500 shadow-md" /><span className="rounded bg-slate-900 px-1.5 py-1 text-[10px] font-bold text-white">Anda</span></div> : null}{filtered.slice(0, 6).map((vendor, index) => <Link key={vendor.slug} to={`/v/${vendor.slug}`} className="absolute flex size-10 items-center justify-center rounded-full border-4 border-white bg-blue-600 text-sm font-black text-white shadow-md" style={{ left: `${18 + (index % 3) * 25}%`, top: `${22 + Math.floor(index / 3) * 38}%` }} aria-label={`Lihat ${vendor.name}`}><MapPin className="size-5" /></Link>)}</div></div> : null}
         {compare.length > 0 ? <div className="mt-5 flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3"><GitCompare className="size-5 text-blue-700" /><p className="text-base font-bold text-blue-900">{compare.length} listing dipilih untuk dibandingkan.</p><button type="button" onClick={() => setCompare([])} className="ml-auto min-h-12 rounded-lg px-3 text-base font-extrabold text-blue-700 hover:bg-blue-100">Bersihkan</button></div> : null}
+        <CompareTray vendors={filtered} selected={compare} onRemove={(slug) => setCompare((current) => current.filter((item) => item !== slug))} onClear={() => setCompare([])} />
         <AnimatedContent
           animationKey={`${activeLandmark}-${category}-${openNow}-${distanceLimit ?? "all"}-${query}-${filtered.length}`}
           className="mt-6"
@@ -518,7 +532,7 @@ function DirectoryContent({
   onClearLocation: () => void;
 }) {
   const [activeLandmark, setActiveLandmark] = useState("all");
-  return <><ScrollProgress /><TopNav /><NotebookBackdrop /><Hero vendorCount={vendors.length} onBrowse={() => document.getElementById("katalog")?.scrollIntoView({ behavior: "smooth" })} /><FilterSection activeLandmark={activeLandmark} setActiveLandmark={setActiveLandmark} /><Catalog activeLandmark={activeLandmark} vendors={vendors} location={location} locationStatus={locationStatus} locationError={locationError} onRequestLocation={onRequestLocation} onClearLocation={onClearLocation} /><HowItWorks /><LocalCategories /><Footer /><BottomNav /></>;
+  return <><ScrollProgress /><TopNav /><div className="relative z-10 px-4 pt-3 sm:px-6 lg:hidden"><AccessibilityControls /></div><NotebookBackdrop /><Hero vendorCount={vendors.length} onBrowse={() => document.getElementById("katalog")?.scrollIntoView({ behavior: "smooth" })} /><FilterSection activeLandmark={activeLandmark} setActiveLandmark={setActiveLandmark} /><Catalog activeLandmark={activeLandmark} vendors={vendors} location={location} locationStatus={locationStatus} locationError={locationError} onRequestLocation={onRequestLocation} onClearLocation={onClearLocation} /><RequestBoard /><HowItWorks /><LocalCategories /><Footer /><BottomNav /></>;
 }
 
 export default function Landing() {

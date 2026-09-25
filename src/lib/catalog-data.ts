@@ -24,7 +24,7 @@ export const isOpenNow = (hours: string) => {
 };
 
 export const profileCompleteness = (vendor: Vendor) => {
-  const fields = [vendor.name, vendor.category, vendor.description, vendor.address, vendor.landmark, vendor.price, vendor.hours, vendor.phone, vendor.tags.length ? "tags" : ""];
+  const fields = [vendor.name, vendor.category, vendor.description, vendor.address, vendor.landmark, vendor.price, vendor.hours, vendor.phone, vendor.tags.length ? "tags" : "", vendor.availability ?? "available"];
   return Math.round((fields.filter(Boolean).length / fields.length) * 100);
 };
 
@@ -35,6 +35,8 @@ export const qualityIssues = (vendor: Vendor) => {
   if (!vendor.price.trim()) issues.push("Harga awal belum diisi");
   if (vendor.description.trim().length < 40) issues.push("Deskripsi terlalu pendek");
   if (!vendor.tags.length) issues.push("Tag pencarian belum diisi");
+  if ((vendor.availability === "busy" || vendor.availability === "closed") && !vendor.availabilityNote?.trim()) issues.push("Catatan ketersediaan belum diisi");
+  if (vendor.availability && !vendor.responseMinutes) issues.push("Perkiraan waktu balas belum diisi");
   return issues;
 };
 

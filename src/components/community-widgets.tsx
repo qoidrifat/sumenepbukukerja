@@ -266,7 +266,7 @@ function RequestCard({ request }: { request: RequestWithExpiry }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-extrabold text-blue-700">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-extrabold text-blue-700">
               <CategoryMascot category={request.category} size="xs" animated={false} />
               {request.category}
             </span>

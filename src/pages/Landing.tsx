@@ -27,7 +27,7 @@ import { categoryActionLabel, distanceFilterOptions, distanceKmBetween, distance
 import { useUserLocation, type UserLocation, type UserLocationStatus } from "@/hooks/use-user-location";
 import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
-import { CategoryMascot } from "@/components/category-mascot";
+import { CategoryMascot, CategoryMascotStage } from "@/components/category-mascot";
 import { AccessibilityControls, AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
 import {
   AnimatedContent,
@@ -507,7 +507,7 @@ function HowItWorks() {
 
 function LocalCategories() {
   const categoryLogos = categoryOptions.map((category) => (
-    <span className="flex size-10 items-center justify-center rounded-full bg-secondary" aria-hidden="true">
+    <span className="flex size-12 items-center justify-center rounded-full bg-secondary" aria-hidden="true">
       {/* Orbit sudah bergerak sendiri, jadi maskot di dalam orbit dibuat statis. */}
       <CategoryMascot category={category.label} size="xs" animated={false} />
     </span>
@@ -516,38 +516,42 @@ function LocalCategories() {
   return (
     <ScrollReveal>
       <section className="relative z-10 border-b border-slate-200 bg-[#f7f8fc] py-10 sm:py-14 lg:py-16">
-      <div className="mx-auto grid max-w-[1600px] items-center gap-8 px-4 sm:px-6 lg:grid-cols-[.9fr_1.1fr] lg:gap-14 lg:px-10">
-        <div>
-          <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Satu katalog, banyak kebutuhan</p>
-          <h2 className="mt-2 text-[clamp(1.7rem,3.5vw,2.6rem)] font-black tracking-[-0.045em] text-slate-950">Lima kebutuhan, satu buku kerja.</h2>
-          <p className="mt-3 max-w-xl text-base leading-7 text-slate-600">Kategori di sekitar Sumenep dirangkum dalam satu halaman agar warga lebih cepat menemukan jasa yang tepat.</p>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {categoryOptions.map((category) => (
-              <div key={category.label} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                <CategoryMascot category={category.label} size="md" />
-                <div className="min-w-0">
-                  <p className="text-sm font-extrabold text-slate-900">{category.label}</p>
-                  <p className="mt-1 text-sm leading-5 text-slate-600">{category.description}</p>
-                </div>
-              </div>
-            ))}
+      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-10">
+        <div className="grid items-center gap-8 lg:grid-cols-[.9fr_1.1fr] lg:gap-14">
+          <div>
+            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Satu katalog, banyak kebutuhan</p>
+            <h2 className="mt-2 text-[clamp(1.7rem,3.5vw,2.6rem)] font-black tracking-[-0.045em] text-slate-950">Lima kebutuhan, satu buku kerja.</h2>
+            <p className="mt-3 max-w-xl text-base leading-7 text-slate-600">Kategori di sekitar Sumenep dirangkum dalam satu halaman agar warga lebih cepat menemukan jasa yang tepat.</p>
+          </div>
+          <div className="relative min-h-[21rem] overflow-hidden rounded-2xl border border-blue-200 bg-white p-3 shadow-sm sm:min-h-[24rem] sm:p-5">
+            <div className="absolute inset-x-0 top-0 h-1 rounded-t-2xl bg-blue-600" />
+            <CodedLogoOrbit
+              outerLogos={categoryLogos}
+              logo={<span className="text-xl font-black tracking-[-0.04em] text-primary">SB</span>}
+              animated
+              trigger="inView"
+              orbit
+              hover
+              className="h-[20rem] sm:h-[22rem]"
+            />
+            <div className="absolute inset-x-4 bottom-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 sm:inset-x-6 sm:bottom-5">
+              <span className="text-sm font-bold text-slate-700">Pilih kategori saat mencari</span>
+              <a href="#katalog" className="min-h-12 rounded-lg px-3 py-3 text-sm font-extrabold text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">Buka katalog</a>
+            </div>
           </div>
         </div>
-        <div className="relative min-h-[21rem] overflow-hidden rounded-2xl border border-blue-200 bg-white p-3 shadow-sm sm:min-h-[24rem] sm:p-5">
-          <div className="absolute inset-x-0 top-0 h-1 rounded-t-2xl bg-blue-600" />
-          <CodedLogoOrbit
-            outerLogos={categoryLogos}
-            logo={<span className="text-xl font-black tracking-[-0.04em] text-primary">SB</span>}
-            animated
-            trigger="inView"
-            orbit
-            hover
-            className="h-[20rem] sm:h-[22rem]"
-          />
-          <div className="absolute inset-x-4 bottom-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 sm:inset-x-6 sm:bottom-5">
-            <span className="text-sm font-bold text-slate-700">Pilih kategori saat mencari</span>
-            <a href="#katalog" className="min-h-12 rounded-lg px-3 py-3 text-sm font-extrabold text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">Buka katalog</a>
-          </div>
+        {/* Kartu kategori mendapat baris penuh sendiri. Sebelumnya kartu ini
+            berada di dalam kolom .9fr bersama orbit, sehingga di 1024px hanya
+            tersisa ~194px per kartu - maskot besar tidak muat di samping teks
+            dan ikut menyusut jadi ikon. */}
+        <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:gap-4 xl:grid-cols-5">
+          {categoryOptions.map((category) => (
+            <article key={category.label} className="flex flex-col rounded-xl border border-slate-200 bg-white p-3 text-center shadow-sm sm:p-4">
+              <CategoryMascotStage category={category.label} size="md" />
+              <h3 className="mt-3 text-base font-extrabold text-slate-950 sm:mt-4">{category.label}</h3>
+              <p className="mt-1 text-sm leading-5 text-slate-600">{category.description}</p>
+            </article>
+          ))}
         </div>
       </div>
       </section>

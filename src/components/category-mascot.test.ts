@@ -9,7 +9,7 @@ import {
   CATEGORY_MASCOT_TRAITS,
   NEUTRAL_CATEGORY_MASCOT_TRAIT,
 } from "@/lib/category-mascot-traits";
-import { CategoryMascot } from "./category-mascot";
+import { CategoryMascot, CategoryMascotStage } from "./category-mascot";
 
 /**
  * Maskot kategori adalah hiasan: nama kategori selalu dibawa teks di
@@ -157,6 +157,92 @@ test("wajah terbangun sama untuk semua kategori (DNA satu keluarga)", () => {
   }
 });
 
+const renderStage = (props: Parameters<typeof CategoryMascotStage>[0]) =>
+  renderToStaticMarkup(createElement(CategoryMascotStage, props));
+
+/* Luminance relatif + rasio kontras WCAG, supaya "latar cukup berbeda dari
+   kartu putih tapi tidak bersaing dengan maskot" diukur, bukan dikira-kira. */
+const luminance = (hex: string) => {
+  const channel = (offset: number) => {
+    const value = parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+};
+
+const contrast = (a: string, b: string) => {
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (light + 0.05) / (dark + 0.05);
+};
+
+test("panggung memakai latar tint kategori, selalu berbeda dari body maskot", () => {
+  const stages = labels.map((label) => categoryMascotTrait(label).stage);
+
+  // Setiap kategori punya tint sendiri.
+  expect(new Set(stages).size).toBe(labels.length);
+
+  for (const label of labels) {
+    const trait = categoryMascotTrait(label);
+    const stage = renderStage({ category: label });
+    expect(stage).toContain(`background-color:${trait.stage}`);
+
+    // Terpisah jelas dari kartu putih, tapi tetap pale: siluet maskot
+    // ditentukan garis slate-700 yang kontrasnya >7:1 di semua stage.
+    const vsCard = contrast(trait.stage, "#FFFFFF");
+    const vsAccent = contrast(trait.stage, trait.accent);
+    const vsInk = contrast("#0F172A", trait.stage);
+    expect(vsCard).toBeGreaterThan(1.08);
+    expect(vsAccent).toBeGreaterThan(1.85);
+    expect(vsInk).toBeGreaterThan(7);
+    expect(luminance(trait.stage)).toBeGreaterThan(0.75);
+  }
+});
+
+test("panggung kategori di luar taxonomi memakai latar netral, bukan error", () => {
+  const html = renderStage({ category: "Jasa Listrik" });
+
+  expect(html).toContain(`background-color:${NEUTRAL_CATEGORY_MASCOT_TRAIT.stage}`);
+  expect((html.match(/viewBox="0 0 120 120"/g) ?? []).length).toBe(1);
+});
+
+test("panggung admin memakai canvas Warm Brutalism, bukan tint kategori", () => {
+  const html = renderStage({ category: "Kuliner", context: "admin" });
+
+  expect(html).toContain("background-color:#F5F0E5");
+  expect(html).not.toContain(`background-color:${categoryMascotTrait("Kuliner").stage}`);
+  // Aksen kategori tetap ada di maskotnya, cuma latarnya yang diseragamkan.
+  expect(html).toContain(categoryMascotTrait("Kuliner").accent);
+});
+
+test("panggung mengikuti design system: rounded-2xl, w-fit, padding responsif", () => {
+  const html = renderStage({ category: "Kuliner" });
+
+  expect(html).toContain("rounded-2xl");
+  // Tidak ada radius arbitrary di luar sistem.
+  expect(html).not.toMatch(/rounded-\[/);
+  // w-fit + padding yang menyusut di breakpoint membuat panggung tidak pernah
+  // melebihi lebar kartu pada 360px.
+  expect(html).toContain("w-fit");
+  expect(html).toContain("px-3 py-3 sm:px-5 sm:py-4 xl:py-5");
+  // Tidak ada gradient(neon) atau shadow berat.
+  expect(html).not.toContain("gradient");
+  expect(html).not.toContain("shadow-");
+});
+
+test("dekorasi panggung subtle, dekoratif, dan tidak menambah accessible text", () => {
+  const html = renderStage({ category: "Transportasi" });
+
+  // Empat titik dalam warna aksen kategori, opacity rendah.
+  const dots = html.match(/opacity:0.18/g) ?? [];
+  expect(dots).toHaveLength(4);
+  expect(html).toContain(`background-color:${categoryMascotTrait("Transportasi").accent}`);
+  // Panggung dan dekorasi seluruhnya disembunyikan dari screen reader.
+  expect(html).toContain('aria-hidden="true"');
+  for (const label of labels) {
+    expect(renderStage({ category: label })).not.toContain(label);
+  }
+});
+
 test("ekspresi 'focused' menambah alis, kategori lain tidak", () => {
   expect(render({ category: "Servis Teknik", animated: false })).toContain("M44 35.5");
   expect(render({ category: "Kuliner", animated: false })).not.toContain("M44 35.5");
@@ -180,12 +266,16 @@ test("mulut diam hanya untuk ekspresi netral; senyum tidak dihapus saat hover", 
   expect(animated).toContain('<path d="M53 54.5c3 5.4 11 5.4 14 0Z" fill="#0F172A">');
 });
 
-test("ukuran xs dipakai untuk chip/filter dan tidak pernah membesar layout", () => {
+test("size map responsif: filter/list kecil, kartu kategori besar", () => {
   expect(CATEGORY_MASCOT_SIZES).toEqual({
-    xs: "size-6",
-    sm: "size-8",
-    md: "size-14",
-    lg: "size-24",
+    /* filter 44px + chip list */
+    xs: "size-8",
+    /* kartu ringkas / admin */
+    sm: "size-12 xl:size-14",
+    /* kartu kategori: 96 mobile, 112 tablet, 144 desktop */
+    md: "size-24 sm:size-28 xl:size-36",
+    /* kategori unggulan: 160 mobile, 208 desktop */
+    lg: "size-40 xl:size-52",
   });
 
   for (const [size, className] of Object.entries(CATEGORY_MASCOT_SIZES)) {
@@ -193,6 +283,25 @@ test("ukuran xs dipakai untuk chip/filter dan tidak pernah membesar layout", () 
     expect(html).toContain(className);
     expect(html).toContain("shrink-0");
   }
+});
+
+test("kartu kategori benar-benar memakai maskot besar, bukan ukuran icon", () => {
+  /* Ukuran maksimum per breakpoint, dihitung dari skala rem Tailwind
+     (1 unit = 0.25rem = 4px) supaya yang diperiksa px, bukan angka class. */
+  const maxPx = (classes: string) =>
+    Math.max(
+      ...[...classes.matchAll(/(?:^|\s)size-(\d+)/g)].map((m) => (Number(m[1]) / 4) * 16),
+    );
+
+  // 24px -> 96px adalah faktor 4 pada kartu kategori; ini yang membuat
+  // maskot jadi visual anchor, bukan ikon di samping caption.
+  expect(maxPx(CATEGORY_MASCOT_SIZES.xs)).toBeLessThanOrEqual(40);
+  expect(maxPx(CATEGORY_MASCOT_SIZES.md)).toBeGreaterThanOrEqual(88);
+  expect(maxPx(CATEGORY_MASCOT_SIZES.lg)).toBeGreaterThanOrEqual(150);
+  // Urutan size map tetap naik.
+  expect(maxPx(CATEGORY_MASCOT_SIZES.xs)).toBeLessThan(maxPx(CATEGORY_MASCOT_SIZES.sm));
+  expect(maxPx(CATEGORY_MASCOT_SIZES.sm)).toBeLessThan(maxPx(CATEGORY_MASCOT_SIZES.md));
+  expect(maxPx(CATEGORY_MASCOT_SIZES.md)).toBeLessThan(maxPx(CATEGORY_MASCOT_SIZES.lg));
 });
 
 test("animated={false} melompati motion controller untuk daftar padat", () => {

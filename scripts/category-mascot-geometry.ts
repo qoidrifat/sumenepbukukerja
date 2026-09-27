@@ -486,9 +486,64 @@ note(
   (code.match(/^import .*from "(.+?)";$/gm) ?? []).join(" | "),
 );
 
+/* ---------------------------------------------------------------- */
+/* 6. Ukuran panggung vs lebar kartu di tiap viewport               */
+/* ---------------------------------------------------------------- */
+
+/* Grid kartu kategori di Landing.tsx:
+     grid-cols-2 gap-3  sm:grid-cols-3 lg:gap-4  xl:grid-cols-5
+   Kontainer: max-w-[1600px] px-4 sm:px-6 lg:px-10                      */
+const VIEWPORTS = [360, 375, 390, 393, 414, 430, 768, 1024, 1280, 1440, 1600];
+const MAX_W = 1600;
+const cardWidth = (vw: number) => {
+  const pad = vw >= 1024 ? 80 : vw >= 640 ? 48 : 32;
+  const inner = Math.min(vw, MAX_W) - pad;
+  const cols = vw >= 1280 ? 5 : vw >= 640 ? 3 : 2;
+  const gap = vw >= 1024 ? 16 : 12;
+  return (inner - gap * (cols - 1)) / cols;
+};
+/* Ukuran maskot + padding panggung per breakpoint (Tailwind rem = 4px). */
+const stageWidth = (vw: number) => {
+  const mascot = vw >= 1280 ? 144 : vw >= 640 ? 112 : 96;
+  const padX = vw >= 640 ? 20 : 12;
+  return mascot + padX * 2;
+};
+const cardPad = (vw: number) => (vw >= 640 ? 16 : 12);
+/* Kartu kategori memakai `border border-slate-200`, jadi 1px per sisi ikut
+   mengurangi ruang konten yang tersedia untuk panggung. */
+const CARD_BORDER = 2;
+/* mt + nama (text-base 24px) + mt-1 + deskripsi 2 baris (40px). */
+const TEXT_BLOCK = 12 + 24 + 4 + 40;
+
+for (const vw of VIEWPORTS) {
+  const card = cardWidth(vw);
+  const stage = stageWidth(vw);
+  const content = card - CARD_BORDER - cardPad(vw) * 2;
+  const cardHeight = stage + cardPad(vw) * 2 + TEXT_BLOCK;
+  const mascot = vw >= 1280 ? 144 : vw >= 640 ? 112 : 96;
+
+  const slack = content - stage;
+  const ratio = (mascot / stage) * 100;
+  const share = (stage / cardHeight) * 100;
+  const ok = slack >= 4 && ratio >= 65 && ratio <= 85 && share >= 45 && share <= 75;
+  note(
+    `kartu @ ${vw}px`,
+    ok,
+    `kartu ${card.toFixed(0)} | konten ${content.toFixed(0)} | panggung ${stage} | sisa ${slack.toFixed(0)}px | mascot ${mascot} (${ratio.toFixed(0)}% panggung, ${share.toFixed(0)}% kartu)${slack < 0 ? " OVERFLOW" : ""}`,
+  );
+}
+
+/* Konteks padat harus tetap padat: filter/list chip tidak boleh membesar. */
+const XS_PX = 32;
+note(
+  "konteks padat tetap compact",
+  XS_PX <= 40 && XS_PX + 8 <= 48,
+  `xs ${XS_PX}px -> tile filter 44px muat, chip py-0.5 jadi ${XS_PX + 4}px`,
+);
+
 console.log(
   fail.length === 0
-    ? "\nGEOMETRI OK - tidak ada di luar viewBox, aksesori di dalam apron, wajah simetris."
+    ? "\nGEOMETRI OK - tidak ada di luar viewBox, aksesori di dalam apron, wajah simetris, panggung muat di semua viewport."
     : `\n${fail.length} MASALAH: ${fail.join(", ")}`,
 );
 process.exit(fail.length === 0 ? 0 : 1);

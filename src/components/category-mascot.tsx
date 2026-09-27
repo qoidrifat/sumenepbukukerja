@@ -4,6 +4,7 @@ import { motion, useReducedMotion, type Variants } from "framer-motion";
 import {
   CATEGORY_MASCOT_SIZES,
   categoryMascotTrait,
+  type CategoryMascotAccessory,
   type CategoryMascotContext,
   type CategoryMascotMotion,
   type CategoryMascotSize,
@@ -77,6 +78,10 @@ const PALETTES: Record<CategoryMascotContext, MascotPalette> = {
   public: PUBLIC_PALETTE,
   admin: ADMIN_PALETTE,
 };
+
+/* Panggung di admin memakai canvas Warm Brutalism, bukan tint kategori, supaya
+   kartu admin tetap terasa satu permukaan dan tidak penuh warna. */
+const ADMIN_STAGE = "#F5F0E5";
 
 /* ------------------------------------------------------------------ */
 /* Gerak                                                               */
@@ -388,6 +393,132 @@ function AccessoryFloat({ trait }: { trait: CategoryMascotTrait }) {
 /* ------------------------------------------------------------------ */
 /* Komponen                                                            */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* Panggung                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Titik dekoratif di belakang maskot, dalam persen dari lebar panggung.
+ * Semuanya benar-benar dekoratif: bentuknya cuma bayang-bayang kategori,
+ * bukan ilustrasi kedua, jadi opacity-nya ditahan rendah.
+ */
+const STAGE_MARKS: Record<CategoryMascotAccessory, Array<[number, number, number]>> = {
+  /* Servis Teknik: penggaris geometris + titik baut. */
+  wrench: [
+    [16, 26, 5],
+    [84, 22, 3.5],
+    [79, 80, 5],
+    [22, 78, 3],
+  ],
+  /* Kuliner: uap naik. */
+  bowl: [
+    [20, 34, 4.5],
+    [78, 28, 3.5],
+    [22, 72, 3],
+    [80, 70, 4.5],
+  ],
+  /* Hajatan & Acara: konfeti. */
+  bow: [
+    [15, 24, 4],
+    [85, 30, 5],
+    [20, 76, 5],
+    [82, 74, 3.5],
+  ],
+  /* Transportasi: titik rute + garis jalan. */
+  route: [
+    [14, 40, 4.5],
+    [86, 36, 4],
+    [18, 68, 3.5],
+    [84, 66, 4.5],
+  ],
+  /* Jasa Umum: titik hati. */
+  house: [
+    [18, 30, 4],
+    [82, 26, 3.5],
+    [20, 72, 4.5],
+    [80, 74, 4],
+  ],
+  /* Fallback: netral, tanpa motif. */
+  list: [
+    [20, 30, 4],
+    [80, 26, 3.5],
+    [22, 70, 3.5],
+    [80, 72, 4],
+  ],
+};
+
+export interface CategoryMascotStageProps {
+  /** Nama kategori apa pun; nilai di luar taxonomi memakai panggung netral. */
+  category: string;
+  size?: CategoryMascotSize;
+  context?: CategoryMascotContext;
+  animated?: boolean;
+  className?: string;
+}
+
+/**
+ * Area ilustrasi khusus untuk maskot kategori.
+ *
+ * Kartu kategori sebelumnya menaruh maskot `size="md"` di sebelah teks dengan
+ * `flex items-center`, jadi pada lebar kolom yang sempit (sekitar 194px di
+ * 1024px) hanya tersisa sekitar 100px untuk nama + deskripsi. Hasilnya maskot
+ * terbaca sebagai ikon di samping caption, bukan identitas kartu.
+ *
+ * Di sini maskot dapat area ilustrasinya sendiri: panggung `rounded-2xl`
+ * dengan latar tint 50-level sesuai kategori (bukan warna acak, bukan
+ * gradient), jadi siluet putih, wajah, dan aksesori selalu punya permukaan
+ * sendiri tanpa perlu bayangan berat. Padding panggung ikut responsif supaya
+ * stage tidak pernah melebihi lebar kartu.
+ *
+ * Panggung ikut ter-render di dalam elemen ber-`aria-hidden`, jadi tidak
+ * menambah apa pun untuk screen reader.
+ */
+export function CategoryMascotStage({
+  category,
+  size = "md",
+  context = "public",
+  animated = true,
+  className,
+}: CategoryMascotStageProps) {
+  const trait = categoryMascotTrait(category);
+  const stage = context === "admin" ? ADMIN_STAGE : trait.stage;
+
+  return (
+    <div
+      aria-hidden="true"
+      style={{ backgroundColor: stage }}
+      className={cn(
+        "relative mx-auto flex w-fit items-center justify-center overflow-hidden rounded-2xl",
+        "px-3 py-3 sm:px-5 sm:py-4 xl:py-5",
+        className,
+      )}
+    >
+      {STAGE_MARKS[trait.accessory].map(([x, y, sizePercent]) => (
+        <span
+          key={`${x}-${y}`}
+          className="absolute rounded-full"
+          style={{
+            left: `${x}%`,
+            top: `${y}%`,
+            width: `${sizePercent}%`,
+            height: `${sizePercent}%`,
+            backgroundColor: trait.accent,
+            opacity: 0.18,
+            transform: "translate(-50%, -50%)",
+          }}
+        />
+      ))}
+      <CategoryMascot
+        category={category}
+        size={size}
+        context={context}
+        animated={animated}
+        className="relative"
+      />
+    </div>
+  );
+}
 
 export interface CategoryMascotProps {
   /** Nama kategori apa pun; nilai di luar taxonomi jatuh ke maskot netral. */

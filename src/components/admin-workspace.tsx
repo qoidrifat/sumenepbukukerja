@@ -26,6 +26,7 @@ import {
   type VendorRecord,
 } from "@/lib/catalog-store";
 import { landmarkLabel } from "@/lib/catalog";
+import { formatDateTime, formatRelativeTime } from "@/lib/datetime";
 
 export const inputClass = "admin-input";
 export const secondaryButtonClass = "admin-btn admin-btn-secondary";
@@ -67,10 +68,30 @@ export function whatsappHref(phone: string) {
   return `https://wa.me/${international}`;
 }
 
-export function formatDate(timestamp?: number) {
-  if (!timestamp) return "Belum ada";
-  return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(
-    new Date(timestamp),
+/** Waktu absolut + relatif, dibungkus <time> supaya bisa di-sort dan dibaca screen reader. */
+export function TimeStampLabel({
+  timestamp,
+  fallback = "Belum ada",
+  withSeconds = false,
+  className,
+}: {
+  timestamp?: number;
+  fallback?: string;
+  withSeconds?: boolean;
+  className?: string;
+}) {
+  if (!timestamp) {
+    return <span className={className}>{fallback}</span>;
+  }
+  return (
+    <time
+      dateTime={new Date(timestamp).toISOString()}
+      title={formatDateTime(timestamp, true)}
+      className={className}
+    >
+      {formatDateTime(timestamp, withSeconds)}
+      <span className="font-bold text-[#525252]"> · {formatRelativeTime(timestamp)}</span>
+    </time>
   );
 }
 

@@ -69,7 +69,7 @@ import {
   AdminReportReview,
   Field,
   SectionHeading,
-  formatDate,
+  TimeStampLabel,
   formatPhone,
   inputClass,
   quietButtonClass,
@@ -777,7 +777,9 @@ function AdminWorkspace() {
                   <dt className="text-sm font-bold text-[#525252]">
                     Pembaruan terakhir
                   </dt>
-                  <dd className="mt-1 text-base font-black">{formatDate(latestUpdate)}</dd>
+                  <dd className="mt-1 text-base font-black">
+                    <TimeStampLabel timestamp={latestUpdate} />
+                  </dd>
                 </div>
               </dl>
             </div>
@@ -1361,7 +1363,7 @@ function AdminWorkspace() {
                         {item.address || "Alamat belum diisi"} · {landmarkLabel(item.landmark)}
                       </p>
                       <p className="mt-1 text-sm font-bold text-[#525252]">
-                        Diperbarui {formatDate(item.updatedAt)}
+                        Diperbarui <TimeStampLabel timestamp={item.updatedAt} />
                       </p>
                     </div>
                   </div>

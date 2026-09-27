@@ -13,7 +13,7 @@ import {
   useStaffMembers,
   useWhatsappStatus,
 } from "@/lib/catalog-store";
-import { formatDate, inputClass } from "./admin-workspace";
+import { TimeStampLabel, inputClass } from "./admin-workspace";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { staffRoleSelectOptions } from "@/lib/select-options";
 
@@ -105,7 +105,7 @@ export function AdminGovernance() {
 
         <article className="border-2 border-[#121212] bg-white p-4 xl:col-span-2">
           <h3 className="text-lg font-black text-[#1A1A1A]">Riwayat perubahan listing</h3>
-          {history?.length ? <div className="mt-3 max-h-64 space-y-2 overflow-auto">{history.map((entry) => <article key={entry._id} className="border-b border-[#D6D3D1] pb-2 text-sm"><p className="font-black text-[#1A1A1A]">{entry.vendorName} · {formatDate(entry.createdAt)}</p>{entry.changes.map((change) => <p key={`${entry._id}-${change.field}`} className="mt-1 text-[#525252]"><span className="font-bold">{change.field}</span>: {change.oldValue ?? "—"} → {change.newValue ?? "—"}</p>)}</article>)}</div> : <p className="mt-3 text-sm text-[#525252]">Belum ada riwayat perubahan listing.</p>}
+          {history?.length ? <div className="mt-3 max-h-64 space-y-2 overflow-auto">{history.map((entry) => <article key={entry._id} className="border-b border-[#D6D3D1] pb-2 text-sm"><p className="font-black text-[#1A1A1A]">{entry.vendorName} · <TimeStampLabel timestamp={entry.createdAt} /></p>{entry.changes.map((change) => <p key={`${entry._id}-${change.field}`} className="mt-1 text-[#525252]"><span className="font-bold">{change.field}</span>: {change.oldValue ?? "—"} → {change.newValue ?? "—"}</p>)}</article>)}</div> : <p className="mt-3 text-sm text-[#525252]">Belum ada riwayat perubahan listing.</p>}
         </article>
 
         <article className="border-2 border-[#121212] bg-white p-4 xl:col-span-2">
@@ -135,7 +135,7 @@ export function AdminGovernance() {
                         ? "Terkunci"
                         : "Gagal"}
                     <span className="ml-2 font-bold normal-case text-[#525252]">
-                      {formatDate(event.createdAt)}
+                      <TimeStampLabel timestamp={event.createdAt} withSeconds />
                     </span>
                   </p>
                   <dl className="mt-1 space-y-0.5 text-[#525252]">
@@ -180,7 +180,7 @@ export function AdminGovernance() {
 
         <article className="border-2 border-[#121212] bg-white p-4 xl:col-span-2">
           <h3 className="text-lg font-black text-[#1A1A1A]">Audit log terbaru</h3>
-          <div className="mt-3 max-h-64 overflow-auto">{audit?.length ? audit.map((entry) => <div key={entry._id} className="border-b border-[#D6D3D1] py-2 text-sm"><p className="font-black">{entry.action}</p><p className="text-[#525252]">{formatDate(entry.createdAt)}{entry.vendorId ? ` · listing ${entry.vendorId}` : ""}</p></div>) : <p className="text-sm text-[#525252]">Belum ada aktivitas tercatat.</p>}</div>
+          <div className="mt-3 max-h-64 overflow-auto">{audit?.length ? audit.map((entry) => <div key={entry._id} className="border-b border-[#D6D3D1] py-2 text-sm"><p className="font-black">{entry.action}</p><p className="text-[#525252]"><TimeStampLabel timestamp={entry.createdAt} withSeconds />{entry.vendorId ? ` · listing ${entry.vendorId}` : ""}</p></div>) : <p className="text-sm text-[#525252]">Belum ada aktivitas tercatat.</p>}</div>
         </article>
       </div>
       {notice ? <p className="border-t-2 border-[#121212] bg-[#DCEBD7] px-4 py-3 text-sm font-black text-[#24533A]" role="status">{notice}</p> : null}

@@ -51,31 +51,44 @@ describe("buildTemplatePayload", () => {
 });
 
 describe("buildOtpTemplatePayload", () => {
-  const otpOptions = { name: "otp_buku_kerja", language: "id" };
+  const otpOptions = {
+    name: "verify_code_1",
+    language: "id",
+    codeParam: "kode",
+    appNameParam: "teks",
+    appName: "Sumenep Buku Kerja",
+  };
 
-  test("mengirim satu parameter posisional untuk template Authentication", () => {
+  test("mengirim kode lalu nama aplikasi sesuai urutan variabel template", () => {
     const payload = buildOtpTemplatePayload({ phone: "6281234567890", code: "482913" }, otpOptions);
     expect(payload.type).toBe("template");
-    expect(payload.template.name).toBe("otp_buku_kerja");
+    expect(payload.template.name).toBe("verify_code_1");
     expect(payload.template.language).toEqual({ code: "id" });
     const components = payload.template.components as Array<{
       type: string;
-      parameters: Array<{ type: string; text: string }>;
+      parameters: Array<{ type: string; parameter_name: string; text: string }>;
     }>;
     expect(components).toHaveLength(1);
-    expect(components[0].parameters).toEqual([{ type: "text", text: "482913" }]);
+    expect(components[0].parameters).toEqual([
+      { type: "text", parameter_name: "kode", text: "482913" },
+      { type: "text", parameter_name: "teks", text: "Sumenep Buku Kerja" },
+    ]);
   });
 
-  test("tidak mengirim parameter bernama karena template OTP variabelnya {{1}}", () => {
-    const components = buildOtpTemplatePayload({ phone: "6281234567890", code: "482913" }, otpOptions)
-      .template.components as Array<{ parameters: Array<Record<string, unknown>> }>;
-    expect(components[0].parameters[0]).not.toHaveProperty("parameter_name");
+  test("hanya mengirim kode bila nama aplikasi dikosongkan", () => {
+    const components = buildOtpTemplatePayload({ phone: "6281234567890", code: "482913" }, {
+      ...otpOptions,
+      appName: "",
+    }).template.components as Array<{ parameters: unknown[] }>;
+    expect(components[0].parameters).toEqual([{ type: "text", parameter_name: "kode", text: "482913" }]);
   });
 
-  test("tidak mengirim judul maupun keterangan seperti notifikasi biasa", () => {
-    const components = buildOtpTemplatePayload({ phone: "6281234567890", code: "482913" }, otpOptions)
-      .template.components as Array<{ parameters: unknown[] }>;
-    expect(components[0].parameters).toHaveLength(1);
+  test("memotong nama aplikasi yang melebihi batas Meta", () => {
+    const components = buildOtpTemplatePayload({ phone: "6281234567890", code: "482913" }, {
+      ...otpOptions,
+      appName: "x".repeat(500),
+    }).template.components as Array<{ parameters: Array<{ text: string }> }>;
+    expect(components[0].parameters[1].text).toHaveLength(200);
   });
 });
 

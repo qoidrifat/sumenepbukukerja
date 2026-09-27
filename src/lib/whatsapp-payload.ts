@@ -24,6 +24,12 @@ export type OtpOptions = {
   name: string;
   /** WHATSAPP_OTP_TEMPLATE_LANGUAGE, default `id` */
   language: string;
+  /** WHATSAPP_OTP_PARAM_CODE, default `kode` */
+  codeParam: string;
+  /** WHATSAPP_OTP_PARAM_APP, default `teks`; kosongkan bila template tanpa nama aplikasi */
+  appNameParam: string;
+  /** WHATSAPP_OTP_APP_NAME, default `Sumenep Buku Kerja` */
+  appName: string;
 };
 
 /** Batas aman sebelum Meta menolak parameter yang terlalu panjang. */
@@ -73,27 +79,37 @@ export const buildTemplatePayload = (input: MessageInput, options: TemplateOptio
 });
 
 /**
- * Kode OTP verifikasi nomor. Memakai template kategori Authentication, yang
- * kontennya dikunci Meta dan hanya punya satu variabel posisional `{{1}}`.
- * Karena itu parameter dikirim tanpa `parameter_name` dan tidak boleh memakai
- * builder notifikasi yang mengirim dua parameter bernama.
+ * Kode OTP verifikasi nomor. Template kategori Authentication dari pustaka
+ * Meta memakai variabel bernama, jadi setiap parameter harus menyertakan
+ * `parameter_name` dan urutannya harus sama dengan template.
+ *
+ * `verify_code_1` mengirim dua parameter: kode dan nama aplikasi. Menyertakan
+ * nama aplikasi penting: tanpa itu, pesan OTP tidak bisa dibedakan dari pesan
+ * menipu yang mengaku berasal dari Buku Kerja.
  */
 export const buildOtpTemplatePayload = (
   input: { phone: string; code: string },
   options: OtpOptions,
-) => ({
-  messaging_product: "whatsapp",
-  recipient_type: "individual",
-  to: input.phone,
-  type: "template",
-  template: {
-    name: options.name,
-    language: { code: options.language },
-    components: [
-      {
-        type: "body",
-        parameters: [{ type: "text", text: input.code }],
-      },
-    ],
-  },
-});
+) => {
+  const parameters: Array<{ type: "text"; parameter_name: string; text: string }> = [
+    { type: "text", parameter_name: options.codeParam, text: input.code },
+  ];
+  if (options.appName) {
+    parameters.push({
+      type: "text",
+      parameter_name: options.appNameParam,
+      text: options.appName.slice(0, 200),
+    });
+  }
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: input.phone,
+    type: "template",
+    template: {
+      name: options.name,
+      language: { code: options.language },
+      components: [{ type: "body", parameters }],
+    },
+  };
+};

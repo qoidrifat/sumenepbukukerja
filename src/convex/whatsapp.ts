@@ -814,6 +814,9 @@ export const requestPhoneOtp = action({
           {
             name: templateName,
             language: process.env.WHATSAPP_OTP_TEMPLATE_LANGUAGE ?? "id",
+            codeParam: process.env.WHATSAPP_OTP_PARAM_CODE ?? "kode",
+            appNameParam: process.env.WHATSAPP_OTP_PARAM_APP ?? "teks",
+            appName: process.env.WHATSAPP_OTP_APP_NAME ?? "Sumenep Buku Kerja",
           },
         ),
       );

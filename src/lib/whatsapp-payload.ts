@@ -24,8 +24,6 @@ export type OtpOptions = {
   name: string;
   /** WHATSAPP_OTP_TEMPLATE_LANGUAGE, default `id` */
   language: string;
-  /** WHATSAPP_OTP_TEMPLATE_PARAM_CODE, default `kode` */
-  codeParam: string;
 };
 
 /** Batas aman sebelum Meta menolak parameter yang terlalu panjang. */
@@ -75,9 +73,10 @@ export const buildTemplatePayload = (input: MessageInput, options: TemplateOptio
 });
 
 /**
- * Kode OTP verifikasi nomor. Memakai template kategori Authentication dan
- * hanya satu parameter, jadi tidak boleh memakai builder notifikasi yang
- * mengirim dua parameter body.
+ * Kode OTP verifikasi nomor. Memakai template kategori Authentication, yang
+ * kontennya dikunci Meta dan hanya punya satu variabel posisional `{{1}}`.
+ * Karena itu parameter dikirim tanpa `parameter_name` dan tidak boleh memakai
+ * builder notifikasi yang mengirim dua parameter bernama.
  */
 export const buildOtpTemplatePayload = (
   input: { phone: string; code: string },
@@ -93,7 +92,7 @@ export const buildOtpTemplatePayload = (
     components: [
       {
         type: "body",
-        parameters: [{ type: "text", parameter_name: options.codeParam, text: input.code }],
+        parameters: [{ type: "text", text: input.code }],
       },
     ],
   },

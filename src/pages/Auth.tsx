@@ -273,9 +273,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         </div>
                       </dl>
                       <p className="mt-3 text-sm text-red-800">
-                        Alamat IP tidak dikirim: platform tidak mengekspos IP
-                        klien, jadi tidak dikarang agar log tidak tampak lengkap
-                        padahal kosong.
+                        Alamat IP tidak dikirim: platform tidak mengekspos IP klien,
+                        jadi tidak dikarang agar log tidak tampak lengkap padahal
+                        kosong.
                       </p>
                     </div>
                   ) : null}

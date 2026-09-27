@@ -69,6 +69,27 @@ const createToken = () => {
     .replace(/=/g, "");
 };
 
+/**
+ * Status setup ruang pengelola. Tanpa ini, "/admin" menampilkan pesan yang sama
+ * untuk dua kondisi yang sangat berbeda: "deployment ini belum punya admin sama
+ * sekali" dan "akun Anda bukan staff". Kondisi pertama membuat pengunjung buntu
+ * tanpa petunjuk apa pun, karena satu-satunya jalan masuk (bootstrap) masih mati.
+ *
+ * Query ini sengaja tidak butuh login: halaman /admin tampil untuk tamu juga,
+ * dan yang dipublikasikan hanya informasi setup, bukan data pengguna.
+ */
+export const adminSetupStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const members = await ctx.db.query("staffMembers").collect();
+    return {
+      staffCount: members.length,
+      hasAnyStaff: members.length > 0,
+      bootstrapAvailable: Boolean(process.env.STAFF_BOOTSTRAP_EMAILS?.trim()),
+    };
+  },
+});
+
 export const bootstrapAdministratorAvailable = query({
   args: {},
   handler: async () => ({

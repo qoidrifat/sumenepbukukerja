@@ -24,6 +24,7 @@ import {
   Pencil,
   Phone,
   Plus,
+  RotateCcw,
   Save,
   Search,
   ShieldCheck,
@@ -256,12 +257,150 @@ function AdminAccessDenied({ signedIn, accountName }: { signedIn: boolean; accou
   );
 }
 
+/**
+ * Deployment ini belum punya satu pun pengelola. Tanpa kartu ini, pengunjung
+ * hanya melihat "Anda bukan staff" — padahal tidak ada siapa pun yang bisa
+ * memberikan peran itu. Steelit ini yang dingin, jadi di sini Told it.
+ */
+function AdminSetupRequired({ bootstrapAvailable }: { bootstrapAvailable: boolean }) {
+  const bootstrap = useMutation(api.users.bootstrapAdministrator);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="admin-workspace flex min-h-dvh flex-col bg-[#FAF7EE] text-[#1A1A1A]">
+      <header className="border-b-2 border-[#121212] bg-[#FAF7EE] pt-[env(safe-area-inset-top)]">
+        <div className="mx-auto flex min-h-16 max-w-3xl items-center justify-between gap-3 px-4 sm:px-6">
+          <Link
+            to="/"
+            className="admin-btn admin-btn-secondary min-h-12 shrink-0 px-3 sm:px-4"
+            aria-label="Kembali ke katalog publik"
+          >
+            <ArrowLeft className="size-5 shrink-0" />
+            <span className="hidden sm:inline">Kembali ke katalog</span>
+            <span className="sm:hidden">Beranda</span>
+          </Link>
+          <div className="flex min-w-0 items-center justify-end gap-3 text-right">
+            <img
+              src="/brand/logo-mark.svg"
+              alt=""
+              width={40}
+              height={40}
+              className="size-10 shrink-0 rounded-lg border-2 border-[#121212] bg-white object-contain shadow-[2px_2px_0_#121212]"
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-base font-black uppercase tracking-[-0.035em] sm:text-lg">
+                Sumenep Buku Kerja
+              </p>
+              <p className="mt-0.5 text-sm font-bold text-[#525252]">Ruang pengelola</p>
+            </div>
+          </div>
+        </div>
+      </header>
+      <div
+        className="h-2 shrink-0 bg-[linear-gradient(90deg,#ff5a26_0_38%,#ffe662_38%_72%,#121212_72%_100%)]"
+        aria-hidden="true"
+      />
+
+      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6 px-4 py-10 sm:px-6">
+        <section className="admin-card p-6 sm:p-10">
+          <span className="inline-flex size-16 items-center justify-center rounded-2xl border-2 border-[#121212] bg-[#FFE662] shadow-[4px_4px_0_#121212]">
+            <UserRound className="size-8" aria-hidden="true" />
+          </span>
+          <p className="mt-6 text-sm font-black uppercase tracking-[0.18em] text-[#FF5A26]">
+            Perlu satu langkah lagi
+          </p>
+          <h1 className="mt-2 text-3xl font-black tracking-[-0.04em] sm:text-4xl">
+            Belum ada pengelola di deployment ini
+          </h1>
+          <p className="mt-3 max-w-2xl text-base leading-7 text-[#525252]">
+            Passcode dan verifikasi email Anda sudah benar. Yang belum ada adalah
+            peran pengelola di akun ini, dan saat ini tidak ada pengelola lain
+            yang bisa memberikan peran tersebut.
+          </p>
+
+          {bootstrapAvailable ? (
+            <>
+              <p className="mt-5 rounded-lg border-2 border-[#121212] bg-[#DCEBD7] p-4 text-sm font-bold leading-6 text-[#24533A]">
+                Bootstrap admin aktif dan akun ini terdaftar di allowlist. Klik
+                tombol di bawah untuk menetapkan diri sebagai admin awal.
+              </p>
+              {error ? (
+                <p className="mt-3 text-sm font-bold text-red-700" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setError("");
+                    void bootstrap({})
+                      .then(() => window.location.reload())
+                      .catch((caught: unknown) =>
+                        setError(
+                          caught instanceof Error
+                            ? caught.message
+                            : "Admin awal belum dapat diaktifkan.",
+                        ),
+                      )
+                      .finally(() => setBusy(false));
+                  }}
+                  className="admin-btn admin-btn-primary inline-flex min-h-12"
+                >
+                  <ShieldCheck className="size-5" aria-hidden="true" />
+                  {busy ? "Mengaktifkan..." : "Aktifkan admin awal"}
+                </button>
+                <Link to="/" className="admin-btn admin-btn-secondary inline-flex min-h-12">
+                  Kembali ke katalog
+                </Link>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-5 rounded-lg border-2 border-[#121212] bg-[#E9B4A7] p-4 text-sm font-bold leading-6 text-[#7C2D12]">
+                Bootstrap admin belum aktif, jadi belum ada cara untuk masuk
+                sebagai pengelola. Tambahkan environment berikut di tab
+                Keys/API keys, nilainya email yang sedang Anda pakai untuk
+                masuk:
+              </p>
+              <pre className="mt-3 overflow-x-auto border-2 border-[#121212] bg-white p-4 text-sm font-black">
+                STAFF_BOOTSTRAP_EMAILS = email-anda@contoh.com
+              </pre>
+              <p className="mt-3 text-sm leading-6 text-[#525252]">
+                Setelah environment itu tersimpan, muat ulang halaman ini. Tombol
+                Aktifkan admin awal akan muncul. Hapus environment tersebut
+                setelah berhasil, supaya tidak ada akun lain yang bisa mengambil
+                peran admin.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="admin-btn admin-btn-primary inline-flex min-h-12"
+                >
+                  <RotateCcw className="size-5" aria-hidden="true" />
+                  Muat ulang halaman
+                </button>
+                <Link to="/" className="admin-btn admin-btn-secondary inline-flex min-h-12">
+                  Kembali ke katalog
+                </Link>
+              </div>
+            </>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
+
 function AdminGate() {
   const access = useCurrentAccess();
   const { isAuthenticated, user } = useAuth();
-  const bootstrapAvailable = useQuery(api.users.bootstrapAdministratorAvailable, {});
-  const bootstrap = useMutation(api.users.bootstrapAdministrator);
-  if (access === undefined) {
+  const setup = useQuery(api.users.adminSetupStatus, {});
+  if (access === undefined || setup === undefined) {
     return (
       <div className="admin-workspace flex min-h-dvh items-center justify-center bg-[#FAF7EE] p-6 text-[#1A1A1A]">
         <div className="admin-card flex items-center gap-3 px-5 py-4">
@@ -271,44 +410,11 @@ function AdminGate() {
       </div>
     );
   }
-  if (!access.canViewAdmin) {
-    if (bootstrapAvailable?.available) {
-      return (
-        <div className="admin-workspace flex min-h-dvh flex-col bg-[#FAF7EE] text-[#1A1A1A]">
-          <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 px-4 py-12 sm:px-6">
-            <section className="admin-card p-6 sm:p-10">
-              <span className="inline-flex size-16 items-center justify-center rounded-2xl border-2 border-[#121212] bg-[#DCEBD7] shadow-[4px_4px_0_#121212]">
-                <ShieldCheck className="size-8" aria-hidden="true" />
-              </span>
-              <h1 className="mt-6 text-3xl font-black tracking-[-0.04em]">Belum ada admin aktif</h1>
-              <p className="mt-3 leading-7 text-[#525252]">
-                Deployment ini belum punya admin. Tombol di bawah akan menetapkan
-                akun yang sedang masuk sebagai admin awal, lalu environment
-                <code className="mx-1 rounded bg-[#E7E5E4] px-1.5 py-0.5 text-[13px] font-black">
-                  STAFF_BOOTSTRAP_EMAILS
-                </code>
-                bisa dihapus dari dashboard Convex.
-              </p>
-              <div className="mt-7 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => void bootstrap({})}
-                  className="admin-btn admin-btn-primary inline-flex min-h-12"
-                >
-                  Aktifkan admin awal
-                </button>
-                <Link to="/" className="admin-btn admin-btn-secondary inline-flex min-h-12">
-                  Kembali ke katalog
-                </Link>
-              </div>
-            </section>
-          </main>
-        </div>
-      );
-    }
-    return <AdminAccessDenied signedIn={isAuthenticated} accountName={user?.name} />;
+  if (access.canViewAdmin) return <AdminWorkspace />;
+  if (!setup.hasAnyStaff) {
+    return <AdminSetupRequired bootstrapAvailable={setup.bootstrapAvailable} />;
   }
-  return <AdminWorkspace />;
+  return <AdminAccessDenied signedIn={isAuthenticated} accountName={user?.name} />;
 }
 
 export default function Admin() {

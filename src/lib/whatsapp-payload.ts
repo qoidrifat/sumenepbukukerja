@@ -37,21 +37,19 @@ export type OtpParameterEnv = {
 
 /**
  * Daftar nilai variabel template OTP, sesuai urutan kemunculannya di body.
- * Template pustaka Meta punya 4 variabel; template dengan kalimat penutup
- * "Jika Anda memiliki pertanyaan atau masalah, hubungi kami di {{telepon}}"
- * punya 5. Jumlah parameter harus sama persis dengan template, kalau tidak
- * Meta menolak dengan `parameter format does not match`.
+ *
+ * Jumlah parameter harus sama persis dengan template, kalau tidak Meta menolak
+ * dengan `parameter format does not match`. Karena itu nilai yang kosong
+ * (duration, nomor kontak) justru berarti "variabel ini tidak dipakai" — Meta
+ * menyediakan template OTP dengan 1 sampai 4 variabel, jadi backend tidak bisa
+ * mengasumsikan jumlahnya.
  */
 export const buildOtpParameters = (env: OtpParameterEnv): OtpParameter[] => {
-  const parameters: OtpParameter[] = [
-    { name: env.codeParam, text: env.code },
-    { name: env.appParam, text: env.appName },
-    { name: env.durationParam, text: env.durationText },
-    { name: env.supportParam, text: env.supportPhone },
-  ];
-  if (env.supportPhone2) {
-    parameters.push({ name: env.supportParam2, text: env.supportPhone2 });
-  }
+  const parameters: OtpParameter[] = [{ name: env.codeParam, text: env.code }];
+  if (env.appName) parameters.push({ name: env.appParam, text: env.appName });
+  if (env.durationText) parameters.push({ name: env.durationParam, text: env.durationText });
+  if (env.supportPhone) parameters.push({ name: env.supportParam, text: env.supportPhone });
+  if (env.supportPhone2) parameters.push({ name: env.supportParam2, text: env.supportPhone2 });
   return parameters;
 };
 

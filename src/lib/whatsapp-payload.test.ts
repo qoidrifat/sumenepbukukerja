@@ -80,6 +80,16 @@ describe("buildOtpParameters", () => {
     });
   });
 
+  test("menghilangkan variabel yang dikosongkan agar jumlah parameter sesuai template", () => {
+    expect(buildOtpParameters({ ...env, durationText: "", supportPhone: "" })).toEqual([
+      { name: "kode", text: "482913" },
+      { name: "teks", text: "Sumenep Buku Kerja" },
+    ]);
+    expect(buildOtpParameters({ ...env, appName: "", durationText: "", supportPhone: "" })).toEqual([
+      { name: "kode", text: "482913" },
+    ]);
+  });
+
   test("nama variabel dapat diganti lewat env", () => {
     const parameters = buildOtpParameters({
       ...env,

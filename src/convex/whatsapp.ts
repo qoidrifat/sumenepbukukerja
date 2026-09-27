@@ -817,11 +817,12 @@ export const requestPhoneOtp = action({
             // Urutan wajib sama dengan urutan variabel di body template.
             parameters: buildOtpParameters({
               code,
+              // Nilai kosong berarti variabel itu tidak ada di template yang
+              // dipilih, jadi tidak ikut dikirim.
               appName: process.env.WHATSAPP_OTP_APP_NAME ?? "Sumenep Buku Kerja",
-              durationText: process.env.WHATSAPP_OTP_DURATION_TEXT ?? `${OTP_TTL_MS / 60_000} menit`,
-              supportPhone:
-                process.env.WHATSAPP_OTP_SUPPORT_PHONE ?? "nomor WhatsApp resmi Buku Kerja",
-              supportPhone2: process.env.WHATSAPP_OTP_SUPPORT_PHONE_2,
+              durationText: process.env.WHATSAPP_OTP_DURATION_TEXT ?? "",
+              supportPhone: process.env.WHATSAPP_OTP_SUPPORT_PHONE ?? "",
+              supportPhone2: process.env.WHATSAPP_OTP_SUPPORT_PHONE_2 ?? "",
               codeParam: process.env.WHATSAPP_OTP_PARAM_CODE ?? "kode",
               appParam: process.env.WHATSAPP_OTP_PARAM_APP ?? "teks",
               durationParam: process.env.WHATSAPP_OTP_PARAM_DURATION ?? "teks",

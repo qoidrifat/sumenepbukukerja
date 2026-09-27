@@ -52,17 +52,20 @@ describe("buildTemplatePayload", () => {
 
 describe("buildOtpTemplatePayload", () => {
   const otpOptions = {
-    name: "verify_code_1",
+    name: "verify_code_2",
     language: "id",
-    codeParam: "kode",
-    appNameParam: "teks",
-    appName: "Sumenep Buku Kerja",
+    parameters: [
+      { name: "kode", text: "482913" },
+      { name: "teks", text: "Sumenep Buku Kerja" },
+      { name: "teks", text: "5 menit" },
+      { name: "telepon", text: "081234567890" },
+    ],
   };
 
-  test("mengirim kode lalu nama aplikasi sesuai urutan variabel template", () => {
-    const payload = buildOtpTemplatePayload({ phone: "6281234567890", code: "482913" }, otpOptions);
+  test("mengirim semua variabel sesuai urutan kemunculannya di template", () => {
+    const payload = buildOtpTemplatePayload({ phone: "6281234567890" }, otpOptions);
     expect(payload.type).toBe("template");
-    expect(payload.template.name).toBe("verify_code_1");
+    expect(payload.template.name).toBe("verify_code_2");
     expect(payload.template.language).toEqual({ code: "id" });
     const components = payload.template.components as Array<{
       type: string;
@@ -72,23 +75,33 @@ describe("buildOtpTemplatePayload", () => {
     expect(components[0].parameters).toEqual([
       { type: "text", parameter_name: "kode", text: "482913" },
       { type: "text", parameter_name: "teks", text: "Sumenep Buku Kerja" },
+      { type: "text", parameter_name: "teks", text: "5 menit" },
+      { type: "text", parameter_name: "telepon", text: "081234567890" },
     ]);
   });
 
-  test("hanya mengirim kode bila nama aplikasi dikosongkan", () => {
-    const components = buildOtpTemplatePayload({ phone: "6281234567890", code: "482913" }, {
-      ...otpOptions,
-      appName: "",
-    }).template.components as Array<{ parameters: unknown[] }>;
-    expect(components[0].parameters).toEqual([{ type: "text", parameter_name: "kode", text: "482913" }]);
+  test("nama variabel berulang tetap dikirim berurutan", () => {
+    const components = buildOtpTemplatePayload({ phone: "6281234567890" }, otpOptions)
+      .template.components as Array<{ parameters: Array<{ parameter_name: string; text: string }> }>;
+    const teksSlots = components[0].parameters.filter((item) => item.parameter_name === "teks");
+    expect(teksSlots.map((item) => item.text)).toEqual(["Sumenep Buku Kerja", "5 menit"]);
   });
 
-  test("memotong nama aplikasi yang melebihi batas Meta", () => {
-    const components = buildOtpTemplatePayload({ phone: "6281234567890", code: "482913" }, {
+  test("memotong nilai variabel yang melebihi batas Meta", () => {
+    const components = buildOtpTemplatePayload({ phone: "6281234567890" }, {
       ...otpOptions,
-      appName: "x".repeat(500),
+      parameters: [{ name: "kode", text: "x".repeat(500) }],
     }).template.components as Array<{ parameters: Array<{ text: string }> }>;
-    expect(components[0].parameters[1].text).toHaveLength(200);
+    expect(components[0].parameters[0].text).toHaveLength(200);
+  });
+
+  test("template satu variabel tetap bisa dipakai", () => {
+    const components = buildOtpTemplatePayload({ phone: "6281234567890" }, {
+      name: "verify_code",
+      language: "id",
+      parameters: [{ name: "kode", text: "482913" }],
+    }).template.components as Array<{ parameters: unknown[] }>;
+    expect(components[0].parameters).toEqual([{ type: "text", parameter_name: "kode", text: "482913" }]);
   });
 });
 

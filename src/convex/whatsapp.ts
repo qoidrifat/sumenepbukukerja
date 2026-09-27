@@ -810,13 +810,31 @@ export const requestPhoneOtp = action({
       await postMetaMessage(
         config,
         buildOtpTemplatePayload(
-          { phone, code },
+          { phone },
           {
             name: templateName,
             language: process.env.WHATSAPP_OTP_TEMPLATE_LANGUAGE ?? "id",
-            codeParam: process.env.WHATSAPP_OTP_PARAM_CODE ?? "kode",
-            appNameParam: process.env.WHATSAPP_OTP_PARAM_APP ?? "teks",
-            appName: process.env.WHATSAPP_OTP_APP_NAME ?? "Sumenep Buku Kerja",
+            // Urutan wajib sama dengan urutan variabel di body template.
+            parameters: [
+              {
+                name: process.env.WHATSAPP_OTP_PARAM_CODE ?? "kode",
+                text: code,
+              },
+              {
+                name: process.env.WHATSAPP_OTP_PARAM_APP ?? "teks",
+                text: process.env.WHATSAPP_OTP_APP_NAME ?? "Sumenep Buku Kerja",
+              },
+              {
+                name: process.env.WHATSAPP_OTP_PARAM_DURATION ?? "teks",
+                text: process.env.WHATSAPP_OTP_DURATION_TEXT ?? `${OTP_TTL_MS / 60_000} menit`,
+              },
+              {
+                name: process.env.WHATSAPP_OTP_PARAM_SUPPORT ?? "telepon",
+                text:
+                  process.env.WHATSAPP_OTP_SUPPORT_PHONE ??
+                  "nomor WhatsApp resmi Buku Kerja",
+              },
+            ],
           },
         ),
       );

@@ -19,17 +19,19 @@ export type TemplateOptions = {
   bodyParam: string;
 };
 
+export type OtpParameter = { name: string; text: string };
+
 export type OtpOptions = {
   /** WHATSAPP_OTP_TEMPLATE_NAME */
   name: string;
   /** WHATSAPP_OTP_TEMPLATE_LANGUAGE, default `id` */
   language: string;
-  /** WHATSAPP_OTP_PARAM_CODE, default `kode` */
-  codeParam: string;
-  /** WHATSAPP_OTP_PARAM_APP, default `teks`; kosongkan bila template tanpa nama aplikasi */
-  appNameParam: string;
-  /** WHATSAPP_OTP_APP_NAME, default `Sumenep Buku Kerja` */
-  appName: string;
+  /**
+   * Nilai variabel template sesuai urutan kemunculannya di body. Template
+   * pustaka Meta memakai nama yang berulang (`{{teks}}` dua kali), jadi
+   * pencocokan dilakukan berdasarkan urutan, bukan nama unik.
+   */
+  parameters: OtpParameter[];
 };
 
 /** Batas aman sebelum Meta menolak parameter yang terlalu panjang. */
@@ -79,37 +81,33 @@ export const buildTemplatePayload = (input: MessageInput, options: TemplateOptio
 });
 
 /**
- * Kode OTP verifikasi nomor. Template kategori Authentication dari pustaka
- * Meta memakai variabel bernama, jadi setiap parameter harus menyertakan
- * `parameter_name` dan urutannya harus sama dengan template.
+ * Kode OTP verifikasi nomor. Template kategori Authentication dari pustaka Meta
+ * memakai variabel bernama, jadi setiap parameter menyertakan `parameter_name`
+ * dan urutannya harus sama dengan urutan variabel di body template.
  *
- * `verify_code_1` mengirim dua parameter: kode dan nama aplikasi. Menyertakan
- * nama aplikasi penting: tanpa itu, pesan OTP tidak bisa dibedakan dari pesan
- * menipu yang mengaku berasal dari Buku Kerja.
+ * Menyertakan nama aplikasi dan nomor kontak penting: tanpa itu, pesan OTP kita
+ * tidak bisa dibedakan dari pesan menipu yang mengaku berasal dari Buku Kerja.
  */
 export const buildOtpTemplatePayload = (
-  input: { phone: string; code: string },
+  input: { phone: string },
   options: OtpOptions,
-) => {
-  const parameters: Array<{ type: "text"; parameter_name: string; text: string }> = [
-    { type: "text", parameter_name: options.codeParam, text: input.code },
-  ];
-  if (options.appName) {
-    parameters.push({
-      type: "text",
-      parameter_name: options.appNameParam,
-      text: options.appName.slice(0, 200),
-    });
-  }
-  return {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to: input.phone,
-    type: "template",
-    template: {
-      name: options.name,
-      language: { code: options.language },
-      components: [{ type: "body", parameters }],
-    },
-  };
-};
+) => ({
+  messaging_product: "whatsapp",
+  recipient_type: "individual",
+  to: input.phone,
+  type: "template",
+  template: {
+    name: options.name,
+    language: { code: options.language },
+    components: [
+      {
+        type: "body",
+        parameters: options.parameters.map((parameter) => ({
+          type: "text",
+          parameter_name: parameter.name,
+          text: parameter.text.slice(0, 200),
+        })),
+      },
+    ],
+  },
+});

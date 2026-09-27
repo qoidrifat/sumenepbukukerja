@@ -37,6 +37,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   categoryOptions,
   landmarkLabel,
@@ -57,6 +58,9 @@ import { duplicateScore, profileCompleteness, qualityIssues } from "@/lib/catalo
 import { AdminGovernance } from "@/components/admin-governance";
 import { useAuth } from "@/hooks/use-auth";
 
+// VendorActionArea sudah siap dipakai di kartu vendor (lihat VendorActionArea di
+// admin-workspace.tsx). Baris pemakaiannya berada di bawah batas edit tool,
+// jadi importnya dipasang lebih dulu supaya hanya tinggal menempelkan JSX.
 import {
   AdminHeader,
   AdminPackageManager,
@@ -70,6 +74,8 @@ import {
   statusFilters,
   statusInfo,
   vendorUpdatePayload,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  VendorActionArea,
   whatsappHref,
   type ModerationFilter,
   type PendingConfirmation,
@@ -411,7 +417,13 @@ function AdminGate() {
       </div>
     );
   }
-  if (access.canViewAdmin) return <AdminWorkspace />;
+  if (access.canViewAdmin) {
+    return (
+      <TooltipProvider delayDuration={200}>
+        <AdminWorkspace />
+      </TooltipProvider>
+    );
+  }
   if (!setup.hasAnyStaff) {
     return <AdminSetupRequired bootstrapAvailable={setup.bootstrapAvailable} />;
   }

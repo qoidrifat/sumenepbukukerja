@@ -1,7 +1,21 @@
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { useState, type ElementType, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, Inbox, Package, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  Check,
+  Inbox,
+  MessageCircle,
+  Package,
+  Pencil,
+  Plus,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Link } from "react-router";
+import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   useCatalogActions,
   useVendorPackages,
@@ -161,6 +175,7 @@ export function AdminHeader({
         {reviewQueue && reviewQueue.total > 0 ? (
           <a
             href="#governance-title"
+            aria-label="Lompat ke panel Role & Audit untuk menangani antrean review"
             className="admin-status shrink-0 border-[#121212] bg-[#FF5A26] text-white"
             title={`${reviewQueue.claims} klaim · ${reviewQueue.photos} foto · ${reviewQueue.reports} laporan menunggu ditinjau`}
           >
@@ -446,6 +461,153 @@ export function AdminPackageManager({
           </AlertDialogPrimitive.Content>
         </AlertDialogPrimitive.Portal>
       </AlertDialogPrimitive.Root>
+    </>
+  );
+}
+
+export type VendorActionItem = {
+  _id: string;
+  name: string;
+  slug: string;
+  phone: string;
+  featured?: boolean;
+  status?: string;
+};
+
+/**
+ * Area aksi kartu vendor di Meja kerja listing.
+ *
+ * Setiap baris memakai CSS grid, bukan `flex-wrap`, supaya tombol selalu mengisi
+ * lebar kolomnya. Dengan `flex-wrap` lebar tombol ikut panjang teks, jadi baris
+ * berakhir dengan ruang kosong yang tidak rata — persis masalah yang membuat
+ * area aksi terasa mengambang.
+ *
+ *.mobile: dua kolom, tombol ketiga melebar penuh
+ * .xl   : tiga kolom sejajar saat kolom aksinya cukup lega
+ *
+ * Handler, disabled state, dan urutan tombol tidak berubah sama sekali.
+ */
+export function VendorActionArea({
+  item,
+  waHref,
+  isActive,
+  busyAction,
+  itemBusyPrefix,
+  onApprove,
+  onToggleActive,
+  onToggleFeatured,
+  onRequestDestructive,
+  onEdit,
+}: {
+  item: VendorActionItem;
+  waHref: string | null;
+  isActive: boolean;
+  busyAction: string | null;
+  itemBusyPrefix: string;
+  onApprove: () => void;
+  onToggleActive: () => void;
+  onToggleFeatured: () => void;
+  onRequestDestructive: (kind: "reject" | "delete") => void;
+  onEdit: () => void;
+}) {
+  return (
+    <>
+      {/* Baris 1 — moderasi. `col-span-2` supaya baris kedua penuh, bukan
+          setengah kosong. */}
+      <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-3">
+        {waHref ? (
+          <a
+            href={waHref}
+            target="_blank"
+            rel="noreferrer"
+            className="admin-btn admin-btn-secondary w-full px-3"
+          >
+            <MessageCircle className="size-4 shrink-0" />
+            Cek WA
+          </a>
+        ) : (
+          <button type="button" disabled className="admin-btn admin-btn-secondary w-full px-3">
+            <MessageCircle className="size-4 shrink-0" />
+            Cek WA
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={!item.phone.trim() || busyAction === `${itemBusyPrefix}approve`}
+          onClick={onApprove}
+          className="admin-btn admin-btn-primary w-full px-3"
+        >
+          <Check className="size-4 shrink-0" />
+          Setujui
+        </button>
+        <button
+          type="button"
+          onClick={() => onRequestDestructive("reject")}
+          className="admin-btn admin-btn-danger col-span-2 w-full px-3 xl:col-span-1"
+        >
+          <X className="size-4 shrink-0" />
+          Tolak
+        </button>
+      </div>
+
+      {/* Baris 2 — status listing. Toggle dan ikon hapus mengikuti lebar
+          natural-nya, tombol unggulan mengisi sisa ruang. */}
+      <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-stretch gap-2 border-t-2 border-[#121212] pt-3">
+        <label className="inline-flex min-h-12 items-center gap-2 border-2 border-[#121212] bg-[#F5F0E5] px-3">
+          <span className="text-sm font-black">Aktif</span>
+          <Switch
+            checked={isActive}
+            disabled={
+              busyAction === `${itemBusyPrefix}archive` ||
+              busyAction === `${itemBusyPrefix}activate`
+            }
+            onCheckedChange={onToggleActive}
+            className="admin-switch"
+            aria-label={`${isActive ? "Nonaktifkan" : "Aktifkan"} ${item.name}`}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={onToggleFeatured}
+          disabled={busyAction === `${itemBusyPrefix}featured`}
+          className={`admin-btn w-full px-3 ${item.featured ? "admin-btn-highlight" : "admin-btn-secondary"}`}
+        >
+          <Sparkles className="size-4 shrink-0" />
+          {item.featured ? "Jadikan biasa" : "Jadikan unggulan"}
+        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => onRequestDestructive("delete")}
+              className="admin-icon-btn"
+              aria-label={`Hapus ${item.name}`}
+            >
+              <Trash2 className="size-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Hapus listing {item.name}</TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* Baris 3 — navigasi. Dua tombol sama lebar, jadi tidak ada yang
+          terlihat "nyempil" di sebelah temannya. */}
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {isActive ? (
+          <Link to={`/v/${item.slug}`} className="admin-btn admin-btn-secondary w-full px-3">
+            <ArrowUpRight className="size-4 shrink-0" />
+            Lihat
+          </Link>
+        ) : (
+          <span className="inline-flex min-h-12 items-center justify-center border-2 border-[#121212] bg-[#E7E5E4] px-3 text-center text-sm font-black text-[#525252]">
+            Tidak tayang
+          </span>
+        )}
+        <button type="button" onClick={onEdit} className="admin-btn admin-btn-secondary w-full px-3">
+          <Pencil className="size-4 shrink-0" />
+          Sunting
+        </button>
+      </div>
     </>
   );
 }

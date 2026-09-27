@@ -665,4 +665,8 @@ export function useRecentListingHistory(enabled = true) {
   return useQuery(api.users.listRecentListingHistory, enabled ? { limit: 40 } : "skip");
 }
 
+export function useAdminSecurityEvents(enabled = true) {
+  return useQuery(api.adminGate.listAdminSecurityEvents, enabled ? { limit: 25 } : "skip");
+}
+
 export { readFavorites, persistFavorites };

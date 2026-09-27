@@ -352,6 +352,34 @@ const schema = defineSchema(
       .index("byUser", ["userId"])
       .index("byNextAttempt", ["nextAttemptAt"]),
 
+    // Percobaan masuk ke ruang /admin lewat passcode. `key` adalah hash dari
+    // deviceId + IP terlapor + email, jadi indeks tidak menyimpan identitas
+    // mentah sekaligus rate limit tidak bisa ditelusuri balik ke orangnya.
+    adminPasscodeAttempts: defineTable({
+      key: v.string(),
+      outcome: v.union(v.literal("success"), v.literal("failed"), v.literal("locked")),
+      emailMasked: v.optional(v.string()),
+      reportedIp: v.optional(v.string()),
+      userAgent: v.optional(v.string()),
+      timezone: v.optional(v.string()),
+      locale: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("byKey", ["key"])
+      .index("byCreatedAt", ["createdAt"])
+      .index("byOutcome", ["outcome"]),
+
+    // Tiket sekali pakai yang diterbitkan setelah passcode admin valid.
+    // Hanya hash tiket yang disimpan, bukan token aslinya.
+    adminPasscodeTickets: defineTable({
+      email: v.string(),
+      tokenHash: v.string(),
+      expiresAt: v.number(),
+      consumedAt: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("byTokenHash", ["tokenHash"]),
+
     vendorSubscriptions: defineTable({
       vendorId: v.id("vendors"),
       tier: v.union(v.literal("free"), v.literal("featured"), v.literal("premium")),

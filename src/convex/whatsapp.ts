@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { buildOtpTemplatePayload, buildTemplatePayload, buildTextPayload } from "../lib/whatsapp-payload";
+import { buildOtpParameters, buildOtpTemplatePayload, buildTemplatePayload, buildTextPayload } from "../lib/whatsapp-payload";
 import { writeAudit } from "./audit";
 
 const notificationKindValidator = v.union(
@@ -815,26 +815,19 @@ export const requestPhoneOtp = action({
             name: templateName,
             language: process.env.WHATSAPP_OTP_TEMPLATE_LANGUAGE ?? "id",
             // Urutan wajib sama dengan urutan variabel di body template.
-            parameters: [
-              {
-                name: process.env.WHATSAPP_OTP_PARAM_CODE ?? "kode",
-                text: code,
-              },
-              {
-                name: process.env.WHATSAPP_OTP_PARAM_APP ?? "teks",
-                text: process.env.WHATSAPP_OTP_APP_NAME ?? "Sumenep Buku Kerja",
-              },
-              {
-                name: process.env.WHATSAPP_OTP_PARAM_DURATION ?? "teks",
-                text: process.env.WHATSAPP_OTP_DURATION_TEXT ?? `${OTP_TTL_MS / 60_000} menit`,
-              },
-              {
-                name: process.env.WHATSAPP_OTP_PARAM_SUPPORT ?? "telepon",
-                text:
-                  process.env.WHATSAPP_OTP_SUPPORT_PHONE ??
-                  "nomor WhatsApp resmi Buku Kerja",
-              },
-            ],
+            parameters: buildOtpParameters({
+              code,
+              appName: process.env.WHATSAPP_OTP_APP_NAME ?? "Sumenep Buku Kerja",
+              durationText: process.env.WHATSAPP_OTP_DURATION_TEXT ?? `${OTP_TTL_MS / 60_000} menit`,
+              supportPhone:
+                process.env.WHATSAPP_OTP_SUPPORT_PHONE ?? "nomor WhatsApp resmi Buku Kerja",
+              supportPhone2: process.env.WHATSAPP_OTP_SUPPORT_PHONE_2,
+              codeParam: process.env.WHATSAPP_OTP_PARAM_CODE ?? "kode",
+              appParam: process.env.WHATSAPP_OTP_PARAM_APP ?? "teks",
+              durationParam: process.env.WHATSAPP_OTP_PARAM_DURATION ?? "teks",
+              supportParam: process.env.WHATSAPP_OTP_PARAM_SUPPORT ?? "telepon",
+              supportParam2: process.env.WHATSAPP_OTP_PARAM_SUPPORT_2 ?? "telepon",
+            }),
           },
         ),
       );

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildOtpTemplatePayload, buildTemplatePayload, buildTextPayload } from "./whatsapp-payload";
+import { buildOtpParameters, buildOtpTemplatePayload, buildTemplatePayload, buildTextPayload } from "./whatsapp-payload";
 
 const input = { phone: "6281234567890", title: "Permintaan warga baru", body: "Bengkel motor di Kalianget." };
 const options = { name: "notifikasi_buku_kerja", language: "id", titleParam: "judul", bodyParam: "isi" };
@@ -47,6 +47,49 @@ describe("buildTemplatePayload", () => {
   test("tidak mengirim header, footer, atau tombol", () => {
     const components = buildTemplatePayload(input, options).template.components as Array<{ type: string }>;
     expect(components.map((item) => item.type)).toEqual(["body"]);
+  });
+});
+
+describe("buildOtpParameters", () => {
+  const env = {
+    code: "482913",
+    appName: "Sumenep Buku Kerja",
+    durationText: "5 menit",
+    supportPhone: "081234567890",
+    codeParam: "kode",
+    appParam: "teks",
+    durationParam: "teks",
+    supportParam: "telepon",
+    supportParam2: "telepon",
+  };
+
+  test("mengirim empat variabel untuk template pustaka Meta", () => {
+    expect(buildOtpParameters(env)).toEqual([
+      { name: "kode", text: "482913" },
+      { name: "teks", text: "Sumenep Buku Kerja" },
+      { name: "teks", text: "5 menit" },
+      { name: "telepon", text: "081234567890" },
+    ]);
+  });
+
+  test("menambah satu telepon bila template punya kalimat penutup", () => {
+    expect(buildOtpParameters({ ...env, supportPhone2: "081234567890" })).toHaveLength(5);
+    expect(buildOtpParameters({ ...env, supportPhone2: "081234567890" })[4]).toEqual({
+      name: "telepon",
+      text: "081234567890",
+    });
+  });
+
+  test("nama variabel dapat diganti lewat env", () => {
+    const parameters = buildOtpParameters({
+      ...env,
+      codeParam: "otp",
+      appParam: "layanan",
+      durationParam: "durasi",
+      supportParam: "cs",
+      supportParam2: "cs",
+    });
+    expect(parameters.map((item) => item.name)).toEqual(["otp", "layanan", "durasi", "cs"]);
   });
 });
 

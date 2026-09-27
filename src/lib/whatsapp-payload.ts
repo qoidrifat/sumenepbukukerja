@@ -21,6 +21,40 @@ export type TemplateOptions = {
 
 export type OtpParameter = { name: string; text: string };
 
+export type OtpParameterEnv = {
+  code: string;
+  appName: string;
+  durationText: string;
+  supportPhone: string;
+  /** Kalimat penutup "hubungi kami" menambah satu variabel telepon lagi. */
+  supportPhone2?: string;
+  codeParam: string;
+  appParam: string;
+  durationParam: string;
+  supportParam: string;
+  supportParam2: string;
+};
+
+/**
+ * Daftar nilai variabel template OTP, sesuai urutan kemunculannya di body.
+ * Template pustaka Meta punya 4 variabel; template dengan kalimat penutup
+ * "Jika Anda memiliki pertanyaan atau masalah, hubungi kami di {{telepon}}"
+ * punya 5. Jumlah parameter harus sama persis dengan template, kalau tidak
+ * Meta menolak dengan `parameter format does not match`.
+ */
+export const buildOtpParameters = (env: OtpParameterEnv): OtpParameter[] => {
+  const parameters: OtpParameter[] = [
+    { name: env.codeParam, text: env.code },
+    { name: env.appParam, text: env.appName },
+    { name: env.durationParam, text: env.durationText },
+    { name: env.supportParam, text: env.supportPhone },
+  ];
+  if (env.supportPhone2) {
+    parameters.push({ name: env.supportParam2, text: env.supportPhone2 });
+  }
+  return parameters;
+};
+
 export type OtpOptions = {
   /** WHATSAPP_OTP_TEMPLATE_NAME */
   name: string;

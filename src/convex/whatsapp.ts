@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { buildTemplatePayload, buildTextPayload } from "../lib/whatsapp-payload";
 
 const notificationKindValidator = v.union(
   v.literal("request_created"),
@@ -400,30 +401,16 @@ async function sendViaMeta(
   if (!config.configured || !config.accessToken || !config.phoneNumberId) {
     return { skipped: true, configured: false };
   }
-  const payload: Record<string, unknown> = {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to: input.phone,
-  };
-  if (config.templateName) {
-    payload.type = "template";
-    payload.template = {
-      name: config.templateName,
-      language: { code: process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? "id" },
-      components: [
-        {
-          type: "body",
-          parameters: [
-            { type: "text", text: input.title.slice(0, 200) },
-            { type: "text", text: input.body.slice(0, 700) },
-          ],
-        },
-      ],
-    };
-  } else {
-    payload.type = "text";
-    payload.text = { preview_url: false, body: `${input.title}\n\n${input.body}` };
-  }
+  // Template memakai variabel bernama; WhatsApp Manager menolak `{{1}}`.
+  // Nama variabel bisa disesuaikan lewat env bila template diganti.
+  const payload: Record<string, unknown> = config.templateName
+    ? buildTemplatePayload(input, {
+        name: config.templateName,
+        language: process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? "id",
+        titleParam: process.env.WHATSAPP_TEMPLATE_PARAM_TITLE ?? "judul",
+        bodyParam: process.env.WHATSAPP_TEMPLATE_PARAM_BODY ?? "isi",
+      })
+    : buildTextPayload(input);
   const response = await fetch(
     `https://graph.facebook.com/${config.graphVersion}/${config.phoneNumberId}/messages`,
     {

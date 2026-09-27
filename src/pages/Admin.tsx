@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   Archive,
   ArrowUpRight,
-  BarChart3,
   Building2,
   Check,
   CheckCircle2,
@@ -65,7 +64,9 @@ import { useAuth } from "@/hooks/use-auth";
 // jadi importnya dipasang lebih dulu supaya hanya tinggal menempelkan JSX.
 import {
   AdminHeader,
+  AdminMetricsBoard,
   AdminPackageManager,
+  AdminReportReview,
   Field,
   SectionHeading,
   formatDate,
@@ -630,15 +631,6 @@ function AdminWorkspace() {
     },
   ];
 
-  const metricTone: Record<(typeof metrics)[number]["tone"], string> = {
-    orange: "bg-[#FF5A26] text-white",
-    yellow: "bg-[#FFE662] text-[#1A1A1A]",
-    white: "bg-white text-[#1A1A1A]",
-    mint: "bg-[#DCEBD7] text-[#24533A]",
-    stone: "bg-[#E7E5E4] text-[#44403C]",
-    terracotta: "bg-[#E9B4A7] text-[#7C2D12]",
-  };
-
   const notificationItems = [
     ...(draftItems.length
       ? [
@@ -824,123 +816,13 @@ function AdminWorkspace() {
 
         <AdminGovernance />
 
-        <section className="mt-8" aria-labelledby="operational-metrics-title">
-          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#525252]">
-                Papan numerator
-              </p>
-              <h2
-                id="operational-metrics-title"
-                className="mt-1 text-[clamp(1.5rem,3vw,2.25rem)] font-black tracking-[-0.04em]"
-              >
-                7 metrik operasional
-              </h2>
-            </div>
-            <p className="inline-flex items-center gap-2 text-sm font-bold text-[#525252]">
-              <span className="admin-sync-dot" aria-hidden="true" />
-              Reaktif terhadap query Convex
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
-            {metrics.map((metric, index) => {
-              const Icon = metric.icon;
-              return (
-                <article
-                  key={metric.label}
-                  className={`admin-metric admin-metric-lg flex min-h-40 flex-col justify-between p-4 ${
-                    index === 0
-                      ? "bg-[#FF5A26] text-white"
-                      : index === 1
-                        ? "bg-[#FFE662] text-[#1A1A1A]"
-                        : "bg-[#FDFBF7] text-[#1A1A1A]"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-base font-black leading-5">{metric.label}</p>
-                    <span
-                      className={`flex size-10 shrink-0 items-center justify-center border-2 border-[#121212] ${
-                        index === 0
-                          ? "bg-[#FFE662] text-[#1A1A1A]"
-                          : index === 1
-                            ? "bg-[#FF5A26] text-white"
-                            : metricTone[metric.tone]
-                      }`}
-                    >
-                      <Icon className="size-5" aria-hidden="true" />
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-[clamp(2rem,4vw,3rem)] font-black leading-none tracking-[-0.06em]">
-                      {metric.value.toLocaleString("id-ID")}
-                    </p>
-                    <p
-                      className={`mt-2 text-sm font-bold ${
-                        index === 0 ? "text-white" : "text-[#525252]"
-                      }`}
-                    >
-                      {metric.note}
-                    </p>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="mt-8" aria-labelledby="community-impact-title">
-          <SectionHeading
-            eyebrow="Dampak komunitas"
-            title="Metrik warga"
-            description="Angka dihitung reaktif dari pencarian, klik WhatsApp, permintaan, favorit, dan kelengkapan listing."
-            icon={BarChart3}
-          />
-          <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-6 lg:grid-cols-3">
-            {impactMetrics.map((metric) => {
-              const Icon = metric.icon;
-              return (
-                <article key={metric.label} className="admin-metric min-h-36 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-base font-black leading-5">{metric.label}</p>
-                    <span className="flex size-10 shrink-0 items-center justify-center border-2 border-[#121212] bg-[#FFE662]">
-                      <Icon className="size-5" aria-hidden="true" />
-                    </span>
-                  </div>
-                  <p className="mt-5 text-3xl font-black tracking-[-0.06em]">
-                    {metric.value}
-                  </p>
-                  <p className="mt-1 text-sm font-bold text-[#525252]">
-                    {metric.note}
-                  </p>
-                </article>
-              );
-            })}
-          </div>
-          <div className="grid gap-4 border-t-2 border-[#121212] p-4 sm:p-6 lg:grid-cols-2">
-            <div>
-              <h3 className="text-lg font-black">Listing aktif per kategori</h3>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {Object.entries(communityMetrics?.byCategory ?? {}).map(([category, count]) => (
-                  <span key={category} className="border-2 border-[#121212] bg-white px-3 py-2 text-sm font-black">
-                    {category}: {count}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h3 className="text-lg font-black">Listing aktif per area</h3>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {Object.entries(communityMetrics?.byArea ?? {}).map(([area, count]) => (
-                  <span key={area} className="border-2 border-[#121212] bg-white px-3 py-2 text-sm font-black">
-                    {landmarkLabel(area)}: {count}
-                  </span>
-                ))}
-                {!communityMetrics ? <span className="text-sm font-bold text-[#525252]">Memuat data area...</span> : null}
-              </div>
-            </div>
-          </div>
-        </section>
+        <AdminMetricsBoard
+          metrics={metrics}
+          impactMetrics={impactMetrics}
+          categoryCounts={communityMetrics?.byCategory ?? {}}
+          areaCounts={communityMetrics?.byArea ?? {}}
+          loadingBreakdown={!communityMetrics}
+        />
 
         <section className="mt-8 grid gap-5 xl:grid-cols-[.85fr_1.15fr]">
           <div className="admin-panel overflow-hidden">
@@ -1026,65 +908,11 @@ function AdminWorkspace() {
         </section>
 
         {reports.length > 0 ? (
-          <section className="admin-panel mt-8 overflow-hidden">
-            <SectionHeading
-              eyebrow="Moderasi warga"
-              title="Laporan perlu ditinjau"
-              description="Periksa alasan, detail, dan tetapkan status laporan tanpa mengubah data listing."
-              icon={AlertTriangle}
-            />
-            <div className="grid gap-4 p-4 sm:p-6 lg:grid-cols-2">
-              {reports.map((report) => (
-                <article key={report._id} className="border-2 border-[#121212] bg-white p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-base font-black text-[#1A1A1A]">
-                        {report.reason}
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-[#525252]">
-                        {report.details}
-                      </p>
-                    </div>
-                    <span className="admin-status admin-status-inactive">
-                      {report.status}
-                    </span>
-                  </div>
-                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                    <button
-                      type="button"
-                      disabled={busyAction === `report:${report._id}`}
-                      onClick={() =>
-                        void updateReportStatus(report._id, "reviewing")
-                      }
-                      className="admin-btn admin-btn-highlight px-3"
-                    >
-                      Tandai ditinjau
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyAction === `report:${report._id}`}
-                      onClick={() =>
-                        void updateReportStatus(report._id, "resolved")
-                      }
-                      className="admin-btn bg-[#DCEBD7] px-3 text-[#24533A]"
-                    >
-                      Selesaikan
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyAction === `report:${report._id}`}
-                      onClick={() =>
-                        void updateReportStatus(report._id, "dismissed")
-                      }
-                      className="admin-btn admin-btn-secondary px-3"
-                    >
-                      Abaikan
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
+          <AdminReportReview
+            reports={reports}
+            busyAction={busyAction}
+            onUpdateStatus={updateReportStatus}
+          />
         ) : null}
 
         {draft ? (
@@ -1576,24 +1404,24 @@ function AdminWorkspace() {
                       </p>
                     ) : null}
 
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-3 grid grid-cols-3 gap-1.5 sm:gap-2">
                       {waHref ? (
                         <a
                           href={waHref}
                           target="_blank"
                           rel="noreferrer"
-                          className="admin-btn admin-btn-secondary px-3"
+                          className="admin-btn admin-btn-secondary w-full min-w-0 px-2 sm:px-3"
                         >
-                          <MessageCircle className="size-4" />
+                          <MessageCircle className="size-4 shrink-0" />
                           Cek WA
                         </a>
                       ) : (
                         <button
                           type="button"
                           disabled
-                          className="admin-btn admin-btn-secondary px-3"
+                          className="admin-btn admin-btn-secondary w-full min-w-0 px-2 sm:px-3"
                         >
-                          <MessageCircle className="size-4" />
+                          <MessageCircle className="size-4 shrink-0" />
                           Cek WA
                         </button>
                       )}
@@ -1601,17 +1429,17 @@ function AdminWorkspace() {
                         type="button"
                         disabled={!item.phone.trim() || busyAction === `${itemBusyPrefix}approve`}
                         onClick={() => void approveVendor(item)}
-                        className="admin-btn admin-btn-primary px-3"
+                        className="admin-btn admin-btn-primary w-full min-w-0 px-2 sm:px-3"
                       >
-                        <Check className="size-4" />
+                        <Check className="size-4 shrink-0" />
                         Setujui
                       </button>
                       <button
                         type="button"
                         onClick={() => setPendingConfirmation({ kind: "reject", vendor: item })}
-                        className="admin-btn admin-btn-danger px-3"
+                        className="admin-btn admin-btn-danger w-full min-w-0 px-2 sm:px-3"
                       >
-                        <X className="size-4" />
+                        <X className="size-4 shrink-0" />
                         Tolak
                       </button>
                     </div>

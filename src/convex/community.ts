@@ -144,6 +144,75 @@ async function notifyUser(
   });
 }
 
+/**
+ * Kabar ke semua pengelola yang bisa memoderasi (admin dan staff; viewer hanya
+ * membaca jadi tidak perlu diberi tahu).
+ *
+ * Notifikasi untuk listing yang sama digabung kalau masih belum dibaca:
+ * unggah 12 foto sekaligus tidak boleh membanjiri 12 baris di panel admin, dan * moderasi yang penting di antaranya akan tenggelam.
+ */
+export async function notifyReviewers(
+  ctx: GenericMutationCtx<DataModel>,
+  input: {
+    kind: string;
+    title: string;
+    body: string;
+    vendorId: DataModel["vendors"]["document"]["_id"];
+  },
+) {
+  const members = await ctx.db.query("staffMembers").collect();
+  const reviewers = members.filter(
+    (member) => member.role === "admin" || member.role === "staff",
+  );
+  const now = Date.now();
+  for (const reviewer of reviewers) {
+    const inbox = await ctx.db
+      .query("notifications")
+      .withIndex("byUser", (q) => q.eq("userId", reviewer.userId))
+      .collect();
+    const alreadyQueued = inbox.some(
+      (item) => !item.read && item.kind === input.kind && item.vendorId === input.vendorId,
+    );
+    if (alreadyQueued) continue;
+    await ctx.db.insert("notifications", {
+      userId: reviewer.userId,
+      vendorId: input.vendorId,
+      kind: input.kind,
+      title: input.title,
+      body: input.body,
+      read: false,
+      createdAt: now,
+    });
+  }
+  return reviewers.length;
+}
+
+/** Antrean yang harus ditangani pengelola, dipakai untuk lonceng di header /admin. */
+export const listReviewQueue = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireManagementViewer(ctx);
+    const claims = await ctx.db
+      .query("listingClaims")
+      .withIndex("byStatus", (q) => q.eq("status", "pending"))
+      .collect();
+    const photos = await ctx.db
+      .query("vendorPhotos")
+      .withIndex("byModeration", (q) => q.eq("moderationStatus", "pending"))
+      .collect();
+    const reports = await ctx.db
+      .query("reports")
+      .withIndex("byStatus", (q) => q.eq("status", "open"))
+      .collect();
+    return {
+      claims: claims.length,
+      photos: photos.length,
+      reports: reports.length,
+      total: claims.length + photos.length + reports.length,
+    };
+  },
+});
+
 export const listRequests = query({
   args: {
     status: v.optional(requestStatusValidator),
@@ -925,8 +994,10 @@ export const createVendorPhoto = mutation({
   handler: async (ctx, args) => {
     const vendor = await ctx.db.get(args.vendorId);
     const actorId = await requireVendorManager(ctx, vendor);
-    if (!args.storageId) throw new Error("Foto belum berhasil diunggah");
-    await validatePhotoFile(ctx, args.storageId);
+    // requireVendorManager sudah melempar kalau listing hilang, tapi TypeScript
+    // tidak bisa menyimpulkan itu dari return type-nya.
+    if (!vendor) throw new Error("Listing tidak ditemukan");
+    if (!args.storageId) throw new Error("Foto belum berhasil diunggah");    await validatePhotoFile(ctx, args.storageId);
     if (args.caption && args.caption.trim().length > 160) throw new Error("Deskripsi foto maksimal 160 karakter");
     const currentPhotos = await ctx.db
       .query("vendorPhotos")
@@ -945,6 +1016,12 @@ export const createVendorPhoto = mutation({
     });
     await writeAudit(ctx, { action: "photo.uploaded", actorId, vendorId: args.vendorId, entityId: photoId });
     await recordEvent(ctx, { event: "photo_uploaded", userId: actorId, vendorId: args.vendorId });
+    await notifyReviewers(ctx, {
+      kind: "review.photo_pending",
+      title: "Foto baru menunggu moderasi",
+      body: `${vendor.name} menambahkan foto. Periksa sebelum foto tampil di katalog publik.`,
+      vendorId: args.vendorId,
+    });
     return photoId;
   },
 });

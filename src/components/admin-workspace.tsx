@@ -1,6 +1,6 @@
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { useState, type ElementType, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, Package, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Inbox, Package, Plus, Trash2 } from "lucide-react";
 import { Link } from "react-router";
 import {
   useCatalogActions,
@@ -117,7 +117,13 @@ export function vendorUpdatePayload(
   };
 }
 
-export function AdminHeader({ role = "admin" }: { role?: string }) {
+export function AdminHeader({
+  role = "admin",
+  reviewQueue,
+}: {
+  role?: string;
+  reviewQueue?: { claims: number; photos: number; reports: number; total: number };
+}) {
   return (
     <header className="sticky top-0 z-40 border-b-2 border-[#121212] bg-[#FAF7EE] pt-[env(safe-area-inset-top)]">
       <div className="admin-shell-frame mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-3 px-3 sm:px-6 lg:px-10">
@@ -152,6 +158,20 @@ export function AdminHeader({ role = "admin" }: { role?: string }) {
           <span className="mr-1.5 size-2 rounded-full bg-[#1A1A1A]" />
           {role === "admin" ? "Admin" : role === "staff" ? "Staff" : "Viewer"}
         </span>
+        {reviewQueue && reviewQueue.total > 0 ? (
+          <a
+            href="#governance-title"
+            className="admin-status shrink-0 border-[#121212] bg-[#FF5A26] text-white"
+            title={`${reviewQueue.claims} klaim · ${reviewQueue.photos} foto · ${reviewQueue.reports} laporan menunggu ditinjau`}
+          >
+            <Inbox className="mr-1.5 size-4" aria-hidden="true" />
+            {reviewQueue.total} perlu direview
+            <span className="sr-only">
+              : {reviewQueue.claims} klaim listing, {reviewQueue.photos} foto,{" "}
+              {reviewQueue.reports} laporan
+            </span>
+          </a>
+        ) : null}
       </div>
       <div
         className="h-2 border-t-2 border-[#121212] bg-[linear-gradient(90deg,#FF5A26_0_38%,#FFE662_38%_72%,#121212_72%_100%)]"

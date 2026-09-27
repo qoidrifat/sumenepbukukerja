@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { getStaffAccess, requireManagementViewer, requireStaff, requireUser } from "./access";
 import { writeAudit } from "./audit";
 import { recordEvent } from "./analytics";
+import { notifyReviewers } from "./community";
 import type { GenericMutationCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
 
@@ -76,6 +77,14 @@ export const submitVendorClaim = mutation({
       vendorId: args.vendorId,
       entityId: claimId,
       newValue: { email, whatsappPhone: phone },
+    });
+    // Kabari pengelola seketika: tanpa ini, klaim hanya diam di daftar sampai
+    // admin kebetulan membuka tab tersebut.
+    await notifyReviewers(ctx, {
+      kind: "review.claim_pending",
+      title: "Klaim listing baru",
+      body: `${vendor.name} diklaim oleh ${email}. Periksa bukti usaha sebelum menyetujui.`,
+      vendorId: args.vendorId,
     });
     return claimId;
   },

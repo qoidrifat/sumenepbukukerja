@@ -50,6 +50,7 @@ import {
   useCommunityMetrics,
   useCurrentAccess,
   useOpenReports,
+  useReviewQueue,
   type VendorRecord,
 } from "@/lib/catalog-store";
 import { duplicateScore, profileCompleteness, qualityIssues } from "@/lib/catalog-data";
@@ -426,6 +427,7 @@ function AdminWorkspace() {
   const items = useAdminVendors() ?? EMPTY_ITEMS;
   const reports = useOpenReports() ?? [];
   const communityMetrics = useCommunityMetrics();
+  const reviewQueue = useReviewQueue();
   const {
     create,
     update: updateVendor,
@@ -985,7 +987,7 @@ function AdminWorkspace() {
 
   return (
     <div className="admin-workspace min-h-dvh min-h-[100svh] pb-[calc(2rem+env(safe-area-inset-bottom))] text-[#1A1A1A]">
-      <AdminHeader role={access?.role ?? undefined} />
+      <AdminHeader role={access?.role ?? undefined} reviewQueue={reviewQueue ?? undefined} />
       <main className="admin-shell-frame mx-auto max-w-[1600px] px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10">
         {previewContent}
 

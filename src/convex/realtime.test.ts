@@ -393,4 +393,81 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     });
     expect(requestRecipients).toHaveLength(0);
   });
+
+  test("klaim dan foto baru langsung mengabari pengelola, tanpa menggandakan", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.vendors.ensureCatalogSeeded, {});
+    const seeded = await t.run(async (ctx) =>
+      ctx.db.query("vendors").withIndex("bySlug", (q) => q.eq("slug", "karya-jaya")).unique(),
+    );
+    const claimant = await signedInUser(t, "Warga Pengaju");
+    await claimant.mutation(api.claims.submitVendorClaim, {
+      vendorId: seeded!._id,
+      whatsappPhone: "081234567890",
+      email: "warga@example.test",
+      businessAddress: "Alamat claimant",
+    });
+
+    // Saat belum ada pengelola sama sekali, tidak ada yang perlu diberi tahu.
+    expect(await t.run(async (ctx) => await ctx.db.query("notifications").collect())).toHaveLength(0);
+
+    // Klaim pertama ini tetap masuk antrean meski belum ada admin, supaya tidak
+    // hilang begitu admin pertama diaktifkan.
+    const claimantUserId = (await claimant.query(api.users.currentUserId, {})) as string;
+    await t.run(async (ctx) => {
+      await ctx.db.insert("staffMembers", {
+        userId: claimantUserId as never,
+        role: "admin",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const storageId = await t.run(async (ctx) =>
+      ctx.storage.store(new Blob(["foto"], { type: "image/jpeg" })),
+    );
+    const owner = await signedInUser(t, "Pemilik Foto");
+    const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
+    await t.run(async (ctx) => {
+      const vendorOwner = (await ctx.db.get(vendorId as never)) as unknown as { ownerId?: string };
+      await ctx.db.insert("staffMembers", {
+        userId: vendorOwner!.ownerId as never,
+        role: "admin",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await owner.mutation(api.community.createVendorPhoto, { vendorId, storageId, caption: "Etalase" });
+
+    const inbox = (await owner.query(api.community.listNotifications, {})) as Array<{
+      kind: string;
+      read?: boolean;
+      vendorId?: string;
+    }>;
+    const photoNotice = inbox.filter((item) => item.kind === "review.photo_pending");
+    expect(photoNotice).toHaveLength(1);
+    expect(photoNotice[0].read).toBe(false);
+
+    // Foto kedua untuk listing yang sama tidak menambah notifikasi baru.
+    const second = await t.run(async (ctx) =>
+      ctx.storage.store(new Blob(["foto2"], { type: "image/jpeg" })),
+    );
+    await owner.mutation(api.community.createVendorPhoto, { vendorId, storageId: second });
+    const afterSecond = (await owner.query(api.community.listNotifications, {})) as Array<{ kind: string }>;
+    expect(afterSecond.filter((item) => item.kind === "review.photo_pending")).toHaveLength(1);
+
+    // Antrean yang tampil di lonceng header menghitung klaim dan foto bersama.
+    const queue = await owner.query(api.community.listReviewQueue, {});
+    expect(queue).toMatchObject({ claims: 1, photos: 2, total: 3 });
+
+    // Setelah klaim disetujui, antrean klaim kosong meski foto tetap menunggu.
+    await owner.mutation(api.claims.reviewVendorClaim, {
+      claimId: (await t.run(async (ctx) =>
+        ctx.db.query("listingClaims").withIndex("byStatus", (q) => q.eq("status", "pending")).unique(),
+      ))!._id,
+      decision: "verified",
+    });
+    const settled = await owner.query(api.community.listReviewQueue, {});
+    expect(settled).toMatchObject({ claims: 0, photos: 2, total: 2 });
+  });
 });

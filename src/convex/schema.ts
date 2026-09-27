@@ -137,11 +137,16 @@ const schema = defineSchema(
       kind: v.string(),
       title: v.string(),
       body: v.string(),
+      // Disimpan supaya notifikasi moderasi bisa langsung membawa pengelola ke
+      // listing yang perlu ditinjau, bukan cuma teks bebas.
+      vendorId: v.optional(v.id("vendors")),
       channel: v.optional(v.union(v.literal("in_app"), v.literal("whatsapp"))),
       providerMessageId: v.optional(v.string()),
       read: v.optional(v.boolean()),
       createdAt: v.number(),
-    }).index("byUser", ["userId"]),
+    })
+      .index("byUser", ["userId"])
+      .index("byVendor", ["vendorId"]),
 
     vendorPhotos: defineTable({
       vendorId: v.id("vendors"),

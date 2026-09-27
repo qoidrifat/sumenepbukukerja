@@ -669,4 +669,8 @@ export function useAdminSecurityEvents(enabled = true) {
   return useQuery(api.adminGate.listAdminSecurityEvents, enabled ? { limit: 25 } : "skip");
 }
 
+export function useReviewQueue(enabled = true) {
+  return useQuery(api.community.listReviewQueue, enabled ? {} : "skip");
+}
+
 export { readFavorites, persistFavorites };

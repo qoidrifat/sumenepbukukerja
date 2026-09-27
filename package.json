@@ -15,7 +15,10 @@
     "brand:build": "node scripts/brand/build-assets.mjs",
     "brand:validate": "node scripts/brand/validate-brand.mjs",
     "brand:measure": "node scripts/brand/measure-mark.mjs",
-    "brand:check": "node scripts/brand/raster-selfcheck.mjs && node scripts/brand/measure-mark.mjs && node scripts/brand/validate-brand.mjs"
+    "brand:check": "node scripts/brand/raster-selfcheck.mjs && node scripts/brand/measure-mark.mjs && node scripts/brand/validate-brand.mjs",
+    "mascot:validate": "node scripts/mascot/validate-mascot.mjs",
+    "mascot:measure": "node scripts/mascot/measure-mascot.mjs",
+    "mascot:check": "bun run mascot:validate && bun run mascot:measure"
   },
   "dependencies": {
     "@convex-dev/auth": "^0.0.90",

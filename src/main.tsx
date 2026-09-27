@@ -17,6 +17,11 @@ const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const Admin = lazy(() => import("./pages/Admin.tsx"));
 const VendorProfile = lazy(() => import("./pages/VendorProfile.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+/* Preview maskot hanya untuk QA desain (Phase 3). Routenya didaftarkan di
+   bawah hanya saat DEV, jadi tidak pernah masuk build produksi. */
+const MascotPreview = import.meta.env.DEV
+  ? lazy(() => import("./pages/MascotPreview.tsx"))
+  : null;
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -156,6 +161,9 @@ createRoot(document.getElementById("root")!).render(
               />
               <Route path="/v/:slug" element={<VendorProfile />} />
               <Route path="*" element={<NotFound />} />
+              {MascotPreview ? (
+                <Route path="/__mascot" element={<MascotPreview />} />
+              ) : null}
             </Routes>
           </Suspense>
         </BrowserRouter>

@@ -28,6 +28,7 @@ import { useUserLocation, type UserLocation, type UserLocationStatus } from "@/h
 import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
 import { CategoryMascot, CategoryMascotStage } from "@/components/category-mascot";
+import { BrandMascot } from "@/components/brand-mascot";
 import { AccessibilityControls, AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
 import {
   AnimatedContent,
@@ -493,7 +494,7 @@ function Catalog({
           animationKey={`${activeLandmark}-${category}-${openNow}-${distanceLimit ?? "all"}-${query}-${filtered.length}`}
           className="mt-6"
         >
-          {filtered.length > 0 ? <AnimatedList items={filtered.map((vendor) => <VendorCard key={vendor.slug} vendor={vendor} landmark={landmarkLabel(vendor.landmark)} saved={favorites.isSaved(vendor.slug)} onSave={() => favorites.save(vendor.slug, vendor._id)} onCompare={() => setCompare((current) => current.includes(vendor.slug) ? current.filter((item) => item !== vendor.slug) : current.length < 3 ? [...current, vendor.slug] : current)} />)} ariaLabel="Daftar usaha" itemClassName="h-full" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 2xl:grid-cols-4" /> : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><div className="mx-auto flex size-12 items-center justify-center rounded-full bg-blue-50 text-2xl" aria-hidden="true">⌕</div><h3 className="mt-4 text-xl font-black text-slate-950">{location && distanceLimit !== null ? "Belum ada usaha dalam radius ini" : "Belum ada jasa yang cocok"}</h3><p className="mx-auto mt-2 max-w-md text-base leading-7 text-slate-600">{location && distanceLimit !== null ? "Coba pilih radius yang lebih jauh, atau matikan filter lokasi." : "Belum ada jasa di sekitar sini. Coba pilih patokan lain atau kata kunci yang lebih umum."}</p></div>}
+          {filtered.length > 0 ? <AnimatedList items={filtered.map((vendor) => <VendorCard key={vendor.slug} vendor={vendor} landmark={landmarkLabel(vendor.landmark)} saved={favorites.isSaved(vendor.slug)} onSave={() => favorites.save(vendor.slug, vendor._id)} onCompare={() => setCompare((current) => current.includes(vendor.slug) ? current.filter((item) => item !== vendor.slug) : current.length < 3 ? [...current, vendor.slug] : current)} />)} ariaLabel="Daftar usaha" itemClassName="h-full" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 2xl:grid-cols-4" /> : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><BrandMascot state="empty" size="md" className="mx-auto" /><h3 className="mt-4 text-xl font-black text-slate-950">{location && distanceLimit !== null ? "Belum ada usaha dalam radius ini" : "Belum ada jasa yang cocok"}</h3><p className="mx-auto mt-2 max-w-md text-base leading-7 text-slate-600">{location && distanceLimit !== null ? "Coba pilih radius yang lebih jauh, atau matikan filter lokasi." : "Belum ada jasa di sekitar sini. Coba pilih patokan lain atau kata kunci yang lebih umum."}</p></div>}
         </AnimatedContent>
       </div>
     </section>

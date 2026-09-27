@@ -1,6 +1,8 @@
 import { motion, useReducedMotion } from "framer-motion";
-import { ArrowLeft, BookOpen } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router";
+
+import { BrandMascot } from "@/components/brand-mascot";
 
 export default function NotFound() {
   const reduceMotion = useReducedMotion();
@@ -13,9 +15,9 @@ export default function NotFound() {
         transition={{ duration: 0.3, ease: "easeOut" }}
         className="w-full max-w-lg rounded-2xl border border-blue-200 bg-white/95 p-6 text-center shadow-lg sm:p-9"
       >
-        <span className="mx-auto flex size-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm">
-          <BookOpen className="size-8" />
-        </span>
+        {/* Karakter brand, bukan ikon pustaka generik: ini satu-satunya
+            tempat di 404 yang boleh bicara, dan dia sedang "mencari". */}
+        <BrandMascot state="empty" size="md" className="mx-auto" />
         <p className="mt-6 text-sm font-extrabold uppercase tracking-[0.16em] text-blue-600">Halaman tidak ditemukan</p>
         <h1 className="mt-2 text-5xl font-black tracking-[-0.07em] text-slate-950">404</h1>
         <p className="mx-auto mt-4 max-w-md text-base leading-7 text-slate-600">

@@ -8,6 +8,12 @@ penggantian. Semua asset dibangun dari satu sumber geometry
 tidak ada asset yang bisa berbeda satu piksel dari yang lain, dan tidak ada
 dependensi baru.
 
+> **Mascot character system ada di
+> [`mascot-spec.md`](./mascot-spec.md).** Logo dan maskot memakai geometri
+> yang sama; bedanya, maskot menambah wajah, ekspresi, aksesori, dan gerak.
+> `bun run mascot:check` menjaga agar badan maskot tidak pernah menyimpang dari
+> `mark.mjs`.
+
 ## Konsep
 
 **Buku terbuka dengan satu sudut halaman terlipat.**

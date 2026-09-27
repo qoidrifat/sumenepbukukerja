@@ -203,6 +203,39 @@ export default function MascotPreview() {
             </label>
           </div>
           <p className="mt-3 text-xs text-slate-500">{MASCOT_STATES[state].summary}</p>
+
+          {/* Panel solo: SATU-SATUNYA tempat control di atas benar-benar
+              mengubah apa yang tampil. Grid di bawah sengaja memakai
+              ukuran tetap supaya tetap bisa dipakai sebagai referensi
+              berdampingan. Tanpa panel ini, selector di atas jadi hiasan. */}
+          <div className="mt-5 flex flex-wrap items-end gap-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
+            <div className="flex flex-col items-center gap-2">
+              <BrandMascot
+                state={state}
+                category={category === "" ? undefined : category}
+                size={size}
+                animated={animated}
+              />
+              <p className="text-xs font-bold text-blue-800">
+                {state} · {category || "tanpa kategori"} · {size}
+              </p>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <BrandMascot
+                state={state}
+                category={category === "" ? undefined : category}
+                size={size}
+                tone="admin"
+                animated={animated}
+              />
+              <p className="text-xs font-bold text-blue-800">t admin · {state}</p>
+            </div>
+            <p className="max-w-xs text-xs leading-5 text-blue-900">
+              Kiri: public. Kanan: admin. Dua-duanya bentuknya sama — yang
+              berubah hanya warna treatment, untuk mengecek apakah
+              perbedaan konteksnya cukup.
+            </p>
+          </div>
         </section>
 
         {TONES.map((t) => (

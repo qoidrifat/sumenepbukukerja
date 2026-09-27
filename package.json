@@ -18,7 +18,11 @@
     "brand:check": "node scripts/brand/raster-selfcheck.mjs && node scripts/brand/measure-mark.mjs && node scripts/brand/validate-brand.mjs",
     "mascot:validate": "node scripts/mascot/validate-mascot.mjs",
     "mascot:measure": "node scripts/mascot/measure-mascot.mjs",
-    "mascot:check": "bun run mascot:validate && bun run mascot:measure"
+    "mascot:check": "bun run mascot:validate && bun run mascot:measure",
+    "mascot:qa:shots": "node scripts/mascot/qa-element.mjs",
+    "mascot:qa:behaviour": "node scripts/mascot/qa-behaviour.mjs",
+    "mascot:qa:contexts": "node scripts/mascot/qa-contexts.mjs",
+    "mascot:qa": "bun run mascot:check && bun run mascot:qa:behaviour"
   },
   "dependencies": {
     "@convex-dev/auth": "^0.0.90",

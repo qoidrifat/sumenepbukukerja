@@ -174,12 +174,20 @@ const DETAIL_RANK: Record<MascotDetail, number> = {
   hero: 4,
 };
 
-/** Rangsangan dekoratif yang menempel pada aksesori kategori. */
+/**
+ * Rangsangan dekoratif yang menempel pada aksesori kategori.
+ *
+ * `opacity` adalah titik redup TERENDAH. Nilai lama 0.45 membuat aksesori
+ * menghabiskan separuh siklus animasinya di opacity ~50% - hasil pengujian
+ * browser: piktogram pernah tertangkap menjadi biru `#78a1f3` (campuran
+ * 50/50 dengan field) dan jauh lebih sulit dibaca. 0.78 menjaga kesan
+ * berkedip tanpa mengorbankan keterbacaan.
+ */
 const FLOAT_TRAVEL: Record<MascotFloat, { y: number; x: number; opacity: number }> = {
-  steam: { y: 2, x: 0, opacity: 0.45 },
-  confetti: { y: 1.4, x: 1.2, opacity: 0.5 },
-  clank: { y: 0.8, x: 1.4, opacity: 0.6 },
-  lines: { y: 0, x: 1.4, opacity: 0.45 },
+  steam: { y: 2, x: 0, opacity: 0.78 },
+  confetti: { y: 1.4, x: 1.2, opacity: 0.8 },
+  clank: { y: 0.8, x: 1.4, opacity: 0.82 },
+  lines: { y: 0, x: 1.4, opacity: 0.78 },
   none: { y: 0, x: 0, opacity: 1 },
 };
 

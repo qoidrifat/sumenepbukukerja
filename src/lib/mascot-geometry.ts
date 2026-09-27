@@ -143,14 +143,21 @@ export const EYE_NARROW = {
   y: 43,
 } as const;
 
-/** Mata terlebar untuk state `found`. Tetap simetris. */
+/**
+ * Mata terlebar untuk state `found` dan `connect`.
+ *
+ * Dulu 7.5 x 10 - hanya 0.5 unit lebih besar dari mata biasa, dan itu
+ * berarti 0.5 PIKEL di layar 96px: secara visual `found` dan `neutral`
+ * hampir identik. Sekarang 9 x 11, jadi "+2 unit" terbaca sebagai mata
+ * yang benar-benar terbuka lebar.
+ */
 export const EYE_WIDE = {
-  width: 7.5,
-  height: 10,
-  radius: 3.5,
-  leftX: 32.75,
-  rightX: 55.75,
-  y: 39.5,
+  width: 9,
+  height: 11,
+  radius: 4,
+  leftX: 31.75,
+  rightX: 55.25,
+  y: 39,
 } as const;
 
 /** Mata tertutup untuk state `success`. Busur turun, cermin sempurna. */

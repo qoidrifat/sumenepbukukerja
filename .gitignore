@@ -2,3 +2,6 @@
 node_modules
 dist
 src/convex/_generated
+
+# Screenshot QA sementara (Phase 3), bukan aset repo
+tmp/

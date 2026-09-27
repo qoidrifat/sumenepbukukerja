@@ -105,12 +105,17 @@ export function decodePng(buffer) {
     offset += 12 + length;
   }
 
-  if (depth !== 8 || colour !== 6) {
-    throw new Error(`hanya RGBA 8-bit yang bisa dibaca, dapat depth ${depth} colour ${colour}`);
+  /* Screenshot browser biasanya RGB (colour type 2), bukan RGBA. Toolkit
+     ini membuat PNG RGBA sendiri, jadi kasus RGB sempat tidak tertangani -
+     sekarang didukung supaya screenshot bisa langsung dibaca. */
+  const CHANNELS = { 0: 1, 2: 3, 4: 2, 6: 4 };
+  const channels = CHANNELS[colour];
+  if (depth !== 8 || channels === undefined) {
+    throw new Error(`hanya 8-bit colour 0/2/4/6 yang bisa dibaca, dapat depth ${depth} colour ${colour}`);
   }
 
   const raw = inflateSync(Buffer.concat(idat));
-  const bpp = 4;
+  const bpp = channels;
   const stride = width * bpp;
   const out = Buffer.alloc(height * stride);
 
@@ -138,7 +143,29 @@ export function decodePng(buffer) {
     }
   }
 
-  return { width, height, data: out };
+  /* Selalu kembalikan RGBA supaya pemanggil tidak perlu tahu format asal. */
+  if (channels === 4) return { width, height, data: out };
+
+  const rgba = Buffer.alloc(height * width * 4);
+  for (let i = 0, j = 0; i < width * height; i++) {
+    const s = i * channels;
+    const d = i * 4;
+    if (channels === 3) {
+      rgba[d] = out[s];
+      rgba[d + 1] = out[s + 1];
+      rgba[d + 2] = out[s + 2];
+      rgba[d + 3] = 255;
+    } else if (channels === 1) {
+      rgba[d] = rgba[d + 1] = rgba[d + 2] = out[s];
+      rgba[d + 3] = 255;
+    } else {
+      /* Grey + alpha */
+      rgba[d] = rgba[d + 1] = rgba[d + 2] = out[s];
+      rgba[d + 3] = out[s + 1];
+    }
+    j = d;
+  }
+  return { width, height, data: rgba };
 }
 
 /** Header + footer .ico yang menunjuk ke PNG di dalamnya (-format ICO modern). */

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AdminAccessDenied, AdminSetupRequired } from "@/components/admin-access-gate";
+import { CategoryMascot } from "@/components/category-mascot";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import {
   availabilitySelectOptions,
@@ -1354,7 +1355,9 @@ function AdminWorkspace() {
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-1 text-base font-black text-[#525252]">
+                      <p className="mt-1 flex items-center gap-2 text-base font-black text-[#525252]">
+                        {/* Cue kecil saja: kartu vendor admin harus tetap padat. */}
+                        <CategoryMascot category={item.category} size="xs" context="admin" animated={false} />
                         {item.category}
                       </p>
                       <p className="mt-1 flex items-start gap-1.5 text-sm leading-6 text-[#525252]">

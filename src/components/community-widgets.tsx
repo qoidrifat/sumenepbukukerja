@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { landmarkLabel, type Category, type Vendor } from "@/lib/catalog";
+import { CategoryMascot } from "@/components/category-mascot";
 import { distanceLabel } from "@/lib/catalog-data";
 import {
   useCatalogActions,
@@ -265,7 +266,10 @@ function RequestCard({ request }: { request: RequestWithExpiry }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-extrabold text-blue-700">{request.category}</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-extrabold text-blue-700">
+              <CategoryMascot category={request.category} size="xs" animated={false} />
+              {request.category}
+            </span>
             <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500"><MapPin className="size-3.5" />{landmarkLabel(request.landmark)}</span>
           </div>
           <h3 className="mt-2 text-lg font-black text-slate-950">{request.title}</h3>

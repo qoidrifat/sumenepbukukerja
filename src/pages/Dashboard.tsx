@@ -37,6 +37,7 @@ import {
   type VendorRecord,
 } from "@/lib/catalog-store";
 import { categoryActionLabel } from "@/lib/catalog-data";
+import { CategoryMascot } from "@/components/category-mascot";
 import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useNavigate } from "react-router";
@@ -429,7 +430,10 @@ function OwnerListingManager() {
             <article key={vendor._id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-sm font-extrabold text-blue-700">{vendor.category}</p>
+                  <p className="flex items-center gap-1.5 text-sm font-extrabold text-blue-700">
+                    <CategoryMascot category={vendor.category} size="xs" animated={false} />
+                    {vendor.category}
+                  </p>
                   <h3 className="mt-1 truncate text-lg font-black text-slate-950">{vendor.name}</h3>
                   <p className="mt-1 text-sm text-slate-600">{landmarkLabel(vendor.landmark)} · {vendor.price}</p>
                 </div>

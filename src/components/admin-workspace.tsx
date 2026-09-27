@@ -26,6 +26,7 @@ import {
   type VendorRecord,
 } from "@/lib/catalog-store";
 import { landmarkLabel } from "@/lib/catalog";
+import { CategoryMascot } from "@/components/category-mascot";
 import { formatDateTime, formatRelativeTime } from "@/lib/datetime";
 
 export const inputClass = "admin-input";
@@ -638,8 +639,10 @@ export function AdminMetricsBoard({
               {Object.entries(categoryCounts).map(([category, count]) => (
                 <span
                   key={category}
-                  className="border-2 border-[#121212] bg-white px-3 py-2 text-sm font-black"
+                  className="inline-flex items-center gap-1.5 border-2 border-[#121212] bg-white px-3 py-2 text-sm font-black"
                 >
+                  {/* Statis supaya papan metrik admin tetap padat dan ringan. */}
+                  <CategoryMascot category={category} size="xs" context="admin" animated={false} />
                   {category}: {count}
                 </span>
               ))}

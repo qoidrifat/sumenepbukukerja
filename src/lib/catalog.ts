@@ -54,6 +54,12 @@ export const landmarks = [
   { id: "pragaan", label: "Pragaan", note: "Kecamatan di barat Sumenep" },
 ];
 
+/**
+ * Taxonomi kategori = sumber kebenaran tunggal. `icon` disimpan sebagai glyph
+ * cadangan lama; portrayal visualnya sekarang dipegang `CategoryMascot`
+ * (src/components/category-mascot.tsx) yang memetakan `label` ke aksesori,
+ * ekspresi, dan aksen warna. Jangan menambah kategori di sini tanpa trait.
+ */
 export const categoryOptions: Array<{ label: Category; icon: string; description: string }> = [
   { label: "Servis Teknik", icon: "⌁", description: "Perbaikan & instalasi" },
   { label: "Hajatan & Acara", icon: "✦", description: "Bantu acara hari besar" },

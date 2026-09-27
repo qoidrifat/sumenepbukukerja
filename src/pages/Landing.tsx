@@ -27,6 +27,7 @@ import { categoryActionLabel, distanceFilterOptions, distanceKmBetween, distance
 import { useUserLocation, type UserLocation, type UserLocationStatus } from "@/hooks/use-user-location";
 import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
+import { CategoryMascot } from "@/components/category-mascot";
 import { AccessibilityControls, AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
 import {
   AnimatedContent,
@@ -474,7 +475,9 @@ function Catalog({
               { label: "Semua", icon: <Sparkles className="size-5" />, color: "blue", selected: category === "Semua", onClick: () => setCategory("Semua") },
               ...categoryOptions.map((item) => ({
                 label: item.label,
-                icon: <span aria-hidden="true">{item.icon}</span>,
+                // Maskot kategori menggantikan glyph lama; nama kategori tetap
+                // jadi label tombol dan penanda `aria-pressed`.
+                icon: <CategoryMascot category={item.label} size="xs" />,
                 color: "slate" as const,
                 selected: category === item.label,
                 onClick: () => setCategory(item.label),
@@ -504,8 +507,9 @@ function HowItWorks() {
 
 function LocalCategories() {
   const categoryLogos = categoryOptions.map((category) => (
-    <span className="flex size-10 items-center justify-center rounded-full bg-secondary text-xl font-black text-primary" aria-hidden="true">
-      {category.icon}
+    <span className="flex size-10 items-center justify-center rounded-full bg-secondary" aria-hidden="true">
+      {/* Orbit sudah bergerak sendiri, jadi maskot di dalam orbit dibuat statis. */}
+      <CategoryMascot category={category.label} size="xs" animated={false} />
     </span>
   ));
 
@@ -519,9 +523,12 @@ function LocalCategories() {
           <p className="mt-3 max-w-xl text-base leading-7 text-slate-600">Kategori di sekitar Sumenep dirangkum dalam satu halaman agar warga lebih cepat menemukan jasa yang tepat.</p>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {categoryOptions.map((category) => (
-              <div key={category.label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                <p className="text-sm font-extrabold text-slate-900">{category.label}</p>
-                <p className="mt-1 text-sm leading-5 text-slate-600">{category.description}</p>
+              <div key={category.label} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <CategoryMascot category={category.label} size="md" />
+                <div className="min-w-0">
+                  <p className="text-sm font-extrabold text-slate-900">{category.label}</p>
+                  <p className="mt-1 text-sm leading-5 text-slate-600">{category.description}</p>
+                </div>
               </div>
             ))}
           </div>

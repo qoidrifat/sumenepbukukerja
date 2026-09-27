@@ -17,7 +17,7 @@ vi.mock("@/lib/catalog-store", () => ({
   useVendorPackages: () => [],
 }));
 
-const { VendorActionArea } = await import("./admin-workspace");
+const { AdminMetricsBoard, VendorActionArea } = await import("./admin-workspace");
 
 const item = {
   _id: "v1",
@@ -152,4 +152,36 @@ test("label unggulan berubah mengikuti status featured", () => {
   expect(unggulan).toContain("Jadikan biasa");
   expect(unggulan).toContain("admin-btn-highlight");
   expect(unggulan).not.toContain("Jadikan unggulan");
+});
+
+/* ------------------------------------------------------------------ */
+/* Papan metrik: category count + maskot kategori                      */
+/* ------------------------------------------------------------------ */
+
+const renderMetrics = (categoryCounts: Record<string, number>) =>
+  renderToStaticMarkup(
+    createElement(AdminMetricsBoard, {
+      metrics: [],
+      impactMetrics: [],
+      categoryCounts,
+      areaCounts: {},
+      loadingBreakdown: false,
+    }),
+  );
+
+test("papan metrik: angka kategori tetap utuh dan didesain dengan maskot", () => {
+  const counts = { Kuliner: 12, Transportasi: 5, "Jasa Umum": 0 };
+  const html = renderMetrics(counts);
+
+  // Angka dan nama kategori tidak berubah - maskot hanya tambahan visual.
+  for (const [label, count] of Object.entries(counts)) {
+    expect(html).toContain(`${label}: ${count}`);
+  }
+  // Tiga kategori = tiga maskot (viewBox 120), masing-masing memakai palet admin.
+  expect((html.match(/viewBox="0 0 120 120"/g) ?? []).length).toBe(3);
+  expect(html).toContain("#121212");
+  expect(html).not.toContain("#FDE68A");
+  // Judul seksi dan breakdown area tidak hilang.
+  expect(html).toContain("Listing aktif per kategori");
+  expect(html).toContain("Listing aktif per area");
 });

@@ -40,6 +40,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { AnimatedContent, ScrollReveal } from "@/components/react-bits";
+import { PublicRequestMascot } from "@/components/public-request-mascot";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import {
   areaSelectOptions,
@@ -356,7 +357,7 @@ export function RequestBoard() {
               <span className="text-sm font-bold text-slate-500">Realtime dari warga</span>
             </div>
             <AnimatedContent animationKey={`${area}-${requests?.length ?? 0}`} className="mt-4">
-              {requests === undefined ? <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-500">Memuat kebutuhan warga...</div> : requests.length > 0 ? <div className="space-y-3">{requests.map((request) => <RequestCard key={request._id} request={request} />)}</div> : <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><p className="font-black text-slate-950">Belum ada permintaan di area ini</p><p className="mt-2 text-sm leading-6 text-slate-600">Coba posting kebutuhan pertama atau pilih area lain.</p></div>}
+              {requests === undefined ? <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-500">Memuat kebutuhan warga...</div> : requests.length > 0 ? <div className="space-y-3">{requests.map((request) => <RequestCard key={request._id} request={request} />)}</div> : <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center sm:p-8"><div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:gap-6 sm:text-left"><div className="min-w-0"><p className="font-black text-slate-950">Belum ada permintaan di area ini</p><p className="mt-2 text-sm leading-6 text-slate-600">Coba posting kebutuhan pertama atau pilih area lain.</p></div><PublicRequestMascot /></div></div>}
             </AnimatedContent>
           </div>
         </div>

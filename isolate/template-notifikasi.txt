@@ -1,0 +1,54 @@
+# Template WhatsApp — Sumenep Buku Kerja
+
+Salinan teks template yang sudah disetujui Meta. Gunanya kalau template perlu
+dibuat ulang di kemudian hari: WhatsApp Manager sometimes menolak pembuatan
+ulang, dan teksnya tidak bisa dilihat dari dasbor.
+
+## 1. Notifikasi (kategori: Utilitas)
+
+Nama template : notifikasi_buku_kerja
+Bahasa        : Indonesian (id)
+Env           : WHATSAPP_TEMPLATE_NAME
+Jenis variabel: Nama
+Header/footer/tombol: kosong
+
+```
+Sumenep Buku Kerja
+
+Informasi: {{judul}}
+Keterangan: {{isi}}
+
+Pesan ini dikirim otomatis.
+```
+
+Contoh nilai: {{judul}} = "Permintaan warga baru", {{isi}} = "Bengkel motor di Kalianget."
+
+## 2. Kode OTP (kategori: Autentikasi)
+
+Pakai template pustaka Meta. Template bawaan dengan 4 variabel:
+
+```
+Kode OTP: {{kode}}. Ini adalah OTP Anda untuk {{teks}}. OTP berlaku selama
+{{teks}}. Hubungi {{telepon}} jika Anda tidak melakukan permintaan ini.
+```
+
+Nama template   : isi dengan nama persis di WhatsApp Manager
+Env             : WHATSAPP_OTP_TEMPLATE_NAME
+Pengiriman kode : Salin Kode (zero-tap/one-tap hanya untuk aplikasi Android)
+
+Urutan parameter yang dikirim backend:
+
+1. kode    -> kode OTP 6 digit
+2. teks    -> WHATSAPP_OTP_APP_NAME (default "Sumenep Buku Kerja")
+3. teks    -> WHATSAPP_OTP_DURATION_TEXT (default "5 menit")
+4. telepon -> WHATSAPP_OTP_SUPPORT_PHONE (default "nomor WhatsApp resmi Buku Kerja")
+
+Catatan: template pustaka memakai {{teks}} dua kali, jadi isian dikirim
+berdasarkan urutan, bukan nama.
+
+## 3. Template kustom butuh verifikasi bisnis
+
+Pesan "Akun bisnis WhatsApp ini tidak memiliki izin untuk membuat template
+pesan" muncul karena portofolio bisnis belum diverifikasi. Setelah verifikasi
+selesai, template Notifikasi (bagian 1) bisa dibuat ulang dengan isi yang
+memuat nama aplikasi dan nomor kontak seperti pada bagian 2.

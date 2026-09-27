@@ -785,8 +785,10 @@ export function VendorActionArea({
     <>
       {/* Baris 1 — moderasi. Di bawah `sm` tiga tombol bertumpuk jadi dua kolom
           dengan tombol ketiga melebar penuh, karena 360px tidak cukup untuk icon
-          + teks di tiga kolom. */}
-      <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3 sm:gap-2">
+          + teks di tiga kolom. Di `lg` (kolom aksi kartu sempit) tombol tengah
+          memakai track `1fr` sementara dua lainnya ikut konten, jadi "Setujui"
+          yang paling lebar dapat sisa ruang tanpa membungkus teks. */}
+      <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3 sm:gap-2 lg:grid-cols-[auto_minmax(0,1fr)_auto]">
         {waHref ? (
           <a
             href={waHref}
@@ -826,12 +828,17 @@ export function VendorActionArea({
         </button>
       </div>
 
-      {/* Baris 2 — navigasi + status listing. Di mobile: dua baris (toggle +
-          Lihat, lalu Sunting + hapus) supaya tiap tombol dapat lebar penuh.
-          Dari `sm` berubah jadi satu baris empat: toggle mengikuti lebar
-          naturalnya, tombol hapus ikon tetap 48px di paling kanan, dan Lihat +
-          Sunting membagi sisa ruang sehingga total baris tetap 100%. */}
-      <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-stretch gap-1.5 border-t-2 border-[#121212] pt-3 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] sm:gap-2">
+      {/* Baris 2 — navigasi + status listing.
+
+          Dua layout, dipilih dari lebar area aksi yang benar-benar tersedia:
+          - sempit (mobile <640 dan kolom aksi kartu di `lg+`): DUA baris —
+            toggle + Lihat/status, lalu Sunting + hapus. Label "Tidak tayang"
+            duduk di track `auto` (ikut konten) sehingga tidak pernah tertekan
+            jadi dua baris, berapa pun lebarnya kolom.
+          - luas (`sm`–`lg`, saat area aksi memakai lebar penuh kartu): SATU
+            baris empat — toggle sesuai lebar naturalnya, tombol hapis ikon
+            tetap 48px di kanan, Lihat + Sunting membagi sisa ruang. */}
+      <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-stretch gap-1.5 border-t-2 border-[#121212] pt-3 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] sm:gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
         <label className="inline-flex min-h-12 items-center gap-2 border-2 border-[#121212] bg-[#F5F0E5] px-2">
           <span className="text-xs font-black sm:text-sm">Aktif</span>
           <Switch

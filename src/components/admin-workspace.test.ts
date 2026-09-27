@@ -130,6 +130,21 @@ test("Setujui mati bila nomor WhatsApp belum diisi", () => {
   expect(tagFor(html, "Setujui")).toContain('disabled=""');
 });
 
+test("grid baris aksi mencegah label panjang membungkus di kolom sempit", () => {
+  const html = render();
+
+  // Baris 1: di `lg` tombol tengah (Setujui) memakai track 1fr, dua lainnya
+  // ikut konten, supaya "Setujui" tidak terpampatkan di kolom aksi yang sempit.
+  expect(html).toContain("sm:grid-cols-3");
+  expect(html).toContain("lg:grid-cols-[auto_minmax(0,1fr)_auto]");
+  // Baris 2: dua baris saat sempit (mobile dan kolom `lg`), satu baris saat
+  // area aksi memakai lebar penuh kartu.
+  expect(html).toContain("sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto]");
+  expect(html).toContain("lg:grid-cols-[minmax(0,1fr)_auto]");
+  // Label status (hanya saat listing tidak tayang) tetap satu baris.
+  expect(render({ isActive: false })).toContain("Tidak tayang");
+});
+
 test("label unggulan berubah mengikuti status featured", () => {
   expect(render()).toContain("Jadikan unggulan");
 

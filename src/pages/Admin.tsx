@@ -1316,7 +1316,7 @@ function AdminWorkspace() {
             </p>
           </div>
 
-          <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(20rem,.9fr)] gap-4 border-b-2 border-[#121212] bg-white px-6 py-3 text-sm font-black uppercase tracking-[0.1em] text-[#525252] lg:grid">
+          <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(21rem,.9fr)] gap-4 border-b-2 border-[#121212] bg-white px-6 py-3 text-sm font-black uppercase tracking-[0.1em] text-[#525252] lg:grid">
             <span>Vendor & kategori</span>
             <span>Status moderasi</span>
             <span>Kontak, kualitas & aksi</span>
@@ -1334,7 +1334,7 @@ function AdminWorkspace() {
               return (
                 <article
                   key={item._id}
-                  className="grid gap-4 bg-white p-4 transition-colors hover:bg-[#FFFCF5] sm:p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(20rem,.9fr)] lg:px-6"
+                  className="grid gap-4 bg-white p-4 transition-colors hover:bg-[#FFFCF5] sm:p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(21rem,.9fr)] lg:px-6"
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div

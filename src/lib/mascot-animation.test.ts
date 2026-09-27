@@ -118,11 +118,14 @@ test("gestur burst harus lebih besar dari sisa napasnya", () => {
 });
 
 test("hello, found, dan success memang gestur satu-kali", () => {
+  /* Phase 5.1: ambang absolut `burstDy > 2` (ditulis saat celebration masih
+     3.0 unit) diganti kontrak relatif yang lebih ketat secara proporsional:
+     lompatan gestur harus minimal 2x napas state-nya sendiri. Kini success
+     2.0 vs napas 0.7 = 2.86x - tetap peristiwa yang jelas terbaca. */
   for (const state of ["hello", "found", "success"] as const) {
     expect(MASCOT_BEHAVIOURS[gestureOf(state)].role, state).toBe("burst");
-    expect(MASCOT_BODY_AMPLITUDE[gestureOf(state)].burstPageLeft !== 0 || MASCOT_BODY_AMPLITUDE[gestureOf(state)].burstDy > 2, state).toBe(
-      true,
-    );
+    const amp = MASCOT_BODY_AMPLITUDE[gestureOf(state)];
+    expect(amp.burstPageLeft !== 0 || amp.burstDy > amp.idleDy * 2, state).toBe(true);
   }
 });
 
@@ -543,6 +546,59 @@ test("semua pembungkus animasi tetap dekoratif: tidak ada fokus atau peran", () 
     expect(html, state).toContain('aria-hidden="true"');
     expect(html, state).toContain('focusable="false"');
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* 9. Anggaran rasa gerak — Phase 5.1                                   */
+/* ------------------------------------------------------------------ */
+
+test("lopataan burst tidak pernah melebihi tanggapan hover/ketuk neutral", () => {
+  /* §4B § §7 (Phase 5.1): maskot adalah komponen UI, bukan hero animasi.
+     Tanggapan interaksi pada `neutral` (idle-bob burstDy 2.4) adalah acuan
+     gerak satu-kali yang paling terlihat; tiada gestur state boleh
+     melompat lebih tinggi dari itu. Sebelum Phase 5.1 `celebration` (3.0)
+     adalah satu-satunya pelanggar. */
+  const reference = MASCOT_BODY_AMPLITUDE["idle-bob"].burstDy;
+  expect(reference, "acuan tanggapan interaksi").toBeGreaterThan(0);
+  for (const [gesture, amp] of Object.entries(MASCOT_BODY_AMPLITUDE)) {
+    if (gesture === "idle-bob") continue;
+    expect(
+      amp.burstDy,
+      `${gesture}: lompatan melebihi tanggapan neutral (${reference})`,
+    ).toBeLessThanOrEqual(reference);
+  }
+});
+
+test("rasio burst terhadap napas tinggal di selubung keluarga gestur", () => {
+  /* Keluarga gestur yang sudah diterima mata bergerak di 1.5-2x napas.
+     Kalau satu gestur keluar jauh dari selubung, ia terbaca sebagai gaya
+     animasi yang berbeda - persis yang dilarang §14 (satu karakter).
+     celebration dulu 4.3x; kini semua di bawah 3x. */
+  for (const gesture of Object.keys(MASCOT_BODY_AMPLITUDE)) {
+    const behaviour = MASCOT_BEHAVIOURS[gesture as keyof typeof MASCOT_BEHAVIOURS];
+    if (!behaviour || behaviour.role !== "burst") continue;
+    const amp = MASCOT_BODY_AMPLITUDE[gesture];
+    if (amp.idleDy === 0) continue;
+    expect(amp.burstDy / amp.idleDy, `${gesture}: rasio terhadap napas`).toBeLessThan(3);
+  }
+});
+
+test("perputaran burst tetap di bawah ambang kartun", () => {
+  /* Kemiringan apapun yang mendekati derajat belasan terbaca sebagai
+     goyang kartun, bukan karakter yang tenang. 2° maksimum di seluruh
+     tabel, dan hanya pada gestur yang memang menyapa atau merayakan. */
+  for (const [gesture, amp] of Object.entries(MASCOT_BODY_AMPLITUDE)) {
+    expect(amp.burstTilt, `${gesture}: derajat kemiringan`).toBeLessThanOrEqual(2);
+  }
+});
+
+test("deskripsi amplitudo di studio masih jujur setelah tune", () => {
+  /* Panel Gerak /__mascot menampilkan `MASCOT_BEHAVIOURS[...].amplitude`
+     apa adanya. Kalau angka di tabel tubuh berubah dan string ini tidak,
+     studio berbohong kepada reviewer - persis yang dilarang §22/§23. */
+  expect(MASCOT_BEHAVIOURS.celebration.amplitude).toContain("burst y 2");
+  expect(MASCOT_BEHAVIOURS.celebration.amplitude).toContain("1.5deg");
+  expect(MASCOT_BEHAVIOURS.celebration.amplitude).not.toContain("y 3");
 });
 
 test("gerak tidak pernah memindahkan maskot di luar kotaknya", () => {

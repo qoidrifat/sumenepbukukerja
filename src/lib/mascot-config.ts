@@ -289,7 +289,7 @@ export const MASCOT_BEHAVIOURS: Record<MascotBehaviour, MascotBehaviourConfig> =
   celebration: {
     role: "burst",
     loops: false,
-    amplitude: "idle y 0.7 | burst y 3 + rotate 2deg",
+    amplitude: "idle y 0.7 | burst y 2 + rotate 1.5deg",
     summary: "Satu lompatan kecil plus kilau, lalu tenang. Tidak diulang.",
   },
   "steam-drift": {
@@ -666,8 +666,12 @@ export const MASCOT_BODY_AMPLITUDE: Record<string, MascotBodySpec> = {
     burstDy: 1,
     burstPageRight: 1.8,
   }),
-  /* Satu lompatan. Burst: "One small bounce is enough." */
-  celebration: P({ idleDy: 0.7, burstDy: 3, burstTilt: 2 }),
+  /* Satu lompatan. Burst: "One small bounce is enough." Phase 5.1: amplitudo
+     diturunkan dari 3 unit / 2° ke 2.0 / 1.5° — rasio lompatan terhadap napas
+     dulu 4.3x, satu-satunya outlier di keluarga gestur (yang lain 1.5-1.75x),
+     dan §7 menandai success sebagai state paling berisiko terbaca kekanak-
+     kanakan. Kini di bawah tanggapan hover/ketuk neutral (2.4). */
+  celebration: P({ idleDy: 0.7, burstDy: 2, burstTilt: 1.5 }),
   "steam-drift": P({ idleDy: 0.8, burstDy: 1.2 }),
   "motion-lines": P({ idleDy: 0.6, burstDy: 1 }),
   "welcome-nod": P({ idleDy: 1.2, burstDy: 2, burstTilt: 1 }),

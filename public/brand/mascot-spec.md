@@ -173,7 +173,7 @@ Tanpa pemisahan ini, `hello` melambai ke pengguna sepanjang halaman hidup dan
 | `open-reveal` | burst | y 0.8 | dua halaman membuka x ±1.2 | `found` |
 | `focus-work` | idle | y 0.8 + halaman x 0.3 | y 1.2 | `working`, admin |
 | `directional-point` | idle | halaman kanan x 0.5 | halaman kanan x 1.8 | `connect` |
-| `celebration` | burst | y 0.7 | y 3 + rotate 2° | `success` |
+| `celebration` | burst | y 0.7 | y 2 + rotate 1.5° | `success` |
 | `steam-drift` | idle | uap y 2 unit | — | kuliner |
 | `motion-lines` | idle | garis x 1.4 unit | — | transportasi |
 | `welcome-nod` | burst | y 1.2 | y 2 | cadangan |

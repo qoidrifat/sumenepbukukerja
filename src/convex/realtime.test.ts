@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
+import { anyApi } from "convex/server";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
@@ -23,8 +24,33 @@ const listingPayload = {
   serviceRadiusKm: 8,
 };
 
+/**
+ * Managing listing requires a WhatsApp number whose ownership is proven, so the
+ * fixtures patch `phoneVerifiedAt` directly instead of sending a real OTP.
+ */
+async function verifiedIdentity(t: ReturnType<typeof convexTest>, name: string) {
+  const client = t.withIdentity({ name });
+  const userId = await client.query(api.users.currentUserId, {});
+  await t.run(async (ctx) => {
+    await ctx.db.insert("phoneVerifications", {
+      userId: userId as never,
+      phone: "628123456789",
+      verifiedAt: Date.now(),
+    });
+  });
+  return client;
+}
+
+/** Hash OTP dihitung dengan formula yang sama seperti di server. */
+async function otpHash(code: string, userId: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${code}:${userId}`));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 async function createOwnerListing(t: ReturnType<typeof convexTest>) {
-  const owner = t.withIdentity({ name: "Pemilik Uji" });
+  const owner = await verifiedIdentity(t, "Pemilik Uji");
   const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
   return { owner, vendorId };
 }
@@ -171,7 +197,7 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     await t.mutation(api.vendors.ensureCatalogSeeded, {});
     const seeded = await t.run(async (ctx) => await ctx.db.query("vendors").withIndex("bySlug", (q) => q.eq("slug", "karya-jaya")).unique());
     expect(seeded?.ownerId).toBeUndefined();
-    const claimant = t.withIdentity({ name: "Pemilikclaims" });
+    const claimant = await verifiedIdentity(t, "Pemilikclaims");
     const claimId = await claimant.mutation(api.claims.submitVendorClaim, {
       vendorId: seeded!._id,
       whatsappPhone: "081234567890",
@@ -190,11 +216,11 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
 
   test("request offer hanya memiliki satu pemenang dan expired request tidak bisa diklaim", async () => {
     const t = convexTest(schema, modules);
-    const first = t.withIdentity({ name: "Pemilik Satu" });
+    const first = await verifiedIdentity(t, "Pemilik Satu");
     const firstVendor = await first.mutation(api.vendors.createVendor, listingPayload);
     await promoteToAdmin(t, firstVendor);
     await publishListing(first, firstVendor);
-    const second = t.withIdentity({ name: "Pemilik Dua" });
+    const second = await verifiedIdentity(t, "Pemilik Dua");
     const secondPayload = { ...listingPayload, name: "Bengkel Uji Dua", phone: "081298765432" };
     const secondVendor = await second.mutation(api.vendors.createVendor, secondPayload);
     await promoteToAdmin(t, secondVendor);
@@ -228,7 +254,7 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
 
   test("foto baru menunggu moderasi dan foto pertama approved menjadi foto utama", async () => {
     const t = convexTest(schema, modules);
-    const owner = t.withIdentity({ name: "Pemilik Foto" });
+    const owner = await verifiedIdentity(t, "Pemilik Foto");
     const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
     await promoteToAdmin(t, vendorId);
     await publishListing(owner, vendorId);
@@ -243,7 +269,7 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
 
   test("WhatsApp delivery queue dideduplikasi dan webhook mengubah status", async () => {
     const t = convexTest(schema, modules);
-    const owner = t.withIdentity({ name: "Pemilik WhatsApp" });
+    const owner = await verifiedIdentity(t, "Pemilik WhatsApp");
     await owner.mutation(api.vendors.createVendor, listingPayload);
     const userId = await owner.query(api.users.currentUserId, {});
     const args = { userId: userId as never, deliveryKey: "whatsapp:test:dedupe", title: "Uji", body: "Pesan" };
@@ -261,7 +287,7 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
 
   test("viewer bisa membaca data kelola tetapi tidak bisa mengubah listing", async () => {
     const t = convexTest(schema, modules);
-    const owner = t.withIdentity({ name: "Admin Uji" });
+    const owner = await verifiedIdentity(t, "Admin Uji");
     const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
     await promoteToAdmin(t, vendorId);
     await publishListing(owner, vendorId);
@@ -275,7 +301,7 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
 
   test("viewer tidak dapat memoderasialthough viewer dapat membaca", async () => {
     const t = convexTest(schema, modules);
-    const owner = t.withIdentity({ name: "Pemilik Moderasi" });
+    const owner = await verifiedIdentity(t, "Pemilik Moderasi");
     const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
     await promoteToAdmin(t, vendorId);
     const storageId = await owner.run(async (ctx) => await ctx.storage.store(new Blob(["photo"], { type: "image/jpeg" })));
@@ -287,11 +313,72 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     await expect(viewer.mutation(api.community.moderateVendorPhoto, { id: photoId, decision: "approved" })).rejects.toThrow();
   });
 
+  test("mengelola listing ditolak sampai nomor WhatsApp terverifikasi lewat OTP", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.vendors.ensureCatalogSeeded, {});
+    const stranger = t.withIdentity({ name: "Tanpa Verifikasi" });
+    await expect(stranger.mutation(api.vendors.createVendor, listingPayload)).rejects.toThrow(
+      /Verifikasi nomor WhatsApp/,
+    );
+    const seeded = await t.run(async (ctx) =>
+      ctx.db.query("vendors").withIndex("bySlug", (q) => q.eq("slug", "karya-jaya")).unique(),
+    );
+    await expect(
+      stranger.mutation(api.claims.submitVendorClaim, {
+        vendorId: seeded!._id,
+        whatsappPhone: "081234567890",
+        email: "tanpa@example.test",
+        businessAddress: "Alamat claimant",
+      }),
+    ).rejects.toThrow(/Verifikasi nomor WhatsApp/);
+  });
+
+  test("OTP salah tidak memverifikasi, OTP benar membuka akses mengelola listing", async () => {
+    const t = convexTest(schema, modules);
+    const client = t.withIdentity({ name: "Pemilik OTP" });
+    const userId = (await client.query(api.users.currentUserId, {})) as string;
+    expect(await client.query(api.whatsapp.phoneVerificationStatus, {})).toMatchObject({ verified: false });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("phoneOtp", {
+        userId: userId as never,
+        phone: "628123456789",
+        codeHash: await otpHash("123456", userId),
+        attempts: 0,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 5 * 60_000,
+      });
+    });
+
+    await expect(
+      t.mutation(anyApi.whatsapp.applyPhoneOtp, { userId, codeHash: await otpHash("000000", userId) }),
+    ).rejects.toThrow(/belum tepat/);
+    expect(await client.query(api.whatsapp.phoneVerificationStatus, {})).toMatchObject({ verified: false });
+
+    const phone = await t.mutation(anyApi.whatsapp.applyPhoneOtp, {
+      userId,
+      codeHash: await otpHash("123456", userId),
+    });
+    expect(phone).toBe("628123456789");
+    expect(await client.query(api.whatsapp.phoneVerificationStatus, {})).toMatchObject({
+      verified: true,
+      phone: "628123456789",
+    });
+
+    const vendorId = await client.mutation(api.vendors.createVendor, listingPayload);
+    expect(vendorId).toBeTruthy();
+
+    // Kode yang sudah dipakai tidak bisa dipakai ulang.
+    await expect(
+      t.mutation(anyApi.whatsapp.applyPhoneOtp, { userId, codeHash: await otpHash("123456", userId) }),
+    ).rejects.toThrow(/tidak ditemukan/);
+  });
+
   test("requester dapat melihat klaimnya sendiri tanpa membuka klaim orang lain", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(api.vendors.ensureCatalogSeeded, {});
     const seeded = await t.run(async (ctx) => await ctx.db.query("vendors").withIndex("bySlug", (q) => q.eq("slug", "karya-jaya")).unique());
-    const claimant = t.withIdentity({ name: "Pemilik Klaim" });
+    const claimant = await verifiedIdentity(t, "Pemilik Klaim");
     const claimId = await claimant.mutation(api.claims.submitVendorClaim, { vendorId: seeded!._id, whatsappPhone: "081234567890", email: "claimant@example.test", businessAddress: "Alamat claimant" });
     const ownClaims = await claimant.query(api.claims.listVendorClaims, { vendorId: seeded!._id });
     expect(ownClaims).toEqual([expect.objectContaining({ _id: claimId, status: "pending" })]);

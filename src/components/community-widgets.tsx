@@ -27,6 +27,7 @@ import {
   useNotificationPreferences,
   useOwnerRequests,
   useNotifications,
+  usePhoneVerification,
   useWhatsappStatus,
   useServiceRequests,
   useVendorPackages,
@@ -404,15 +405,20 @@ export function NotificationCenter() {
   const notifications = useNotifications();
   const preferences = useNotificationPreferences();
   const whatsappStatus = useWhatsappStatus();
+  const phoneVerification = usePhoneVerification();
   const {
     markNotificationsRead,
     setNotificationPreferences,
     sendTestWhatsapp,
+    requestPhoneOtp,
+    verifyPhoneOtp,
   } = useCatalogActions();
   const [preferenceError, setPreferenceError] = useState("");
   const [whatsappPhoneDraft, setWhatsappPhoneDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testNotice, setTestNotice] = useState("");
+  const [otpDraft, setOtpDraft] = useState("");
+  const [otpNotice, setOtpNotice] = useState("");
   const unread = notifications?.filter((item) => !item.read).length ?? 0;
   const prefs: NotificationPreferences = preferences
     ? {
@@ -462,6 +468,48 @@ export function NotificationCenter() {
         caught instanceof Error
           ? caught.message
           : "Pesan uji belum dapat dikirim.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendOtpCode = async () => {
+    setPreferenceError("");
+    setOtpNotice("");
+    setSaving(true);
+    try {
+      await requestPhoneOtp({ phone: whatsappPhone });
+      setOtpNotice(
+        "Kode 6 angka dikirim ke WhatsApp Anda. Berlaku 5 menit.",
+      );
+    } catch (caught) {
+      setOtpNotice(
+        caught instanceof Error
+          ? caught.message
+          : "Kode verifikasi belum dapat dikirim.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmOtpCode = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPreferenceError("");
+    setOtpNotice("");
+    setSaving(true);
+    try {
+      const result = await verifyPhoneOtp({ code: otpDraft });
+      setOtpDraft("");
+      setOtpNotice(
+        `Nomor ${result.phone.slice(0, 3)}•••${result.phone.slice(-3)} terverifikasi. Listing boleh dikelola.`,
+      );
+    } catch (caught) {
+      setOtpNotice(
+        caught instanceof Error
+          ? caught.message
+          : "Kode belum tepat. Coba kirim ulang.",
       );
     } finally {
       setSaving(false);
@@ -559,6 +607,67 @@ export function NotificationCenter() {
           </button>
         </div>
       </label>
+
+      {phoneVerification?.verified ? (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>
+            Nomor WhatsApp terverifikasi. Anda boleh membuat, mengubah, dan
+            mengklaim listing.
+          </span>
+        </div>
+      ) : (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm font-extrabold text-amber-900">
+            Verifikasi nomor WhatsApp
+          </p>
+          <p className="mt-1 text-sm leading-6 text-amber-800">
+            Wajib sebelum mengelola listing: membuat, mengubah, atau mengklaim
+            listing. Kode dikirim ke nomor di atas lewat WhatsApp.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={otpDraft}
+              onChange={(event) =>
+                setOtpDraft(event.target.value.replace(/\D/g, "").slice(0, 6))
+              }
+              placeholder="6 digit kode"
+              aria-label="Kode verifikasi WhatsApp"
+              className={inputClass}
+            />
+            <button
+              type="button"
+              onClick={() => void sendOtpCode()}
+              disabled={saving || whatsappPhone.trim().length < 10}
+              className={`min-h-12 rounded-lg bg-amber-600 px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+            >
+              {saving ? "Memproses..." : "Kirim kode"}
+            </button>
+          </div>
+          {otpDraft.length === 6 ? (
+            <form onSubmit={confirmOtpCode} className="mt-2">
+              <button
+                type="submit"
+                disabled={saving}
+                className={`min-h-12 w-full rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+              >
+                {saving ? "Memeriksa..." : "Verifikasi kode"}
+              </button>
+            </form>
+          ) : null}
+          {otpNotice ? (
+            <p
+              className="mt-2 text-sm font-bold text-amber-900"
+              role="status"
+            >
+              {otpNotice}
+            </p>
+          ) : null}
+        </div>
+      )}
 
       {preferenceError ? (
         <p className="mt-2 text-sm font-bold text-red-700" role="alert">

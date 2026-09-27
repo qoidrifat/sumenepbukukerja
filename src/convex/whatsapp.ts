@@ -1,10 +1,12 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { GenericActionCtx } from "convex/server";
+import { anyApi } from "convex/server";
 import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { buildTemplatePayload, buildTextPayload } from "../lib/whatsapp-payload";
+import { buildOtpTemplatePayload, buildTemplatePayload, buildTextPayload } from "../lib/whatsapp-payload";
+import { writeAudit } from "./audit";
 
 const notificationKindValidator = v.union(
   v.literal("request_created"),
@@ -274,6 +276,50 @@ export const preferencesForUser = internalQuery({
   },
 });
 
+const OTP_TTL_MS = 5 * 60_000;
+const OTP_RESEND_COOLDOWN_MS = 60_000;
+const OTP_MAX_ATTEMPTS = 5;
+
+const requireActionUser = async (ctx: GenericActionCtx<DataModel>) => {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) throw new Error("Masuk untuk menggunakan fitur Buku Kerja");
+  return userId;
+};
+
+/** Kode 6 angka tanpa bias modulo, dari generator acak terenkripsi. */
+const randomOtpCode = () => {
+  const buffer = new Uint32Array(1);
+  const ceiling = 4_294_967_296 - (4_294_967_296 % 1_000_000);
+  let value = ceiling;
+  while (value >= ceiling) {
+    crypto.getRandomValues(buffer);
+    value = buffer[0];
+  }
+  return String(value % 1_000_000).padStart(6, "0");
+};
+
+/**
+ * Kode OTP tidak pernah disimpan apa adanya. Hash-nya juga diikat ke userId
+ * supaya kode satu akun tidak bisa dipakai akun lain.
+ */
+const hashOtpCode = async (code: string, userId: string) => {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${code}:${userId}`));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const timingSafeEqual = (a: string, b: string) => {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+  return diff === 0;
+};
+
+const otpTemplateName = () => process.env.WHATSAPP_OTP_TEMPLATE_NAME;
+
 const safeErrorCode = (value: unknown) => {
   const code = typeof value === "string" || typeof value === "number" ? String(value) : "provider_error";
   return code.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "provider_error";
@@ -394,23 +440,13 @@ export const applyDeliveryStatus = internalMutation({
   },
 });
 
-async function sendViaMeta(
+async function postMetaMessage(
   config: ReturnType<typeof metaConfig>,
-  input: { phone: string; title: string; body: string },
-): Promise<{ skipped: boolean; configured: boolean; messageId?: string }> {
+  payload: Record<string, unknown>,
+): Promise<{ messageId?: string }> {
   if (!config.configured || !config.accessToken || !config.phoneNumberId) {
-    return { skipped: true, configured: false };
+    throw new Error("Integrasi WhatsApp belum dikonfigurasi");
   }
-  // Template memakai variabel bernama; WhatsApp Manager menolak `{{1}}`.
-  // Nama variabel bisa disesuaikan lewat env bila template diganti.
-  const payload: Record<string, unknown> = config.templateName
-    ? buildTemplatePayload(input, {
-        name: config.templateName,
-        language: process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? "id",
-        titleParam: process.env.WHATSAPP_TEMPLATE_PARAM_TITLE ?? "judul",
-        bodyParam: process.env.WHATSAPP_TEMPLATE_PARAM_BODY ?? "isi",
-      })
-    : buildTextPayload(input);
   const response = await fetch(
     `https://graph.facebook.com/${config.graphVersion}/${config.phoneNumberId}/messages`,
     {
@@ -432,7 +468,28 @@ async function sendViaMeta(
     error.providerCode = safeErrorCode(result.error?.code ?? response.status);
     throw error;
   }
-  return { skipped: false, configured: true, messageId: result.messages?.[0]?.id };
+  return { messageId: result.messages?.[0]?.id };
+}
+
+async function sendViaMeta(
+  config: ReturnType<typeof metaConfig>,
+  input: { phone: string; title: string; body: string },
+): Promise<{ skipped: boolean; configured: boolean; messageId?: string }> {
+  if (!config.configured || !config.accessToken || !config.phoneNumberId) {
+    return { skipped: true, configured: false };
+  }
+  // Template memakai variabel bernama; WhatsApp Manager menolak `{{1}}`.
+  // Nama variabel bisa disesuaikan lewat env bila template diganti.
+  const payload: Record<string, unknown> = config.templateName
+    ? buildTemplatePayload(input, {
+        name: config.templateName,
+        language: process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? "id",
+        titleParam: process.env.WHATSAPP_TEMPLATE_PARAM_TITLE ?? "judul",
+        bodyParam: process.env.WHATSAPP_TEMPLATE_PARAM_BODY ?? "isi",
+      })
+    : buildTextPayload(input);
+  const result = await postMetaMessage(config, payload);
+  return { skipped: false, configured: true, messageId: result.messageId };
 }
 
 async function sendWhatsappMessage(input: {
@@ -580,6 +637,206 @@ export const retryWhatsappDelivery = internalAction({
       await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: delivery._id, errorCode: code });
       return { sent: false };
     }
+  },
+});
+
+export const phoneVerificationStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Masuk untuk menggunakan fitur Buku Kerja");
+    const verification = await ctx.db
+      .query("phoneVerifications")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .unique();
+    const pending = await ctx.db
+      .query("phoneOtp")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .collect();
+    const latest = pending
+      .filter((row) => !row.consumedAt)
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
+    const now = Date.now();
+    return {
+      phone: verification?.phone ?? null,
+      verified: Boolean(verification),
+      verifiedAt: verification?.verifiedAt ?? null,
+      hasPendingCode: Boolean(latest),
+      expiresInSeconds: latest ? Math.max(0, Math.ceil((latest.expiresAt - now) / 1000)) : 0,
+      resendInSeconds: latest
+        ? Math.max(0, Math.ceil((latest.createdAt + OTP_RESEND_COOLDOWN_MS - now) / 1000))
+        : 0,
+    };
+  },
+});
+
+export const phoneOtpState = internalQuery({
+  // Nilai userId selalu berasal dari getAuthUserId di action, bukan dari klien.
+  // Disimpan sebagai string agar helper ini bisa diuji tanpa tabel auth.
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const userId = args.userId as DataModel["users"]["document"]["_id"];
+    const rows = await ctx.db
+      .query("phoneOtp")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .collect();
+    const latest = rows
+      .filter((row) => !row.consumedAt)
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
+    const now = Date.now();
+    return {
+      resendInSeconds: latest
+        ? Math.max(0, Math.ceil((latest.createdAt + OTP_RESEND_COOLDOWN_MS - now) / 1000))
+        : 0,
+    };
+  },
+});
+
+export const createPhoneOtp = internalMutation({
+  args: {
+    userId: v.string(),
+    phone: v.string(),
+    codeHash: v.string(),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const userId = args.userId as DataModel["users"]["document"]["_id"];
+    const previous = await ctx.db
+      .query("phoneOtp")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .collect();
+    for (const row of previous) await ctx.db.delete(row._id);
+    await ctx.db.insert("phoneOtp", {
+      userId,
+      phone: args.phone,
+      codeHash: args.codeHash,
+      attempts: 0,
+      createdAt: Date.now(),
+      expiresAt: args.expiresAt,
+    });
+    return null;
+  },
+});
+
+export const clearPhoneOtp = internalMutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const userId = args.userId as DataModel["users"]["document"]["_id"];
+    const rows = await ctx.db
+      .query("phoneOtp")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .collect();
+    for (const row of rows) await ctx.db.delete(row._id);
+    return null;
+  },
+});
+
+export const applyPhoneOtp = internalMutation({
+  args: { userId: v.string(), codeHash: v.string() },
+  handler: async (ctx, args) => {
+    const userId = args.userId as DataModel["users"]["document"]["_id"];
+    const rows = await ctx.db
+      .query("phoneOtp")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .collect();
+    const active = rows
+      .filter((row) => !row.consumedAt)
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
+    if (!active) throw new Error("Kode tidak ditemukan. Minta kode baru.");
+    if (active.expiresAt <= Date.now()) {
+      await ctx.db.delete(active._id);
+      throw new Error("Kode sudah kedaluwarsa. Minta kode baru.");
+    }
+    if (active.attempts >= OTP_MAX_ATTEMPTS) {
+      await ctx.db.delete(active._id);
+      throw new Error("Terlalu banyak percobaan salah. Minta kode baru.");
+    }
+    if (!timingSafeEqual(active.codeHash, args.codeHash)) {
+      const attempts = active.attempts + 1;
+      if (attempts >= OTP_MAX_ATTEMPTS) await ctx.db.delete(active._id);
+      else await ctx.db.patch(active._id, { attempts });
+      throw new Error("Kode belum tepat. Periksa kembali angka yang Anda terima.");
+    }
+    await ctx.db.patch(active._id, { consumedAt: Date.now() });
+    const previousVerification = await ctx.db
+      .query("phoneVerifications")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .unique();
+    if (previousVerification) await ctx.db.delete(previousVerification._id);
+    await ctx.db.insert("phoneVerifications", {
+      userId,
+      phone: active.phone,
+      verifiedAt: Date.now(),
+    });
+    await writeAudit(ctx, {
+      action: "user.phone_verified",
+      actorId: userId,
+      newValue: { phone: active.phone },
+    });
+    return active.phone;
+  },
+});
+
+export const requestPhoneOtp = action({
+  args: { phone: v.string() },
+  handler: async (ctx, args): Promise<{ sent: boolean; expiresInSeconds: number }> => {
+    const userId = await requireActionUser(ctx);
+    const phone = normalizePhone(args.phone);
+    if (!phone) {
+      throw new Error("Nomor WhatsApp tidak valid. Gunakan format 08xx atau 62xx.");
+    }
+    const config = metaConfig();
+    const templateName = otpTemplateName();
+    if (!config.configured || !templateName) {
+      throw new Error("Verifikasi lewat WhatsApp belum dikonfigurasi.");
+    }
+    // Helper OTP berada di berkas yang sama, jadi dipanggil lewat anyApi: tipe
+    // _generated lokal belum memuat referensi internal barunya, sedangkan
+    // runtime tetap menyentuh path internal yang sama.
+    const status = (await ctx.runQuery(anyApi.whatsapp.phoneOtpState, {
+      userId,
+    })) as { resendInSeconds: number };
+    if (status.resendInSeconds > 0) {
+      throw new Error(`Tunggu ${status.resendInSeconds} detik sebelum meminta kode lagi.`);
+    }
+    const code = randomOtpCode();
+    await ctx.runMutation(anyApi.whatsapp.createPhoneOtp, {
+      userId,
+      phone,
+      codeHash: await hashOtpCode(code, userId),
+      expiresAt: Date.now() + OTP_TTL_MS,
+    });
+    try {
+      await postMetaMessage(
+        config,
+        buildOtpTemplatePayload(
+          { phone, code },
+          {
+            name: templateName,
+            language: process.env.WHATSAPP_OTP_TEMPLATE_LANGUAGE ?? "id",
+            codeParam: process.env.WHATSAPP_OTP_TEMPLATE_PARAM_CODE ?? "kode",
+          },
+        ),
+      );
+    } catch {
+      // Jangan menahan pengguna 60 detik kalau pesannya memang gagal terkirim.
+      await ctx.runMutation(anyApi.whatsapp.clearPhoneOtp, { userId });
+      throw new Error("Kode gagal dikirim. Periksa konfigurasi WhatsApp lalu coba lagi.");
+    }
+    return { sent: true, expiresInSeconds: Math.round(OTP_TTL_MS / 1000) };
+  },
+});
+
+export const verifyPhoneOtp = action({
+  args: { code: v.string() },
+  handler: async (ctx, args): Promise<{ phone: string }> => {
+    const userId = await requireActionUser(ctx);
+    const code = args.code.replace(/\D/g, "");
+    if (code.length !== 6) throw new Error("Kode verifikasi terdiri dari 6 angka.");
+    return { phone: await ctx.runMutation(anyApi.whatsapp.applyPhoneOtp, {
+      userId,
+      codeHash: await hashOtpCode(code, userId),
+    }) };
   },
 });
 

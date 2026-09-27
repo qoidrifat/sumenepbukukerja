@@ -507,6 +507,8 @@ export function useCatalogActions() {
   const reopenRequest = useMutation(api.community.reopenRequest);
   const track = useMutation(api.analytics.track);
   const sendTestWhatsapp = useAction(api.whatsapp.sendTestWhatsapp);
+  const requestPhoneOtp = useAction(api.whatsapp.requestPhoneOtp);
+  const verifyPhoneOtp = useAction(api.whatsapp.verifyPhoneOtp);
   return {
     create,
     update,
@@ -543,6 +545,8 @@ export function useCatalogActions() {
     reopenRequest,
     track,
     sendTestWhatsapp,
+    requestPhoneOtp,
+    verifyPhoneOtp,
   };
 }
 
@@ -575,6 +579,10 @@ export function useNotificationPreferences() {
 
 export function useWhatsappStatus() {
   return useQuery(api.whatsapp.getWhatsappStatus, {});
+}
+
+export function usePhoneVerification() {
+  return useQuery(api.whatsapp.phoneVerificationStatus, {});
 }
 
 export function useCommunityMetrics() {

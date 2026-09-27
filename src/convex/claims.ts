@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getStaffAccess, requireManagementViewer, requireStaff, requireUser } from "./access";
+import { getStaffAccess, requireManagementViewer, requireStaff, requireUser, requireVerifiedPhone } from "./access";
 import { writeAudit } from "./audit";
 import { recordEvent } from "./analytics";
 import type { GenericMutationCtx } from "convex/server";
@@ -37,6 +37,7 @@ export const submitVendorClaim = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
+    await requireVerifiedPhone(ctx, userId);
     const vendor = await ctx.db.get(args.vendorId);
     if (!vendor) throw new Error("Listing tidak ditemukan");
     if (vendor.ownerId && vendor.ownerId !== userId) {

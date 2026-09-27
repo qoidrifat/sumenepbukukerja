@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildTemplatePayload, buildTextPayload } from "./whatsapp-payload";
+import { buildOtpTemplatePayload, buildTemplatePayload, buildTextPayload } from "./whatsapp-payload";
 
 const input = { phone: "6281234567890", title: "Permintaan warga baru", body: "Bengkel motor di Kalianget." };
 const options = { name: "notifikasi_buku_kerja", language: "id", titleParam: "judul", bodyParam: "isi" };
@@ -50,8 +50,40 @@ describe("buildTemplatePayload", () => {
   });
 });
 
-describe("buildTextPayload", () => {
-  test("menggabungkan judul dan isi untuk pesan teks bebas", () => {
+describe("buildOtpTemplatePayload", () => {
+  const otpOptions = { name: "otp_buku_kerja", language: "id", codeParam: "kode" };
+
+  test("mengirim satu parameter kode untuk template Authentication", () => {
+    const payload = buildOtpTemplatePayload({ phone: "6281234567890", code: "482913" }, otpOptions);
+    expect(payload.type).toBe("template");
+    expect(payload.template.name).toBe("otp_buku_kerja");
+    expect(payload.template.language).toEqual({ code: "id" });
+    const components = payload.template.components as Array<{
+      type: string;
+      parameters: Array<{ type: string; parameter_name: string; text: string }>;
+    }>;
+    expect(components).toHaveLength(1);
+    expect(components[0].parameters).toEqual([
+      { type: "text", parameter_name: "kode", text: "482913" },
+    ]);
+  });
+
+  test("nama variabel kode mengikuti env", () => {
+    const components = buildOtpTemplatePayload(
+      { phone: "6281234567890", code: "482913" },
+      { ...otpOptions, codeParam: "otp" },
+    ).template.components as Array<{ parameters: Array<{ parameter_name: string }> }>;
+    expect(components[0].parameters[0].parameter_name).toBe("otp");
+  });
+
+  test("tidak mengirim judul maupun keterangan seperti notifikasi biasa", () => {
+    const components = buildOtpTemplatePayload({ phone: "6281234567890", code: "482913" }, otpOptions)
+      .template.components as Array<{ parameters: unknown[] }>;
+    expect(components[0].parameters).toHaveLength(1);
+  });
+});
+
+describe("buildTextPayload", () => {  test("menggabungkan judul dan isi untuk pesan teks bebas", () => {
     expect(buildTextPayload(input)).toEqual({
       messaging_product: "whatsapp",
       recipient_type: "individual",

@@ -70,3 +70,21 @@ export async function requireVendorManager(
   }
   return { userId, access };
 }
+
+/**
+ * Mengelola listing butuh bukti kepemilikan nomor WhatsApp. Tanpa ini siapa pun
+ * bisa memasang nomor orang lain lalu mengelola listing dengan identitas itu.
+ * Pengelola (admin/staff) tetap boleh, karena mereka bertindak atas nama
+ * komunitas, bukan atas nama akun pribadi.
+ */
+export async function requireVerifiedPhone(ctx: Context, userId: DataModel["users"]["document"]["_id"]) {
+  if (await getStaffAccess(ctx, userId)) return;
+  const verification = await ctx.db
+    .query("phoneVerifications")
+    .withIndex("byUser", (q) => q.eq("userId", userId))
+    .unique();
+  if (!verification) {
+    throw new Error("Verifikasi nomor WhatsApp di Dashboard sebelum mengelola listing");
+  }
+  return verification.phone;
+}

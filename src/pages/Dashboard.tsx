@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import {
   Archive,
@@ -23,9 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  categoryOptions,
   landmarkLabel,
-  landmarks,
   type Category,
   type Vendor,
 } from "@/lib/catalog";
@@ -43,6 +41,13 @@ import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useNavigate } from "react-router";
 import { AnimatedContent, BorderGlow, Counter, GlassIcons, ScrollReveal } from "@/components/react-bits";
+import { ThemedSelect } from "@/components/ui/themed-select";
+import {
+  areaSelectOptions,
+  availabilitySelectOptions,
+  categorySelectOptions,
+  type ThemedSelectOption,
+} from "@/lib/select-options";
 import { AccessibilityControls, ClaimListingPanel, InteractionHistory, MyRequestHistory, NotificationCenter, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
 
@@ -70,6 +75,12 @@ type OwnerDraft = {
 
 const ownerInputClass =
   "min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base text-slate-900 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+
+const ownerStatusSelectOptions: ThemedSelectOption[] = [
+  { value: "active", label: "Tayang" },
+  { value: "draft", label: "Simpan sebagai draft" },
+  { value: "archived", label: "Nonaktif" },
+];
 
 const emptyOwnerDraft = (): OwnerDraft => ({
   name: "",
@@ -240,6 +251,10 @@ function OwnerListingManager() {
       .map((claim) => String(claim.vendorId)),
   );
   const { create, update, archive, availability, generateUploadUrl } = useCatalogActions();
+  const categoryFieldId = useId();
+  const areaFieldId = useId();
+  const statusFieldId = useId();
+  const availabilityFieldId = useId();
   const [draft, setDraft] = useState<OwnerDraft | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -423,17 +438,15 @@ function OwnerListingManager() {
                 </span>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <select
+                <ThemedSelect
                   aria-label={`Status ketersediaan ${vendor.name}`}
+                  size="sm"
+                  className="w-auto min-w-[9.5rem]"
                   value={vendor.availability ?? "available"}
                   disabled={busyId === vendor._id}
-                  onChange={(event) => void changeAvailability(vendor, event.target.value as OwnerAvailability)}
-                  className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm font-extrabold text-slate-700"
-                >
-                  <option value="available">Tersedia</option>
-                  <option value="busy">Sedang sibuk</option>
-                  <option value="closed">Tutup sementara</option>
-                </select>
+                  onValueChange={(value) => void changeAvailability(vendor, value as OwnerAvailability)}
+                  options={availabilitySelectOptions}
+                />
                 <button type="button" onClick={() => startEdit(vendor)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-50"><Edit3 className="size-4" />Edit</button>
                 {vendor.status === "active" ? (
                   <button type="button" disabled={busyId === vendor._id} onClick={() => void archiveListing(vendor)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-sm font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-50"><Archive className="size-4" />Nonaktifkan</button>
@@ -476,15 +489,15 @@ function OwnerListingManager() {
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-sm font-extrabold text-slate-800">Nama usaha *</span><input value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} className={ownerInputClass} required /></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Kategori</span><select value={draft.category} onChange={(event) => updateDraft({ category: event.target.value as Category })} className={ownerInputClass}>{categoryOptions.map((item) => <option key={item.label}>{item.label}</option>)}</select></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Area</span><select value={draft.landmark} onChange={(event) => updateDraft({ landmark: event.target.value })} className={ownerInputClass}><option value="all">Semua Sumenep</option>{landmarks.filter((item) => item.id !== "all").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+            <label className="flex flex-col gap-1.5" htmlFor={categoryFieldId}><span className="text-sm font-extrabold text-slate-800">Kategori</span><ThemedSelect id={categoryFieldId} value={draft.category} onValueChange={(value) => updateDraft({ category: value as Category })} options={categorySelectOptions} /></label>
+            <label className="flex flex-col gap-1.5" htmlFor={areaFieldId}><span className="text-sm font-extrabold text-slate-800">Area</span><ThemedSelect id={areaFieldId} value={draft.landmark} onValueChange={(value) => updateDraft({ landmark: value })} options={areaSelectOptions} /></label>
             <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-sm font-extrabold text-slate-800">Alamat *</span><input value={draft.address} onChange={(event) => updateDraft({ address: event.target.value })} className={ownerInputClass} placeholder="Alamat usaha" required /></label>
             <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-sm font-extrabold text-slate-800">Deskripsi *</span><textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} className={`${ownerInputClass} min-h-28 py-3`} rows={3} required minLength={10} /></label>
             <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Harga awal</span><input value={draft.price} onChange={(event) => updateDraft({ price: event.target.value })} className={ownerInputClass} placeholder="Mulai Rp..." /></label>
             <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Nomor WhatsApp *</span><input value={draft.phone} onChange={(event) => updateDraft({ phone: event.target.value })} className={ownerInputClass} inputMode="tel" placeholder="08xxxxxxxxxx" required /></label>
             <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-sm font-extrabold text-slate-800">Jam kerja</span><input value={draft.hours} onChange={(event) => updateDraft({ hours: event.target.value })} className={ownerInputClass} placeholder="Setiap hari · 07.00–17.00" /></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Status listing</span><select value={draft.status} onChange={(event) => updateDraft({ status: event.target.value as OwnerDraft["status"] })} className={ownerInputClass}><option value="active">Tayang</option><option value="draft">Simpan sebagai draft</option><option value="archived">Nonaktif</option></select></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Ketersediaan</span><select value={draft.availability} onChange={(event) => updateDraft({ availability: event.target.value as OwnerAvailability })} className={ownerInputClass}><option value="available">Tersedia</option><option value="busy">Sedang sibuk</option><option value="closed">Tutup sementara</option></select></label>
+            <label className="flex flex-col gap-1.5" htmlFor={statusFieldId}><span className="text-sm font-extrabold text-slate-800">Status listing</span><ThemedSelect id={statusFieldId} value={draft.status} onValueChange={(value) => updateDraft({ status: value as OwnerDraft["status"] })} options={ownerStatusSelectOptions} /></label>
+            <label className="flex flex-col gap-1.5" htmlFor={availabilityFieldId}><span className="text-sm font-extrabold text-slate-800">Ketersediaan</span><ThemedSelect id={availabilityFieldId} value={draft.availability} onValueChange={(value) => updateDraft({ availability: value as OwnerAvailability })} options={availabilitySelectOptions} /></label>
             <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Perkiraan tersedia lagi</span><input type="datetime-local" value={draft.nextAvailableAt} onChange={(event) => updateDraft({ nextAvailableAt: event.target.value })} className={ownerInputClass} /></label>
             <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Rata-rata balas (menit)</span><input type="number" min="1" value={draft.responseMinutes} onChange={(event) => updateDraft({ responseMinutes: event.target.value })} className={ownerInputClass} /></label>
             <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Radius layanan (km)</span><input type="number" min="1" value={draft.serviceRadiusKm} onChange={(event) => updateDraft({ serviceRadiusKm: event.target.value })} className={ownerInputClass} /></label>

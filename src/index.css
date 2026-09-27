@@ -295,6 +295,22 @@
   opacity: 0.55;
 }
 
+/* Select menus render in a portal, so they land outside .admin-workspace.
+   Re-attaching the layer carries the Warm Brutalism tokens into the menu while
+   this override swaps the canvas background for the raised panel surface. */
+.admin-workspace.admin-select-portal {
+  background-color: var(--admin-surface);
+  background-image: none;
+}
+
+/* Radix memfokuskan setiap option saat keyboard dinavigasi. Highlight kuning
+   sudah menjadi indikator fokus yang terlihat, jadi outline global admin
+   tidak perlu digandakan di sini. */
+.admin-workspace [data-slot="select-item"]:focus,
+.admin-workspace [data-slot="select-item"]:focus-visible {
+  outline: none;
+}
+
 .admin-workspace .admin-status {
   display: inline-flex;
   min-height: 30px;
@@ -468,6 +484,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  [data-slot="select-content"] {
+    animation: none !important;
+  }
+
   .admin-workspace *,
   .admin-workspace *::before,
   .admin-workspace *::after,

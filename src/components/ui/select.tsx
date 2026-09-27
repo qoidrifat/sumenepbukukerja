@@ -4,6 +4,56 @@ import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Every select in the app renders through this file so a dropdown always looks
+ * like the control that opened it:
+ *   - `default` mirrors the public input token (slate border, rounded-lg, 48px)
+ *   - `admin`   mirrors the Warm Brutalism `.admin-input` (2px ink border, 2px
+ *               radius, flat offset shadow)
+ *   - `ghost`   borderless variant for selects nested inside another control
+ */
+export type SelectVariant = "default" | "admin" | "ghost"
+export type SelectSize = "sm" | "md"
+
+const triggerVariantClass: Record<SelectVariant, string> = {
+  default:
+    "min-h-12 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base leading-6 text-slate-900 hover:border-slate-400 hover:bg-slate-50 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 data-[state=open]:border-blue-500 data-[state=open]:ring-2 data-[state=open]:ring-blue-100 data-[placeholder]:text-slate-500 aria-invalid:border-red-400 aria-invalid:ring-red-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500",
+  admin:
+    "min-h-12 rounded-[2px] border-2 border-[#121212] bg-white px-3 py-2.5 text-base leading-6 text-[#1a1a1a] shadow-[2px_2px_0_0_#121212] hover:bg-[#F1EDE3] focus:border-[#FF5A26] focus:shadow-[4px_4px_0_0_#121212] data-[state=open]:border-[#FF5A26] data-[state=open]:bg-[#F1EDE3] data-[state=open]:shadow-[4px_4px_0_0_#121212] data-[placeholder]:text-[#525252] disabled:cursor-not-allowed disabled:border-[#A8A29E] disabled:bg-[#F1EDE3] disabled:text-[#525252] disabled:shadow-[2px_2px_0_0_#A8A29E]",
+  ghost:
+    "min-h-9 w-auto rounded-md border-0 bg-transparent px-1.5 py-1 text-sm font-extrabold leading-5 text-blue-700 hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 data-[state=open]:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-400",
+}
+
+const triggerSizeClass: Record<SelectVariant, Record<SelectSize, string>> = {
+  default: { sm: "min-h-10 px-2.5 py-1.5 text-sm", md: "" },
+  admin: { sm: "min-h-10 px-2 py-1 text-sm", md: "" },
+  ghost: { sm: "", md: "min-h-10 px-2 text-sm" },
+}
+
+const chevronClass: Record<SelectVariant, string> = {
+  default: "size-5 text-slate-400 group-hover:text-slate-600 group-data-[state=open]:text-blue-600",
+  admin: "size-5 text-[#121212]",
+  ghost: "size-4 text-blue-700",
+}
+
+const contentVariantClass: Record<SelectVariant, string> = {
+  default:
+    "max-h-[min(21rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1.5rem)] rounded-lg border border-slate-200 bg-white p-1 text-slate-900 shadow-lg shadow-slate-900/10",
+  admin:
+    "admin-workspace admin-select-portal max-h-[min(21rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1.5rem)] rounded-[2px] border-2 border-[#121212] p-1 shadow-[4px_4px_0_0_#121212]",
+  ghost:
+    "max-h-[min(21rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1.5rem)] rounded-lg border border-slate-200 bg-white p-1 text-slate-900 shadow-lg shadow-slate-900/10",
+}
+
+const itemVariantClass: Record<SelectVariant, string> = {
+  default:
+    "min-h-11 rounded-md px-3 py-2 text-sm leading-6 text-slate-700 data-[highlighted]:bg-slate-100 data-[highlighted]:text-slate-950 data-[state=checked]:font-extrabold data-[state=checked]:text-blue-700 data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:text-slate-500",
+  admin:
+    "min-h-11 rounded-[2px] px-3 py-2 text-sm font-semibold leading-6 text-[#1a1a1a] data-[highlighted]:bg-[#FFE662] data-[highlighted]:text-[#1a1a1a] data-[state=checked]:bg-[#FF5A26] data-[state=checked]:text-white data-[state=checked]:font-black data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:text-[#525252] data-[disabled]:opacity-60",
+  ghost:
+    "min-h-11 rounded-md px-3 py-2 text-sm leading-6 text-slate-700 data-[highlighted]:bg-slate-100 data-[highlighted]:text-slate-950 data-[state=checked]:font-extrabold data-[state=checked]:text-blue-700 data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:text-slate-500",
+}
+
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
@@ -24,25 +74,36 @@ function SelectValue({
 
 function SelectTrigger({
   className,
-  size = "default",
+  size = "md",
+  variant = "default",
   children,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
-  size?: "sm" | "default"
+  size?: SelectSize
+  variant?: SelectVariant
 }) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       data-size={size}
+      data-variant={variant}
       className={cn(
-        "border-input data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:hover:bg-input/50 flex w-fit items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-9 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "group flex w-full min-w-0 items-center justify-between gap-2 text-left outline-none transition-[border-color,box-shadow,background-color] duration-150 *:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:truncate *:data-[slot=select-value]:text-left",
+        triggerVariantClass[variant],
+        triggerSizeClass[variant][size],
         className
       )}
       {...props}
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDownIcon className="size-4 opacity-50" />
+        <ChevronDownIcon
+          aria-hidden="true"
+          className={cn(
+            "shrink-0 transition-transform duration-150 group-data-[state=open]:rotate-180",
+            chevronClass[variant]
+          )}
+        />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
@@ -51,30 +112,35 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
-  position = "item-aligned",
-  align = "center",
+  position = "popper",
+  align = "start",
+  sideOffset = 6,
+  variant = "default",
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Content>) {
+}: React.ComponentProps<typeof SelectPrimitive.Content> & {
+  variant?: SelectVariant
+}) {
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
         data-slot="select-content"
+        data-variant={variant}
         className={cn(
-          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border shadow-md",
+          "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1 relative z-50 origin-(--radix-select-content-transform-origin) overflow-hidden",
           position === "popper" &&
             "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+          contentVariantClass[variant],
           className
         )}
         position={position}
         align={align}
+        sideOffset={sideOffset}
         {...props}
       >
         <SelectScrollUpButton />
         <SelectPrimitive.Viewport
           className={cn(
-            "p-1",
-            position === "popper" &&
-              "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1"
+            "max-h-[min(20rem,var(--radix-select-content-available-height))] w-full min-w-[var(--radix-select-trigger-width)] overflow-y-auto overscroll-contain scroll-my-1"
           )}
         >
           {children}
@@ -101,26 +167,33 @@ function SelectLabel({
 function SelectItem({
   className,
   children,
+  variant = "default",
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Item>) {
+}: React.ComponentProps<typeof SelectPrimitive.Item> & {
+  variant?: SelectVariant
+}) {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
+      data-variant={variant}
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "relative flex w-full cursor-pointer items-center gap-2 pr-9 select-none",
+        itemVariantClass[variant],
         className
       )}
       {...props}
     >
+      <SelectPrimitive.ItemText className="min-w-0 flex-1 truncate">
+        {children}
+      </SelectPrimitive.ItemText>
       <span
         data-slot="select-item-indicator"
-        className="absolute right-2 flex size-3.5 items-center justify-center"
+        className="absolute top-1/2 right-2.5 flex size-4 -translate-y-1/2 items-center justify-center"
       >
         <SelectPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
+          <CheckIcon aria-hidden="true" className="size-4" />
         </SelectPrimitive.ItemIndicator>
       </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   )
 }

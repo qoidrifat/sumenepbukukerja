@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import {
   AlertTriangle,
@@ -17,7 +17,7 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { categoryOptions, landmarkLabel, landmarks, type Category, type Vendor } from "@/lib/catalog";
+import { landmarkLabel, type Category, type Vendor } from "@/lib/catalog";
 import { distanceLabel } from "@/lib/catalog-data";
 import {
   useCatalogActions,
@@ -40,6 +40,13 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { AnimatedContent, ScrollReveal } from "@/components/react-bits";
+import { ThemedSelect } from "@/components/ui/themed-select";
+import {
+  areaSelectOptions,
+  categorySelectOptions,
+  interactionStatusSelectOptions,
+  reportReasonSelectOptions,
+} from "@/lib/select-options";
 import { useOfflineQueue } from "@/lib/offline-queue";
 
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
@@ -96,6 +103,8 @@ function RequestForm({ onCreated }: { onCreated: () => void }) {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const { createRequest } = useCatalogActions();
+  const categoryFieldId = useId();
+  const areaFieldId = useId();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<Category>("Servis Teknik");
@@ -162,18 +171,13 @@ function RequestForm({ onCreated }: { onCreated: () => void }) {
           <span className="text-sm font-extrabold text-slate-800">Judul kebutuhan</span>
           <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Contoh: Butuh tukang listrik dekat Kalianget" className={inputClass} required minLength={5} maxLength={100} />
         </label>
-        <label className="flex flex-col gap-2">
+        <label className="flex flex-col gap-2" htmlFor={categoryFieldId}>
           <span className="text-sm font-extrabold text-slate-800">Kategori</span>
-          <select value={category} onChange={(event) => setCategory(event.target.value as Category)} className={inputClass}>
-            {categoryOptions.map((item) => <option key={item.label}>{item.label}</option>)}
-          </select>
+          <ThemedSelect id={categoryFieldId} value={category} onValueChange={(value) => setCategory(value as Category)} options={categorySelectOptions} />
         </label>
-        <label className="flex flex-col gap-2">
+        <label className="flex flex-col gap-2" htmlFor={areaFieldId}>
           <span className="text-sm font-extrabold text-slate-800">Area</span>
-          <select value={landmark} onChange={(event) => setLandmark(event.target.value)} className={inputClass}>
-            <option value="all">Semua Sumenep</option>
-            {landmarks.filter((item) => item.id !== "all").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-          </select>
+          <ThemedSelect id={areaFieldId} value={landmark} onValueChange={setLandmark} options={areaSelectOptions} />
         </label>
         <label className="flex flex-col gap-2">
           <span className="text-sm font-extrabold text-slate-800">Anggaran singkat <span className="font-medium text-slate-500">(opsional)</span></span>
@@ -318,6 +322,7 @@ function RequestCard({ request }: { request: RequestWithExpiry }) {
 
 export function RequestBoard() {
   const [area, setArea] = useState("all");
+  const areaFilterId = useId();
   const requests = useServiceRequests({ status: "open", landmark: area === "all" ? undefined : area, limit: 20 });
   return (
     <section id="permintaan" className="relative z-10 scroll-mt-16 border-y border-slate-200 bg-white py-12 sm:py-16">
@@ -329,13 +334,18 @@ export function RequestBoard() {
               <h2 className="mt-2 text-[clamp(1.7rem,3.5vw,2.6rem)] font-black tracking-[-0.045em] text-slate-950">Ada yang butuh, ada yang bisa membantu.</h2>
               <p className="mt-3 text-base leading-7 text-slate-600">Permintaan lokal dibuat agar warga dan penyedia bisa saling menemukan tanpa perlu aplikasi chat tambahan.</p>
             </div>
-            <label className="flex min-h-12 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm">
-              Area
-              <select value={area} onChange={(event) => setArea(event.target.value)} className="bg-transparent text-sm font-extrabold text-blue-700 outline-none">
-                <option value="all">Semua Sumenep</option>
-                {landmarks.filter((item) => item.id !== "all").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-              </select>
-            </label>
+            <div className="flex min-h-12 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 text-sm font-bold text-slate-700 shadow-sm sm:px-3">
+              <span className="shrink-0" id={`${areaFilterId}-label`}>Area</span>
+              <ThemedSelect
+                id={areaFilterId}
+                aria-labelledby={`${areaFilterId}-label`}
+                variant="ghost"
+                value={area}
+                onValueChange={setArea}
+                options={areaSelectOptions}
+                className="min-w-[8.5rem] flex-1"
+              />
+            </div>
           </div>
         </ScrollReveal>
         <div className="mt-8 grid gap-6 lg:grid-cols-[.85fr_1.15fr] lg:items-start">
@@ -396,7 +406,7 @@ export function InteractionHistory() {
         </div>
         <Clock3 className="size-5 text-blue-600" aria-hidden="true" />
       </div>
-      {interactions === undefined ? <p className="mt-4 text-sm font-bold text-slate-500">Memuat riwayat...</p> : interactions.length === 0 ? <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">Kontak yang Anda buka akan muncul di sini. Tandai status agar mudah diingat.</p> : <div className="mt-4 space-y-3">{interactions.slice(0, 8).map((item) => <div key={item._id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate font-extrabold text-slate-900">{item.vendorName}</p><p className="mt-1 text-sm text-slate-600">{item.kind === "whatsapp" ? "WhatsApp dibuka" : item.kind === "share" ? "Listing dibagikan" : item.kind === "call" ? "Nomor ditelepon" : item.kind === "view" ? "Listing dibuka" : "Permintaan dibantu"}</p></div><div className="flex items-center gap-2"><select aria-label={`Status interaksi ${item.vendorName}`} value={item.status} onChange={(event) => void update(item._id, event.target.value as "opened" | "waiting" | "completed" | "dismissed")} className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm font-bold text-slate-700"><option value="opened">Baru dibuka</option><option value="waiting">Menunggu dibalas</option><option value="completed">Sudah selesai</option><option value="dismissed">Tutup</option></select>{item.vendorSlug ? <Link to={`/v/${item.vendorSlug}`} className={`flex min-h-10 items-center rounded-lg border border-blue-200 px-3 text-sm font-extrabold text-blue-700 ${focusRing}`}>Buka</Link> : null}</div></div>)}</div>}
+      {interactions === undefined ? <p className="mt-4 text-sm font-bold text-slate-500">Memuat riwayat...</p> : interactions.length === 0 ? <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">Kontak yang Anda buka akan muncul di sini. Tandai status agar mudah diingat.</p> : <div className="mt-4 space-y-3">{interactions.slice(0, 8).map((item) => <div key={item._id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate font-extrabold text-slate-900">{item.vendorName}</p><p className="mt-1 text-sm text-slate-600">{item.kind === "whatsapp" ? "WhatsApp dibuka" : item.kind === "share" ? "Listing dibagikan" : item.kind === "call" ? "Nomor ditelepon" : item.kind === "view" ? "Listing dibuka" : "Permintaan dibantu"}</p></div><div className="flex items-center gap-2"><ThemedSelect aria-label={`Status interaksi ${item.vendorName}`} size="sm" className="w-auto min-w-[9.5rem]" value={item.status} onValueChange={(value) => void update(item._id, value as "opened" | "waiting" | "completed" | "dismissed")} options={interactionStatusSelectOptions} />{item.vendorSlug ? <Link to={`/v/${item.vendorSlug}`} className={`flex min-h-10 items-center rounded-lg border border-blue-200 px-3 text-sm font-extrabold text-blue-700 ${focusRing}`}>Buka</Link> : null}</div></div>)}</div>}
     </section>
   );
 }
@@ -922,7 +932,7 @@ export function ReportListingButton({ vendorId }: { vendorId?: string }) {
     }
   };
   if (!open) return <button type="button" onClick={() => setOpen(true)} className={`inline-flex min-h-12 items-center gap-2 rounded-lg px-3 text-sm font-extrabold text-slate-600 hover:bg-slate-100 hover:text-red-700 ${focusRing}`}><AlertTriangle className="size-4" />Laporkan listing</button>;
-  return <form onSubmit={submit} className="rounded-xl border border-red-200 bg-red-50 p-3"><p className="font-extrabold text-red-900">Ada informasi yang kurang tepat?</p><select aria-label="Alasan laporan" value={reason} onChange={(event) => setReason(event.target.value)} className={`mt-3 ${inputClass}`}><option>Informasi tidak akurat</option><option>Nomor WhatsApp salah</option><option>Usaha sudah tutup</option><option>Konten tidak pantas</option></select><textarea aria-label="Detail laporan" value={details} onChange={(event) => setDetails(event.target.value)} placeholder="Ceritakan detailnya" rows={3} className={`mt-2 ${inputClass}`} required minLength={5} /><div className="mt-2 flex gap-2"><button type="submit" className={`min-h-12 rounded-lg bg-red-700 px-3 text-sm font-extrabold text-white ${focusRing}`}>Kirim</button><button type="button" onClick={() => setOpen(false)} className={`min-h-12 rounded-lg px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Batal</button></div>{status ? <p className="mt-2 text-sm font-bold text-red-800" role="status">{status}</p> : null}</form>;
+  return <form onSubmit={submit} className="rounded-xl border border-red-200 bg-red-50 p-3"><p className="font-extrabold text-red-900">Ada informasi yang kurang tepat?</p><ThemedSelect aria-label="Alasan laporan" className="mt-3" value={reason} onValueChange={setReason} options={reportReasonSelectOptions} /><textarea aria-label="Detail laporan" value={details} onChange={(event) => setDetails(event.target.value)} placeholder="Ceritakan detailnya" rows={3} className={`mt-2 ${inputClass}`} required minLength={5} /><div className="mt-2 flex gap-2"><button type="submit" className={`min-h-12 rounded-lg bg-red-700 px-3 text-sm font-extrabold text-white ${focusRing}`}>Kirim</button><button type="button" onClick={() => setOpen(false)} className={`min-h-12 rounded-lg px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Batal</button></div>{status ? <p className="mt-2 text-sm font-bold text-red-800" role="status">{status}</p> : null}</form>;
 }
 
 export function PackageManager({ vendorId, vendorName }: { vendorId: string; vendorName: string }) {

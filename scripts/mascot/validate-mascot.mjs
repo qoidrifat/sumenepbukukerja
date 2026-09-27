@@ -143,14 +143,14 @@ check(
 /* ------------------------------------------------------------------ */
 
 const eyes = [
-  { x: 33, width: 7 },
-  { x: 56, width: 7 },
+  { x: 32.5, width: 8 },
+  { x: 55.5, width: 8 },
 ];
 const eyeMirrors = eyes.every((e) => {
   const other = eyes.find((o) => o !== e);
   return Math.abs(e.x - (2 * AXIS - (other.x + other.width))) < 0.01;
 });
-check("mata cermin sempurna terhadap x=48", eyeMirrors, "33..40 vs 56..63");
+check("mata cermin sempurna terhadap x=48", eyeMirrors, "32.5..40.5 vs 55.5..63.5");
 
 /* ------------------------------------------------------------------ */
 /* 5. Aksesori di dalam ACCESSORY_ZONE                                  */

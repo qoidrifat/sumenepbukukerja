@@ -120,17 +120,21 @@ export const AXIS_X = 48;
 /* ------------------------------------------------------------------ */
 
 /**
- * Mata. Lebar 7 dengan offset simetris terhadap x=48: mata kiri 33..40,
- * mata kanan 56..63. Jarak ke spine 4 unit, jarak ke lipatan 4 unit —
- * keduanya dihitung, bukan dikira-kira (lihat validate-mascot.mjs).
+ * Mata dasar.
+ *
+ * Phase 3.1: dinaikkan dari 7x9 ke 8x10.5. Wajahnya adalah satu-satunya
+ * sinyal "ini karakter" pada maskot ini, dan pada 7 unit dari viewBox 96
+ * (~7% lebar) ia terlalu kecil untuk membawa strukturnya sendiri.
+ * Penambahan 14% linear menaikkan luasnya tanpa menggeser siluet tubuh:
+ * mata tetap 3.5 unit dari spine dan 3.5 unit dari lipatan.
  */
 export const EYE = {
-  width: 7,
-  height: 9,
-  radius: 3,
-  leftX: 33,
-  rightX: 56,
-  y: 40,
+  width: 8,
+  height: 10.5,
+  radius: 3.4,
+  leftX: 32.5,
+  rightX: 55.5,
+  y: 39.5,
 } as const;
 
 /**
@@ -141,12 +145,12 @@ export const EYE = {
  * lebih bulat: tetap jelas lebih fokus dari mata biasa, tapi bukan celah tajam.
  */
 export const EYE_NARROW = {
-  width: 6.5,
-  height: 4.5,
-  radius: 2,
-  leftX: 33.25,
-  rightX: 56.25,
-  y: 41.5,
+  width: 7,
+  height: 5,
+  radius: 2.2,
+  leftX: 33,
+  rightX: 56,
+  y: 41,
 } as const;
 
 /**
@@ -158,26 +162,26 @@ export const EYE_NARROW = {
  * yang benar-benar terbuka lebar.
  */
 export const EYE_WIDE = {
-  width: 9,
-  height: 11,
-  radius: 4,
-  leftX: 31.75,
-  rightX: 55.25,
-  y: 39,
+  width: 10,
+  height: 12,
+  radius: 4.2,
+  leftX: 31,
+  rightX: 55,
+  y: 38.5,
 } as const;
 
 /** Mata tertutup untuk state `success`. Busur turun, cermin sempurna. */
 export const EYE_CLOSED_HAPPY = {
-  left: "M33 46C35.5 49 38.5 49 41 46",
-  right: "M55 46C57.5 49 60.5 49 63 46",
+  left: "M31.5 45.5C34.5 49 38.5 49 41.5 45.5",
+  right: "M54.5 45.5C58 49 61.5 49 64.5 45.5",
   strokeWidth: 2.2,
 } as const;
 
 /** Alis. Dua bentuk: naik (found) dan mencondong (working). */
 export const BROWS = {
   raised: {
-    left: "M32.5 36.8C35 35.4 38 35.4 40.5 36.8",
-    right: "M63.5 36.8C61 35.4 58 35.4 55.5 36.8",
+    left: "M31.8 36.6C34.6 35 38.4 35 41.2 36.6",
+    right: "M64.2 36.6C61.4 35 57.6 35 54.8 36.6",
     strokeWidth: 2.2,
   },
   /**
@@ -187,8 +191,8 @@ export const BROWS = {
    * sehingga tetap "fokus", tapi tidak lagi terlihat tegang.
    */
   focused: {
-    left: "M32.5 36.8C35 37.3 38 37.9 41 38.4",
-    right: "M63.5 36.8C61 37.3 58 37.9 55 38.4",
+    left: "M31.8 36.6C34.6 37.2 38.2 37.9 41.2 38.5",
+    right: "M64.2 36.6C61.4 37.2 57.8 37.9 54.8 38.5",
     strokeWidth: 2.2,
   },
 } as const;
@@ -200,20 +204,20 @@ export const BROWS = {
 export const MOUTHS = {
   /** Tenang: busur sangat dangkal. */
   calm: {
-    left: "M34 53.5C36.5 55.4 40.5 55.4 43 53.5",
-    right: "M62 53.5C59.5 55.4 55.5 55.4 53 53.5",
+    left: "M33 53.2C35.8 55.4 40.2 55.4 43 53.2",
+    right: "M63 53.2C60.2 55.4 55.8 55.4 53 53.2",
     strokeWidth: 2.2,
   },
   /** Senyum: busur lebih dalam. */
   smile: {
-    left: "M33.5 52.5C37 56 40.5 57 43.5 57",
-    right: "M62.5 52.5C59 56 55.5 57 52.5 57",
+    left: "M32.5 52.2C36.4 56.2 40.4 57.4 43.5 57.4",
+    right: "M63.5 52.2C59.6 56.2 55.6 57.4 52.5 57.4",
     strokeWidth: 2.2,
   },
   /** Bingung: busur terbalik kecil, terbaca sebagai "hmm" tanpa bikin "o". */
   uncertain: {
-    left: "M34 55.5C37.5 53.4 40.5 53.4 43.5 55.5",
-    right: "M62 55.5C58.5 53.4 55.5 53.4 52.5 55.5",
+    left: "M33 55.8C36.8 53.4 40.2 53.4 43.5 55.8",
+    right: "M63 55.8C59.2 53.4 55.8 53.4 52.5 55.8",
     strokeWidth: 2.2,
   },
   /**
@@ -223,8 +227,8 @@ export const MOUTHS = {
    * ("santai, saya handle").
    */
   flat: {
-    left: "M35 54.2C36.8 55 39 55 40.5 54.2",
-    right: "M60.5 54.2C59 55 56.8 55 55.5 54.2",
+    left: "M34 54C36 55 39.6 55 41.5 54",
+    right: "M62 54C60 55 56.4 55 54.5 54",
     strokeWidth: 2.2,
   },
   /**
@@ -234,8 +238,8 @@ export const MOUTHS = {
    * sebagai satu mulut kecil.
    */
   round: {
-    left: "M43 51.5c-1.6 0-2.6 1.2-2.6 2.6s1 2.6 2.6 2.6",
-    right: "M53 51.5c1.6 0 2.6 1.2 2.6 2.6s-1 2.6-2.6 2.6",
+    left: "M43 51.2c-1.9 0-3 1.4-3 3.1s1.1 3.1 3 3.1",
+    right: "M53 51.2c1.9 0 3 1.4 3 3.1s-1.1 3.1-3 3.1",
     strokeWidth: 2.2,
   },
 } as const;

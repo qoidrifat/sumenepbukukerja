@@ -83,10 +83,10 @@ function drawMascot({ mouth = [], eyes = "open", accessory = [] }) {
 
 function eyeShapes(kind) {
   const spec = {
-    open: { w: 7, h: 9, r: 3, lx: 33, rx: 56, y: 40 },
-    narrowed: { w: 6, h: 3, r: 1.5, lx: 33.5, rx: 56.5, y: 43 },
-    wide: { w: 7.5, h: 10, r: 3.5, lx: 32.75, rx: 55.75, y: 39.5 },
-  }[kind] ?? { w: 7, h: 9, r: 3, lx: 33, rx: 56, y: 40 };
+    open: { w: 8, h: 10.5, r: 3.4, lx: 32.5, rx: 55.5, y: 39.5 },
+    narrowed: { w: 7, h: 5, r: 2.2, lx: 33, rx: 56, y: 41 },
+    wide: { w: 10, h: 12, r: 4.2, lx: 31, rx: 55, y: 38.5 },
+  }[kind] ?? { w: 8, h: 10.5, r: 3.4, lx: 32.5, rx: 55.5, y: 39.5 };
   return [spec.lx, spec.rx].map((x) => ({
     type: "rect",
     x,
@@ -120,8 +120,8 @@ const buf = render(drawMascot({ mouth: mouthPair("calm") }), PX, PX);
 const probePoints = [
   ["mata kiri", 36.5, 44.5],
   ["mata kanan", 59.5, 44.5],
-  ["mulut kiri", 38.5, 54],
-  ["mulut kanan", 57.5, 54],
+  ["mulut kiri", 38.5, 54.2],
+  ["mulut kanan", 57.5, 54.2],
 ];
 for (const [label, x, y] of probePoints) {
   const c = sample(buf, x, y);
@@ -195,7 +195,7 @@ check("lipatan masih terlihat di 48px", amber48 >= 4, `${amber48} piksel amber @
 
 /* Band mulut saja (y 52..58 viewBox). Di luar band ini karakter memang
    asimetris: lipatan hanya ada di kanan, itu bagian dari desain Phase 1. */
-const MOUTH_ROW0 = Math.round(52 * K);
+const MOUTH_ROW0 = Math.round(51 * K);
 const MOUTH_ROW1 = Math.round(59 * K);
 
 for (const name of ["calm", "smile", "uncertain", "flat"]) {

@@ -299,6 +299,25 @@ test("mata simetris terhadap sumbu x=48 dan tidak masuk zona lipatan", () => {
   }
 });
 
+test("wajah punya ruang yang cukup untuk terbaca di 96px", () => {
+  /* Phase 3.1 menaikkan wajah ~14% karena pada 7 unit dari viewBox 96
+     (~7% lebar) matanya terlalu kecil untuk membawa strukturnya. Uji ini
+     menjaga agar pembesaran itu tidak dibatalkan diam-diam, DAN agar
+     tidak lewat dari sisi yang salah (mata menabrak lipatan). */
+  for (const e of [EYE, EYE_NARROW, EYE_WIDE]) {
+    expect(e.width, "lebar mata").toBeGreaterThanOrEqual(7);
+    expect(e.height, "tinggi mata").toBeGreaterThanOrEqual(5);
+    /* Minimal 1.5% dari lebar viewBox agar bukan sekadar titik. */
+    expect(e.width / MASCOT_VIEW_BOX.width).toBeGreaterThan(0.07);
+  }
+  /* Ruang ke spine dan ke lipatan tetap dijaga. */
+  for (const e of [EYE, EYE_NARROW, EYE_WIDE]) {
+    expect(44 - (e.leftX + e.width), "jarak ke spine").toBeGreaterThanOrEqual(3);
+    expect(e.rightX - 52, "jarak dari spine kanan").toBeGreaterThanOrEqual(3);
+    expect(67 - (e.rightX + e.width), "jarak ke lipatan").toBeGreaterThanOrEqual(2);
+  }
+});
+
 test("mulut terpecah di spine: tidak ada satu pun yang menyeberangi negative space", () => {
   /* Hanya titik awal absolut (perintah M) yang diperiksa. Perintah relatif
      seperti `h7.5` menyimpan delta, bukan koordinat, jadi menghitungnya

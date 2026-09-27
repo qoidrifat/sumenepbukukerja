@@ -8,6 +8,7 @@ import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import { useCatalogSeedBootstrap } from "@/lib/catalog-store";
+import { BrandMascot } from "@/components/brand-mascot";
 import "./index.css";
 
 // Lazy load route components for better code splitting
@@ -27,7 +28,10 @@ const MascotPreview = import.meta.env.DEV
 function RouteLoading() {
   return (
     <div className="min-h-dvh min-h-[100svh] flex items-center justify-center bg-[#f7f8fc] text-base font-semibold text-slate-600">
-      <div className="animate-pulse">Menyiapkan catatan lokal...</div>
+      <div className="flex flex-col items-center gap-5">
+        <BrandMascot state="working" size="md" animated={false} />
+        <div className="animate-pulse">Menyiapkan catatan lokal...</div>
+      </div>
     </div>
   );
 }

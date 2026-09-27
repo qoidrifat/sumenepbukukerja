@@ -37,6 +37,7 @@ import {
   type VendorRecord,
 } from "@/lib/catalog-store";
 import { categoryActionLabel } from "@/lib/catalog-data";
+import { BrandMascot } from "@/components/brand-mascot";
 import { CategoryMascot } from "@/components/category-mascot";
 import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
@@ -476,8 +477,8 @@ function OwnerListingManager() {
         </div>
       ) : (
         <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
-          <Store className="mx-auto size-8 text-blue-600" />
-          <p className="mt-3 font-black text-slate-950">Belum ada listing milik Anda</p>
+          <BrandMascot state="empty" size="md" className="mx-auto" />
+          <p className="mt-4 font-black text-slate-950">Belum ada listing milik Anda</p>
           <p className="mt-1 text-sm leading-6 text-slate-600">Tambahkan usaha Anda agar warga dapat menemukan dan menghubungi Anda.</p>
         </div>
       )}
@@ -665,8 +666,8 @@ export default function Dashboard() {
           ) : (
             <Card className="border-dashed border-slate-300 bg-white shadow-none">
               <CardContent className="flex flex-col items-center py-10 text-center">
-                <span className="flex size-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><Bookmark className="size-6" /></span>
-                <h3 className="mt-4 text-xl font-black text-slate-950">Belum ada listing tersimpan</h3>
+                <BrandMascot state="hello" size="md" className="mx-auto" />
+                <h3 className="mt-5 text-xl font-black text-slate-950">Belum ada listing tersimpan</h3>
                 <p className="mt-2 max-w-md text-base leading-7 text-slate-600">Klik ikon bookmark pada listing untuk menyimpannya di perangkat dan menyinkronkannya setelah Anda masuk.</p>
                 <Button asChild className="mt-5 min-h-12 rounded-lg text-base">
                   <Link to="/#katalog">Jelajahi katalog <ArrowRight className="size-4" /></Link>

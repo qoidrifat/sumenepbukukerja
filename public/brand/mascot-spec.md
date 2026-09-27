@@ -357,26 +357,40 @@ animasi on + dekoratif.
 
 ### Sudah terpasang
 
-| Permukaan | State | Ukuran | Catatan |
-|---|---|---|---|
-| `pages/NotFound.tsx` | `empty` | `md` | Menggantikan ikon `BookOpen` generik |
-| `pages/Landing.tsx` (hasil pencarian kosong) | `empty` | `md` | Menggantikan glyph `⌕` generik |
+| Permukaan | State | Ukuran | Permukaan §8b | Catatan |
+|---|---|---|---|---|
+| `pages/NotFound.tsx` | `empty` | `md` | White | Menggantikan ikon `BookOpen` generik |
+| `pages/Landing.tsx` (hasil pencarian kosong) | `empty` | `md` | White | Menggantikan glyph `⌕` generik |
+| `pages/Dashboard.tsx` (belum ada listing milik Anda) | `empty` | `md` | `#F8FAFC` (setara Canvas) | Menggantikan ikon `Store` generik |
+| `pages/Dashboard.tsx` (belum ada listing tersimpan) | `hello` | `md` | White | Menggantikan tile `bg-blue-50` + ikon `Bookmark` |
+| `main.tsx` `RouteLoading` | `working` | `md` | Canvas `#F7F8FC` | Teks berdenyut dipertahankan sebagai pembawa pesan |
 
-Keduanya adalah penggantian **ikon generik dengan karakter brand** — bukan
-migrasi destruktif.
+Semuanya adalah penggantian **ikon generik dengan karakter brand** atau
+penambahan pada permukaan yang kosong — bukan migrasi destruktif.
 
-### Kandidat, belum dipasang
+Dua catatan placement yang perlu diingat kalau permukaannya nanti diubah:
 
-| Permukaan | State | Ukuran | Catatan |
-|---|---|---|---|
-| Hero landing | `hello` | `lg` | Berdtsama dengan `CodedLogoOrbit` yang sudah ada — hati-hati competition |
-| Request kosong | `empty` | `md` | **Sudah ada** `PublicRequestMascot`; jangan taruh dua mascot |
-| Berhasil kirim permintaan | `success` | `md` | Setelah mutasi sukses, belum ada ilustrasi |
-| Loading katalog | `working` | `sm` | `RouteLoading` sekarang teks berdenyut |
-| Error umum | `working` | `sm` | Pesan error harus tetap dominan |
-| Admin header | `neutral` | `micro` | Opsional; `tone="admin"` |
-| Admin moderation kosong | `working` | `md` | **Sudah ada** `AdminEmptyMascot`; jangan duplikasi |
-| Tabel padat, CRUD row, tiap tombol | — | — | **Jangan** dipakai di sini |
+- **Listing tersimpan.** Semula tile `bg-blue-50` (`#EFF6FF`) berdiri di
+  situ. Itu persis near-miss §8b: biru muda di belakang field biru.
+  Tile-nya dihapus, bukan warnanya yang digeser.
+- **Listing milik Anda.** Wadah `bg-slate-50` (`#F8FAFC`) sudah ada
+  sebelum Phase 4. Selisihnya ke Canvas `#F7F8FC` paling besar
+  2/255 per kanal, jadi diperlakukan sebagai permukaan yang sama —  Diassert di `src/lib/mascot-placement.test.ts` yang menjaga angka itu.
+
+### Kandidat, ditolak
+
+| Permukaan | Alasan ditolak |
+|---|---|
+| Hero landing (`hello`, `lg`) | Berdampingan dengan `CodedLogoOrbit`; dua karakter di satu hero saling bersaing |
+| Request kosong | **Sudah ada** `PublicRequestMascot`; jangan taruh dua maskot |
+| Berhasil kirim permintaan | Chip `role="status"` inline; tidak ada ruang, hierarki pesan rusak |
+| Notifikasi / riwayat interaksi | Teks status satu baris; maskot jadi dekorasi |
+| Error umum | Pesan error harus tetap dominan |
+| Admin header / moderation kosong | **Sudah ada** `AdminEmptyMascot`; `tone="admin"` punya identitas sendiri |
+| `Admin.tsx` "Katalog dalam kondisi baik" | Banner kesehatan, bukan empty state; maskot jadi noise |
+| `VendorProfile.tsx` "Belum ada ulasan" | Catatan dashed inline di dalam form; konteks terlalu kecil |
+| `Auth.tsx` | Sudah pakai logo brand; auth di luar lingkup Phase 4 |
+| Tabel padat, CRUD row, tiap tombol | **Jangan** dipakai di sini |
 
 ### Maskot yang sudah ada sebelumnya
 
@@ -463,3 +477,40 @@ terbukti hanya yang terukur: `bun run mascot:check` dan `bun run test`.
 - [ ] Semua maskot diam total
 - [ ] Ekspresi tetap terbaca tanpa gerak
 - [ ] Tidak ada `repeat: Infinity` yang tersisa
+
+---
+
+## 13. Integrasi produk (Phase 4)
+
+Phase 4 tidak mengubah karakter. Anatomi, proporsi wajah, sistem pose,
+dan verdict 96px semuanya tetap beku seperti Phase 3.1; yang berubah
+hanya **tempat maskot berdiri**.
+
+### Yang dijaga
+
+| Kontrak | Dijaga oleh |
+|---|---|
+| Permukaan di allowlist §8b | `mascot-placement.test.ts` |
+| Tidak ada biru-ke-biru | `mascot-placement.test.ts` |
+| Karakter selalu dekoratif, pesan dibawa teks | `mascot-placement.test.ts` + `qa-surfaces.mjs` |
+| Tidak ada dua maskot di satu permukaan | `mascot-placement.test.ts` |
+| Tidak pernah di bawah 96px | `mascot-placement.test.ts` |
+| Permukaan yang ditolak tetap ditolak | `mascot-placement.test.ts` |
+| Warna benar-benar dirender sesuai §8b | `mascot:qa:surfaces` |
+
+### Memeriksa sendiri
+
+```bash
+bun run mascot:qa:surfaces   # 114 pemeriksaan di browser
+```
+
+Script ini mengukur `background-color` yang benar-benar dirender di
+belakang field, ukuran render di tiap lebar, clipping, overflow, dan
+error console — bukan hanya membaca source code. Warna dinormalkan ke sRGB lewat
+canvas supaya `oklch()` dari Tailwind v4 tidak lolos sebagai nilai
+yang berbeda.
+
+Kalau suatu hari permukaan baru mau ditambah, urutannya: cek §8b dulu,
+tambahkan ke registry `INTEGRATED`, lalu jalankan dua perintah di atas.
+Permukaan yang tidak bisa masuk ke allowlist harus ganti konteksnya,
+bukan ganti maskotnya.

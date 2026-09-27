@@ -665,8 +665,13 @@ export function useRecentListingHistory(enabled = true) {
   return useQuery(api.users.listRecentListingHistory, enabled ? { limit: 40 } : "skip");
 }
 
-export function useAdminSecurityEvents(enabled = true) {
-  return useQuery(api.adminGate.listAdminSecurityEvents, enabled ? { limit: 25 } : "skip");
+export function useAdminSecurityEvents(limit = 25, enabled = true) {
+  return useQuery(api.adminGate.listAdminSecurityEvents, enabled ? { limit } : "skip");
+}
+
+/** Ringkasan 24 jam untuk strip pembuka panel audit keamanan. */
+export function useAdminSecuritySummary(enabled = true) {
+  return useQuery(api.adminGate.adminSecuritySummary, enabled ? {} : "skip");
 }
 
 export function useReviewQueue(enabled = true) {

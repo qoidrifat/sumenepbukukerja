@@ -358,21 +358,52 @@ const schema = defineSchema(
       .index("byNextAttempt", ["nextAttemptAt"]),
 
     // Percobaan masuk ke ruang /admin lewat passcode. `key` adalah hash dari
-    // deviceId + IP terlapor + email, jadi indeks tidak menyimpan identitas
-    // mentah sekaligus rate limit tidak bisa ditelusuri balik ke orangnya.
+    // deviceId + IP + email, jadi indeks tidak menyimpan identitas mentah
+    // sekaligus rate limit tidak bisa ditelusuri balik ke orangnya.
+    //
+    // IP mentah TIDAK PERNAH disimpan. Yang ada hanya `ipHash` (untuk
+    // korelasi antar percobaan) dan `ipMasked` (untuk dibaca manusia). Field
+    // geolokasi hanya terisi bila provider dikonfigurasi; kalau tidak, kosong.
     adminPasscodeAttempts: defineTable({
       key: v.string(),
       outcome: v.union(v.literal("success"), v.literal("failed"), v.literal("locked")),
+      failureReason: v.optional(v.string()),
       emailMasked: v.optional(v.string()),
+      // Header versi lama, dipertahankan supaya baris lama tetap terbaca.
       reportedIp: v.optional(v.string()),
+      ipHash: v.optional(v.string()),
+      ipMasked: v.optional(v.string()),
+      ipSource: v.optional(v.string()),
+      country: v.optional(v.string()),
+      region: v.optional(v.string()),
+      city: v.optional(v.string()),
+      networkType: v.optional(v.string()),
       userAgent: v.optional(v.string()),
+      browser: v.optional(v.string()),
+      browserVersion: v.optional(v.string()),
+      os: v.optional(v.string()),
+      osVersion: v.optional(v.string()),
+      deviceType: v.optional(v.string()),
       timezone: v.optional(v.string()),
       locale: v.optional(v.string()),
+      platform: v.optional(v.string()),
+      viewport: v.optional(v.string()),
+      devicePixelRatio: v.optional(v.number()),
+      touchPoints: v.optional(v.number()),
+      route: v.optional(v.string()),
+      returnTo: v.optional(v.string()),
+      referrer: v.optional(v.string()),
+      acceptLanguage: v.optional(v.string()),
+      sessionFingerprint: v.optional(v.string()),
+      requestId: v.optional(v.string()),
+      attemptNumber: v.optional(v.number()),
       createdAt: v.number(),
     })
       .index("byKey", ["key"])
       .index("byCreatedAt", ["createdAt"])
-      .index("byOutcome", ["outcome"]),
+      .index("byOutcome", ["outcome"])
+      .index("bySessionFingerprint", ["sessionFingerprint"])
+      .index("byIpHash", ["ipHash"]),
 
     // Tiket sekali pakai yang diterbitkan setelah passcode admin valid.
     // Hanya hash tiket yang disimpan, bukan token aslinya.
@@ -384,6 +415,45 @@ const schema = defineSchema(
       createdAt: v.number(),
     })
       .index("byTokenHash", ["tokenHash"]),
+
+    // Konteks request yang ditangkap sekali lewat httpAction. Hanya
+    // httpAction Convex yang menerima objek `Request`; action biasa tidak
+    // punya akses header sama sekali. Karena itu IP hanya bisa ditangkap di
+    // lapisan ini, lalu diteruskan ke verifyAdminPasscode lewat token
+    // sekali pakai yang kedaluwarsa dalam 5 menit.
+    //
+    // Yang kembali ke browser hanya bentuk tersamarnya. IP mentah hanya
+    // hidup di sisi server dan langsung diturunkan menjadi hash.
+    adminSecurityContexts: defineTable({
+      token: v.string(),
+      ipHash: v.optional(v.string()),
+      ipMasked: v.optional(v.string()),
+      ipSource: v.string(),
+      userAgent: v.optional(v.string()),
+      acceptLanguage: v.optional(v.string()),
+      referrer: v.optional(v.string()),
+      requestId: v.string(),
+      country: v.optional(v.string()),
+      region: v.optional(v.string()),
+      city: v.optional(v.string()),
+      networkType: v.optional(v.string()),
+      expiresAt: v.number(),
+      createdAt: v.number(),
+    })
+      .index("byToken", ["token"])
+      .index("byExpiresAt", ["expiresAt"]),
+
+    // Presence ringan: kapan seorang pengelola terakhir terlihat di ruang
+    // admin. Dipakai supaya audit log bisa menandai "Aktif sekarang" tanpa
+    // polling dari klien.
+    adminPresence: defineTable({
+      userId: v.id("users"),
+      sessionFingerprint: v.optional(v.string()),
+      route: v.optional(v.string()),
+      lastSeenAt: v.number(),
+    })
+      .index("byUser", ["userId"])
+      .index("byLastSeenAt", ["lastSeenAt"]),
 
     vendorSubscriptions: defineTable({
       vendorId: v.id("vendors"),

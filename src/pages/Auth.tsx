@@ -55,7 +55,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     redirectAfterAuth,
   );
   const adminGateRequired = isAdminDestination(redirect);
-  const gate = useAdminPasscodeGate();
+  // Rute dan tujuan dikirim ke audit log supaya jejak_passcode punya konteks
+  // halaman mana yang dicoba. Keduanya bukan bahan keputusan keamanan.
+  const gate = useAdminPasscodeGate({
+    route: "/auth",
+    returnTo: searchParams.get("returnTo"),
+  });
   const [passcode, setPasscode] = useState("");
   const [showPasscode, setShowPasscode] = useState(false);
   const [step, setStep] = useState<"signIn" | { email: string }>("signIn");

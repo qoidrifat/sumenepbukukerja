@@ -5,6 +5,15 @@ import type { DataModel } from "./_generated/dataModel";
 import { auth } from "./auth";
 import { internal } from "./_generated/api";
 import { mapTwilioStatus, parseMetaStatuses } from "../lib/whatsapp-webhook";
+import { lookupGeoLocation } from "../lib/geo-enrichment";
+import { trimUserAgent } from "../lib/admin-passcode";
+import {
+  maskIpForDisplay,
+  resolveClientIp,
+  sanitizeReferrer,
+  sha256Hex,
+  toHex as bytesToHex,
+} from "../lib/security-context";
 
 const http = httpRouter();
 
@@ -138,5 +147,81 @@ const whatsappWebhook = httpAction(async (ctx, request) => {
 http.route({ path: "/twilio/status", method: "POST", handler: whatsappWebhook });
 http.route({ path: "/webhook/whatsapp", method: "POST", handler: whatsappWebhook });
 http.route({ path: "/webhook/whatsapp", method: "GET", handler: whatsappWebhook });
+
+/**
+ * Satu-satunya tempat di project ini yang bisa membaca header permintaan.
+ *
+ * `ctx` pada query/mutation/action Convex tidak punya properti `request`, jadi
+ * IP hanya bisa ditangkap lewat `httpAction`. Route ini hanya mengumpulkan
+ * metadata — tidak memverifikasi passcode, tidak menerbitkan tiket, dan
+ * tidak mengubah alur autentikasi. Ia mengembalikan token sekali pakai yang
+ * kemudian dipakai `verifyAdminPasscode` untuk mengambil metadata server.
+ *
+ * Yang dikembalikan ke browser hanya bentuk tersamar. IP mentah langsung
+ * diturunkan jadi hash dan masker, lalu tidak pernah disimpan.
+ */
+const ADMIN_CONTEXT_ROUTE = "/admin-gate/context";
+
+const adminSecurityContext = httpAction(async (ctx, request: Request) => {
+  if (request.method !== "POST") {
+    return new Response("Method not allowed", { status: 405 });
+  }
+  try {
+    const { ip, source } = resolveClientIp(request.headers);
+    const requestId = `req_${bytesToHex(crypto.getRandomValues(new Uint8Array(8)))}`;
+    const userAgent = trimUserAgent(request.headers.get("user-agent") ?? undefined) ?? undefined;
+    const referrer = sanitizeReferrer(request.headers.get("referer") ?? undefined) ?? undefined;
+    const acceptLanguage = request.headers.get("accept-language")?.slice(0, 80) || undefined;
+
+    // Geolokasi hanya dijalankan bila operator benar-benar mengonfigurasi
+    // provider, dan tidak pernah menggagalkan login.
+    const geo = ip ? await lookupGeoLocation(ip, process.env) : { city: null, region: null, country: null, networkType: null };
+
+    const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
+    const expiresAt = await ctx.runMutation(internal.adminGate.captureSecurityContext, {
+      token,
+      ipHash: ip ? await sha256Hex(ip) : undefined,
+      ipMasked: maskIpForDisplay(ip) ?? undefined,
+      ipSource: source,
+      userAgent,
+      referrer,
+      acceptLanguage,
+      requestId,
+      country: geo.country ?? undefined,
+      region: geo.region ?? undefined,
+      city: geo.city ?? undefined,
+      networkType: geo.networkType ?? undefined,
+    });
+
+    return Response.json(
+      {
+        contextId: token,
+        requestId,
+        // Masked saja. Browser tidak pernah melihat alamat lengkap.
+        ipMasked: maskIpForDisplay(ip) ?? null,
+        ipSource: source,
+        userAgent: userAgent ?? null,
+        acceptLanguage: acceptLanguage ?? null,
+        country: geo.country ?? null,
+        region: geo.region ?? null,
+        city: geo.city ?? null,
+        networkType: geo.networkType ?? null,
+        geoResolved: Boolean(geo.country || geo.city || geo.region),
+        expiresAt,
+      },
+      { headers: { "cache-control": "no-store" } },
+    );
+  } catch {
+    // Gagal menangkap konteks bukan alasan menolak halaman auth — login tetap
+    // jalan, hanya auditnya yang lebih tipis.
+    return Response.json(
+      { contextId: null, requestId: null, ipMasked: null, ipSource: "Unknown" },
+      { status: 200, headers: { "cache-control": "no-store" } },
+    );
+  }
+});
+
+http.route({ path: ADMIN_CONTEXT_ROUTE, method: "POST", handler: adminSecurityContext });
+http.route({ path: ADMIN_CONTEXT_ROUTE, method: "GET", handler: adminSecurityContext });
 
 export default http;

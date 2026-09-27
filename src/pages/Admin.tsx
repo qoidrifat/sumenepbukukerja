@@ -58,6 +58,7 @@ import {
 import { duplicateScore, profileCompleteness, qualityIssues } from "@/lib/catalog-data";
 import { AdminGovernance } from "@/components/admin-governance";
 import { useAuth } from "@/hooks/use-auth";
+import { useAdminPresence } from "@/lib/admin-presence";
 
 // VendorActionArea sudah siap dipakai di kartu vendor (lihat VendorActionArea di
 // admin-workspace.tsx). Baris pemakaiannya berada di bawah batas edit tool,
@@ -162,6 +163,9 @@ export default function Admin() {
 
 function AdminWorkspace() {
   const access = useCurrentAccess();
+  // Menandai sesi ini sebagai aktif supaya panel audit bisa menampilkan
+  // "Aktif sekarang" pada baris dengan sidik jari yang sama.
+  useAdminPresence();
   const categoryFieldId = useId();
   const landmarkFieldId = useId();
   const statusFieldId = useId();

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
-  useAdminSecurityEvents,
   useAnalyticsMetrics,
   useAuditLogs,
   useCurrentAccess,
@@ -14,6 +13,7 @@ import {
   useWhatsappStatus,
 } from "@/lib/catalog-store";
 import { TimeStampLabel, inputClass } from "./admin-workspace";
+import { AdminSecurityLog } from "./admin-security-log";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { staffRoleSelectOptions } from "@/lib/select-options";
 
@@ -25,7 +25,6 @@ export function AdminGovernance() {
   const invites = useStaffInvites(Boolean(access?.canManageRoles));
   const audit = useAuditLogs();
   const history = useRecentListingHistory(Boolean(access?.canViewAdmin));
-  const securityEvents = useAdminSecurityEvents(Boolean(access?.canViewAdmin));
   const analytics = useAnalyticsMetrics();
   const whatsapp = useWhatsappStatus();
   const reviewClaim = useMutation(api.claims.reviewVendorClaim);
@@ -108,75 +107,7 @@ export function AdminGovernance() {
           {history?.length ? <div className="mt-3 max-h-64 space-y-2 overflow-auto">{history.map((entry) => <article key={entry._id} className="border-b border-[#D6D3D1] pb-2 text-sm"><p className="font-black text-[#1A1A1A]">{entry.vendorName} · <TimeStampLabel timestamp={entry.createdAt} /></p>{entry.changes.map((change) => <p key={`${entry._id}-${change.field}`} className="mt-1 text-[#525252]"><span className="font-bold">{change.field}</span>: {change.oldValue ?? "—"} → {change.newValue ?? "—"}</p>)}</article>)}</div> : <p className="mt-3 text-sm text-[#525252]">Belum ada riwayat perubahan listing.</p>}
         </article>
 
-        <article className="border-2 border-[#121212] bg-white p-4 xl:col-span-2">
-          <h3 className="text-lg font-black text-[#1A1A1A]">Percobaan masuk ruang admin</h3>
-          <p className="mt-1 text-sm text-[#525252]">
-            Jejak percobaan passcode pada halaman <code>/auth?returnTo=/admin</code>.
-            Nilai sudah disamarkan di server. IP tidak dikumpulkan karena platform
-            tidak mengekspos IP klien.
-          </p>
-          {securityEvents?.length ? (
-            <div className="mt-3 max-h-72 space-y-2 overflow-auto">
-              {securityEvents.map((event) => (
-                <div
-                  key={event._id}
-                  className={`border-2 p-3 text-sm ${
-                    event.outcome === "success"
-                      ? "border-emerald-300 bg-emerald-50"
-                      : event.outcome === "locked"
-                        ? "border-red-300 bg-red-50"
-                        : "border-amber-300 bg-amber-50"
-                  }`}
-                >
-                  <p className="font-black uppercase tracking-wide">
-                    {event.outcome === "success"
-                      ? "Berhasil"
-                      : event.outcome === "locked"
-                        ? "Terkunci"
-                        : "Gagal"}
-                    <span className="ml-2 font-bold normal-case text-[#525252]">
-                      <TimeStampLabel timestamp={event.createdAt} withSeconds />
-                    </span>
-                  </p>
-                  <dl className="mt-1 space-y-0.5 text-[#525252]">
-                    {event.userAgent ? (
-                      <div className="flex gap-1">
-                        <dt className="font-bold">Perangkat:</dt>
-                        <dd className="min-w-0 break-all">{event.userAgent}</dd>
-                      </div>
-                    ) : null}
-                    {event.timezone ? (
-                      <div className="flex gap-1">
-                        <dt className="font-bold">Zona waktu:</dt>
-                        <dd>{event.timezone}</dd>
-                      </div>
-                    ) : null}
-                    {event.locale ? (
-                      <div className="flex gap-1">
-                        <dt className="font-bold">Bahasa:</dt>
-                        <dd>{event.locale}</dd>
-                      </div>
-                    ) : null}
-                    {event.reportedIp ? (
-                      <div className="flex gap-1">
-                        <dt className="font-bold">IP:</dt>
-                        <dd>{event.reportedIp}</dd>
-                      </div>
-                    ) : null}
-                    {event.emailMasked ? (
-                      <div className="flex gap-1">
-                        <dt className="font-bold">Email:</dt>
-                        <dd>{event.emailMasked}</dd>
-                      </div>
-                    ) : null}
-                  </dl>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-[#525252]">Belum ada percobaan tercatat.</p>
-          )}
-        </article>
+        <AdminSecurityLog />
 
         <article className="border-2 border-[#121212] bg-white p-4 xl:col-span-2">
           <h3 className="text-lg font-black text-[#1A1A1A]">Audit log terbaru</h3>

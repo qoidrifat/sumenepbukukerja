@@ -1,20 +1,24 @@
 // Sisi klien untuk gerbang passcode admin.
 //
-// Yang dikumpulkan di sini sengaja dikit: ID perangkat acak, user agent, zona
-// waktu, dan bahasa.
+// Yang dikirim dari sini sengaja dipisah dua kelompok:
 //
-// TENTANG IP: sengaja tidak dikirim. Frontend tidak bisa mengetahui IP klien,
-// dan tidak ada endpoint di proyek ini yang meneruskannya. Architektur Convex
-// tidak mengekspos IP asli permintaan, jadi mengarangnya hanya akan menghasilkan
-// log yang tampak lengkap padahal kosong. Field `reportedIp` di server sengaja
-// dibiarkan kosong untuk suatu saat diisi reverse proxy, dan selalu ditampilkan
-// tersamar.
+//  1. Metadata lingkungan (viewport, platform, titik sentuh, device pixel
+//     ratio). Ini bukan bahan keputusan keamanan, hanya membantu enak dibaca
+//     saat insiden. Tidak ada canvas/GPU/audio/font fingerprint yang diambil.
+//
+//  2. Token konteks yang diperoleh dari `POST /admin-gate/context`. Konteks itu
+//     yang membaca header permintaan di sisi server, karena `ctx` pada action
+//     Convex tidak punya akses `request` sama sekali. Browser tidak pernah
+//     mencoba menebak IP-nya sendiri — kalau beacon gagal, auditnya jadi lebih
+//     tipis dan login tetap berjalan.
 
 import { useCallback, useState } from "react";
 import { useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 const DEVICE_ID_KEY = "bk.device-id";
+const CONTEXT_ROUTE = "/admin-gate/context";
+const CONTEXT_TIMEOUT_MS = 2_500;
 
 /**
  * ID perangkat acak, hanya untuk membedakan rate limit antar perangkat. Bukan
@@ -46,12 +50,76 @@ function readTimeZone() {
   }
 }
 
+/** Metadata tampilan perangkat. Tidak pernah dipakai keputusan keamanan. */
+function readClientEnvironment() {
+  if (typeof window === "undefined") {
+    return {} as {
+      platform?: string;
+      viewportWidth?: number;
+      viewportHeight?: number;
+      devicePixelRatio?: number;
+      touchPoints?: number;
+    };
+  }
+  return {
+    platform: window.navigator.platform || undefined,
+    viewportWidth: Math.round(window.innerWidth) || undefined,
+    viewportHeight: Math.round(window.innerHeight) || undefined,
+    devicePixelRatio: Math.round((window.devicePixelRatio ?? 1) * 100) / 100 || undefined,
+    touchPoints: Number.isFinite(window.navigator.maxTouchPoints)
+      ? window.navigator.maxTouchPoints
+      : undefined,
+  };
+}
+
+type ServerContext = {
+  contextId: string | null;
+  requestId: string | null;
+  ipMasked: string | null;
+  ipSource: string;
+};
+
+/**
+ * Minta satu kali jejak header ke server. Timeout pendek supaya halaman auth
+ * tidak menunggu, dan kegagalan diam-diam diabaikan — login tidak boleh
+ * bergantung pada ini.
+ */
+async function fetchServerContext(convexUrl: string): Promise<ServerContext> {
+  const empty: ServerContext = {
+    contextId: null,
+    requestId: null,
+    ipMasked: null,
+    ipSource: "Unknown",
+  };
+  try {
+    const response = await fetch(`${convexUrl}${CONTEXT_ROUTE}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(CONTEXT_TIMEOUT_MS),
+    });
+    if (!response.ok) return empty;
+    const payload = (await response.json()) as Partial<ServerContext>;
+    return {
+      contextId: payload.contextId ?? null,
+      requestId: payload.requestId ?? null,
+      ipMasked: payload.ipMasked ?? null,
+      ipSource: payload.ipSource ?? "Unknown",
+    };
+  } catch {
+    return empty;
+  }
+}
+
 export type GateAlert = {
   emailMasked: string | null;
   reportedIp: string | null;
   userAgent: string | null;
   timezone: string | null;
   locale: string | null;
+  ipMasked: string | null;
+  ipSource: string | null;
+  requestId: string | null;
   failedAttempts: number;
 };
 
@@ -63,20 +131,31 @@ export type PasscodeState =
   | { kind: "locked"; lockedUntil: number; message: string; alert: GateAlert }
   | { kind: "unconfigured"; message: string };
 
-export function useAdminPasscodeGate() {
+export function useAdminPasscodeGate(options: { route?: string; returnTo?: string | null } = {}) {
   const convex = useConvex();
   const [state, setState] = useState<PasscodeState>({ kind: "idle" });
+  const { route, returnTo } = options;
 
   const submit = useCallback(
     async (passcode: string) => {
       setState({ kind: "checking" });
       try {
+        // Konteks diambil lebih dulu supaya IP, request id, dan header yang
+        // dibaca server ikut tercatat bersama percobaan ini.
+        const [serverContext, environment] = await Promise.all([
+          fetchServerContext(convex.url),
+          Promise.resolve(readClientEnvironment()),
+        ]);
         const result = await convex.action(api.adminGate.verifyAdminPasscode, {
           passcode,
           deviceId: readDeviceId(),
           userAgent: navigator.userAgent,
           timezone: readTimeZone(),
           locale: navigator.language,
+          contextId: serverContext.contextId ?? undefined,
+          route,
+          returnTo: returnTo ?? undefined,
+          ...environment,
         });
         if (result.ok) {
           setState({ kind: "granted", ticket: result.ticket, expiresAt: result.expiresAt });
@@ -101,6 +180,9 @@ export function useAdminPasscodeGate() {
               userAgent: null,
               timezone: null,
               locale: null,
+              ipMasked: serverContext.ipMasked,
+              ipSource: serverContext.ipSource,
+              requestId: null,
               failedAttempts: 0,
             },
           });
@@ -127,7 +209,7 @@ export function useAdminPasscodeGate() {
         return false;
       }
     },
-    [convex],
+    [convex, route, returnTo],
   );
 
   /** Dipanggil sebelum verifikasi email, untuk menukar tiket sekali pakai. */

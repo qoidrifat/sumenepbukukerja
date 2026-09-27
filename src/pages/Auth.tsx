@@ -66,6 +66,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const passcodeGranted = gate.state.kind === "granted" ? gate.state : null;
   const needsPasscode = adminGateRequired && passcodeGranted === null;
 
+  // Baris atas dan kartu berbagi satu lebar kolom, sehingga keduanya duduk di
+  // sumbu tengah yang sama dan tidak terlihat melayang ke dua arah.
+  const shellWidth = needsPasscode
+    ? "mx-auto w-full max-w-md sm:max-w-xl lg:max-w-2xl"
+    : "mx-auto w-full max-w-md sm:max-w-lg";
+
   useEffect(() => {
     if (!authLoading && isAuthenticated) navigate(redirect);
   }, [authLoading, isAuthenticated, navigate, redirect]);
@@ -139,11 +145,11 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
 
   return (
     <main className="notebook-paper flex min-h-dvh min-h-[100svh] flex-col px-4 py-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+      <div className={`${shellWidth} flex items-center justify-between gap-4`}>
         <button
           type="button"
           onClick={() => navigate("/")}
-          className="flex min-h-12 items-center gap-2 rounded-lg px-2 text-base font-extrabold text-slate-800 hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          className="-ml-2 flex min-h-12 items-center gap-2 rounded-lg px-2 text-base font-extrabold text-slate-800 hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
         >
           <ArrowLeft className="size-5" />Kembali
         </button>
@@ -158,13 +164,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       </div>
 
       <div className="flex flex-1 items-center justify-center px-2 py-8 sm:py-10">
-        <ScrollReveal className="w-full">
-          <GlassSurface
-            tint="light"
-            className={`w-full rounded-2xl p-0 shadow-lg ${
-              needsPasscode ? "max-w-md sm:max-w-xl lg:max-w-2xl" : "max-w-md sm:max-w-lg"
-            }`}
-          >
+        <ScrollReveal className={shellWidth}>
+          <GlassSurface tint="light" className="w-full rounded-2xl p-0 shadow-lg">
           <Card className="w-full border-slate-200 bg-white/95 p-0 shadow-lg sm:p-2">
             <AnimatedContent animationKey={needsPasscode ? "passcode" : step === "signIn" ? "email" : step.email}>
           {needsPasscode ? (

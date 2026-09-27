@@ -152,14 +152,7 @@ createRoot(document.getElementById("root")!).render(
               />
               <Route
                 path="/admin"
-                element={
-                  <RequireAuth
-                    title="Masuk untuk mengelola katalog"
-                    description="Ruang pengelola hanya tersedia setelah Anda masuk."
-                  >
-                    <Admin />
-                  </RequireAuth>
-                }
+                element={<Admin />}
               />
               <Route path="/v/:slug" element={<VendorProfile />} />
               <Route path="*" element={<NotFound />} />

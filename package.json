@@ -11,7 +11,11 @@
     "test:e2e": "playwright test",
     "test:watch": "vitest",
     "format": "prettier --write .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "brand:build": "node scripts/brand/build-assets.mjs",
+    "brand:validate": "node scripts/brand/validate-brand.mjs",
+    "brand:measure": "node scripts/brand/measure-mark.mjs",
+    "brand:check": "node scripts/brand/raster-selfcheck.mjs && node scripts/brand/measure-mark.mjs && node scripts/brand/validate-brand.mjs"
   },
   "dependencies": {
     "@convex-dev/auth": "^0.0.90",

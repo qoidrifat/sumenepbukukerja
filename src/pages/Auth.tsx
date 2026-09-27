@@ -16,7 +16,8 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp";
-import logo from "@/assets/logo.svg";
+/* Sumber logo yang sama dengan navbar dan admin: /brand/logo-mark.svg. */
+const BRAND_LOGO = "/brand/logo-mark.svg";
 import { useAuth } from "@/hooks/use-auth";
 import { AnimatedContent, GlassSurface, ScrollReveal, ShinyText } from "@/components/react-bits";
 import { useAdminPasscodeGate } from "@/lib/admin-gate-client";
@@ -318,7 +319,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   className="mx-auto flex min-h-12 items-center justify-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                   aria-label="Buka beranda Sumenep Buku Kerja"
                 >
-                  <img src={logo} alt="" width={64} height={64} className="rounded-xl" />
+                  <img src={BRAND_LOGO} alt="" width={64} height={64} className="rounded-xl" />
                 </button>
                 <CardTitle className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950 sm:text-3xl">
                   Masuk ke Buku Kerja

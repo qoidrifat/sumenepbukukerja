@@ -8,7 +8,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import logo from "@/assets/logo.svg";
+/* Logo diambil dari /brand/ (public) supaya navbar, auth, dan admin memakai
+   satu sumber file yang sama. Sebelumnya file ini mengimpor
+   `@/assets/logo.svg` yang isinya duplikat byte-per-byte dari
+   `public/brand/logo-mark.svg`. */
+const BRAND_LOGO = "/brand/logo-mark.svg";
 import { useAuth } from "@/hooks/use-auth";
 import { Home, LogOut } from "lucide-react";
 import { useNavigate } from "react-router";
@@ -35,7 +39,7 @@ export function LogoDropdown() {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="h-10 w-10">
           <img
-            src={logo}
+            src={BRAND_LOGO}
             alt="Logo"
             width={32}
             height={32}

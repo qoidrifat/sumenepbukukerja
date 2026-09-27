@@ -14,8 +14,60 @@ import {
 } from "@/lib/catalog-store";
 import { TimeStampLabel, inputClass } from "./admin-workspace";
 import { AdminSecurityLog } from "./admin-security-log";
+import {
+  ADMIN_EMPTY_MASCOT_SIZE,
+  AdminEmptyMascot,
+  type AdminEmptyMascotVariant,
+} from "@/components/admin-empty-mascot";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { staffRoleSelectOptions } from "@/lib/select-options";
+
+/**
+ * Status visual untuk satu kartu antrean admin: `loading` saat query masih
+ * berjalan, `empty` saat queue sudah terkonfirmasi 0. Wajar kalau query error:
+ * `useQuery` melempar error ke RootErrorBoundary, jadi state kosong tidak pernah
+ * ditampilkan sebagai "semua beres".
+ */
+function AdminQueueEmptyState({
+  status,
+  variant,
+  loadingLabel,
+  emptyCopy,
+  emptyHint,
+}: {
+  status: "loading" | "empty";
+  variant: AdminEmptyMascotVariant;
+  loadingLabel: string;
+  emptyCopy: string;
+  emptyHint: string;
+}) {
+  if (status === "loading") {
+    return (
+      <div
+        className="mt-3 flex flex-col gap-3 border-2 border-dashed border-[#121212] bg-[#F5F0E5] p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+        role="status"
+        aria-busy="true"
+      >
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="h-3 w-2/5 rounded-[2px] bg-[#E7E5E4]" aria-hidden="true" />
+          <div className="h-3 w-1/4 rounded-[2px] bg-[#E7E5E4] motion-safe:animate-pulse" aria-hidden="true" />
+          <span className="sr-only">{loadingLabel}</span>
+        </div>
+        <div className={ADMIN_EMPTY_MASCOT_SIZE} aria-hidden="true" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 flex flex-col gap-3 border-2 border-dashed border-[#121212] bg-[#F5F0E5] p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4">
+      <div className="min-w-0">
+        <p className="text-sm font-bold text-[#525252]">{emptyCopy}</p>
+        <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-[#525252]">{emptyHint}</p>
+      </div>
+      <AdminEmptyMascot variant={variant} className="self-end sm:self-center" />
+    </div>
+  );
+}
 
 export function AdminGovernance() {
   const access = useCurrentAccess();
@@ -78,13 +130,13 @@ export function AdminGovernance() {
         </article>
 
         <article className="border-2 border-[#121212] bg-white p-4">
-          <h3 className="text-lg font-black text-[#1A1A1A]">Klaim listing ({claims?.length ?? 0})</h3>
-          {claims?.length ? <div className="mt-3 space-y-3">{claims.map((claim) => <div key={claim._id} className="border-2 border-[#121212] bg-[#F5F0E5] p-3"><p className="font-black text-[#1A1A1A]">{claim.vendorName}</p><p className="mt-1 text-sm text-[#525252]">{claim.requesterName} · {claim.requesterEmail}</p><p className="mt-1 text-sm text-[#525252]">{claim.businessAddress} · {claim.whatsappPhone}</p>{claim.evidenceUrl ? <a href={claim.evidenceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-black text-blue-700 underline">Lihat bukti foto</a> : <p className="mt-1 text-xs text-[#525252]">Tidak ada bukti foto terlampir.</p>}<div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={busy === claim._id || !access.canModerate} onClick={() => void run(claim._id, () => reviewClaim({ claimId: claim._id as never, decision: "verified" }), "Klaim disetujui dan pemilik ditugaskan.")} className="admin-btn bg-[#DCEBD7] px-3 text-[#24533A] disabled:opacity-50">Setujui</button><button type="button" disabled={busy === claim._id || !access.canModerate} onClick={() => void run(claim._id, () => reviewClaim({ claimId: claim._id as never, decision: "rejected", reviewNote: "Bukti belum sesuai" }), "Klaim ditolak dan dicatat di audit.")} className="admin-btn admin-btn-danger px-3 disabled:opacity-50">Tolak</button></div></div>)}</div> : <p className="mt-3 text-sm text-[#525252]">Tidak ada klaim menunggu.</p>}
+          <h3 className="text-lg font-black text-[#1A1A1A]">Klaim listing ({claims ? claims.length : "…"})</h3>
+          {claims?.length ? <div className="mt-3 space-y-3">{claims.map((claim) => <div key={claim._id} className="border-2 border-[#121212] bg-[#F5F0E5] p-3"><p className="font-black text-[#1A1A1A]">{claim.vendorName}</p><p className="mt-1 text-sm text-[#525252]">{claim.requesterName} · {claim.requesterEmail}</p><p className="mt-1 text-sm text-[#525252]">{claim.businessAddress} · {claim.whatsappPhone}</p>{claim.evidenceUrl ? <a href={claim.evidenceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-black text-blue-700 underline">Lihat bukti foto</a> : <p className="mt-1 text-xs text-[#525252]">Tidak ada bukti foto terlampir.</p>}<div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={busy === claim._id || !access.canModerate} onClick={() => void run(claim._id, () => reviewClaim({ claimId: claim._id as never, decision: "verified" }), "Klaim disetujui dan pemilik ditugaskan.")} className="admin-btn bg-[#DCEBD7] px-3 text-[#24533A] disabled:opacity-50">Setujui</button><button type="button" disabled={busy === claim._id || !access.canModerate} onClick={() => void run(claim._id, () => reviewClaim({ claimId: claim._id as never, decision: "rejected", reviewNote: "Bukti belum sesuai" }), "Klaim ditolak dan dicatat di audit.")} className="admin-btn admin-btn-danger px-3 disabled:opacity-50">Tolak</button></div></div>)}</div> : <AdminQueueEmptyState status={claims === undefined ? "loading" : "empty"} variant="claims" loadingLabel="Memuat antrean klaim" emptyCopy="Tidak ada klaim menunggu." emptyHint="Semua beres untuk sekarang." />}
         </article>
 
         <article className="border-2 border-[#121212] bg-white p-4">
-          <h3 className="text-lg font-black text-[#1A1A1A]">Moderasi foto ({photos?.length ?? 0})</h3>
-          {photos?.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{photos.map((photo) => <div key={photo._id} className="overflow-hidden border-2 border-[#121212] bg-[#F5F0E5]"><img src={photo.url ?? ""} alt={photo.caption || "Foto listing"} className="aspect-video w-full object-cover" /><div className="p-2"><p className="text-sm font-black">{photo.vendorName}</p><div className="mt-2 flex gap-2"><button type="button" disabled={busy === photo._id || !access.canModerate} onClick={() => void run(photo._id, () => moderatePhoto({ id: photo._id as never, decision: "approved" }), "Foto disetujui.")} className="admin-btn bg-[#DCEBD7] px-2 text-xs text-[#24533A] disabled:opacity-50">Setujui</button><button type="button" disabled={busy === photo._id || !access.canModerate} onClick={() => void run(photo._id, () => moderatePhoto({ id: photo._id as never, decision: "rejected", note: "Tidak relevan" }), "Foto ditolak.")} className="admin-btn admin-btn-danger px-2 text-xs disabled:opacity-50">Tolak</button></div></div></div>)}</div> : <p className="mt-3 text-sm text-[#525252]">Tidak ada foto menunggu moderasi.</p>}
+          <h3 className="text-lg font-black text-[#1A1A1A]">Moderasi foto ({photos ? photos.length : "…"})</h3>
+          {photos?.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{photos.map((photo) => <div key={photo._id} className="overflow-hidden border-2 border-[#121212] bg-[#F5F0E5]"><img src={photo.url ?? ""} alt={photo.caption || "Foto listing"} className="aspect-video w-full object-cover" /><div className="p-2"><p className="text-sm font-black">{photo.vendorName}</p><div className="mt-2 flex gap-2"><button type="button" disabled={busy === photo._id || !access.canModerate} onClick={() => void run(photo._id, () => moderatePhoto({ id: photo._id as never, decision: "approved" }), "Foto disetujui.")} className="admin-btn bg-[#DCEBD7] px-2 text-xs text-[#24533A] disabled:opacity-50">Setujui</button><button type="button" disabled={busy === photo._id || !access.canModerate} onClick={() => void run(photo._id, () => moderatePhoto({ id: photo._id as never, decision: "rejected", note: "Tidak relevan" }), "Foto ditolak.")} className="admin-btn admin-btn-danger px-2 text-xs disabled:opacity-50">Tolak</button></div></div></div>)}</div> : <AdminQueueEmptyState status={photos === undefined ? "loading" : "empty"} variant="photos" loadingLabel="Memuat antrean foto" emptyCopy="Tidak ada foto menunggu moderasi." emptyHint="Tidak ada yang perlu ditinjau." />}
         </article>
 
         <article className="border-2 border-[#121212] bg-white p-4">

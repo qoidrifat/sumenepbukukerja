@@ -749,10 +749,13 @@ export function AdminReportReview({
  * berakhir dengan ruang kosong yang tidak rata — persis masalah yang membuat
  * area aksi terasa mengambang.
  *
- *.mobile: dua kolom, tombol ketiga melebar penuh
- * .xl   : tiga kolom sejajar saat kolom aksinya cukup lega
+ * .mobile: dua kolom (Cek WA / Setujui, Tolak melebar penuh), lalu toggle +
+ *          Lihat / Sunting + hapus ikon, lalu tombol unggulan melebar penuh
+ * .sm+   : tiga kolom untuk moderasi dan satu baris empat untuk navigasi,
+ *          jarak dan ukuran huruf tombol ikut naik
  *
- * Handler, disabled state, dan urutan tombol tidak berubah sama sekali.
+ * Komponen ini murni presentasi: handler, disabled state, dan urutan tombol
+ * datang dari halaman Admin sehingga logika mutasi tetap satu sumber.
  */
 export function VendorActionArea({
   item,
@@ -767,7 +770,8 @@ export function VendorActionArea({
   onEdit,
 }: {
   item: VendorActionItem;
-  waHref: string | null;
+  /** Sama dengan return type `whatsappHref`: `undefined` bila nomor tidak valid. */
+  waHref: ReturnType<typeof whatsappHref>;
   isActive: boolean;
   busyAction: string | null;
   itemBusyPrefix: string;
@@ -779,9 +783,10 @@ export function VendorActionArea({
 }) {
   return (
     <>
-      {/* Baris 1 — moderasi. `col-span-2` supaya baris kedua penuh, bukan
-          setengah kosong. */}
-      <div className="mt-3 grid grid-cols-3 gap-1.5 sm:gap-2">
+      {/* Baris 1 — moderasi. Di bawah `sm` tiga tombol bertumpuk jadi dua kolom
+          dengan tombol ketiga melebar penuh, karena 360px tidak cukup untuk icon
+          + teks di tiga kolom. */}
+      <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3 sm:gap-2">
         {waHref ? (
           <a
             href={waHref}
@@ -814,17 +819,19 @@ export function VendorActionArea({
         <button
           type="button"
           onClick={() => onRequestDestructive("reject")}
-          className="admin-btn admin-btn-danger w-full min-w-0 px-2 sm:px-3"
+          className="admin-btn admin-btn-danger col-span-2 w-full min-w-0 px-2 sm:col-span-1 sm:px-3"
         >
           <X className="size-4 shrink-0" />
           Tolak
         </button>
       </div>
 
-      {/* Baris 2 — navigasi + status listing. Toggle Aktif mengikuti lebar
-          naturalnya, tombol hapis ikon tetap 48px di paling kanan, dan Lihat +
+      {/* Baris 2 — navigasi + status listing. Di mobile: dua baris (toggle +
+          Lihat, lalu Sunting + hapus) supaya tiap tombol dapat lebar penuh.
+          Dari `sm` berubah jadi satu baris empat: toggle mengikuti lebar
+          naturalnya, tombol hapus ikon tetap 48px di paling kanan, dan Lihat +
           Sunting membagi sisa ruang sehingga total baris tetap 100%. */}
-      <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] items-stretch gap-1.5 border-t-2 border-[#121212] pt-3 sm:gap-2">
+      <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-stretch gap-1.5 border-t-2 border-[#121212] pt-3 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] sm:gap-2">
         <label className="inline-flex min-h-12 items-center gap-2 border-2 border-[#121212] bg-[#F5F0E5] px-2">
           <span className="text-xs font-black sm:text-sm">Aktif</span>
           <Switch

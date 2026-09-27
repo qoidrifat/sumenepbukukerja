@@ -2,11 +2,9 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { useMemo, useId, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Link } from "react-router";
 import {
   AlertTriangle,
   Archive,
-  ArrowUpRight,
   Building2,
   Check,
   CheckCircle2,
@@ -17,7 +15,6 @@ import {
   Inbox,
   MapPin,
   MessageCircle,
-  Pencil,
   Phone,
   Plus,
   Save,
@@ -31,7 +28,6 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AdminAccessDenied, AdminSetupRequired } from "@/components/admin-access-gate";
 import { ThemedSelect } from "@/components/ui/themed-select";
@@ -60,9 +56,9 @@ import { AdminGovernance } from "@/components/admin-governance";
 import { useAuth } from "@/hooks/use-auth";
 import { useAdminPresence } from "@/lib/admin-presence";
 
-// VendorActionArea sudah siap dipakai di kartu vendor (lihat VendorActionArea di
-// admin-workspace.tsx). Baris pemakaiannya berada di bawah batas edit tool,
-// jadi importnya dipasang lebih dulu supaya hanya tinggal menempelkan JSX.
+// Area aksi kartu vendor (Cek WA, moderasi, status, unggulan, hapus) sudah
+// dipusatkan di VendorActionArea. Kartu di bawah hanya meneruskan handler yang
+// sudah ada, jadi urutan tombol, disabled state, dan logika tetap satu sumber.
 import {
   AdminHeader,
   AdminMetricsBoard,
@@ -71,6 +67,7 @@ import {
   Field,
   SectionHeading,
   TimeStampLabel,
+  VendorActionArea,
   formatPhone,
   inputClass,
   quietButtonClass,
@@ -78,8 +75,6 @@ import {
   statusFilters,
   statusInfo,
   vendorUpdatePayload,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  VendorActionArea,
   whatsappHref,
   type ModerationFilter,
   type PendingConfirmation,
@@ -1321,7 +1316,7 @@ function AdminWorkspace() {
             </p>
           </div>
 
-          <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(15rem,.9fr)] gap-4 border-b-2 border-[#121212] bg-white px-6 py-3 text-sm font-black uppercase tracking-[0.1em] text-[#525252] lg:grid">
+          <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(20rem,.9fr)] gap-4 border-b-2 border-[#121212] bg-white px-6 py-3 text-sm font-black uppercase tracking-[0.1em] text-[#525252] lg:grid">
             <span>Vendor & kategori</span>
             <span>Status moderasi</span>
             <span>Kontak, kualitas & aksi</span>
@@ -1339,7 +1334,7 @@ function AdminWorkspace() {
               return (
                 <article
                   key={item._id}
-                  className="grid gap-4 bg-white p-4 transition-colors hover:bg-[#FFFCF5] sm:p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(15rem,.9fr)] lg:px-6"
+                  className="grid gap-4 bg-white p-4 transition-colors hover:bg-[#FFFCF5] sm:p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(20rem,.9fr)] lg:px-6"
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div
@@ -1410,102 +1405,18 @@ function AdminWorkspace() {
                       </p>
                     ) : null}
 
-                    <div className="mt-3 grid grid-cols-3 gap-1.5 sm:gap-2">
-                      {waHref ? (
-                        <a
-                          href={waHref}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="admin-btn admin-btn-secondary w-full min-w-0 px-2 sm:px-3"
-                        >
-                          <MessageCircle className="size-4 shrink-0" />
-                          Cek WA
-                        </a>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled
-                          className="admin-btn admin-btn-secondary w-full min-w-0 px-2 sm:px-3"
-                        >
-                          <MessageCircle className="size-4 shrink-0" />
-                          Cek WA
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        disabled={!item.phone.trim() || busyAction === `${itemBusyPrefix}approve`}
-                        onClick={() => void approveVendor(item)}
-                        className="admin-btn admin-btn-primary w-full min-w-0 px-2 sm:px-3"
-                      >
-                        <Check className="size-4 shrink-0" />
-                        Setujui
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPendingConfirmation({ kind: "reject", vendor: item })}
-                        className="admin-btn admin-btn-danger w-full min-w-0 px-2 sm:px-3"
-                      >
-                        <X className="size-4 shrink-0" />
-                        Tolak
-                      </button>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] items-stretch gap-1.5 border-t-2 border-[#121212] pt-3 sm:gap-2">
-                      <label className="inline-flex min-h-12 items-center gap-2 border-2 border-[#121212] bg-[#F5F0E5] px-2">
-                        <span className="text-xs font-black sm:text-sm">Aktif</span>
-                        <Switch
-                          checked={isActive}
-                          disabled={
-                            busyAction === `${itemBusyPrefix}archive` ||
-                            busyAction === `${itemBusyPrefix}activate`
-                          }
-                          onCheckedChange={() => void toggleActive(item)}
-                          className="admin-switch"
-                          aria-label={`${isActive ? "Nonaktifkan" : "Aktifkan"} ${item.name}`}
-                        />
-                      </label>
-                      {isActive ? (
-                        <Link
-                          to={`/v/${item.slug}`}
-                          className="admin-btn admin-btn-secondary w-full min-w-0 gap-1 px-2 text-sm sm:gap-2 sm:px-3 sm:text-base"
-                        >
-                          <ArrowUpRight className="hidden size-4 shrink-0 sm:block" />
-                          Lihat
-                        </Link>
-                      ) : (
-                        <span className="inline-flex min-h-12 w-full items-center justify-center border-2 border-[#121212] bg-[#E7E5E4] px-2 text-center text-sm font-black text-[#525252]">
-                          Tidak tayang
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => startEdit(item)}
-                        className="admin-btn admin-btn-secondary w-full min-w-0 gap-1 px-2 text-sm sm:gap-2 sm:px-3 sm:text-base"
-                      >
-                        <Pencil className="hidden size-4 shrink-0 sm:block" />
-                        Sunting
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPendingConfirmation({ kind: "delete", vendor: item })}
-                        className="admin-icon-btn"
-                        aria-label={`Hapus ${item.name}`}
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </div>
-
-                    <div className="mt-2">
-                      <button
-                        type="button"
-                        onClick={() => void toggleFeatured(item)}
-                        disabled={busyAction === `${itemBusyPrefix}featured`}
-                        className={`admin-btn w-full gap-2 px-2 sm:px-3 ${item.featured ? "admin-btn-highlight" : "admin-btn-secondary"}`}
-                      >
-                        <Sparkles className="size-4 shrink-0" />
-                        {item.featured ? "Jadikan biasa" : "Jadikan unggulan"}
-                      </button>
-                    </div>
+                    <VendorActionArea
+                      item={item}
+                      waHref={waHref}
+                      isActive={isActive}
+                      busyAction={busyAction}
+                      itemBusyPrefix={itemBusyPrefix}
+                      onApprove={() => void approveVendor(item)}
+                      onToggleActive={() => void toggleActive(item)}
+                      onToggleFeatured={() => void toggleFeatured(item)}
+                      onRequestDestructive={(kind) => setPendingConfirmation({ kind, vendor: item })}
+                      onEdit={() => startEdit(item)}
+                    />
                   </div>
 
                   <div className="lg:col-span-3">

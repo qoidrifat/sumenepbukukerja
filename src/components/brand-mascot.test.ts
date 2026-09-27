@@ -386,12 +386,18 @@ test("admin menahan aksesori sampai tingkat hero supaya density tidak berubah", 
 /* 7. Gerak                                                            */
 /* ------------------------------------------------------------------ */
 
-test("ada sepuluh perilaku gerak dan idle satu-satunya yang loop", () => {
+test("daftar perilaku lengkap dan setiap gestur state menunjuk perilaku yang dikenal", () => {
   expect(MASCOT_BEHAVIOUR_LIST.length).toBeGreaterThanOrEqual(6);
 
   /* Dipakai statis di render, jadi tidak bisa dihitung dari HTML. Yang bisa
      dijaga: setiap perilaku punya amplitude terukur dan daftar gestur state
-     tidak pernah menunjuk ke perilaku yang tak dikenal. */
+     tidak pernah menunjuk ke perilaku yang tak dikenal.
+
+     Nama tes ini dulu berbunyi "idle satu-satunya yang loop", dan itu tidak
+     pernah benar: `search` dan `working` memang harus loop (artinya baru
+     lengkap kalau matanya terus menyapu). Yang benar-benar dikunci sekarang
+     ada di `mascot-animation.test.ts`: `role: "burst"` tidak boleh
+     berosilasi saat diam, jadi `hello` melambai sekali, bukan terus. */
   const known = new Set<string>(MASCOT_BEHAVIOUR_LIST);
   for (const state of MASCOT_STATE_LIST) {
     expect(known.has(MASCOT_STATES[state].gesture), state).toBe(true);

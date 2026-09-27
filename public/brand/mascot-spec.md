@@ -155,22 +155,56 @@ maskot tidak jadi lima maskot berbeda warna.
 
 ## 5. Sistem gerak
 
-Sepuluh perilaku, semua deterministik, semua berbasis `transform` dan
+Dua belas perilaku, semua deterministik, semua berbasis `transform` dan
 `opacity`, semua dari `framer-motion` yang sudah ada.
 
-| Gestur | Amplitudo | Loop | Pemakaian |
-|---|---|---|---|
-| `idle-bob` | y 1.2 unit | ya | default, kosong, hero |
-| `hello-wave` | x 2 unit, halaman kiri | ya | `hello` |
-| `search-peek` | y 0.6 unit | ya | `search` |
-| `open-reveal` | x 1.6 unit, dua halaman | ya | `found` |
-| `focus-work` | y 0.8 unit | ya | `working`, admin |
-| `directional-point` | x 1.8 unit, halaman kanan | ya | `connect` |
-| `celebration` | y 2 unit + rotasi 2° | ya | `success` |
-| `steam-drift` | uap y 2 unit | ya | kuliner |
-| `motion-lines` | x 1.4 unit | ya | transportasi |
-| `welcome-nod` | y 1.2 unit | ya | jasa umum |
-| `none` | 0 | tidak | beku total |
+`role` menentukan **kapan** gestur hidup. `idle` = gestur itu napas tetap
+state ini. `burst` = gestur adalah satu peristiwa; ia diputar sekali saat
+state masuk, saat pointer masuk, dan saat diketuk, lalu karakter tenang.
+Tanpa pemisahan ini, `hello` melambai ke pengguna sepanjang halaman hidup dan
+`success` memantul tanpa henti.
+
+| Gestur | Role | Saat diam | Saat gestur | Pemakaian |
+|---|---|---|---|---|
+| `idle-bob` | idle | y 1.2 unit | y 2.4 | `neutral` |
+| `empty-wait` | idle | y 0.7 + mata menyapu | y 1.2 | `empty` |
+| `hello-wave` | burst | y 0.8 | halaman kiri x −2, rotate 1.5° | `hello` |
+| `search-peek` | idle | dua halaman x ±0.9 + mata menyapu | x 0.6 | `search` |
+| `open-reveal` | burst | y 0.8 | dua halaman membuka x ±1.2 | `found` |
+| `focus-work` | idle | y 0.8 + halaman x 0.3 | y 1.2 | `working`, admin |
+| `directional-point` | idle | halaman kanan x 0.5 | halaman kanan x 1.8 | `connect` |
+| `celebration` | burst | y 0.7 | y 3 + rotate 2° | `success` |
+| `steam-drift` | idle | uap y 2 unit | — | kuliner |
+| `motion-lines` | idle | garis x 1.4 unit | — | transportasi |
+| `welcome-nod` | burst | y 1.2 | y 2 | cadangan |
+| `none` | burst | 0 | 0 | beku total |
+
+Amplitudo di atas adalah nilai pada `lg` + `public` + intensitas `normal`.
+Nilai akhirnya adalah hasil kali tangga di §5b.
+
+### Lapisan gerak — satu lapisan, satu tanggung jawab
+
+Hanya satu lapisan boleh menggerakkan satu grup. Ini yang membuat pose dan
+animasi tidak bisa saling menimpa.
+
+| Lapisan | Elemen | Hanya boleh |
+|---|---|---|
+| L0 badan | `motion.div` (HTML) | `y`, `rotate` |
+| L1 pose | `motion.g` | `x` = nilai pose diam, **tidak pernah** berosilasi |
+| L2 osilasi | `motion.g` (anak L1) | `x` berpusat 0 |
+| L3 mata | `motion.g` | `x`, maksimal `MASCOT_GAZE.maxX` |
+| L4 aksesori/kilau | `motion.g`, `motion.path` | `x`, `y`, `opacity` |
+| L5 kedip | `motion.g` (anak L3) | `opacity` saja |
+
+Pose diam dipisah dari osilasi karena dua alasan. Pertama, L1 hanya punya satu
+nilai, jadi framer bisa **men-tween** pose saat state berganti — tidak ada lagi
+pose yang melompat saat `search` menjadi `found`. Kedua, osilasi selalu
+berpusat di nol, jadi pose tidak bisa ikut tergeser oleh animasi yang sedang
+berjalan. Lipatan (`BOOK_FOLD`) tetap di dalam grup halaman kanan (L2), jadi
+ia tidak pernah menerima transform sendiri dan tidak bisa tertinggal.
+
+Geometri wajah — rect mata, path mulut, path alis — **tidak pernah**
+ditransformasi. Yang bergeser hanya grup pembungkus mata.
 
 ### Tiga aturan yang tidak bisa dilanggar
 
@@ -180,21 +214,69 @@ Sepuluh perilaku, semua deterministik, semua berbasis `transform` dan
    `translate` dan `opacity`.
 2. **`repeat: Infinity` hanya jalan kalau** `useReducedMotion()` false **dan**
    `animated` true.
-3. **Tidak ada React render loop.** Tidak ada `setInterval`, tidak ada
-   `requestAnimationFrame`, tidak ada state yang di-set per frame.
+3. **Tidak ada loop JS per frame.** Tidak ada `setInterval`, tidak ada state
+   yang di-set per frame, dan tidak ada `requestAnimationFrame` yang menjadwalkan
+   dirinya sendiri. Satu pengecualian yang diizinkan sejak Phase 5: rAF boleh
+   dipakai sebagai **coalescer sekali-jalan** untuk `pointermove` — maksimal
+   satu pembacaan layout per frame — dan wajib dibatalkan saat pointer keluar
+   dan saat unmount. Batas ini dijaga `mascot-animation.test.ts`.
 
-### Hover
+### Hover, tekan, dan mata
 
-Desktop: `idle → react → idle`. Reaksi adalah amplitudo yang lebih besar dari
-gestur yang sama — bukan gestur baru. Tidak ada bounce besar, rotate 360°,
-shake, atau flash.
+Desktop, saat pointer masuk: gestur `react` diputar sekali (amplitudo lebih
+besar dari gestur yang sama — bukan gestur baru), lalu karakter kembali tenang.
+
+Sejak Phase 5 mata ikut membaca pointer: `pointermove` menggeser **satu-sumbu**
+posisi mata ke arah pointer dengan pegas lembut. Batasnya dihitung dari
+geometri, bukan dipilih: jarak mata terlebar ke spine adalah 3 unit, dan
+`maxX` + `cadangan` = 1.5 + 1.5 = 3. Sumbu vertikal **tidak ada** — celah
+antara mata dan tepi goresan mulut hanya 0.1 unit pada pasangan `empty`, jadi
+gerak vertikal sekecil apa pun akan membuat mata menyentuh mulut. "Hidup"
+vertikal dibawa badan (L0).
+
+Tekan (`pointerdown`) memicu gestur yang sama, tanpa lapisan transform kedua.
+`whileTap` framer sengaja tidak dipakai: framer menambahkan `tabIndex="0"`
+pada elemen ber-gesture tap, dan itu membuat maskot dekoratif jadi perhentian
+Tab tanpa nama — dilarang §8.
+
+### 5b. Tangga amplitudo
+
+Amplitudo akhir = `ukuran × intensitas × kategori × tone`.
+
+| Ukuran | `micro` | `sm` | `md` | `lg` | `hero` |
+|---|---|---|---|---|---|
+| pengali | 0 | 0 | 0.8 | 1 | 1.15 |
+
+| Intensitas | `reduced` | `normal` | `expressive` |
+|---|---|---|---|
+| pengali | 0.55 | 1 | 1.35 |
+
+Kategori dan tone hanya mengubah **tempo dan energi**, tidak pernah arti
+state: `hello` + kategori apa pun tetap terbaca sebagai `hello`. Tone `admin`
+selalu lebih tenang dari `public` (energi 0.7, tempo 1.25).
+
+Catatan jujur: `DETAIL_RULES[*].gesture` di `mascot-geometry.ts` (modul beku)
+masih `false` untuk `medium`, dan flag itu tidak pernah dibaca siapa pun.
+Phase 5 memilih §7 — 96px tetap harus membedakan state lewat gerak, dengan
+amplitudo dikurangi — jadi `md` = 0.8, bukan 0. Ketidaksepakatan ini disematkan
+di `mascot-animation.test.ts` supaya tidak bisa terlupakan.
+
+### Kedip
+
+Satu siklus panjang (8.5–13.5 detik) berisi **dua** kedip dengan jarak yang
+tidak rata, plus jeda awal acak 0–3.2 detik per instance. Tujuannya satu:
+dua maskot di satu halaman tidak boleh berkedip serentak, dan jedanya tidak
+boleh bisa diprediksi. Jeda efektifnya 4.25–6.75 detik (§13: 3.5–7.5 detik).
+State `success` tidak berkedip sama sekali — matanya sudah tertutup senang.
 
 ### Reduced motion
 
 `useReducedMotion()` true → pose `rest` untuk **semua** layer: badan, halaman,
-kedip, dan dekorasi berhenti. Ekspresi tetap terbaca karena ekspresi
-digambar sebagai bentuk, bukan sebagai gerak. Tidak ada makna yang hanya
-disampaikan lewat animasi.
+kedip, mata, aksesori, dan dekorasi berhenti. Pointer tidak lagi menggerakkan
+mata. Ekspresi tetap terbaca karena ekspresi digambar sebagai bentuk, bukan
+sebagai gerak — dan pose diam tetap digambar, jadi `hello` di 96px masih bisa
+dibedakan dari `found` tanpa satu pun animasi berjalan. Tidak ada makna yang
+hanya disampaikan lewat animasi.
 
 ---
 
@@ -514,3 +596,62 @@ Kalau suatu hari permukaan baru mau ditambah, urutannya: cek §8b dulu,
 tambahkan ke registry `INTEGRATED`, lalu jalankan dua perintah di atas.
 Permukaan yang tidak bisa masuk ke allowlist harus ganti konteksnya,
 bukan ganti maskotnya.
+
+---
+
+## 14. Gerak & interaksi (Phase 5)
+
+Phase 5 **tidak mengubah satu path pun.** Body, wajah, mulut, alis, lipatan,
+aksesori, pose diam, dan verdict 96px "A — MASCOT" semuanya tetap. Yang
+berubah hanya kapan dan seberapa jauh sesuatu bergerak.
+
+### Yang diperbaiki
+
+| Sebelum | Sesudah |
+|---|---|
+| `hello` melambai terus-menerus (`repeat: Infinity` untuk gestur sapaan) | melambai sekali saat state masuk / hover / ketuk, lalu bernapas |
+| `success` memantul tanpa henti | satu lompatan, lalu tenang |
+| pose dan osilasi dihitung satu fungsi, jadi pose melompat saat state berganti | dua grup bersarang; pose di-tween 500ms, osilasi berpusat nol |
+| kedip seragam: 4.4 detik, semua instance serentak | siklus 8.5-13.5 detik dengan pola tidak rata + jeda acak per instance |
+| mata tidak pernah bergerak | mata mengikuti pointer, satu sumbu, dibatasi geometri |
+| tidak ada reaksi tekan | `pointerdown` memicu gestur |
+| amplitudo sama di 24px dan 144px | tangga amplitudo per ukuran, intensitas, kategori, tone |
+| `role`/`loops`/`amplitude` di config hanya dokumentasi | `role` benar-benar dibaca komponen; `amplitude` diperbarui ke nilai nyata |
+
+### Yang dijaga
+
+| Kontrak | Dijaga oleh |
+|---|---|
+| Gestur burst tidak pernah jadi loop | `mascot-animation.test.ts` |
+| Burst selalu lebih besar dari napas state itu | `mascot-animation.test.ts` |
+| Pose diam tidak dikalikan tangga amplitudo | `mascot-animation.test.ts` |
+| Tangga ukuran/ intensitas / kategori / tone | `mascot-animation.test.ts` |
+| Batas gerak mata dihitung ulang dari geometri | `mascot-animation.test.ts` |
+| Kedip tidak metronomis, jeda di rentang 3.5-7.5s | `mascot-animation.test.ts` |
+| Kedip punya siklus 8.5-13.5s, tidak bisa sinkron | `mascot-animation.test.ts` |
+| Semua durasi di rentang bahasa gerak §5 | `mascot-animation.test.ts` |
+| Lipatan menempel di SEMUA state, bukan hanya `connect` | `mascot-animation.test.ts` |
+| Tidak ada listener/timer/rAF yang bocor | `mascot-animation.test.ts` + `mascot:qa:motion` |
+| Maskot tetap tidak fokusable (tidak ada `tabindex`) | `mascot-animation.test.ts` + `mascot:qa:motion` |
+| Perilaku sungguhan di browser: burst, mata, tekan, beku | `mascot:qa:motion` |
+| Tidak ada satu pun piksel yang berubah saat reduced motion | `mascot:qa:behaviour` |
+
+### Memeriksa sendiri
+
+```bash
+bun run mascot:qa:behaviour   # 17 pemeriksaan gerak & aksesibilitas
+bun run mascot:qa:motion      # perilaku Phase 5 di browser
+bun run mascot:qa             # tangkapan 96px per state & kategori
+```
+
+Studio `/__mascot` (dev saja) punya kontrol **Motion** (reduced / normal /
+expressive) dan **Interaction** (simulate hover, simulate tap, replay state).
+Tombol simulate mengirim event pointer sungguhan ke elemen maskot, bukan
+memanggil handler langsung — jadi yang dilihat reviewer adalah jalur kode yang
+sama dengan jalur pengguna. Panel "Gerak" di bawah kontrol membaca
+`MASCOT_STATES` dan `MASCOT_BEHAVIOURS` apa adanya, jadi tidak ada deskripsi
+kedua yang bisa basi.
+
+Aturan untuk fase berikutnya: kalau sebuah gerak tidak bisa dijawab dengan
+"kenapa maskot bergerak sekarang?", gerak itu tidak ditambahkan. Bentuk
+karakter sudah disetujui — yang boleh diperbaiki hanya hidupnya.

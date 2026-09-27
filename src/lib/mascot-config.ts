@@ -46,7 +46,7 @@ export type MascotStateConfig = {
 
 export const MASCOT_STATES: Record<MascotState, MascotStateConfig> = {
   neutral: {
-    summary: "Default. Tenang, approachable, yakin.",
+    summary: "Default. Tenang, approachable, yakin. Badan bernapas pelan.",
     eyes: "open",
     mouth: "calm",
     brows: false,
@@ -55,7 +55,7 @@ export const MASCOT_STATES: Record<MascotState, MascotStateConfig> = {
     sparkle: false,
   },
   hello: {
-    summary: "Sapaan. Halaman kiri melambai pelan.",
+    summary: "Sapaan. Halaman kiri melambai SEKALI saat muncul, lalu badan tenang.",
     eyes: "open",
     mouth: "smile",
     brows: false,
@@ -64,7 +64,7 @@ export const MASCOT_STATES: Record<MascotState, MascotStateConfig> = {
     sparkle: false,
   },
   search: {
-    summary: "Pencarian. Mata menelusuri halaman.",
+    summary: "Pencarian. Mata menelusuri halaman bolak-balik, badan condong diam.",
     eyes: "open",
     mouth: "uncertain",
     brows: false,
@@ -73,7 +73,7 @@ export const MASCOT_STATES: Record<MascotState, MascotStateConfig> = {
     sparkle: false,
   },
   found: {
-    summary: "Jasa ketemu. Halaman sedikit terbuka.",
+    summary: "Jasa ketemu. Halaman membuka SEKALI saat muncul, kilau ikut mereda.",
     eyes: "wide",
     mouth: "smile",
     brows: true,
@@ -82,7 +82,7 @@ export const MASCOT_STATES: Record<MascotState, MascotStateConfig> = {
     sparkle: true,
   },
   connect: {
-    summary: "Menuju percakapan. Arahkan ke tujuan, tanpa logo WhatsApp.",
+    summary: "Menuju percakapan. Halaman kanan menjangkau dan menahan arah, tanpa logo WhatsApp.",
     eyes: "wide",
     mouth: "calm",
     brows: false,
@@ -91,7 +91,7 @@ export const MASCOT_STATES: Record<MascotState, MascotStateConfig> = {
     sparkle: false,
   },
   success: {
-    summary: "Aksi selesai. Syukur kecil, tanpa checkmark besar.",
+    summary: "Aksi selesai. Satu lompatan kecil saat muncul, lalu diam; tanpa checkmark besar.",
     eyes: "closed-happy",
     mouth: "smile",
     brows: false,
@@ -100,16 +100,16 @@ export const MASCOT_STATES: Record<MascotState, MascotStateConfig> = {
     sparkle: true,
   },
   empty: {
-    summary: "Kosong / tidak ada hasil. Penasar, tanda tanya halus.",
+    summary: "Kosong / tidak ada hasil. Badan mengendap, mata melihat sekeliling, tanda tanya halus.",
     eyes: "open",
     mouth: "round",
     brows: false,
-    gesture: "idle-bob",
+    gesture: "empty-wait",
     queryMark: true,
     sparkle: false,
   },
   working: {
-    summary: "Admin. Fokus, tenang, restrained.",
+    summary: "Admin / memproses. Fokus, tenang, langkah ritmis kecil yang tidak berhenti.",
     eyes: "narrowed",
     mouth: "flat",
     brows: true,
@@ -202,6 +202,7 @@ export const MASCOT_CATEGORY_KEYS = Object.keys(MASCOT_CATEGORIES) as MascotCate
 
 export type MascotBehaviour =
   | "idle-bob"
+  | "empty-wait"
   | "hello-wave"
   | "search-peek"
   | "open-reveal"
@@ -213,26 +214,103 @@ export type MascotBehaviour =
   | "welcome-nod"
   | "none";
 
+/**
+ * Kapan gestur ini hidup.
+ *
+ * `idle` — gestur adalah napas tetap state ini. Selama state dipakai, gerak
+ *          ini terus berjalan; itu memang artinya (mata mencari, ritme kerja).
+ * `burst` — gestur adalah SATU peristiwa: diputar sekali saat state masuk,
+ *          saat pointer masuk, dan saat diketuk, lalu karakter tenang. Ini
+ *          yang mencegah maskot melambai terus-menerus ke pengguna.
+ */
+export type MascotBehaviourRole = "idle" | "burst";
+
 export type MascotBehaviourConfig = {
-  /** Loop terus-menerus saat diam, atau sekali lalu kembali. */
+  readonly role: MascotBehaviourRole;
+  /**
+   * Loop terus-menerus saat diam, atau sekali lalu kembali.
+   * Turunan dari `role`; disimpan eksplisit supaya tidak perlu menebak
+   * ekuivalensinya di setiap pembaca.
+   */
   readonly loops: boolean;
-  /** Deskripsi amplitude supaya mudah diaudit tidak terlalu berlebihan. */
+  /**
+   * Deskripsi amplitude yang benar-benar dipakai `brand-mascot.tsx`
+   * (`BODY_AMPLITUDE`), dalam unit viewBox 96. Kalau salah satu berubah,
+   * barisnya harus ikut berubah - halaman `/__mascot` menampilkan string ini
+   * apa adanya, jadi kalau basi, deskripsinya berbohong kepada reviewer.
+   */
   readonly amplitude: string;
   readonly summary: string;
 };
 
 export const MASCOT_BEHAVIOURS: Record<MascotBehaviour, MascotBehaviourConfig> = {
-  "idle-bob": { loops: true, amplitude: "y 1.2 unit", summary: "Napas vertikal sangat halus." },
-  "hello-wave": { loops: true, amplitude: "x 2 unit, page kiri", summary: "Halaman kiri melambai." },
-  "search-peek": { loops: true, amplitude: "x 1.6 unit, mata", summary: "Mata menelusuri halaman." },
-  "open-reveal": { loops: true, amplitude: "scaleY 1.03", summary: "Buku membuka sedikit." },
-  "focus-work": { loops: true, amplitude: "y 0.8 unit, kontinyu", summary: "Langkah kecil terkontrol." },
-  "directional-point": { loops: true, amplitude: "x 1.8 unit, halaman kanan", summary: "Halaman kanan mengarahkan." },
-  celebration: { loops: true, amplitude: "y 2 unit + scale 1.04", summary: "Bounce kecil + kilau." },
-  "steam-drift": { loops: true, amplitude: "y 2 unit, opacity", summary: "Uap naik dari aksesori." },
-  "motion-lines": { loops: true, amplitude: "x 1.4 unit, opacity", summary: "Garis jalan bergerak." },
-  "welcome-nod": { loops: true, amplitude: "y 1.2 unit, 2 siklus", summary: "Anggukan kecil, dua siklus." },
-  none: { loops: false, amplitude: "0", summary: "Diam total (konteks admin rapat)." },
+  "idle-bob": {
+    role: "idle",
+    loops: true,
+    amplitude: "idle y 1.2 | burst y 2.4",
+    summary: "Napas vertikal sangat halus, tanpa henti.",
+  },
+  "empty-wait": {
+    role: "idle",
+    loops: true,
+    amplitude: "idle y 0.7 + mata menoleh | burst y 1.2",
+    summary: "Mengendap pelan sambil mata melihat sekeliling.",
+  },
+  "hello-wave": {
+    role: "burst",
+    loops: false,
+    amplitude: "idle y 0.8 | burst x 2 halaman kiri + rotate 1.5deg",
+    summary: "Halaman kiri melambai sekali saat state masuk; sesudah itu hanya napas.",
+  },
+  "search-peek": {
+    role: "idle",
+    loops: true,
+    amplitude: "idle x 0.9 dua halaman + mata menyapu | burst x 1.35",
+    summary: "Mata menyapu kiri-kanan, badan condong ke dalam dan menahan.",
+  },
+  "open-reveal": {
+    role: "burst",
+    loops: false,
+    amplitude: "idle y 0.8 | burst x 2.4 dua halaman membuka",
+    summary: "Antisipasi lalu halaman membuka sekali, kilau ikut mereda.",
+  },
+  "focus-work": {
+    role: "idle",
+    loops: true,
+    amplitude: "idle y 0.8 + x 0.35 | burst y 1.2",
+    summary: "Langkah ritmis kecil yang terkontrol, tidak pernah berhenti.",
+  },
+  "directional-point": {
+    role: "idle",
+    loops: true,
+    amplitude: "idle x 0.5 halaman kanan | burst x 1.8",
+    summary: "Halaman kanan menjangkau arah tujuan lalu menahan dengan pulsa tipis.",
+  },
+  celebration: {
+    role: "burst",
+    loops: false,
+    amplitude: "idle y 0.7 | burst y 3 + rotate 2deg",
+    summary: "Satu lompatan kecil plus kilau, lalu tenang. Tidak diulang.",
+  },
+  "steam-drift": {
+    role: "idle",
+    loops: true,
+    amplitude: "aksesori y 2, opacity 0.78",
+    summary: "Uap naik dari aksesori kategori.",
+  },
+  "motion-lines": {
+    role: "idle",
+    loops: true,
+    amplitude: "aksesori x 1.4, opacity 0.78",
+    summary: "Garis jalan bergerak pada aksesori.",
+  },
+  "welcome-nod": {
+    role: "burst",
+    loops: false,
+    amplitude: "burst y 1.2 satu kali",
+    summary: "Anggukan kecil satu kali.",
+  },
+  none: { role: "burst", loops: false, amplitude: "0", summary: "Diam total (konteks admin rapat)." },
 };
 
 export const MASCOT_BEHAVIOUR_LIST = Object.keys(MASCOT_BEHAVIOURS) as MascotBehaviour[];
@@ -313,3 +391,343 @@ export const MASCOT_SIZE_DETAIL: Record<MascotSize, MascotDetail> = {
   lg: "large",
   hero: "hero",
 };
+
+/* ------------------------------------------------------------------ */
+/* Phase 5 — gerak: tangga intensitas                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Intensitas gerak yang bisa diminta pemanggil.
+ *
+ * Ini BUKAN reduced-motion (itu `prefers-reduced-motion`, ditangani
+ * `useReducedMotion()`). Ini pilihan editorial: permukaan yang ramai
+ * (tabel admin, splash rute) boleh meminta gerak yang lebih tenang tanpa
+ * mematikan animasinya sama sekali.
+ */
+export type MascotIntensity = "reduced" | "normal" | "expressive";
+
+export const MASCOT_INTENSITY_LIST: MascotIntensity[] = ["reduced", "normal", "expressive"];
+
+/**
+ * Pengali amplitudo per tingkat intensitas.
+ *
+ * 0.55 masih terbaca sebagai "hidup" tanpa menarik mata; 1.35 dipakai
+ * hanya kalau reviewer memang ingin melihat gestur sepenuhnya.
+ */
+export const MASCOT_INTENSITY_SCALE: Record<MascotIntensity, number> = {
+  reduced: 0.55,
+  normal: 1,
+  expressive: 1.35,
+};
+
+/**
+ * Amplitudo gerak berdasarkan ukuran yang benar-benar dirender.
+ *
+ * Unit viewBox sudah menskalakan gerak secara proporsional, tapi itu justru
+ * masalahnya: pada 96px gerak sekecil 1 unit hanya ~1 piksel dan terbaca
+ * sebagai gemetar, bukan gestur. Karena itu lantai (`micro`, `sm`) dibekukan
+ * total, `md` — ukuran yang dipakai semua integrasi produk dan sudah
+ * diverifikasi di Phase 3/4 — ditahan di 0.8, dan `hero` boleh sedikit lebih
+ * ekspresif.
+ *
+ * Amplitudo pose diam TIDAK ikut dikalikan: pose adalah identitas state dan
+ * sudah dikunci pada nilainya (lihat `brand-mascot.test.ts` §8). Yang
+ * diskalakan hanya osilasi.
+ *
+ * ── Satu ketidaksepakatan yang sengaja dibiarkan ──
+ *
+ * `DETAIL_RULES[*].gesture` di `mascot-geometry.ts` (modul beku) masih
+ * `false` untuk `medium`, dan selama Phase 2-4 tidak ada satu pun pembaca
+ * yang membaca flag itu. Phase 5 memilih mengikuti §17 — 96px harus tetap
+ * bisa membedakan state lewat gerak, dengan amplitudo dikurangi — jadi `md`
+ * di sini 0.8, bukan 0. Divergensi itu disematkan di
+ * `mascot-animation.test.ts` supaya tidak bisa terlupakan; menyelaraskan
+ * flag-nya berarti menyentuh modul beku, dan itu keputusan owner, bukan
+ * keputusan fase animasi.
+ */
+export const MASCOT_SIZE_AMPLITUDE: Record<MascotSize, number> = {
+  micro: 0,
+  sm: 0,
+  md: 0.8,
+  lg: 1,
+  hero: 1.15,
+};
+
+/**
+ * Kepribadian kategori sebagai pengubah gerak — BUKAN pengganti state.
+ *
+ * `personality` di `MASCOT_CATEGORIES` adalah sumber teksnya; angka di sini
+ * hanya menerjemahkan kata-kata itu menjadi tempo. Amplitudo tetap milik
+ * state: `hello` + kategori apa pun tetap harus terbaca sebagai hello.
+ *
+ * `energy` mengali amplitudo, `tempo` mengali durasi (lebih besar = lebih
+ * pelan).
+ */
+export type MascotCategoryMotion = { readonly energy: number; readonly tempo: number };
+
+export const MASCOT_CATEGORY_MOTION: Record<MascotCategoryKey, MascotCategoryMotion> = {
+  /* "fokus, mumpuni" */ technical: { energy: 0.9, tempo: 1.1 },
+  /* "ceria" */ events: { energy: 1.2, tempo: 0.9 },
+  /* "hangat, mengajak" */ culinary: { energy: 1.05, tempo: 1 },
+  /* "siap, tapi tetap tenang" */ transport: { energy: 1, tempo: 0.92 },
+  /* "membantu, hangat" */ general: { energy: 1, tempo: 1.05 },
+};
+
+/**
+ * Karakter gerak per tone.
+ *
+ * Tone tetap tidak boleh mengubah arti state — `admin` hanya mengecilkan
+ * amplitudo dan memperlambat tempo supaya workspace tidak terasa ramai.
+ */
+export type MascotToneMotion = { readonly energy: number; readonly tempo: number };
+
+export const MASCOT_TONE_MOTION: Record<MascotTone, MascotToneMotion> = {
+  public: { energy: 1, tempo: 1 },
+  /* "Focused, structured, calm. Aksesori hanya di hero, gerak minimal." */
+  admin: { energy: 0.7, tempo: 1.25 },
+};
+
+/**
+ * Batas gerak mata ("gaze") dalam unit viewBox.
+ *
+ * ── Kenapa hanya satu sumbu ──
+ *
+ * Angka ini bukan selera, dan sumbunya bukan pilihan gaya:
+ *
+ *  - Horizontal: jarak mata ke spine adalah 3 unit untuk bentuk mata
+ *    terlebar, dan `brand-mascot.test.ts` sudah mengunci minimum itu. Jadi
+ *    total (maxX + clearance) tidak boleh lebih dari 3. 1.5 + 1.5 = 3.
+ *  - Vertikal: TIDAK ADA. Celah antara mata terlebar dan tepi atas goresan
+ *    mulut adalah 0.6 unit, dan pada pasangan yang benar-benar dipakai
+ *    state `empty` (mata `open` + mulut `round`) hanya 0.1 unit. Gerak
+ *    vertikal sekecil apa pun akan membuat mata menyentuh mulut. Karena itu
+ *    lapisan gaze sengaja tidak punya `maxY` sama sekali: "hidup" vertikal
+ *    dibawa badan (L0), bukan mata.
+ *
+ * `mascot-animation.test.ts` menghitung ULANG kedua anggaran itu dari
+ * `mascot-geometry` dan gagal kalau angka di sini melenceng.
+ */
+export const MASCOT_GAZE = {
+  maxX: 1.5,
+  /** Cadangan jarak ke spine yang harus tetap tersisa saat mata bergeser. */
+  clearance: 1.5,
+} as const;
+
+/**
+ * Pola kedip.
+ *
+ * Kedip tetap bukan loop berhenti-berhenti tiap beberapa detik: satu siklus
+ * panjang berisi dua kedip yang jaraknya TIDAK rata, lalu tiap instance
+ * menggeser `delay` dan `duration`-nya sendiri supaya dua maskot di satu
+ * halaman tidak pernah berkedip serentak.
+ *
+ * `times` adalah posisi tiap kedip di dalam siklus (0..1).
+ */
+export const MASCOT_BLINK = {
+  /** Posisi kedip dalam satu siklus, sengaja tidak rata. */
+  times: [0, 0.14, 0.155, 0.17, 0.52, 0.545, 0.565, 1] as const,
+  /** Opacity tutup mata di tiap titik. Indeks sejajar dengan `times`. */
+  opacity: [0, 0, 1, 0, 0, 1, 0, 0] as const,
+  /** Rentang siklus (detik). Instance memilih nilainya sendiri. */
+  cycleMin: 8.5,
+  cycleMax: 13.5,
+  /** Rentang jeda awal (detik), supaya tidak semua mulai bersamaan. */
+  delayMax: 3.2,
+  /** Kedip sengaja saat gestur diputar (burst): satu kali, cepat. */
+  burstDuration: 0.26,
+} as const;
+
+/* ------------------------------------------------------------------ */
+/* Phase 5 — data gerak                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Kosakata waktu. Semua nilai dalam detik, sebelum dikali `tempo` (kategori
+ * + tone). Tidak ada durasi yang ditulis langsung di badan komponen.
+ *
+ * Rentangnya mengikuti §6 bahasa gerak: micro 120-180ms, gesture 280-500ms
+ * (di sini 620ms karena gesturnya punya fase settle), transisi state
+ * 350-700ms, idle 2200-4200ms.
+ */
+export const MASCOT_TIMING = {
+  /** micro reaction: kedip pada gestur, jeda sebelum berhenti. */
+  micro: 0.14,
+  /** gesture: satu burst (masuk state, hover, ketuk). */
+  gesture: 0.62,
+  /** state transition: tween pose antar state. */
+  transition: 0.5,
+  /** idle loop: napas + osilasi halaman. */
+  idle: 3.9,
+  /** float loop aksesori/kilau. */
+  float: 2.4,
+} as const;
+
+/** Berapa lama `react` ditahan sebelum kembali ke `idle`, dalam milidetik. */
+export function mascotBurstMs(tempo: number) {
+  return Math.round(MASCOT_TIMING.gesture * tempo * 1000);
+}
+
+/**
+ * Amplitude per gestur, dalam unit viewBox.
+ *
+ * ── Kenapa pose dan osilasi dipisah ──
+ *
+ * `poseLeft/poseRight/poseShift` adalah identitas state pada frame diam. Ia
+ * TIDAK pernah dikalikan `scale`: pose sudah dikunci nilainya (dan diuji di
+ * `brand-mascot.test.ts` §8), sementara `scale` berubah menurut ukuran,
+ * kategori, tone, dan intensitas. Kalau pose ikut diskalakan, `hello` di 96px
+ * dan di 208px akan punya pose yang berbeda - dan state berhenti bisa
+ * dibedakan tanpa animasi.
+ *
+ * `idle*` adalah osilasi yang berjalan terus; `burst*` adalah gestur sekali
+ * jadi. Untuk `role: "burst"` nilainya besar (itu satu-satunya cara state itu
+ * bicara); untuk `role: "idle"` nilainya kecil (napas, bukan gestur).
+ *
+ * `burstPageLeft`/`burstPageRight` bertanda: negatif = halaman keluar,
+ * positif = halaman masuk ke dalam. Dua halaman dengan tanda berlawanan =
+ * buku membuka (found), tanda sama = buku menggeser (napas).
+ */
+export type MascotBodySpec = {
+  poseLeft: number;
+  poseRight: number;
+  poseShift: number;
+  idleDy: number;
+  idlePageLeft: number;
+  idlePageRight: number;
+  idleTilt: number;
+  burstDy: number;
+  burstPageLeft: number;
+  burstPageRight: number;
+  burstTilt: number;
+};
+
+const P = (spec: Partial<MascotBodySpec>): MascotBodySpec => ({
+  poseLeft: 0,
+  poseRight: 0,
+  poseShift: 0,
+  idleDy: 0,
+  idlePageLeft: 0,
+  idlePageRight: 0,
+  idleTilt: 0,
+  burstDy: 0,
+  burstPageLeft: 0,
+  burstPageRight: 0,
+  burstTilt: 0,
+  ...spec,
+});
+
+export const MASCOT_BODY_AMPLITUDE: Record<string, MascotBodySpec> = {
+  /* Tenang, approachable: napas, tanpa gestur yang perlu diperhatikan. */
+  "idle-bob": P({ idleDy: 1.2, burstDy: 2.4 }),
+  /* Mengendap sedikit lalu mata melihat sekeliling (drift ada di GAZE_DRIFT). */
+  "empty-wait": P({ idleDy: 0.7, burstDy: 1.2 }),
+  /* Halaman kiri terbuka ke luar = menyapa. Burst, bukan loop: kalau
+     di-loop, maskot melambai terus ke pengguna sepanjang halaman hidup. */
+  "hello-wave": P({
+    poseLeft: -2.2,
+    idleDy: 0.8,
+    burstDy: 1.4,
+    burstPageLeft: -2,
+    burstTilt: 1.5,
+  }),
+  /* Kedua halaman masuk ke dalam = condong untuk melihat. Ini memang loop:
+     arti state `search` baru lengkap kalau matanya terus menyapu. */
+  "search-peek": P({
+    poseLeft: 1.2,
+    poseRight: -1.2,
+    idleDy: 0.6,
+    idlePageLeft: 0.9,
+    idlePageRight: 0.9,
+    burstDy: 1,
+    burstPageLeft: -0.6,
+    burstPageRight: 0.6,
+  }),
+  /* Antisipasi lalu halaman membuka ke dua sisi. Burst. */
+  "open-reveal": P({
+    poseLeft: -0.8,
+    poseRight: 0.8,
+    idleDy: 0.8,
+    burstDy: 1.2,
+    burstPageLeft: -1.2,
+    burstPageRight: 1.2,
+  }),
+  /* Langkah ritmis kecil: halaman menutup-membuka sedikit, terus-menerus. */
+  "focus-work": P({
+    idleDy: 0.8,
+    idlePageLeft: -0.3,
+    idlePageRight: 0.3,
+    burstDy: 1.2,
+  }),
+  /* Halaman kanan menjangkau arah tujuan, lalu menahan dengan pulsa tipis. */
+  "directional-point": P({
+    poseRight: 2.4,
+    idleDy: 0.6,
+    idlePageRight: 0.5,
+    burstDy: 1,
+    burstPageRight: 1.8,
+  }),
+  /* Satu lompatan. Burst: "One small bounce is enough." */
+  celebration: P({ idleDy: 0.7, burstDy: 3, burstTilt: 2 }),
+  "steam-drift": P({ idleDy: 0.8, burstDy: 1.2 }),
+  "motion-lines": P({ idleDy: 0.6, burstDy: 1 }),
+  "welcome-nod": P({ idleDy: 1.2, burstDy: 2, burstTilt: 1 }),
+  none: P({}),
+};
+
+/**
+ * Sapuan mata mandiri, dalam unit viewBox. Hanya untuk state yang artinya
+ * memang "mata mencari" atau "melihat sekeliling" - state lain matanya
+ * menetap, karena mata yang bergerak tanpa alasan adalah bahasa kartun.
+ *
+ * Satu sumbu saja, sama seperti gaze pointer: tidak ada ruang vertikal
+ * (lihat `MASCOT_GAZE`). Nilai terbesarnya tetap di bawah `maxX`, dan
+ * `mascot-animation.test.ts` yang menjaganya.
+ */
+export type MascotGazeDrift = { x: number[]; times: number[]; duration: number };
+
+export const MASCOT_GAZE_DRIFT: Record<string, MascotGazeDrift> = {
+  "search-peek": {
+    x: [0, 1.1, 0.25, -1.1, 0.1, 0],
+    times: [0, 0.2, 0.36, 0.56, 0.72, 1],
+    duration: 5.2,
+  },
+  "empty-wait": {
+    x: [0, 0.85, 0.15, -0.7, 0],
+    times: [0, 0.26, 0.5, 0.78, 1],
+    duration: 6.4,
+  },
+};
+
+/**
+ * Titik pointer -> pergeseran mata, dibatasi `MASCOT_GAZE.maxX`.
+ *
+ * Fungsi murni supaya batasnya bisa diuji tanpa browser: kasus paling
+ * ekstrem (pointer jauh di luar elemen, elemen selebar 0) tetap harus
+ * menghasilkan nilai di dalam clamp, bukan `NaN` atau nilai tak terbatas.
+ */
+export function mascotGazeFromPoint(
+  point: { clientX: number },
+  rect: { left: number; width: number },
+): { x: number } {
+  if (!(rect.width > 0)) return { x: 0 };
+  const offset = (point.clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
+  if (!Number.isFinite(offset)) return { x: 0 };
+  return { x: Math.max(-1, Math.min(1, offset)) * MASCOT_GAZE.maxX };
+}
+
+/**
+ * Jitter kedip per instance, dari `useId()` — bukan `Math.random()`.
+ *
+ * `Math.random()` saat render melanggar aturan purity React (nilainya bisa
+ * berbeda di render berikutnya), dan `react-hooks/purity` menangkapnya
+ * sebagai error. `useId()` stabil per instance, unik per posisi di pohon, dan
+ * deterministik antara server dan klien. Hash FNV-1a menyebarkannya rata:
+ * 200 id berurutan mengisi kesepuluh desil tanpa bias.
+ */
+export function mascotBlinkJitter(id: string, salt: number): number {
+  let h = 2166136261 ^ salt;
+  for (let i = 0; i < id.length; i++) {
+    h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  }
+  return ((h >>> 0) % 100000) / 100000;
+}

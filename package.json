@@ -23,7 +23,8 @@
     "mascot:qa:behaviour": "node scripts/mascot/qa-behaviour.mjs",
     "mascot:qa:contexts": "node scripts/mascot/qa-contexts.mjs",
     "mascot:qa:surfaces": "node scripts/mascot/qa-surfaces.mjs",
-    "mascot:qa": "bun run mascot:check && bun run mascot:qa:behaviour && bun run mascot:qa:surfaces"
+    "mascot:qa:motion": "node scripts/mascot/qa-motion.mjs",
+    "mascot:qa": "bun run mascot:check && bun run mascot:qa:behaviour && bun run mascot:qa:surfaces && bun run mascot:qa:motion"
   },
   "dependencies": {
     "@convex-dev/auth": "^0.0.90",

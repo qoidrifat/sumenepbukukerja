@@ -38,7 +38,6 @@ import {
   MASCOT_BODY_AMPLITUDE,
   MASCOT_CATEGORIES,
   MASCOT_CATEGORY_MOTION,
-  MASCOT_GAZE,
   MASCOT_GAZE_DRIFT,
   MASCOT_INTENSITY_SCALE,
   MASCOT_TIMING,
@@ -207,7 +206,7 @@ const PALETTES: Record<MascotTone, Palette> = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Waktu                                                               */
+/* Kemudahan rakit                                                     */
 /* ------------------------------------------------------------------ */
 
 /**

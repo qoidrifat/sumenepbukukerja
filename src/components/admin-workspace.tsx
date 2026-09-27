@@ -800,11 +800,12 @@ export function VendorActionArea({
         </button>
       </div>
 
-      {/* Baris 2 — status listing. Toggle dan ikon hapus mengikuti lebar
-          natural-nya, tombol unggulan mengisi sisa ruang. */}
-      <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-stretch gap-2 border-t-2 border-[#121212] pt-3">
-        <label className="inline-flex min-h-12 items-center gap-2 border-2 border-[#121212] bg-[#F5F0E5] px-3">
-          <span className="text-sm font-black">Aktif</span>
+      {/* Baris 2 — navigasi + status listing. Toggle Aktif mengikuti lebar
+          naturalnya, tombol hapis ikon tetap 48px di paling kanan, dan Lihat +
+          Sunting membagi sisa ruang sehingga total baris tetap 100%. */}
+      <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] items-stretch gap-1.5 border-t-2 border-[#121212] pt-3 sm:gap-2">
+        <label className="inline-flex min-h-12 items-center gap-2 border-2 border-[#121212] bg-[#F5F0E5] px-2">
+          <span className="text-xs font-black sm:text-sm">Aktif</span>
           <Switch
             checked={isActive}
             disabled={
@@ -816,14 +817,26 @@ export function VendorActionArea({
             aria-label={`${isActive ? "Nonaktifkan" : "Aktifkan"} ${item.name}`}
           />
         </label>
+        {isActive ? (
+          <Link
+            to={`/v/${item.slug}`}
+            className="admin-btn admin-btn-secondary w-full min-w-0 gap-1 px-2 text-sm sm:gap-2 sm:px-3 sm:text-base"
+          >
+            <ArrowUpRight className="hidden size-4 shrink-0 sm:block" />
+            Lihat
+          </Link>
+        ) : (
+          <span className="inline-flex min-h-12 w-full items-center justify-center border-2 border-[#121212] bg-[#E7E5E4] px-2 text-center text-sm font-black text-[#525252]">
+            Tidak tayang
+          </span>
+        )}
         <button
           type="button"
-          onClick={onToggleFeatured}
-          disabled={busyAction === `${itemBusyPrefix}featured`}
-          className={`admin-btn w-full px-3 ${item.featured ? "admin-btn-highlight" : "admin-btn-secondary"}`}
+          onClick={onEdit}
+          className="admin-btn admin-btn-secondary w-full min-w-0 gap-1 px-2 text-sm sm:gap-2 sm:px-3 sm:text-base"
         >
-          <Sparkles className="size-4 shrink-0" />
-          {item.featured ? "Jadikan biasa" : "Jadikan unggulan"}
+          <Pencil className="hidden size-4 shrink-0 sm:block" />
+          Sunting
         </button>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -840,22 +853,16 @@ export function VendorActionArea({
         </Tooltip>
       </div>
 
-      {/* Baris 3 — navigasi. Dua tombol sama lebar, jadi tidak ada yang
-          terlihat "nyempil" di sebelah temannya. */}
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        {isActive ? (
-          <Link to={`/v/${item.slug}`} className="admin-btn admin-btn-secondary w-full px-3">
-            <ArrowUpRight className="size-4 shrink-0" />
-            Lihat
-          </Link>
-        ) : (
-          <span className="inline-flex min-h-12 items-center justify-center border-2 border-[#121212] bg-[#E7E5E4] px-3 text-center text-sm font-black text-[#525252]">
-            Tidak tayang
-          </span>
-        )}
-        <button type="button" onClick={onEdit} className="admin-btn admin-btn-secondary w-full px-3">
-          <Pencil className="size-4 shrink-0" />
-          Sunting
+      {/* Baris 3 — status unggulan. Sendiri di bawah, melebar penuh. */}
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={onToggleFeatured}
+          disabled={busyAction === `${itemBusyPrefix}featured`}
+          className={`admin-btn w-full gap-2 px-2 sm:px-3 ${item.featured ? "admin-btn-highlight" : "admin-btn-secondary"}`}
+        >
+          <Sparkles className="size-4 shrink-0" />
+          {item.featured ? "Jadikan biasa" : "Jadikan unggulan"}
         </button>
       </div>
     </>

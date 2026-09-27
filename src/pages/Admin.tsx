@@ -1315,7 +1315,7 @@ function AdminWorkspace() {
             </p>
           </div>
 
-          <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(13rem,.8fr)] gap-4 border-b-2 border-[#121212] bg-white px-6 py-3 text-sm font-black uppercase tracking-[0.1em] text-[#525252] lg:grid">
+          <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(15rem,.9fr)] gap-4 border-b-2 border-[#121212] bg-white px-6 py-3 text-sm font-black uppercase tracking-[0.1em] text-[#525252] lg:grid">
             <span>Vendor & kategori</span>
             <span>Status moderasi</span>
             <span>Kontak, kualitas & aksi</span>
@@ -1333,7 +1333,7 @@ function AdminWorkspace() {
               return (
                 <article
                   key={item._id}
-                  className="grid gap-4 bg-white p-4 transition-colors hover:bg-[#FFFCF5] sm:p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(13rem,.8fr)] lg:px-6"
+                  className="grid gap-4 bg-white p-4 transition-colors hover:bg-[#FFFCF5] sm:p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(15rem,.9fr)] lg:px-6"
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div
@@ -1444,9 +1444,9 @@ function AdminWorkspace() {
                       </button>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t-2 border-[#121212] pt-3">
+                    <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] items-stretch gap-1.5 border-t-2 border-[#121212] pt-3 sm:gap-2">
                       <label className="inline-flex min-h-12 items-center gap-2 border-2 border-[#121212] bg-[#F5F0E5] px-2">
-                        <span className="text-sm font-black">Aktif</span>
+                        <span className="text-xs font-black sm:text-sm">Aktif</span>
                         <Switch
                           checked={isActive}
                           disabled={
@@ -1458,14 +1458,26 @@ function AdminWorkspace() {
                           aria-label={`${isActive ? "Nonaktifkan" : "Aktifkan"} ${item.name}`}
                         />
                       </label>
+                      {isActive ? (
+                        <Link
+                          to={`/v/${item.slug}`}
+                          className="admin-btn admin-btn-secondary w-full min-w-0 gap-1 px-2 text-sm sm:gap-2 sm:px-3 sm:text-base"
+                        >
+                          <ArrowUpRight className="hidden size-4 shrink-0 sm:block" />
+                          Lihat
+                        </Link>
+                      ) : (
+                        <span className="inline-flex min-h-12 w-full items-center justify-center border-2 border-[#121212] bg-[#E7E5E4] px-2 text-center text-sm font-black text-[#525252]">
+                          Tidak tayang
+                        </span>
+                      )}
                       <button
                         type="button"
-                        onClick={() => void toggleFeatured(item)}
-                        disabled={busyAction === `${itemBusyPrefix}featured`}
-                        className={`admin-btn px-3 ${item.featured ? "admin-btn-highlight" : "admin-btn-secondary"}`}
+                        onClick={() => startEdit(item)}
+                        className="admin-btn admin-btn-secondary w-full min-w-0 gap-1 px-2 text-sm sm:gap-2 sm:px-3 sm:text-base"
                       >
-                        <Sparkles className="size-4" />
-                        {item.featured ? "Jadikan biasa" : "Jadikan unggulan"}
+                        <Pencil className="hidden size-4 shrink-0 sm:block" />
+                        Sunting
                       </button>
                       <button
                         type="button"
@@ -1477,27 +1489,15 @@ function AdminWorkspace() {
                       </button>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {isActive ? (
-                        <Link
-                          to={`/v/${item.slug}`}
-                          className="admin-btn admin-btn-secondary px-3"
-                        >
-                          <ArrowUpRight className="size-4" />
-                          Lihat
-                        </Link>
-                      ) : (
-                        <span className="inline-flex min-h-12 items-center border-2 border-[#121212] bg-[#E7E5E4] px-3 text-sm font-black text-[#525252]">
-                          Tidak tayang
-                        </span>
-                      )}
+                    <div className="mt-2">
                       <button
                         type="button"
-                        onClick={() => startEdit(item)}
-                        className="admin-btn admin-btn-secondary px-3"
+                        onClick={() => void toggleFeatured(item)}
+                        disabled={busyAction === `${itemBusyPrefix}featured`}
+                        className={`admin-btn w-full gap-2 px-2 sm:px-3 ${item.featured ? "admin-btn-highlight" : "admin-btn-secondary"}`}
                       >
-                        <Pencil className="size-4" />
-                        Sunting
+                        <Sparkles className="size-4 shrink-0" />
+                        {item.featured ? "Jadikan biasa" : "Jadikan unggulan"}
                       </button>
                     </div>
                   </div>

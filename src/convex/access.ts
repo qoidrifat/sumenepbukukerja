@@ -72,19 +72,41 @@ export async function requireVendorManager(
 }
 
 /**
- * Mengelola listing butuh bukti kepemilikan nomor WhatsApp. Tanpa ini siapa pun
- * bisa memasang nomor orang lain lalu mengelola listing dengan identitas itu.
+ * Mengelola listing butuh identitas yang sudah dibuktikan manusia: satu klaim
+ * yang disetujui admin, lengkap dengan nomor WhatsApp, email, alamat usaha, dan
+ * foto bukti. Tanpa ini siapa pun bisa memasang nomor orang lain lalu mengelola
+ * listing dengan identitas itu.
+ *
+ * Verifikasi lewat kode OTP sengaja tidak dipakai. Nomor WhatsApp belonging
+ * meta tidak bisa diverifikasi tanpa template resmi Meta, dan akun bisnis yang
+ * belum verifikasi tidak boleh membuat template — jadi gerbang itu akan selalu
+ * menolak semua orang. Klaim yang disetujui admin lebih sah dan tidak menambah
+ * ketergantungan berbayar.
+ *
  * Pengelola (admin/staff) tetap boleh, karena mereka bertindak atas nama
  * komunitas, bukan atas nama akun pribadi.
+ *
+ * `vendor` yang masih draft milik sendiri tetap boleh disunting, supaya
+ * pemilik bisa memperbaiki data sebelum klaimnya disetujui. Draft tidak pernah
+ * tampil di katalog publik, jadi mengeditnya tidak memberi hak apa pun atas
+ * listing orang lain.
  */
-export async function requireVerifiedPhone(ctx: Context, userId: DataModel["users"]["document"]["_id"]) {
+export async function requireProvenIdentity(
+  ctx: Context,
+  userId: DataModel["users"]["document"]["_id"],
+  vendor?: { ownerId?: DataModel["vendors"]["document"]["ownerId"]; status?: string } | null,
+) {
   if (await getStaffAccess(ctx, userId)) return;
-  const verification = await ctx.db
-    .query("phoneVerifications")
-    .withIndex("byUser", (q) => q.eq("userId", userId))
-    .unique();
-  if (!verification) {
-    throw new Error("Verifikasi nomor WhatsApp di Dashboard sebelum mengelola listing");
+  if (vendor && vendor.ownerId === userId && vendor.status === "draft") return;
+  const claims = await ctx.db
+    .query("listingClaims")
+    .withIndex("byRequester", (q) => q.eq("requesterId", userId))
+    .collect();
+  const approved = claims.find((claim) => claim.status === "verified");
+  if (!approved) {
+    throw new Error(
+      "Ajukan klaim listing dengan bukti usaha di Dashboard, tunggu admin memverifikasi, lalu Anda boleh mengelola listing",
+    );
   }
-  return verification.phone;
+  return approved.whatsappPhone;
 }

@@ -34,6 +34,7 @@ import {
   useCatalogActions,
   useFavorites,
   useOwnerVendors,
+  useMyClaims,
   useVendorPackages,
   type VendorRecord,
 } from "@/lib/catalog-store";
@@ -42,7 +43,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useNavigate } from "react-router";
 import { AnimatedContent, BorderGlow, Counter, GlassIcons, ScrollReveal } from "@/components/react-bits";
-import { AccessibilityControls, InteractionHistory, MyRequestHistory, NotificationCenter, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
+import { AccessibilityControls, ClaimListingPanel, InteractionHistory, MyRequestHistory, NotificationCenter, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
 
 type OwnerAvailability = NonNullable<Vendor["availability"]>;
@@ -230,6 +231,14 @@ function OwnerPackageEditor({ vendorId }: { vendorId: string }) {
 function OwnerListingManager() {
   const { online } = useOfflineQueue();
   const owned = useOwnerVendors();
+  const claims = useMyClaims();
+  // Mengelola listing yang sudah tayang butuh klaim yang disetujui admin, jadi
+  // listing milik sendiri juga harus bisa diklaim.
+  const provenVendorIds = new Set(
+    (claims ?? [])
+      .filter((claim) => claim.status === "verified")
+      .map((claim) => String(claim.vendorId)),
+  );
   const { create, update, archive, availability, generateUploadUrl } = useCatalogActions();
   const [draft, setDraft] = useState<OwnerDraft | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -433,6 +442,16 @@ function OwnerListingManager() {
                 )}
                 {vendor.status === "active" ? <Link to={`/v/${vendor.slug}`} className="inline-flex min-h-10 items-center rounded-lg px-2 text-sm font-extrabold text-blue-700 hover:bg-blue-50">Lihat listing <ArrowRight className="size-4" /></Link> : null}
               </div>
+              {provenVendorIds.has(vendor._id) ? null : (
+                <ClaimListingPanel
+                  vendorId={vendor._id}
+                  vendorName={vendor.name}
+                  phone={vendor.phone}
+                  address={vendor.address}
+                  ownedByMe
+                  returnTo="/dashboard"
+                />
+              )}
               <OwnerGalleryManager vendorId={vendor._id} vendorName={vendor.name} />
               <OwnerListingHistory vendorId={vendor._id} vendorName={vendor.name} />
             </article>

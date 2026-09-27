@@ -7,7 +7,7 @@ import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { writeAudit, writeListingHistory } from "./audit";
-import { requireManagementViewer, requireVerifiedPhone } from "./access";
+import { requireManagementViewer, requireProvenIdentity } from "./access";
 
 const slugify = (value: string) =>
   value
@@ -301,7 +301,9 @@ export const createVendor = mutation({
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
     if (await isViewer(ctx, userId)) throw new Error("Viewer hanya dapat melihat data");
-    await requireVerifiedPhone(ctx, userId);
+    // Membuat listing sendiri tidak butuh klaim: listing langsung masuk sebagai
+    // draft milik pembuat dan tidak pernah tampil sebelum admin memverifikasi.
+    // Yang diwajibkan klaim adalah mengelola listing yang sudah tayang.
     const privileged = await hasStaffAccess(ctx, userId);
     const phone = normalizeWhatsAppPhone(args.phone);
     if (!phone) throw new Error("Masukkan nomor WhatsApp yang valid");
@@ -401,7 +403,7 @@ export const updateVendor = mutation({
     const current = await ctx.db.get(id);
     if (!current) throw new Error("Listing tidak ditemukan");
     const userId = await requireVendorManager(ctx, current);
-    await requireVerifiedPhone(ctx, userId);
+    await requireProvenIdentity(ctx, userId, current);
     const privileged = await hasStaffAccess(ctx, userId);
     const phone = normalizeWhatsAppPhone(changes.phone);
     if (!phone) throw new Error("Masukkan nomor WhatsApp yang valid");
@@ -509,7 +511,7 @@ export const archiveVendor = mutation({
   handler: async (ctx, args) => {
     const current = await ctx.db.get(args.id);
     const actorId = await requireVendorManager(ctx, current);
-    await requireVerifiedPhone(ctx, actorId);
+    await requireProvenIdentity(ctx, actorId, current);
     const now = Date.now();
     await ctx.db.patch(args.id, {
       status: "archived",

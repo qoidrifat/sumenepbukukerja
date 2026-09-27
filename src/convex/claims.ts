@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getStaffAccess, requireManagementViewer, requireStaff, requireUser, requireVerifiedPhone } from "./access";
+import { getStaffAccess, requireManagementViewer, requireStaff, requireUser } from "./access";
 import { writeAudit } from "./audit";
 import { recordEvent } from "./analytics";
 import type { GenericMutationCtx } from "convex/server";
@@ -37,7 +37,6 @@ export const submitVendorClaim = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
-    await requireVerifiedPhone(ctx, userId);
     const vendor = await ctx.db.get(args.vendorId);
     if (!vendor) throw new Error("Listing tidak ditemukan");
     if (vendor.ownerId && vendor.ownerId !== userId) {
@@ -194,6 +193,38 @@ export const reviewVendorClaim = mutation({
       await recordEvent(ctx, { event: "listing_published", userId, vendorId: claim.vendorId, metadata: { source: "claim_review" } });
     }
     return args.claimId;
+  },
+});
+
+/**
+ * Klaim milik pengguna yang sedang login, lengkap dengan nama listing-nya.
+ * Inilah sumber kebenaran untuk kartu "status identitas" di Dashboard.
+ */
+export const listMyClaims = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const claims = await ctx.db
+      .query("listingClaims")
+      .withIndex("byRequester", (q) => q.eq("requesterId", userId))
+      .collect();
+    return await Promise.all(
+      claims.map(async (claim) => {
+        const vendor = await ctx.db.get(claim.vendorId);
+        return {
+          _id: claim._id,
+          vendorId: claim.vendorId,
+          status: claim.status,
+          reviewNote: claim.reviewNote,
+          whatsappPhone: claim.whatsappPhone,
+          businessAddress: claim.businessAddress,
+          createdAt: claim.createdAt,
+          reviewedAt: claim.reviewedAt,
+          vendorName: vendor?.name ?? "Listing tidak ditemukan",
+          vendorStatus: vendor?.status ?? "archived",
+        };
+      }),
+    );
   },
 });
 

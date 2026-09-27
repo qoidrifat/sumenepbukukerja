@@ -27,7 +27,7 @@ import {
   useNotificationPreferences,
   useOwnerRequests,
   useNotifications,
-  usePhoneVerification,
+  useMyClaims,
   useWhatsappStatus,
   useServiceRequests,
   useVendorPackages,
@@ -405,20 +405,16 @@ export function NotificationCenter() {
   const notifications = useNotifications();
   const preferences = useNotificationPreferences();
   const whatsappStatus = useWhatsappStatus();
-  const phoneVerification = usePhoneVerification();
+  const claims = useMyClaims();
   const {
     markNotificationsRead,
     setNotificationPreferences,
     sendTestWhatsapp,
-    requestPhoneOtp,
-    verifyPhoneOtp,
   } = useCatalogActions();
   const [preferenceError, setPreferenceError] = useState("");
   const [whatsappPhoneDraft, setWhatsappPhoneDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testNotice, setTestNotice] = useState("");
-  const [otpDraft, setOtpDraft] = useState("");
-  const [otpNotice, setOtpNotice] = useState("");
   const unread = notifications?.filter((item) => !item.read).length ?? 0;
   const prefs: NotificationPreferences = preferences
     ? {
@@ -474,47 +470,8 @@ export function NotificationCenter() {
     }
   };
 
-  const sendOtpCode = async () => {
-    setPreferenceError("");
-    setOtpNotice("");
-    setSaving(true);
-    try {
-      await requestPhoneOtp({ phone: whatsappPhone });
-      setOtpNotice(
-        "Kode 6 angka dikirim ke WhatsApp Anda. Berlaku 5 menit.",
-      );
-    } catch (caught) {
-      setOtpNotice(
-        caught instanceof Error
-          ? caught.message
-          : "Kode verifikasi belum dapat dikirim.",
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const confirmOtpCode = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setPreferenceError("");
-    setOtpNotice("");
-    setSaving(true);
-    try {
-      const result = await verifyPhoneOtp({ code: otpDraft });
-      setOtpDraft("");
-      setOtpNotice(
-        `Nomor ${result.phone.slice(0, 3)}•••${result.phone.slice(-3)} terverifikasi. Listing boleh dikelola.`,
-      );
-    } catch (caught) {
-      setOtpNotice(
-        caught instanceof Error
-          ? caught.message
-          : "Kode belum tepat. Coba kirim ulang.",
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
+  const verifiedClaims = (claims ?? []).filter((claim) => claim.status === "verified");
+  const pendingClaims = (claims ?? []).filter((claim) => claim.status === "pending");
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -608,64 +565,39 @@ export function NotificationCenter() {
         </div>
       </label>
 
-      {phoneVerification?.verified ? (
+      {verifiedClaims.length > 0 ? (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
           <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>
-            Nomor WhatsApp terverifikasi. Anda boleh membuat, mengubah, dan
-            mengklaim listing.
+            Identitas terverifikasi untuk {verifiedClaims.map((claim) => claim.vendorName).join(", ")}.
+            Anda boleh mengubah, mengarsipkan, dan mengelola listing.
           </span>
+        </div>
+      ) : pendingClaims.length > 0 ? (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
+          <p>
+            Klaim {pendingClaims.map((claim) => claim.vendorName).join(", ")} sedang
+            diperiksa pengelola. Anda boleh menyunting draft, tapi belum bisa
+            mengubah listing yang sudah tayang sampai klaim disetujui.
+          </p>
         </div>
       ) : (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
           <p className="text-sm font-extrabold text-amber-900">
-            Verifikasi nomor WhatsApp
+            Verifikasi identitas usaha
           </p>
           <p className="mt-1 text-sm leading-6 text-amber-800">
-            Wajib sebelum mengelola listing: membuat, mengubah, atau mengklaim
-            listing. Kode dikirim ke nomor di atas lewat WhatsApp.
+            Untuk mengelola listing yang sudah tayang, ajukan klaim di section
+            &ldquo;Kelola listing Anda&rdquo; dengan nomor WhatsApp, email, alamat
+            usaha, dan foto bukti. Pengelola akan memeriksa sebelum Anda bisa
+            mengubah, mengarsipkan, atau menambahkan paket.
           </p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              value={otpDraft}
-              onChange={(event) =>
-                setOtpDraft(event.target.value.replace(/\D/g, "").slice(0, 6))
-              }
-              placeholder="6 digit kode"
-              aria-label="Kode verifikasi WhatsApp"
-              className={inputClass}
-            />
-            <button
-              type="button"
-              onClick={() => void sendOtpCode()}
-              disabled={saving || whatsappPhone.trim().length < 10}
-              className={`min-h-12 rounded-lg bg-amber-600 px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-            >
-              {saving ? "Memproses..." : "Kirim kode"}
-            </button>
-          </div>
-          {otpDraft.length === 6 ? (
-            <form onSubmit={confirmOtpCode} className="mt-2">
-              <button
-                type="submit"
-                disabled={saving}
-                className={`min-h-12 w-full rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-              >
-                {saving ? "Memeriksa..." : "Verifikasi kode"}
-              </button>
-            </form>
-          ) : null}
-          {otpNotice ? (
-            <p
-              className="mt-2 text-sm font-bold text-amber-900"
-              role="status"
-            >
-              {otpNotice}
-            </p>
-          ) : null}
+          <a
+            href="/dashboard#listing-saya"
+            className={`mt-3 inline-flex min-h-12 items-center rounded-lg bg-amber-600 px-4 text-sm font-extrabold text-white hover:bg-amber-700 ${focusRing}`}
+          >
+            Buka kelola listing
+          </a>
         </div>
       )}
 
@@ -701,7 +633,7 @@ export function NotificationCenter() {
   );
 }
 
-export function ClaimListingPanel({ vendorId, vendorName, phone, address }: { vendorId: string; vendorName: string; phone: string; address: string }) {
+export function ClaimListingPanel({ vendorId, vendorName, phone, address, ownedByMe = false, returnTo }: { vendorId: string; vendorName: string; phone: string; address: string; ownedByMe?: boolean; returnTo?: string }) {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const claims = useVendorClaims(isAuthenticated ? vendorId : undefined);
@@ -740,15 +672,19 @@ export function ClaimListingPanel({ vendorId, vendorName, phone, address }: { ve
   };
 
   if (!isAuthenticated) {
-    return <button type="button" onClick={() => navigate(`/auth?returnTo=${encodeURIComponent(`/v/${window.location.pathname.split("/").pop() ?? ""}`)}`)} className={`mt-6 min-h-12 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-extrabold text-blue-700 ${focusRing}`}>Masuk untuk mengklaim usaha ini</button>;
+    const destination = returnTo ?? `/v/${window.location.pathname.split("/").pop() ?? ""}`;
+    return <button type="button" onClick={() => navigate(`/auth?returnTo=${encodeURIComponent(destination)}`)} className={`mt-6 min-h-12 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-extrabold text-blue-700 ${focusRing}`}>Masuk untuk mengklaim usaha ini</button>;
   }
   if (status === "pending" || claims?.some((claim) => claim.status === "pending")) {
     return <p className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800" role="status">Klaim {vendorName} sedang diverifikasi oleh pengelola.</p>;
   }
+  if (claims?.some((claim) => claim.status === "verified")) {
+    return <p className="mt-6 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800"><ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" /><span>{vendorName} sudah diverifikasi. Anda boleh mengelola listing.</span></p>;
+  }
   if (claims?.some((claim) => claim.status === "rejected")) {
     return <p className="mt-6 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">Klaim sebelumnya ditolak. Periksa bukti dan hubungi pengelola bila perlu.</p>;
   }
-  if (!open) return <button type="button" onClick={() => setOpen(true)} className={`mt-6 min-h-12 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-extrabold text-blue-700 ${focusRing}`}>Ini usaha saya — klaim listing</button>;
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className={`mt-6 min-h-12 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-extrabold text-blue-700 ${focusRing}`}>{ownedByMe ? "Verifikasikan usaha ini" : "Ini usaha saya — klaim listing"}</button>;
   return <form onSubmit={submit} className="mt-6 rounded-xl border border-blue-200 bg-blue-50/70 p-4"><p className="font-extrabold text-slate-950">Klaim {vendorName}</p><p className="mt-1 text-sm leading-6 text-slate-600">Masukkan data yang bisa diverifikasi. Pemilik baru ditetapkan setelah admin menyetujui.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800 sm:col-span-2">Email terverifikasi<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} required /></label><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800">Nomor WhatsApp<input type="tel" value={whatsappPhone} onChange={(event) => setWhatsappPhone(event.target.value)} className={inputClass} required /></label><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800">Alamat usaha<input value={businessAddress} onChange={(event) => setBusinessAddress(event.target.value)} className={inputClass} required /></label><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800 sm:col-span-2">Foto bukti (opsional)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setEvidence(event.target.files?.[0] ?? null)} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label></div>{message ? <p className="mt-3 text-sm font-bold text-red-700" role="alert">{message}</p> : null}<div className="mt-3 flex gap-2"><button type="submit" disabled={busy} className={`min-h-11 rounded-lg bg-blue-600 px-3 text-sm font-extrabold text-white disabled:opacity-50 ${focusRing}`}>{busy ? "Mengirim..." : "Kirim klaim"}</button><button type="button" onClick={() => setOpen(false)} className={`min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Batal</button></div></form>;
 }
 

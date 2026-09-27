@@ -352,30 +352,6 @@ const schema = defineSchema(
       .index("byUser", ["userId"])
       .index("byNextAttempt", ["nextAttemptAt"]),
 
-    // Kode OTP verifikasi nomor WhatsApp. Yang disimpan hanya hash SHA-256
-    // dari kode yang diikat ke userId, tidak pernah kode aslinya.
-    phoneOtp: defineTable({
-      userId: v.id("users"),
-      phone: v.string(),
-      codeHash: v.string(),
-      attempts: v.number(),
-      createdAt: v.number(),
-      expiresAt: v.number(),
-      consumedAt: v.optional(v.number()),
-    })
-      .index("byUser", ["userId"])
-      .index("byPhone", ["phone"]),
-
-    // Nomor WhatsApp yang kepemilikannya sudah dibuktikan lewat OTP. Disimpan
-    // terpisah dari tabel `users` milik Convex Auth. Satu akun satu nomor.
-    phoneVerifications: defineTable({
-      userId: v.id("users"),
-      phone: v.string(),
-      verifiedAt: v.number(),
-    })
-      .index("byUser", ["userId"])
-      .index("byPhone", ["phone"]),
-
     vendorSubscriptions: defineTable({
       vendorId: v.id("vendors"),
       tier: v.union(v.literal("free"), v.literal("featured"), v.literal("premium")),

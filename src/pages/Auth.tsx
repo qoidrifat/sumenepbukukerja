@@ -139,7 +139,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
 
   return (
     <main className="notebook-paper flex min-h-dvh min-h-[100svh] flex-col px-4 py-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
-      <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
         <button
           type="button"
           onClick={() => navigate("/")}
@@ -157,21 +157,26 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         </span>
       </div>
 
-      <div className="flex flex-1 items-center justify-center py-8">
-        <ScrollReveal>
-          <GlassSurface tint="light" className="w-full max-w-md rounded-2xl p-0 shadow-lg">
-          <Card className="w-full border-slate-200 bg-white/95 p-0 shadow-lg">
+      <div className="flex flex-1 items-center justify-center px-2 py-8 sm:py-10">
+        <ScrollReveal className="w-full">
+          <GlassSurface
+            tint="light"
+            className={`w-full rounded-2xl p-0 shadow-lg ${
+              needsPasscode ? "max-w-md sm:max-w-xl lg:max-w-2xl" : "max-w-md sm:max-w-lg"
+            }`}
+          >
+          <Card className="w-full border-slate-200 bg-white/95 p-0 shadow-lg sm:p-2">
             <AnimatedContent animationKey={needsPasscode ? "passcode" : step === "signIn" ? "email" : step.email}>
           {needsPasscode ? (
             <>
               <CardHeader className="text-center">
-                <span className="mx-auto flex size-14 items-center justify-center rounded-2xl border-2 border-slate-900 bg-blue-50 text-blue-700 shadow-[3px_3px_0_#0f172a]">
-                  <Lock className="size-7" aria-hidden="true" />
+                <span className="mx-auto flex size-16 items-center justify-center rounded-2xl border-2 border-slate-900 bg-blue-50 text-blue-700 shadow-[3px_3px_0_#0f172a]">
+                  <Lock className="size-8" aria-hidden="true" />
                 </span>
                 <p className="mt-4 text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
                   Langkah 1 dari 2
                 </p>
-                <CardTitle className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950">
+                <CardTitle className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950 sm:text-3xl">
                   Passcode pengelola
                 </CardTitle>
                 <CardDescription className="text-base leading-7">
@@ -307,9 +312,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   className="mx-auto flex min-h-12 items-center justify-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                   aria-label="Buka beranda Sumenep Buku Kerja"
                 >
-                  <img src={logo} alt="" width={56} height={56} className="rounded-xl" />
+                  <img src={logo} alt="" width={64} height={64} className="rounded-xl" />
                 </button>
-                <CardTitle className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950">
+                <CardTitle className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950 sm:text-3xl">
                   Masuk ke Buku Kerja
                 </CardTitle>
                 <CardDescription className="text-base leading-7">
@@ -360,7 +365,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   </p>
                 ) : null}
                 <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Kode 6 digit</p>
-                <CardTitle className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950">Periksa email Anda</CardTitle>
+                <CardTitle className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950 sm:text-3xl">Periksa email Anda</CardTitle>
                 <CardDescription className="break-all text-base leading-7">
                   Kami mengirim kode ke {step.email}.
                 </CardDescription>
@@ -369,7 +374,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 <CardContent>
                   <input type="hidden" name="email" value={step.email} />
                   <input type="hidden" name="code" value={otp} />
-                  <div className="flex justify-center py-2">
+                  <div className="flex justify-center py-3 sm:py-4">
                     <InputOTP
                       value={otp}
                       onChange={setOtp}
@@ -382,7 +387,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         }
                       }}
                     >
-                      <InputOTPGroup>
+                      <InputOTPGroup className="[&_[data-slot=input-otp-slot]]:h-10 [&_[data-slot=input-otp-slot]]:w-10 [&_[data-slot=input-otp-slot]]:text-base sm:[&_[data-slot=input-otp-slot]]:h-12 sm:[&_[data-slot=input-otp-slot]]:w-12 sm:[&_[data-slot=input-otp-slot]]:text-lg">
                         {Array.from({ length: 6 }).map((_, index) => (
                           <InputOTPSlot key={index} index={index} />
                         ))}

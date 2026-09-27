@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   ChevronDown,
   Clock3,
   Fingerprint,
@@ -9,10 +10,12 @@ import {
   Lock,
   MapPin,
   Monitor,
+  Network as NetworkIcon,
   Radio,
   ShieldCheck,
   ShieldX,
   Smartphone,
+  Timer,
 } from "lucide-react";
 
 import { TimeStampLabel } from "@/components/admin-workspace";
@@ -34,46 +37,86 @@ const WINDOW_FILTERS = [
   { value: "24h", label: "24 jam" },
 ] as const;
 
+/**
+ * Hierarchy_level_1 hanya menjawab: berhasil/gagal, kapan, dari perangkat apa,
+ * dari lokasi mana. Metadata teknis baru muncul setelah "Lihat detail keamanan".
+ *
+ * Semua warna memakai token admin (src/index.css), tidak ada palette baru:
+ * mint #24533A di #DCEBD7 (7.1:1), #1A1A1A di #FFE662 (14:1), #7C2D12 di
+ * #E9B4A7 (5.1:1), #1A1A1A di #FF5A26 (5.7:1), putih di #121212 (18.9:1).
+ * Semua lolos WCAG AA untuk teks kecil.
+ */
 const outcomeMeta = (outcome: SecurityEvent["outcome"]) => {
   if (outcome === "success") {
     return {
       label: "Berhasil",
-      tone: "border-emerald-300 bg-emerald-50 text-emerald-900",
+      badge: "border-[#121212] bg-[#DCEBD7] text-[#24533A]",
+      bar: "bg-[#24533A]",
       Icon: ShieldCheck,
     };
   }
   if (outcome === "locked") {
-    return { label: "Terkunci", tone: "border-red-400 bg-red-50 text-red-900", Icon: ShieldX };
+    return {
+      label: "Terkunci",
+      badge: "border-[#121212] bg-[#E9B4A7] text-[#7C2D12]",
+      bar: "bg-[#121212]",
+      Icon: ShieldX,
+    };
   }
   return {
     label: "Gagal",
-    tone: "border-amber-400 bg-amber-50 text-amber-900",
+    badge: "border-[#121212] bg-[#FFE662] text-[#1A1A1A]",
+    bar: "bg-[#7C2D12]",
     Icon: AlertTriangle,
   };
 };
 
-const statusTone: Record<string, string> = {
-  Normal: "border-[#121212] bg-white text-[#1A1A1A]",
-  "Rate limited": "border-[#121212] bg-[#FFE662] text-[#1A1A1A]",
-  Blocked: "border-[#121212] bg-[#E9B4A7] text-[#7C2D12]",
+/** "Normal" sengaja tidak dirender di level 1: itu kondisi default, bukan informasi. */
+const statusMeta = (status: SecurityEvent["status"]) => {
+  if (status === "Rate limited") {
+    return {
+      label: "Rate limited",
+      badge: "border-[#121212] bg-[#FF5A26] text-[#1A1A1A]",
+      Icon: Timer,
+    };
+  }
+  if (status === "Blocked") {
+    return {
+      label: "Blocked",
+      badge: "border-[#121212] bg-[#121212] text-white",
+      Icon: ShieldX,
+    };
+  }
+  return null;
 };
 
 const deviceIcon = (deviceType: string | null) =>
   deviceType === "Mobile" || deviceType === "Tablet" ? Smartphone : Monitor;
 
-/** Nilai boleh kosong, tapi tidak pernah menampilkan "undefined" atau tebakan. */
+/**
+ * Nilai yang tidak ada tampil muted, bukan error. Dipakai hanya di dalam
+ * detail, jadi `value` boleh mengembalikan JSX.
+ */
 const value = (input: string | number | null | undefined) => {
-  if (input === null || input === undefined || input === "") return UNKNOWN_LABEL;
+  if (input === null || input === undefined || input === "") {
+    return <span className="font-medium text-[#525252]">{UNKNOWN_LABEL}</span>;
+  }
   return String(input);
+};
+
+const compareLabel = (same: boolean | null, yes: string, no: string) => {
+  if (same === null) return <span className="font-medium text-[#525252]">Tidak ada pembanding</span>;
+  if (same) return yes;
+  return no;
 };
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-0.5 border-b border-[#EDEAE0] py-1.5 last:border-b-0 sm:flex-row sm:gap-3">
-      <dt className="shrink-0 text-xs font-black uppercase tracking-[0.08em] text-[#525252] sm:w-40">
+    <div className="flex flex-col gap-0.5 border-b border-[#EDEAE0] py-1.5 last:border-b-0 lg:flex-row lg:gap-3">
+      <dt className="shrink-0 text-[0.7rem] font-black uppercase leading-5 tracking-[0.08em] text-[#525252] lg:w-32">
         {label}
       </dt>
-      <dd className="min-w-0 break-words text-sm font-bold text-[#1A1A1A]">{children}</dd>
+      <dd className="min-w-0 break-words text-sm font-bold leading-5 text-[#1A1A1A]">{children}</dd>
     </div>
   );
 }
@@ -89,6 +132,30 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** Chip kontekstual: beda perangkat/IP, atau beberapa kegagalan beruntun. */
+function Chip({
+  icon: Icon,
+  children,
+  tone = "neutral",
+}: {
+  icon: typeof AlertTriangle;
+  children: ReactNode;
+  tone?: "neutral" | "alert";
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 border-2 px-1.5 py-0.5 text-[0.7rem] font-black ${
+        tone === "alert"
+          ? "border-[#121212] bg-[#E9B4A7] text-[#7C2D12]"
+          : "border-[#121212] bg-[#F1EDE3] text-[#1A1A1A]"
+      }`}
+    >
+      <Icon className="size-3 shrink-0" aria-hidden="true" />
+      {children}
+    </span>
+  );
+}
+
 function FilterButton({
   active,
   label,
@@ -101,7 +168,7 @@ function FilterButton({
   tone: "ink" | "orange";
 }) {
   const activeClass =
-    tone === "orange" ? "bg-[#FF5A26] text-white" : "bg-[#121212] text-white";
+    tone === "orange" ? "bg-[#FF5A26] text-[#1A1A1A]" : "bg-[#121212] text-white";
   return (
     <button
       type="button"
@@ -160,41 +227,57 @@ export function AdminSecurityLog() {
       </div>
 
       {summary ? (
-        <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {[
-            { label: "Total tercatat", value: summary.total, tone: "bg-white text-[#1A1A1A]" },
-            { label: "Berhasil 24 jam", value: summary.succeeded24h, tone: "bg-[#DCEBD7] text-[#24533A]" },
-            { label: "Gagal 24 jam", value: summary.failed24h, tone: "bg-[#FFE662] text-[#1A1A1A]" },
-            { label: "Terkunci 24 jam", value: summary.locked24h, tone: "bg-[#E9B4A7] text-[#7C2D12]" },
-          ].map((card) => (
-            <div key={card.label} className={`border-2 border-[#121212] p-2.5 ${card.tone}`}>
-              <dt className="text-xs font-bold uppercase tracking-[0.08em] opacity-80">{card.label}</dt>
-              <dd className="mt-0.5 text-2xl font-black leading-none">{card.value}</dd>
-            </div>
-          ))}
-        </dl>
+        <section className="mt-3 border-2 border-[#121212] bg-[#F5F0E5] p-3" aria-label="Ringkasan 24 jam terakhir">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h4 className="text-xs font-black uppercase tracking-[0.12em] text-[#525252]">
+              24 jam terakhir
+            </h4>
+            <p className="text-xs font-bold text-[#525252]">
+              Total tercatat {summary.total} percobaan
+            </p>
+          </div>
+          <dl className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              { label: "Percobaan", value: summary.last24h, tone: "bg-white text-[#1A1A1A]" },
+              { label: "Berhasil", value: summary.succeeded24h, tone: "bg-[#DCEBD7] text-[#24533A]" },
+              { label: "Gagal", value: summary.failed24h, tone: "bg-[#FFE662] text-[#1A1A1A]" },
+              { label: "Terkunci", value: summary.locked24h, tone: "bg-[#E9B4A7] text-[#7C2D12]" },
+            ].map((card) => (
+              <div key={card.label} className={`border-2 border-[#121212] p-2 ${card.tone}`}>
+                <dt className="text-xs font-bold uppercase tracking-[0.08em] opacity-80">{card.label}</dt>
+                <dd className="mt-0.5 text-2xl font-black leading-none">{card.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {OUTCOME_FILTERS.map((filter) => (
-          <FilterButton
-            key={filter.value}
-            active={outcomeFilter === filter.value}
-            label={filter.label}
-            tone="ink"
-            onClick={() => setOutcomeFilter(filter.value)}
-          />
-        ))}
-        <span className="mx-1 hidden h-6 w-0.5 bg-[#D6D3D1] sm:block" aria-hidden="true" />
-        {WINDOW_FILTERS.map((filter) => (
-          <FilterButton
-            key={filter.value}
-            active={windowFilter === filter.value}
-            label={filter.label}
-            tone="orange"
-            onClick={() => setWindowFilter(filter.value)}
-          />
-        ))}
+        {/* Di mobile tombol filter jadi grid 2 kolom supaya tidak membungkus
+            jadi 4 baris; dari sm ke atas kembali satu baris seperti sebelumnya. */}
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+          {OUTCOME_FILTERS.map((filter) => (
+            <FilterButton
+              key={filter.value}
+              active={outcomeFilter === filter.value}
+              label={filter.label}
+              tone="ink"
+              onClick={() => setOutcomeFilter(filter.value)}
+            />
+          ))}
+        </div>
+        <span className="hidden h-6 w-0.5 bg-[#D6D3D1] sm:block" aria-hidden="true" />
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+          {WINDOW_FILTERS.map((filter) => (
+            <FilterButton
+              key={filter.value}
+              active={windowFilter === filter.value}
+              label={filter.label}
+              tone="orange"
+              onClick={() => setWindowFilter(filter.value)}
+            />
+          ))}
+        </div>
         <span className="ml-auto text-xs font-black text-[#525252]">
           Menampilkan {visible.length} dari {events?.length ?? 0} percobaan
         </span>
@@ -203,96 +286,164 @@ export function AdminSecurityLog() {
       {!events ? (
         <p className="mt-3 text-sm text-[#525252]">Memuat jejak percobaan...</p>
       ) : visible.length === 0 ? (
-        <p className="mt-3 text-sm text-[#525252]">
-          {events.length === 0
-            ? "Belum ada percobaan tercatat."
-            : "Tidak ada percobaan yang cocok dengan filter ini."}
-        </p>
+        <div className="mt-3 flex flex-col items-start gap-1.5 border-2 border-dashed border-[#121212] bg-[#F5F0E5] p-4 sm:flex-row sm:items-center sm:gap-3">
+          <span className="inline-flex size-9 shrink-0 items-center justify-center border-2 border-[#121212] bg-white">
+            <ShieldCheck className="size-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-black text-[#1A1A1A]">
+              {events.length === 0
+                ? "Belum ada percobaan masuk."
+                : "Tidak ada percobaan yang cocok dengan filter ini."}
+            </p>
+            <p className="mt-0.5 text-xs font-bold text-[#525252]">
+              {events.length === 0
+                ? "Aktivitas akses admin akan muncul di sini."
+                : "Ubah filter hasil atau rentang waktu di atas."}
+            </p>
+          </div>
+        </div>
       ) : (
         <ol className="mt-3 max-h-[32rem] space-y-2 overflow-auto pr-1">
           {visible.map((event) => {
             const meta = outcomeMeta(event.outcome);
             const StatusIcon = meta.Icon;
             const DeviceIcon = deviceIcon(event.deviceType);
+            const status = statusMeta(event.status);
+            // "Blocked" selalu implisit saat hasil sudah "Terkunci", jadi tidak diulang.
+            const showStatus = status !== null && !(status.label === "Blocked" && event.outcome === "locked");
             const isOpen = expanded === event._id;
-            const location = [event.city, event.region, event.country].filter(Boolean).join(", ");
+            const panelId = `security-detail-${event._id}`;
+            // Dedup aman: beberapa penyedia geo mengembalikan kota/wilayah yang sama.
+            const location = [...new Set([event.city, event.region, event.country].filter(Boolean))].join(", ");
             const osLine = [event.os, event.osVersion].filter(Boolean).join(" ");
             const browserLine = [event.browser, event.browserVersion].filter(Boolean).join(" ");
+            const deviceLine =
+              [osLine, browserLine, event.deviceType].filter(Boolean).join(" · ") || UNKNOWN_LABEL;
+            const localeLine = [event.timezone, event.locale].filter(Boolean).join(" · ");
             return (
-              <li key={event._id} className={`border-2 ${meta.tone}`}>
-                <div className="flex flex-wrap items-start justify-between gap-2 p-3">
-                  <div className="min-w-0">
-                    <p className="flex flex-wrap items-center gap-2 font-black">
-                      <StatusIcon className="size-4 shrink-0" aria-hidden="true" />
-                      {meta.label}
-                      <span className="font-bold">
-                        <TimeStampLabel timestamp={event.createdAt} withSeconds />
+              <li key={event._id} className="relative overflow-hidden border-2 border-[#121212] bg-white">
+                <span className={`absolute inset-y-0 left-0 w-1.5 ${meta.bar}`} aria-hidden="true" />
+
+                <div className="flex flex-col gap-2 p-3 pl-5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span
+                        className={`inline-flex items-center gap-1.5 border-2 px-2 py-0.5 text-xs font-black ${meta.badge}`}
+                      >
+                        <StatusIcon className="size-3.5 shrink-0" aria-hidden="true" />
+                        {meta.label}
                       </span>
+                      {showStatus && status ? (
+                        <span
+                          className={`inline-flex items-center gap-1.5 border-2 px-2 py-0.5 text-xs font-black ${status.badge}`}
+                        >
+                          <status.Icon className="size-3.5 shrink-0" aria-hidden="true" />
+                          {status.label}
+                        </span>
+                      ) : null}
                       {event.sessionLive ? (
-                        <span className="inline-flex items-center gap-1 border border-[#121212] bg-[#DCEBD7] px-1.5 py-0.5 text-[0.7rem] font-black text-[#24533A]">
-                          <Radio className="size-3" aria-hidden="true" />
+                        <span className="inline-flex items-center gap-1 border-2 border-[#121212] bg-[#DCEBD7] px-2 py-0.5 text-xs font-black text-[#24533A]">
+                          <Radio className="size-3 shrink-0" aria-hidden="true" />
                           Aktif sekarang
                         </span>
                       ) : null}
-                    </p>
-                    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
-                      <span className="inline-flex items-center gap-1">
-                        <DeviceIcon className="size-4 shrink-0" aria-hidden="true" />
-                        {[osLine, browserLine, event.deviceType].filter(Boolean).join(" · ") ||
-                          UNKNOWN_LABEL}
-                      </span>
-                      {location ? (
-                        <span className="inline-flex items-center gap-1">
-                          <MapPin className="size-4 shrink-0" aria-hidden="true" />
-                          {location}
+                      {event.attemptNumber ? (
+                        <span className="text-xs font-bold text-[#525252]">
+                          percobaan ke-{event.attemptNumber}
                         </span>
                       ) : null}
+                    </div>
+
+                    <p className="mt-1.5 text-xs text-[#525252]">
+                      <TimeStampLabel timestamp={event.createdAt} withSeconds />
                     </p>
-                    <p className="mt-0.5 text-xs text-[#525252]">
-                      IP {value(event.ipMasked)} · {value(event.ipSource)}
-                      {event.attemptNumber ? ` · percobaan ke-${event.attemptNumber}` : ""}
-                    </p>
+
+                    <div className="mt-1 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+                      <p className="flex min-w-0 items-center gap-1.5 text-sm font-bold text-[#1A1A1A]">
+                        <DeviceIcon className="size-4 shrink-0 text-[#525252]" aria-hidden="true" />
+                        <span className="min-w-0 break-words">{deviceLine}</span>
+                      </p>
+                      <p className="flex min-w-0 items-center gap-1.5 text-xs text-[#525252]">
+                        <Globe className="size-3.5 shrink-0" aria-hidden="true" />
+                        <span className="min-w-0 break-words">
+                          {localeLine || <span className="font-medium">{UNKNOWN_LABEL}</span>}
+                        </span>
+                      </p>
+                      <p className="flex min-w-0 items-center gap-1.5 text-xs text-[#525252]">
+                        <NetworkIcon className="size-3.5 shrink-0" aria-hidden="true" />
+                        <span className="min-w-0 break-words">
+                          {event.ipMasked ? `IP ${event.ipMasked}` : <span className="font-medium">IP {UNKNOWN_LABEL}</span>}
+                        </span>
+                      </p>
+                      <p className="flex min-w-0 items-center gap-1.5 text-xs text-[#525252]">
+                        <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
+                        <span className="min-w-0 break-words">
+                          {location || <span className="font-medium">Lokasi {UNKNOWN_LABEL}</span>}
+                        </span>
+                      </p>
+                    </div>
+
+                    {event.sameIpAsPrevious === false || event.sameDeviceAsPrevious === false || (event.status === "Normal" && event.failedInWindow > 1) ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {event.sameDeviceAsPrevious === false ? (
+                          <Chip icon={ArrowLeftRight}>Perangkat berbeda</Chip>
+                        ) : null}
+                        {event.sameIpAsPrevious === false ? (
+                          <Chip icon={ArrowLeftRight}>IP berbeda</Chip>
+                        ) : null}
+                        {event.status === "Normal" && event.failedInWindow > 1 ? (
+                          <Chip icon={AlertTriangle} tone="alert">
+                            {event.failedInWindow}× gagal sebelumnya
+                          </Chip>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                    <span
-                      className={`inline-flex border-2 px-2 py-0.5 text-xs font-black ${
-                        statusTone[event.status] ?? statusTone.Normal
-                      }`}
-                    >
-                      {event.status}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setExpanded(isOpen ? null : event._id)}
-                      aria-expanded={isOpen}
-                      className="inline-flex min-h-10 items-center gap-1 border-2 border-[#121212] bg-white px-2.5 text-xs font-black hover:bg-[#F1EDE3]"
-                    >
-                      {isOpen ? "Tutup" : "Lihat detail keamanan"}
-                      <ChevronDown
-                        className={`size-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
-                        aria-hidden="true"
-                      />
-                    </button>
-                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(isOpen ? null : event._id)}
+                    aria-expanded={isOpen}
+                    aria-controls={panelId}
+                    className="admin-btn admin-btn-quiet w-full shrink-0 gap-1 px-2.5 text-xs sm:w-auto"
+                  >
+                    {isOpen ? "Tutup" : "Lihat detail keamanan"}
+                    <ChevronDown
+                      className={`size-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                      aria-hidden="true"
+                    />
+                  </button>
                 </div>
 
                 {isOpen ? (
-                  <div className="space-y-2 border-t-2 border-[#121212] bg-[#FDFBF7] p-3">
+                  <div id={panelId} className="space-y-2 border-t-2 border-[#121212] bg-[#FDFBF7] p-3 pl-5">
                     <p className="flex items-start gap-2 text-xs font-bold text-[#525252]">
                       <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                       Lokasi merupakan perkiraan berdasarkan IP dan tidak menunjukkan lokasi GPS
                       presisi. Tidak ada passcode, token, atau cookie yang tersimpan di sini.
                     </p>
-                    <div className="grid gap-2 lg:grid-cols-2">
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <Group title="Autentikasi">
+                        <Row label="Hasil">{meta.label}</Row>
+                        <Row label="Alasan">
+                          {event.failureReason ? describeFailure(event.failureReason) : "—"}
+                        </Row>
+                        <Row label="Akun">{value(event.emailMasked)}</Row>
+                        <Row label="Percobaan ke-">{value(event.attemptNumber)}</Row>
+                        <Row label="Status keamanan">{event.status}</Row>
+                        <Row label="Percobaan dalam jendela">
+                          {event.attemptsInWindow} total · {event.failedInWindow} gagal ·{" "}
+                          {event.successfulInWindow} berhasil
+                        </Row>
+                      </Group>
                       <Group title="Jaringan">
                         <Row label="IP address">{value(event.ipMasked)}</Row>
                         <Row label="IP source">{value(event.ipSource)}</Row>
                         <Row label="Tipe jaringan">{value(event.networkType)}</Row>
                       </Group>
                       <Group title="Lokasi (perkiraan)">
-                        <Row label="Negara">{value(event.country)}</Row>
-                        <Row label="Wilayah">{value(event.region)}</Row>
-                        <Row label="Kota">{value(event.city)}</Row>
+                        <Row label="Lokasi perkiraan">{value(location)}</Row>
                         <Row label="Zona waktu">{value(event.timezone)}</Row>
                       </Group>
                       <Group title="Perangkat">
@@ -300,19 +451,17 @@ export function AdminSecurityLog() {
                         <Row label="Sistem operasi">{value(osLine)}</Row>
                         <Row label="Browser">{value(browserLine)}</Row>
                         <Row label="Platform">{value(event.platform)}</Row>
-                        <Row label="Viewport">{value(event.viewport)}</Row>
-                        <Row label="Device pixel ratio">
-                          {value(event.devicePixelRatio)}
-                        </Row>
-                        <Row label="Titik sentuh">{value(event.touchPoints)}</Row>
-                      </Group>
-                      <Group title="Bahasa">
-                        <Row label="Locale">{value(event.locale)}</Row>
-                        <Row label="Accept-Language">{value(event.acceptLanguage)}</Row>
                         <Row label="User agent">{value(event.userAgent)}</Row>
                       </Group>
+                      <Group title="Layar & input">
+                        <Row label="Viewport">{value(event.viewport)}</Row>
+                        <Row label="Device pixel ratio">{value(event.devicePixelRatio)}</Row>
+                        <Row label="Titik sentuh">{value(event.touchPoints)}</Row>
+                        <Row label="Locale">{value(event.locale)}</Row>
+                        <Row label="Accept-Language">{value(event.acceptLanguage)}</Row>
+                      </Group>
                       <Group title="Sesi & permintaan">
-                        <Row label="Sesi">
+                        <Row label="Sidik sesi">
                           <span className="inline-flex items-center gap-1.5">
                             <Fingerprint className="size-4 shrink-0" aria-hidden="true" />
                             {value(event.sessionFingerprint)}
@@ -323,19 +472,7 @@ export function AdminSecurityLog() {
                         <Row label="Return To">{value(event.returnTo)}</Row>
                         <Row label="Referrer">{value(event.referrer)}</Row>
                       </Group>
-                      <Group title="Autentikasi">
-                        <Row label="Hasil">{meta.label}</Row>
-                        <Row label="Alasan">
-                          {event.failureReason ? describeFailure(event.failureReason) : "—"}
-                        </Row>
-                        <Row label="Akun">{value(event.emailMasked)}</Row>
-                        <Row label="Status keamanan">{event.status}</Row>
-                        <Row label="Percobaan dalam jendela">
-                          {event.attemptsInWindow} total · {event.failedInWindow} gagal ·{" "}
-                          {event.successfulInWindow} berhasil
-                        </Row>
-                      </Group>
-                      <Group title="Aktivitas & perbandingan">
+                      <Group title="Aktivitas">
                         <Row label="Sesi aktif">
                           {event.sessionLive ? "Aktif sekarang" : "Tidak aktif"}
                         </Row>
@@ -343,22 +480,14 @@ export function AdminSecurityLog() {
                           {event.previousSuccessAt ? (
                             <TimeStampLabel timestamp={event.previousSuccessAt} withSeconds />
                           ) : (
-                            "Tidak ada pada sesi ini"
+                            <span className="font-medium text-[#525252]">Tidak ada pada sesi ini</span>
                           )}
                         </Row>
                         <Row label="IP dibanding sebelumnya">
-                          {event.sameIpAsPrevious === null
-                            ? "Tidak ada pembanding"
-                            : event.sameIpAsPrevious
-                              ? "IP sama"
-                              : "IP berbeda"}
+                          {compareLabel(event.sameIpAsPrevious, "IP sama", "IP berbeda")}
                         </Row>
                         <Row label="Perangkat dibanding sebelumnya">
-                          {event.sameDeviceAsPrevious === null
-                            ? "Tidak ada pembanding"
-                            : event.sameDeviceAsPrevious
-                              ? "Perangkat sama"
-                              : "Perangkat berbeda"}
+                          {compareLabel(event.sameDeviceAsPrevious, "Perangkat sama", "Perangkat berbeda")}
                         </Row>
                       </Group>
                     </div>

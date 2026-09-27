@@ -393,7 +393,68 @@ test("animated={false} tidak mengubah bentuk karakter, hanya membekukan gerak", 
 });
 
 /* ------------------------------------------------------------------ */
-/* 8. Kombinasi                                                         */
+/* 8. Pose diam: pembeda hello / search / connect                       */
+/* ------------------------------------------------------------------ */
+
+/** Pose halaman yang benar-benar terpakai pada frame statis. */
+function pageOffsets(html: string) {
+  return [...html.matchAll(/transform:translateX\((-?[\d.]+)px\)/g)].map((m) => Number(m[1]));
+}
+
+test("hello, search, dan connect punya pose halaman yang berbeda", () => {
+  const hello = pageOffsets(render({ state: "hello", size: "md", animated: false }));
+  const search = pageOffsets(render({ state: "search", size: "md", animated: false }));
+  const connect = pageOffsets(render({ state: "connect", size: "md", animated: false }));
+
+  /* Ketiganya harus punya pose, dan tidak boleh sama satu sama lain. */
+  expect(hello.length, "hello").toBeGreaterThan(0);
+  expect(search.length, "search").toBeGreaterThan(0);
+  expect(connect.length, "connect").toBeGreaterThan(0);
+
+  expect(hello.join(), "hello vs search").not.toBe(search.join());
+  expect(hello.join(), "hello vs connect").not.toBe(connect.join());
+  expect(search.join(), "search vs connect").not.toBe(connect.join());
+
+  /* Arahnya harus berbeda, bukan cuma besarnya. */
+  expect(hello.every((v) => v < 0), "hello: halaman kiri terbuka ke luar").toBe(true);
+  expect(
+    search.some((v) => v > 0) && search.some((v) => v < 0),
+    "search: kedua halaman bergerak berlawanan arah (condong ke dalam)",
+  ).toBe(true);
+  expect(connect.every((v) => v > 0), "connect: halaman kanan menjangkau ke luar").toBe(true);
+});
+
+test("neutral dan state tanpa pose tidak bergeser sama sekali", () => {
+  /* Pose harus TIDAK bocor ke state yang tidak memakainya - kalau iya,
+     `neutral` ikut berubah padahal tidak ada alasan. `found` dikecualikan
+     karena memang memakai `open-reveal` (buku membuka sedikit). */
+  for (const state of ["neutral", "success", "empty", "working"] as const) {
+    expect(pageOffsets(render({ state, size: "md", animated: false })), state).toEqual([]);
+  }
+});
+
+test("found membuka halaman ke dua sisi, bukan ke satu", () => {
+  const found = pageOffsets(render({ state: "found", size: "md", animated: false }));
+  expect(found).toHaveLength(2);
+  expect(found.some((v) => v < 0) && found.some((v) => v > 0), found.join()).toBe(true);
+});
+
+test("sudut terlipat ikut halaman kanan, tidak terlepas saat digeser", () => {
+  /* `connect` menggeser halaman kanan ke kanan. Kalau lipatan tetap di
+     luar grup itu, sudut terlipat akan terlepas dari sudut halaman - dan
+     itu signature feature Phase 1. */
+  const html = render({ state: "connect", size: "md", animated: false });
+  const page = html.indexOf(BOOK_RIGHT);
+  const fold = html.indexOf(BOOK_FOLD);
+  const close = html.indexOf("</g>", page);
+
+  expect(page, "halaman kanan ada").toBeGreaterThan(-1);
+  expect(fold, "lipatan ada").toBeGreaterThan(page);
+  expect(close, "lipatan masih di dalam grup halaman yang sama").toBeGreaterThan(fold);
+});
+
+/* ------------------------------------------------------------------ */
+/* 9. Kombinasi                                                         */
 /* ------------------------------------------------------------------ */
 
 test("seluruh kombinasi state x kategori x ukuran tetap aman", () => {

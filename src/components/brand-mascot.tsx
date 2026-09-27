@@ -147,23 +147,65 @@ type BodySpec = {
   reactTilt: number;
   page: "none" | "left" | "right" | "both";
   pageX: number;
+  /**
+   * Pose diam per gestur, dalam unit viewBox. Ini yang membuat `hello`,
+   * `search`, dan `connect` bisa dibedakan pada frame STATIS - termasuk
+   * screenshot dan reduced motion - tanpa menyentuh wajah.
+   *
+   * `left`/`right` menggeser halaman; `shift` menggeser seluruh buku.
+   * Nilainya sengaja kecil (1-2.4 unit) tapi cukup mengubah proporsi
+   * gap spine, yang hanya 8 unit.
+   */
+  poseLeft: number;
+  poseRight: number;
+  poseShift: number;
 };
 
+const P = (dy: number, reactDy: number, tilt: number, reactTilt: number, page: BodySpec["page"], pageX: number, poseLeft = 0, poseRight = 0, poseShift = 0): BodySpec => ({
+  dy, reactDy, tilt, reactTilt, page, pageX, poseLeft, poseRight, poseShift,
+});
+
 const BODY_AMPLITUDE: Record<string, BodySpec> = {
-  "idle-bob": { dy: 1.2, reactDy: 2.4, tilt: 0, reactTilt: 0, page: "none", pageX: 0 },
-  "hello-wave": { dy: 0.8, reactDy: 1.4, tilt: 0, reactTilt: 1.5, page: "left", pageX: 2 },
-  "search-peek": { dy: 0.6, reactDy: 1, tilt: 0, reactTilt: 0, page: "none", pageX: 0 },
-  "open-reveal": { dy: 0.8, reactDy: 1.2, tilt: 0, reactTilt: 0, page: "both", pageX: 1.6 },
-  "focus-work": { dy: 0.8, reactDy: 1.2, tilt: 0, reactTilt: 0, page: "none", pageX: 0 },
-  "directional-point": { dy: 0.6, reactDy: 1, tilt: 0, reactTilt: 0, page: "right", pageX: 1.8 },
-  celebration: { dy: 2, reactDy: 3, tilt: 0, reactTilt: 2, page: "none", pageX: 0 },
-  "steam-drift": { dy: 0.8, reactDy: 1.2, tilt: 0, reactTilt: 0, page: "none", pageX: 0 },
-  "motion-lines": { dy: 0.6, reactDy: 1, tilt: 0, reactTilt: 0, page: "none", pageX: 0 },
-  "welcome-nod": { dy: 1.2, reactDy: 2, tilt: 0, reactTilt: 1, page: "none", pageX: 0 },
-  none: { dy: 0, reactDy: 0, tilt: 0, reactTilt: 0, page: "none", pageX: 0 },
+  "idle-bob": P(1.2, 2.4, 0, 0, "none", 0),  /* Halaman kiri terbuka ke luar = menyapa dengan waved posture. */
+  "hello-wave": P(0.8, 1.4, 0, 1.5, "left", 2, -2.2),
+  /* Kedua halaman masuk ke dalam = condong untuk melihat. */
+  "search-peek": P(0.6, 1, 0, 0, "none", 0, 1.2, -1.2),
+  "open-reveal": P(0.8, 1.2, 0, 0, "both", 1.6, -0.8, 0.8),
+  "focus-work": P(0.8, 1.2, 0, 0, "none", 0),
+  /* Halaman kanan terbuka ke luar: menjangkau arah tujuan. */
+  "directional-point": P(0.6, 1, 0, 0, "right", 1.8, 0, 2.4),
+  celebration: P(2, 3, 0, 2, "none", 0),
+  "steam-drift": P(0.8, 1.2, 0, 0, "none", 0),
+  "motion-lines": P(0.6, 1, 0, 0, "none", 0),
+  "welcome-nod": P(1.2, 2, 0, 1, "none", 0),
+  none: P(0, 0, 0, 0, "none", 0),
 };
 
 const REST_BODY: Variants = { idle: {}, react: {}, rest: {} };
+
+/**
+ * Halaman bergerak. `base` adalah pose diam gestur; keyframe dianimasikan
+ * dari situ, sehingga pose tetap terbaca baik saat animasi maupun saat
+ * dibekukan.
+ *
+ * Defined di module scope (bukan di dalam component) supaya bisa dipakai
+ * sebagai dependency `useMemo` tanpa memicu peringatan exhaustive-deps.
+ */
+function pageMotion(amp: BodySpec, base: number): Variants {
+  if (amp.pageX === 0 && base === 0) return REST_BODY;
+  const idle = {
+    x: [base, base - amp.pageX, base, base + amp.pageX, base],
+    transition: { duration: 2.8, repeat: Infinity, ease: "easeInOut" as const },
+  };
+  return {
+    idle,
+    react: {
+      x: [base, base - amp.pageX * 1.5, base, base + amp.pageX * 1.5, base],
+      transition: { duration: 0.7, repeat: 2, ease: "easeInOut" as const },
+    },
+    rest: { x: base, transition: { duration: 0 } },
+  };
+}
 
 /** Urutan tingkat detail, supaya ambang minimum bisa dibandingkan. */
 const DETAIL_RANK: Record<MascotDetail, number> = {
@@ -447,21 +489,14 @@ export function BrandMascot({
     };
   }, [amp]);
 
-  const page = useMemo<Variants>(() => {
-    if (amp.page === "none" || amp.pageX === 0) return REST_BODY;
-    const idle = {
-      x: [0, -amp.pageX, 0, amp.pageX, 0],
-      transition: { duration: 2.8, repeat: Infinity, ease: "easeInOut" as const },
-    };
-    return {
-      idle,
-      react: {
-        x: [0, -amp.pageX * 1.5, 0, amp.pageX * 1.5, 0],
-        transition: { duration: 0.7, repeat: 2, ease: "easeInOut" as const },
-      },
-      rest: { x: 0, transition: { duration: 0 } },
-    };
-  }, [amp]);
+  /**
+   * Halaman bergerak. `base` adalah pose diam gestur; keyframe dianimasikan
+   * dari situ, sehingga pose tetap terbaca baik saat animasi maupun saat
+   * dibekukan.
+   */
+  const pageLeft = useMemo(() => pageMotion(amp, amp.poseLeft), [amp]);
+  const pageRight = useMemo(() => pageMotion(amp, amp.poseRight), [amp]);
+  const bookShift = useMemo(() => pageMotion(amp, amp.poseShift), [amp]);
 
   const blink = useMemo<Variants>(
     () => ({
@@ -497,8 +532,8 @@ export function BrandMascot({
     [travelSpec],
   );
 
-  const leftMoves = !still && (amp.page === "left" || amp.page === "both");
-  const rightMoves = !still && (amp.page === "right" || amp.page === "both");
+  const leftMoves = amp.poseLeft !== 0 || (!still && (amp.page === "left" || amp.page === "both"));
+  const rightMoves = amp.poseRight !== 0 || (!still && (amp.page === "right" || amp.page === "both"));
   const brows: BrowShape = state === "found" ? "raised" : state === "working" ? "focused" : "none";
 
   const art: ReactNode = (
@@ -533,25 +568,33 @@ export function BrandMascot({
         {rules.microBody ? (
           <BookBody micro palette={palette} />
         ) : (
-          <g>
+          <motion.g variants={bookShift} initial={pose} animate={pose}>
             {leftMoves ? (
-              <motion.g variants={page} initial={pose} animate={pose}>
+              <motion.g variants={pageLeft} initial={pose} animate={pose}>
                 <path d={BOOK_LEFT} fill={palette.page} />
               </motion.g>
             ) : (
               <path d={BOOK_LEFT} fill={palette.page} />
             )}
+            {/* Lipatan ikut halaman kanan, kalau tidak sudut terlipat akan
+                terlepas dari sudut halaman saat halaman digeser. */}
             {rightMoves ? (
-              <motion.g variants={page} initial={pose} animate={pose}>
+              <motion.g variants={pageRight} initial={pose} animate={pose}>
                 <path d={BOOK_RIGHT} fill={palette.pageSoft} />
+                <path d={BOOK_FOLD} fill={palette.fold} />
               </motion.g>
             ) : (
-              <path d={BOOK_RIGHT} fill={palette.pageSoft} />
+              <>
+                <path d={BOOK_RIGHT} fill={palette.pageSoft} />
+                <path d={BOOK_FOLD} fill={palette.fold} />
+              </>
             )}
-            <path d={BOOK_FOLD} fill={palette.fold} />
-          </g>
+          </motion.g>
         )}
 
+        {/* Wajah TIDAK ikut pergeseran buku: mata tetap di tempat, badan
+            yang bergerak. Untuk state seperti `search` ini justru memperkuat
+            bacaan "matanya mencari, badannya diam". */}
         <Face
           detail={detail}
           eyes={stateConfig.eyes}

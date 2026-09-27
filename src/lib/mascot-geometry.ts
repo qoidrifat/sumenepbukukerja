@@ -133,14 +133,20 @@ export const EYE = {
   y: 40,
 } as const;
 
-/** Mata melanchat untuk state `working`. */
+/**
+ * Mata terfokus untuk state `working`.
+ *
+ * Dulu 6 x 3 - hanya 3 unit tinggi, jadi yang terlihat hanyalah celah
+ * datar dan terbaca sebagai "menyipit". Sekarang 6.5 x 4.5 dengan radius
+ * lebih bulat: tetap jelas lebih fokus dari mata biasa, tapi bukan celah tajam.
+ */
 export const EYE_NARROW = {
-  width: 6,
-  height: 3,
-  radius: 1.5,
-  leftX: 33.5,
-  rightX: 56.5,
-  y: 43,
+  width: 6.5,
+  height: 4.5,
+  radius: 2,
+  leftX: 33.25,
+  rightX: 56.25,
+  y: 41.5,
 } as const;
 
 /**
@@ -174,9 +180,15 @@ export const BROWS = {
     right: "M63.5 36.8C61 35.4 58 35.4 55.5 36.8",
     strokeWidth: 2.2,
   },
+  /**
+   * Alis fokus untuk `working`. Kemiringannya diturunkan dari turunan
+   * `C35 37.4 38 38.6 41 39.2` (turun 2.7 unit ke arah dalam = keras)
+   * menjadi `C35 37.3 38 37.9 41 38.4` (turun 1.6 unit). Arahnya tetap sama
+   * sehingga tetap "fokus", tapi tidak lagi terlihat tegang.
+   */
   focused: {
-    left: "M32.5 36.5C35 37.4 38 38.6 41 39.2",
-    right: "M63.5 36.5C61 37.4 58 38.6 55 39.2",
+    left: "M32.5 36.8C35 37.3 38 37.9 41 38.4",
+    right: "M63.5 36.8C61 37.3 58 37.9 55 38.4",
     strokeWidth: 2.2,
   },
 } as const;
@@ -204,10 +216,15 @@ export const MOUTHS = {
     right: "M62 55.5C58.5 53.4 55.5 53.4 52.5 55.5",
     strokeWidth: 2.2,
   },
-  /** Datar untuk state `working`. */
+  /**
+   * `working`. Dulu garis lurus `M35 54.5h7.5` - bersama alis yang menuram
+   * membuat state ini terbaca "santai" dan sedikit galak. Sekarang busur
+   * sangat dangkal: tetap datar dan tetap berbeda dari senyum, tapi longgar
+   * ("santai, saya handle").
+   */
   flat: {
-    left: "M35 54.5h7.5",
-    right: "M53.5 54.5h7.5",
+    left: "M35 54.2C36.8 55 39 55 40.5 54.2",
+    right: "M60.5 54.2C59 55 56.8 55 55.5 54.2",
     strokeWidth: 2.2,
   },
   /**
@@ -267,10 +284,16 @@ export const ACCESSORIES: Record<MascotAccessoryKey, readonly MascotAccessoryPar
     { d: "M48.5 78c3-4.5 8-4.5 8 0s-5 4.5-8 0Z", stroke: true },
     { d: "M47 79.5 45 86.5M49 79.5 51 86.5", stroke: true },
   ],
-  /** Panah blok + dua garis jalan: untuk Transportasi. */
+  /**
+   * Panah blok + dua garis jalan: untuk Transportasi.
+   *
+   * Diperkecil dari lebar 20.7 unit (terlebar di antara semua aksesori) jadi
+   * 19.4, sejajar dengan yang lain. Ujung panah ditarik masuk supaya tidak
+   * menyentuh sisi field.
+   */
   route: [
-    { d: "M41 74.5h7v-3.6l9.5 7.1-9.5 7.1v-3.6h-7Z" },
-    { d: "M36.8 75.8h2.2v3.4h-2.2ZM36.8 81h3.4v3.4h-3.4Z" },
+    { d: "M42 74.6h6v-3.8l9 7.2-9 7.2v-3.8h-6Z" },
+    { d: "M37.6 75.6h2.4v4h-2.4ZM37.6 81h4v4h-4Z" },
   ],
   /** Rumah + pintu: untuk Jasa Umum. */
   house: [{ d: "M48 68.5 58 78h-3v10h-4.2v-6.2h-5.6V88H41V78h-3Z" }],

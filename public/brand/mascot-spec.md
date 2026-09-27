@@ -239,6 +239,31 @@ Aturan penyederhanaan:
   (`sm/md/lg`) dan nama anatomi (`small/medium/large`) sengaja berbeda; tanpa
   peta itu, `DETAIL_RULES[size]` jadi `undefined` dan komponen crash.
 
+### Pose diam — apa yang membedakan state tanpa mengubah wajah
+
+Tiga state ini (`hello`, `search`, `connect`) sengaja **tidak** memakai
+wajah yang berbeda. Pembedaannya datang dari posisi halaman:
+
+| State | Pose halaman | Bacaan |
+|---|---|---|
+| `hello` | halaman kiri terbuka ke luar (−2.2 unit) | terbuka, menyapa |
+| `search` | kedua halaman bergerak berlawanan arah (∓1.2 unit) | condong ke dalam, melihat |
+| `connect` | halaman kanan terbuka ke luar (+2.4 unit) | menjangkau arah tujuan |
+| `found` | kedua halaman terbuka (∓0.8 unit) | buku terbuka, "ketemu" |
+
+Nilai dalam unit viewBox, jadi 1 unit = 1 piksel pada render 96px.
+Gap spine hanya 8 unit, jadi perubahan 1–2.4 unit mengubah proporsinya
+cukup jelas untuk dibaca pada frame statis — termasuk di screenshot dan
+saat reduced motion membekukan animasi.
+
+Batasnya: **wajah tidak pernah ikut bergeser.** Mata tetap di tempat, badan
+yang bergerak. Untuk `search` ini justru memperkuat bacaan "matanya mencari,
+badannya diam".
+
+Sudut terlipat ikut halaman kanan, tidak pernah berdiri sendiri — kalau
+dipisah, lipatan akan terlepas dari sudut halaman dan itu merusak signature
+Phase 1. Ada test yang menjaganya.
+
 ---
 
 ## 8. Aksesibilitas
@@ -263,6 +288,48 @@ ilustrasi tidak boleh diumumkan dua kali.
 - Label itu **opsional** dan dipakai hanya kalau ilustrasi adalah satu-satunya
   pembawa makna. Kalau teks di sebelahnya sudah menyebut "Kuliner", maskot
   tidak perlu mengulanginya.
+
+---
+
+## 8b. Placement rule — jangan taruh di atas Brand Blue
+
+**`BrandMascot` tidak boleh diletakkan langsung di atas `#2563EB`
+(Brand Blue), atau background lain yang cukup dekat dengan warna field-nya.**
+
+Alasannya terukur, bukan stylistic: field mascot adalah `rect` opaque
+`#2563EB` dengan `rx 22`. Di atas permukaan `#2563EB` yang sama, batas
+field hilang sepenuhnya dan mascot terbaca sebagai gumpalan biru datar —
+siluet, sudut terlipat, dan seluruh bentuk maskot lenyap bersama.
+Terverifikasi di browser pada Phase 3.
+
+Perbedaan 4 poin warna sudah cukup untuk menghancurkan silhouette:
+`#2563EB` di atas `#1D4ED8` atau `#1E40AF` hampir tidak terlihat.
+
+### Diperbolehkan
+
+| Permukaan | Alasan |
+|---|---|
+| White `#FFFFFF` | kontras penuh |
+| Canvas `#F7F8FC` | kontras penuh |
+| Blue Soft `#DBEAFE` | kontras penuh |
+| Parchment `#FAF7EE` (admin) | kontras penuh |
+| Charcoal `#121212` | kontras penuh, tetap terbaca |
+| `#DBEAFE`, `#E0F2FE`, `#F1F5F9` | aman |
+
+### Kalau tidak ada pilihan lain
+
+Jangan mengganti warna field per konteks — itu memecah identitas. Gunakan
+salah satu dari:
+
+1. **Stage** — bungkus dalam `rounded-2xl` dengan `border border-slate-200`
+   di atas lantai warna apa pun. Stage-lah yang memisahkan, bukan field.
+2. **Ukuran besar** — di atas 128px, book dan fold sudah cukup tebal untuk
+   tetap terbaca meski field menyatu.
+
+### Kalau tidak ada pilihan dan tidak ada stage
+
+Jangan pakai `BrandMascot`. Kembali ke logo mark atau ke ilustrasi legacy.
+Maskot yang tidak bisa dibaca lebih buruk dari tidak ada maskot.
 
 ---
 

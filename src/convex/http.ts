@@ -258,9 +258,26 @@ http.route({ path: "/webhook/whatsapp", method: "GET", handler: whatsappWebhook 
  */
 const ADMIN_CONTEXT_ROUTE = "/admin-gate/context";
 
+/**
+ * Route ini dipanggil dari browser pada origin berbeda (aplikasi vs backend),
+ * jadi harus menjawab preflight. Tanpa ini `OPTIONS` jatuh ke "no matching
+ * routes" dan browser memblokir beacon sepenuhnya — gejalanya persis seperti
+ * "IP selalu Unknown" padahal request-nya sebenarnya sampai.
+ */
+const CONTEXT_CORS_HEADERS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "POST, OPTIONS",
+  "access-control-allow-headers": "content-type, x-forwarded-for, x-real-ip, cf-connecting-ip, true-client-ip",
+  "access-control-max-age": "600",
+  "cache-control": "no-store",
+};
+
 const adminSecurityContext = httpAction(async (ctx, request: Request) => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CONTEXT_CORS_HEADERS });
+  }
   if (request.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+    return new Response("Method not allowed", { status: 405, headers: CONTEXT_CORS_HEADERS });
   }
   try {
     const resolved = resolveClientIp(request.headers);
@@ -316,7 +333,7 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
         geoResolved: Boolean(geo.country || geo.city || geo.region),
         expiresAt,
       },
-      { headers: { "cache-control": "no-store" } },
+      { headers: { "content-type": "application/json", ...CONTEXT_CORS_HEADERS } },
     );
   } catch {
     // Gagal menangkap konteks bukan alasan menolak halaman auth — login tetap
@@ -332,12 +349,16 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
         proxyDetected: false,
         chainLength: 0,
       },
-      { status: 200, headers: { "cache-control": "no-store" } },
+      { status: 200, headers: CONTEXT_CORS_HEADERS },
     );
   }
 });
 
 http.route({ path: ADMIN_CONTEXT_ROUTE, method: "POST", handler: adminSecurityContext });
 http.route({ path: ADMIN_CONTEXT_ROUTE, method: "GET", handler: adminSecurityContext });
+// Router Convex tidak meneruskan OPTIONS ke handler POST dengan sendirinya;
+// tanpa baris ini preflight jatuh ke "no matching routes" dan beacon diblokir
+// browser, walau request-nya sebenarnya sampai ke origin.
+http.route({ path: ADMIN_CONTEXT_ROUTE, method: "OPTIONS", handler: adminSecurityContext });
 
 export default http;

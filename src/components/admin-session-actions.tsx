@@ -68,7 +68,7 @@ function useAdminSessionBeacon() {
       try {
         const response = await fetch(`${convexSiteUrl(convex.url)}/admin-gate/context`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "text/plain;charset=UTF-8" },
           body: "{}",
           signal: AbortSignal.timeout(2500),
         });

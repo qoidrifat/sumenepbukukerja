@@ -87,6 +87,14 @@ type AttemptContext = {
   locale?: string;
 };
 
+/**
+ * Ember bersama untuk percobaan yang tidak punya konteks server.
+ *
+ * Nilai konstan, bukan input klien: begitulah rate limit tetap berlaku saat
+ * beacon diblokir, tanpa mempercayai apa pun yang dikirim browser.
+ */
+const UNTRUSTED_IP_BUCKET = "no-server-context";
+
 /** Metadata yang berasal dari server, hasil pembacaan header pada httpAction. */
 export type ServerRequestContext = {
   ipHash?: string;
@@ -359,11 +367,15 @@ export const verifyAdminPasscode = action({
     touchPoints: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<VerifyPasscodeResult> => {
-    const encoded = passcodeHashEnv();
-    if (!encoded) {
+    // Sumber hash harus sama dengan yang dipakai `changeAdminPasscode`. Kalau
+    // gerbang masih membaca environment sementara rotasi menulis ke database,
+    // passcode "baru" tidak akan pernah berlaku — persis bug yang diDitangkap
+    // test regresi.
+    const config = await ctx.runQuery(anyApi.adminGate.passcodeConfig, {});
+    if (!config.hash) {
       return { ok: false, reason: "unconfigured", remaining: 0, lockedUntil: null, attempts: 0 };
     }
-    const parsed = parsePasscodeHash(encoded);
+    const parsed = parsePasscodeHash(config.hash);
     if (!parsed) {
       throw new Error("ADMIN_PASSCODE_HASH tidak valid. Periksa formatnya di dashboard Convex.");
     }
@@ -376,19 +388,25 @@ export const verifyAdminPasscode = action({
 
     const requestId = serverContext?.requestId ?? null;
     const email = (args.email ?? "").trim().toLowerCase();
-    // Kunci rate limit memakai IP dari server bila ada. Nilai IP kiriman
-    // klien sengaja diabaikan supaya tidak bisa dipakai memisahkan jatah.
+    // Kunci rate limit HANYA boleh memakai IP dari server. Nilai `reportedIp`
+    // kiriman klien sengaja tidak pernah dipakai: kalau beacon terblokir dan
+    // nilai klien dipakai sebagai ganti, siapa pun bisa memanggil action ini
+    // dengan IP berbeda tiap kali dan mendapat jatah baru tanpa batas. Tanpa
+    // konteks server, semua percobaan masuk satu ember yang sama — lebih ketat,
+    // bukan lebih longgar.
     const key = await deriveAttemptKey({
       deviceId: args.deviceId,
-      reportedIp: serverContext?.ipHash ?? args.reportedIp,
+      reportedIp: serverContext?.ipHash ?? UNTRUSTED_IP_BUCKET,
     });
     const sessionFingerprint = await deriveSessionFingerprint(args.deviceId, FINGERPRINT_SALT);
     const parsedUserAgent = parseUserAgent(serverContext?.userAgent ?? args.userAgent);
     const context: AttemptContext = {
       key,
       emailMasked: maskEmail(email) ?? undefined,
-      reportedIp: maskIp(args.reportedIp) ?? undefined,
       userAgent: trimUserAgent(serverContext?.userAgent ?? args.userAgent) ?? undefined,
+      // Untuk ditampilkan saja, dan tetap dipangkas supaya argumen raksasa dari
+      // klien tidak ada gunanya.
+      reportedIp: clip(maskIp(args.reportedIp), 32) ?? undefined,
       timezone: clip(args.timezone, 60),
       locale: clip(args.locale, 20),
     };
@@ -512,7 +530,8 @@ export const verifyAdminPasscode = action({
 export const verifyAdminTicket = action({
   args: { ticket: v.string(), email: v.string() },
   handler: async (ctx, args): Promise<{ ok: boolean; reason?: string }> => {
-    if (!passcodeHashEnv()) return { ok: false, reason: "unconfigured" };
+    const config = await ctx.runQuery(anyApi.adminGate.passcodeConfig, {});
+    if (!config.hash) return { ok: false, reason: "unconfigured" };
     const tokenHash = toHex(
       new Uint8Array(
         await crypto.subtle.digest(

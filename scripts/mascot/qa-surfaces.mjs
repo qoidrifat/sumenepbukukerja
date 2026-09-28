@@ -111,8 +111,54 @@ const readBox = (page, index) =>
  */
 const expectedMd = (width) => (width < 640 ? 96 : width < 1280 ? 112 : 144);
 
+/**
+ * Sesi tamu untuk QA, TANPA memakai tombol "Masuk sebagai tamu".
+ *
+ * Tombol itu sengaja dihapus dari UI: akun anonim tidak punya email, jadi
+ * begitu peran pengelola diberikan padanya akun itu tidak bisa dibuka lagi --
+ * persis akun yang membuat seluruh deployment terkunci. Jadi harness ini membuat
+ * sesi lewat endpoint auth Convex (`auth:signIn` adalah action) lalu menanam
+ * token-nya ke localStorage sebelum aplikasi dimuat. Cakupannya tetap sama,
+ * hanya cara masuknya yang tidak bergantung pada UI.
+ */
+const CONVEX_URL = process.env.CONVEX_URL ?? "https://rare-scorpion-625.convex.cloud";
+
+/**
+ * Sesi tamu tanpa tombol "Masuk sebagai tamu" di `/auth`.
+ *
+ * `ConvexAuthProvider` menyimpan token di `localStorage` dengan key
+ * `__convexAuthJWT_<alamat deployment tanpa tanda baca>` — namespace-nya
+ * default ke `client.address`. Kalau hanya key polos yang diisi, provider
+ * membaca `undefined`, menganggap belum masuk, dan semua halaman
+ * terkunci bisa lulus sebagai tamu. Jadi keduanya ditulis di sini.
+ */
+const STORAGE_NAMESPACE = CONVEX_URL.replace(/[^a-zA-Z0-9]/g, "");
+
+async function anonymousTokens() {
+  const response = await fetch(`${CONVEX_URL}/api/action`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path: "auth:signIn", args: { provider: "anonymous", params: {} } }),
+  });
+  const payload = await response.json();
+  const tokens = payload?.value?.tokens;
+  if (!tokens?.token) throw new Error(`Gagal membuat sesi tamu: ${JSON.stringify(payload)}`);
+  return tokens;
+}
+
 async function guestSession(width) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, deviceScaleFactor: 1 });
+  const tokens = await anonymousTokens();
+  await context.addInitScript((seed) => {
+    const entries = [
+      ["__convexAuthJWT", seed.token],
+      ["__convexAuthRefreshToken", seed.refreshToken],
+    ];
+    for (const [key, value] of entries) {
+      window.localStorage.setItem(key, value);
+      window.localStorage.setItem(`${key}_${seed.namespace}`, value);
+    }
+  }, { ...tokens, namespace: STORAGE_NAMESPACE });
   const page = await context.newPage();
   await page.addInitScript(CANVAS_NORMALISE);
   const errors = [];
@@ -121,9 +167,7 @@ async function guestSession(width) {
     if (m.type() === "error") errors.push(`console: ${m.text()}`);
   });
 
-  await page.goto(`${base}/auth`, { waitUntil: "networkidle", timeout: 30000 });
-  await page.getByRole("button", { name: /Masuk sebagai tamu/i }).click();
-  await page.waitForURL(/\/dashboard/, { timeout: 30000 });
+  await page.goto(`${base}/dashboard`, { waitUntil: "networkidle", timeout: 30000 });
   await page.waitForTimeout(1200);
   return { context, page, errors };
 }

@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test } from "vitest";
+import { encodePasscodeHash } from "../lib/admin-passcode";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
@@ -29,6 +30,32 @@ const listingPayload = {
  */
 async function signedInUser(t: ReturnType<typeof convexTest>, name: string) {
   return t.withIdentity({ name });
+}
+
+/**
+ * convex-test tidak membuat dokumen `users` untuk sebuah identity, jadi
+ * `getAuthUserId()` mengembalikan id yang tidak ada isinya. Di produksi baris
+ * itu dibuat oleh adapter Convex Auth; test ini menirunya dengan menyeed baris
+ * lebih dulu lalu identity dibentuk dengan subject = id baris tersebut.
+ */
+async function seedUserId(
+  t: ReturnType<typeof convexTest>,
+  user: { name: string; email?: string },
+) {
+  return await t.run(async (ctx) => {
+    const db = ctx.db as unknown as {
+      insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+    };
+    return await db.insert("users", user);
+  });
+}
+
+async function seededUser(
+  t: ReturnType<typeof convexTest>,
+  user: { name: string; email?: string },
+) {
+  const id = await seedUserId(t, user);
+  return t.withIdentity({ name: user.name, subject: id });
 }
 
 async function createOwnerListing(t: ReturnType<typeof convexTest>) {
@@ -966,5 +993,256 @@ describe("jalur pemulihan akses admin lewat bootstrap", () => {
       role: null,
       canViewAdmin: false,
     });
+  });
+});
+
+/**
+ * Gerbang passcode, sesi, dan security desk.
+ *
+ * Yang diuji di sini bukan tampilan, tapi hal-hal yang harus tetap benar meski
+ * ada yang memaksa: klien mengirimi IP palsu, mencoba membuka log tanpa peran,
+ * menebak passcode tanpa batas, atau menyalin passcode ke audit.
+ */
+describe("gerbang passcode dan security desk", () => {
+  const deviceId = "device-uji-keamanan-0001";
+
+  const PASSCODE_ENV = "ADMIN_PASSCODE_HASH";
+  type EnvBag = { process?: { env?: Record<string, string | undefined> } };
+  const env = () => {
+    const bag = (globalThis as unknown as EnvBag).process?.env;
+    if (!bag) throw new Error("Test environment does not expose an env record");
+    return bag as Record<string, string | undefined>;
+  };
+  const previousPasscode = env()[PASSCODE_ENV];
+  /**
+   * `convexTest` versi ini tidak punya opsi env, tapi handler membaca
+   * `process.env` saat request berjalan, jadi menetakkannya di sini memberi
+   * efek yang sama dengan menaruhnya di Keys.
+   */
+  const usePasscode = async (value: string) => {
+    env()[PASSCODE_ENV] = await encodePasscodeHash(value);
+  };
+  afterEach(() => {
+    if (previousPasscode === undefined) delete env()[PASSCODE_ENV];
+    else env()[PASSCODE_ENV] = previousPasscode;
+  });
+
+  async function setupAdmin(t: ReturnType<typeof convexTest>) {
+    const id = await seedUserId(t, { name: "Admin Uji", email: "admin@sumenep.co.id" });
+    const owner = t.withIdentity({ name: "Admin Uji", subject: id });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("staffMembers", {
+        userId: id as never,
+        role: "admin",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    return owner;
+  }
+
+  test("warga biasa tidak bisa membaca log keamanan, IP activity, atau sesi", async () => {
+    const t = convexTest(schema, modules);
+    const resident = await seededUser(t, { name: "Warga Biasa", email: "warga@sumenep.co.id" });
+
+    await expect(resident.query(api.adminGate.listAdminSecurityEvents, {})).rejects.toThrow();
+    await expect(resident.query(api.adminGate.adminSecuritySummary, {})).rejects.toThrow();
+    await expect(resident.query(api.adminGate.listAdminIpActivity, {})).rejects.toThrow();
+    await expect(resident.query(api.adminGate.currentAdminSession, {})).rejects.toThrow();
+  });
+
+  test("warga biasa tidak bisa logout, ganti passcode, atau mencatat jejak", async () => {
+    const t = convexTest(schema, modules);
+    const resident = await seededUser(t, { name: "Warga Biasa", email: "warga@sumenep.co.id" });
+
+    await expect(resident.mutation(api.adminGate.logoutAdmin, {})).rejects.toThrow();
+    await expect(
+      resident.mutation(api.adminGate.recordSecurityDeskEvent, { kind: "viewed" }),
+    ).rejects.toThrow();
+    // Action ganti passcode menjawab `unauthorized`, bukan melempar apa pun soal
+    // passcode: kalau ia melempar, error-nya bisa dipakai membedakannya.
+    const result = await resident.action(api.adminGate.changeAdminPasscode, {
+      currentPasscode: "apa-saja",
+      newPasscode: "yang-sekali-juga-123",
+    });
+    expect(result).toEqual({ ok: false, reason: "unauthorized" });
+  });
+
+  test("IP kiriman klien tidak dipakai sebagai kunci rate limit", async () => {
+    await usePasscode("benar-sekali-2026");
+    const t = convexTest(schema, modules);
+    const attacker = t.withIdentity({ name: "Penyerang" });
+
+    // Beacon diblokir (tidak ada contextId), dan klien mengirimi IP berbeda
+    // setiap panggilan. Kalau IP klien dipakai sebagai kunci, tiap panggilan
+    // mendapat jatah baru dan rate limit tidak berlaku sama sekali.
+    const first = await attacker.action(api.adminGate.verifyAdminPasscode, {
+      passcode: "salah",
+      deviceId,
+      reportedIp: "1.1.1.1",
+    });
+    const second = await attacker.action(api.adminGate.verifyAdminPasscode, {
+      passcode: "salah",
+      deviceId,
+      reportedIp: "2.2.2.2",
+    });
+    const third = await attacker.action(api.adminGate.verifyAdminPasscode, {
+      passcode: "salah",
+      deviceId,
+      reportedIp: "3.3.3.3",
+    });
+    const fourth = await attacker.action(api.adminGate.verifyAdminPasscode, {
+      passcode: "salah",
+      deviceId,
+      reportedIp: "4.4.4.4",
+    });
+    // Sisa jatah menyusut dan akhirnya terkunci, walaupun IP kiriman klien
+    // berbeda tiap panggilan. Kalau IP klien ikut jadi kunci, `remaining`
+    // selalu kembali ke nilai penuh dan panggilan keempat tidak pernah terkunci.
+    expect(first).toMatchObject({ ok: false, reason: "invalid" });
+    expect(second).toMatchObject({ ok: false, reason: "invalid" });
+    expect(third).toMatchObject({ ok: false, reason: "invalid", remaining: 0 });
+    expect(fourth).toMatchObject({ ok: false, reason: "locked" });
+  });
+
+  test("passcode yang dikonfigurasi di environment tetap dipakai sebelum rotasi", async () => {
+    await usePasscode("benar-sekali-2026");
+    const t = convexTest(schema, modules);
+    const owner = await setupAdmin(t);
+
+    const good = await owner.action(api.adminGate.changeAdminPasscode, {
+      currentPasscode: "benar-sekali-2026",
+      newPasscode: "GaramSumpenep#2026",
+    });
+    expect(good).toMatchObject({ ok: true });
+    // Hash lama tidak pernah ikut dikembalikan ke klien.
+    expect(JSON.stringify(good)).not.toContain("pbkdf2");
+  });
+
+  test("rotasi menolak passcode lama yang salah dan passcode baru yang lemah", async () => {
+    await usePasscode("benar-sekali-2026");
+    const t = convexTest(schema, modules);
+    const owner = await setupAdmin(t);
+
+    expect(
+      await owner.action(api.adminGate.changeAdminPasscode, {
+        currentPasscode: "salah-total",
+        newPasscode: "GaramSumpenep#2026",
+      }),
+    ).toEqual({ ok: false, reason: "wrong_current" });
+
+    const weak = await owner.action(api.adminGate.changeAdminPasscode, {
+      currentPasscode: "benar-sekali-2026",
+      newPasscode: "123",
+    });
+    expect(weak.ok).toBe(false);
+    if (!weak.ok) expect(weak.reason).toBe("weak");
+  });
+
+  test("rotasi membatalkan tiket gerbang yang belum dipakai", async () => {
+    await usePasscode("benar-sekali-2026");
+    const t = convexTest(schema, modules);
+    const owner = await setupAdmin(t);
+    const visitor = t.withIdentity({ name: "Pengunjung" });
+
+    const opened = await visitor.action(api.adminGate.verifyAdminPasscode, {
+      passcode: "benar-sekali-2026",
+      deviceId,
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+
+    const rotated = await owner.action(api.adminGate.changeAdminPasscode, {
+      currentPasscode: "benar-sekali-2026",
+      newPasscode: "GaramSumpenep#2026",
+    });
+    expect(rotated).toMatchObject({ ok: true, revokedTickets: 1 });
+
+    // Tiket yang sudah terbit sebelum rotasi tidak lagi berlaku.
+    const replay = await visitor.action(api.adminGate.verifyAdminTicket, {
+      ticket: opened.ticket,
+      email: "apa@saja.id",
+    });
+    expect(replay.ok).toBe(false);
+  });
+
+  test("passcode lama berhenti berlaku setelah rotasi", async () => {
+    await usePasscode("benar-sekali-2026");
+    const t = convexTest(schema, modules);
+    const owner = await setupAdmin(t);
+    const visitor = t.withIdentity({ name: "Pengunjung" });
+
+    await owner.action(api.adminGate.changeAdminPasscode, {
+      currentPasscode: "benar-sekali-2026",
+      newPasscode: "GaramSumpenep#2026",
+    });
+
+    const old = await visitor.action(api.adminGate.verifyAdminPasscode, {
+      passcode: "benar-sekali-2026",
+      deviceId,
+    });
+    expect(old).toMatchObject({ ok: false, reason: "invalid" });
+  });
+
+  test("logout menghapus presence dan menulis jejak audit tanpa passcode", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await setupAdmin(t);
+    await owner.mutation(api.adminGate.heartbeatAdminPresence, { route: "/admin" });
+    expect(await t.run(async (ctx) => ctx.db.query("adminPresence").collect())).toHaveLength(1);
+
+    await owner.mutation(api.adminGate.logoutAdmin, { route: "/admin" });
+    expect(await t.run(async (ctx) => ctx.db.query("adminPresence").collect())).toHaveLength(0);
+
+    const audit = await t.run(async (ctx) =>
+      ctx.db.query("auditLogs").withIndex("byAction", (q) => q.eq("action", "admin.logout")).collect(),
+    );
+    expect(audit).toHaveLength(1);
+    const serialized = JSON.stringify(audit);
+    for (const secret of ["passcode", "pbkdf2", "token", "cookie", "authorization"]) {
+      expect(serialized.toLowerCase()).not.toContain(secret);
+    }
+  });
+
+  test("audit rotasi tidak pernah memuat passcode, hash, atau salt", async () => {
+    await usePasscode("benar-sekali-2026");
+    const t = convexTest(schema, modules);
+    const owner = await setupAdmin(t);
+    await owner.action(api.adminGate.changeAdminPasscode, {
+      currentPasscode: "benar-sekali-2026",
+      newPasscode: "GaramSumpenep#2026",
+    });
+
+    const audit = await t.run(async (ctx) =>
+      ctx.db
+        .query("auditLogs")
+        .withIndex("byAction", (q) => q.eq("action", "admin.passcode_changed"))
+        .collect(),
+    );
+    expect(audit).toHaveLength(1);
+    const serialized = JSON.stringify(audit);
+    expect(serialized).not.toContain("benar-sekali-2026");
+    expect(serialized).not.toContain("GaramSumpenep");
+    expect(serialized).not.toContain("pbkdf2");
+  });
+
+  test("log keamanan tidak pernah memuat IP mentah, hanya bentuk tersamar", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await setupAdmin(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: "kunci-uji",
+        outcome: "success",
+        ipHash: "hash-rahasia",
+        ipMasked: "203.0.113.xxx",
+        ipSource: "CF-Connecting-IP",
+        ipFamily: "IPv4",
+        createdAt: Date.now(),
+      });
+    });
+    const page = await owner.query(api.adminGate.listAdminSecurityEvents, {});
+    const serialized = JSON.stringify(page);
+    // Hash internal tidak boleh keluar; hanya bentuk yang tersamar.
+    expect(serialized).not.toContain("hash-rahasia");
+    expect(serialized).toContain("203.0.113.xxx");
   });
 });

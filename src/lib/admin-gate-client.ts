@@ -120,7 +120,9 @@ async function fetchServerContext(cloudUrl: string): Promise<ServerContext> {
   try {
     const response = await fetch(`${convexSiteUrl(cloudUrl)}${CONTEXT_ROUTE}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      // `text/plain` adalah simple header, jadi browser tidak perlu preflight.
+      // Body-nya tetap JSON; route ini tidak pernah mem-parsing body.
+      headers: { "content-type": "text/plain;charset=UTF-8" },
       body: "{}",
       signal: AbortSignal.timeout(CONTEXT_TIMEOUT_MS),
     });

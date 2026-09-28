@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test } from "vitest";
 import { encodePasscodeHash } from "../lib/admin-passcode";
+import { OWNER_ACCOUNT_EMAIL } from "../lib/owner-account";
 import { deriveSessionFingerprint, sha256Hex } from "../lib/security-context";
 import { api, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
@@ -1030,8 +1031,16 @@ describe("gerbang passcode dan security desk", () => {
     else env()[PASSCODE_ENV] = previousPasscode;
   });
 
-  async function setupAdmin(t: ReturnType<typeof convexTest>) {
-    const id = await seedUserId(t, { name: "Admin Uji", email: "admin@sumenep.co.id" });
+  /**
+   * Admin untuk uji gerbang passcode. Tanpa argumen, ini akun PEMILIK —
+   * hanya pemilik yang boleh merotasi passcode, jadi hampir semua tes di
+   * blok ini butuh pemilik. Admin biasa cukup lewat `email` eksplisit.
+   */
+  async function setupAdmin(
+    t: ReturnType<typeof convexTest>,
+    email = OWNER_ACCOUNT_EMAIL,
+  ) {
+    const id = await seedUserId(t, { name: "Admin Uji", email });
     const owner = t.withIdentity({ name: "Admin Uji", subject: id });
     await t.run(async (ctx) => {
       await ctx.db.insert("staffMembers", {
@@ -1247,6 +1256,87 @@ describe("gerbang passcode dan security desk", () => {
     // Hash internal tidak boleh keluar; hanya bentuk yang tersamar.
     expect(serialized).not.toContain("hash-rahasia");
     expect(serialized).toContain("203.0.113.xxx");
+  });
+
+  /**
+   * Gerbang passcode hanya milik akun pemilik. Yang dikunci di sini bukan
+   * hanya "ditolak", tapi juga APA yang dikembalikan, karena urutannya punya
+   * ARTIFAK: kalau pemeriksaan passcode lama jalan lebih dulu, `owner_only`
+   * berubah jadi `wrong_current` atau `weak`, dan itu memberi admin biasa
+   * oracle ("passcode lama saya benar" vs "salah") tanpa pernah punya hak.
+   */
+  test("rotasi passcode ditolak untuk admin yang bukan akun pemilik", async () => {
+    await usePasscode("benar-sekali-2026");
+    const t = convexTest(schema, modules);
+    const staff = await setupAdmin(t, "staf-bukan-pemilik@sumenep.co.id");
+
+    // Passcode lama yang BENAR. Kalau ia dijawab `wrong_current`, berarti
+    // gerbang kepemilikan dibaca setelah passcode — dan itu bocor.
+    expect(
+      await staff.action(api.adminGate.changeAdminPasscode, {
+        currentPasscode: "benar-sekali-2026",
+        newPasscode: "GaramSumpenep#2026",
+      }),
+    ).toEqual({ ok: false, reason: "owner_only" });
+
+    // Tidak ada efek samping sama sekali: passcode lama masih berlaku.
+    const visitor = t.withIdentity({ name: "Pengunjung" });
+    const still = await visitor.action(api.adminGate.verifyAdminPasscode, {
+      passcode: "benar-sekali-2026",
+      deviceId,
+    });
+    expect(still.ok).toBe(true);
+  });
+
+  test("admin non-pemilik tidak pernah diberi tahu passcode lama itu benar", async () => {
+    await usePasscode("benar-sekali-2026");
+    const t = convexTest(schema, modules);
+    const staff = await setupAdmin(t, "staf-oracle@sumenep.co.id");
+
+    // Dua sisi: passcode lama salah DAN benar harus dibalas sama persis.
+    const wrong = await staff.action(api.adminGate.changeAdminPasscode, {
+      currentPasscode: "salah-total",
+      newPasscode: "GaramSumpenep#2026",
+    });
+    const right = await staff.action(api.adminGate.changeAdminPasscode, {
+      currentPasscode: "benar-sekali-2026",
+      newPasscode: "GaramSumpenep#2026",
+    });
+    expect(wrong).toEqual(right);
+    expect(right).toEqual({ ok: false, reason: "owner_only" });
+
+    // Aturan kekuatan passcode juga tidak dijalankan untuk non-pemilik: jawaban
+    // `weak` hanya untuk pemilik, jadi minimalitasnya tidak bocor ke luar.
+    const weak = await staff.action(api.adminGate.changeAdminPasscode, {
+      currentPasscode: "benar-sekali-2026",
+      newPasscode: "123",
+    });
+    expect(weak).toEqual({ ok: false, reason: "owner_only" });
+  });
+
+  test("rotasi tetap berhasil untuk akun pemilik", async () => {
+    await usePasscode("benar-sekali-2026");
+    const t = convexTest(schema, modules);
+    const owner = await setupAdmin(t);
+
+    const result = await owner.action(api.adminGate.changeAdminPasscode, {
+      currentPasscode: "benar-sekali-2026",
+      newPasscode: "GaramSumpenep#2026",
+    });
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  test("penandaan akun pemilik dihitung server dari email, bukan dari klien", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await setupAdmin(t);
+    const staff = await setupAdmin(t, "staf-biasa@sumenep.co.id");
+
+    const ownerSession = await owner.query(api.adminGate.currentAdminSession, {});
+    const staffSession = await staff.query(api.adminGate.currentAdminSession, {});
+    expect(ownerSession.isOwnerAccount).toBe(true);
+    expect(staffSession.isOwnerAccount).toBe(false);
+    // Peran asli tetap apa adanya; yang berubah hanya tampilannya.
+    expect(staffSession.role).toBe("admin");
   });
 });
 /**
@@ -2244,7 +2334,7 @@ describe("pengikatan percobaan login ke sesi nyata", () => {
 });
 
 describe("perlindungan peran akun pemilik", () => {
-  const OWNER_EMAIL = "qoidrifat23@gmail.com";
+  const OWNER_EMAIL = OWNER_ACCOUNT_EMAIL;
 
   async function adminMember(
     t: ReturnType<typeof convexTest>,

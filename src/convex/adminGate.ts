@@ -30,6 +30,7 @@ import type { DataModel } from "./_generated/dataModel";
 import { getAuthSessionId, getAuthUserId } from "@convex-dev/auth/server";
 import { sha256Hex } from "../lib/security-context";
 import { writeAudit } from "./audit";
+import { isOwnerAccount } from "../lib/owner-account";
 import { v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getStaffAccess, requireManagementViewer, requireStaff, requireUser } from "./access";
@@ -970,6 +971,23 @@ export const callerRole = internalQuery({
 });
 
 /**
+ * Otorisasi ada DI SINI, bukan di action: action tidak punya `ctx.db`, jadi
+ * kalau gerbangnya hanya di sisi action, satu baris pemanggilan yang keliru akan
+ * membukanya. Query internal ini satu-satunya sumber "apakah pemanggil ini
+ * pemilik".
+ */
+export const callerIsOwnerAccount = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return false;
+    if (!(await getStaffAccess(ctx, userId))) return false;
+    const user = await ctx.db.get(userId);
+    return isOwnerAccount(user?.email);
+  },
+});
+
+/**
  * Terapkan hash baru. Otorisasi ada DI SINI, bukan di action: action hanya
  * memegang kripto, sedangkan ctx action tidak punya akses database sama sekali.
  * Tanpa gerbang ini, siapa pun yang bisa memanggil action bisa merotasi passcode.
@@ -1022,7 +1040,7 @@ export const applyPasscodeChange = internalMutation({
 
 export type ChangePasscodeResult =
   | { ok: true; revokedTickets: number; level: "weak" | "fair" | "strong" }
-  | { ok: false; reason: "unauthorized" | "unconfigured" | "wrong_current" | "weak"; issues?: string[] };
+  | { ok: false; reason: "unauthorized" | "owner_only" | "unconfigured" | "wrong_current" | "weak"; issues?: string[] };
 
 /**
  * Ganti passcode admin.
@@ -1037,6 +1055,11 @@ export const changeAdminPasscode = action({
   handler: async (ctx, args): Promise<ChangePasscodeResult> => {
     const role = await ctx.runQuery(anyApi.adminGate.callerRole, {});
     if (role !== "admin") return { ok: false, reason: "unauthorized" };
+    // Passcode adalah kunci ruang admin, jadi hanya akun pemilik yang boleh
+    // menggantinya. Tombol di UI disembunyikan untuk yang lain, tapi itu
+    // sekadar tampilan; batas yang sebenarnya ada di sini.
+    const isOwner = await ctx.runQuery(anyApi.adminGate.callerIsOwnerAccount, {});
+    if (!isOwner) return { ok: false, reason: "owner_only" };
 
     const config = await ctx.runQuery(anyApi.adminGate.passcodeConfig, {});
     if (!config.hash) return { ok: false, reason: "unconfigured" };
@@ -1492,6 +1515,9 @@ export const currentAdminSession = query({
     const now = Date.now();
     return {
       role,
+      // Dihitung server dari aturan yang sama dengan gerbang passcode.
+      // Klien tidak pernah menentukan sendiri apakah ia pemilik.
+      isOwnerAccount: isOwnerAccount(user?.email),
       name: user?.name ?? null,
       signedInAt: presence?.signedInAt ?? presence?.lastSeenAt ?? null,
       lastSeenAt: presence?.lastSeenAt ?? null,

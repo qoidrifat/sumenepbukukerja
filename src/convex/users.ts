@@ -4,6 +4,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { getStaffAccess, requireManagementViewer, requireStaff, requireUser, type StaffRole } from "./access";
 import { writeAudit } from "./audit";
+import { isOwnerAccount } from "../lib/owner-account";
 
 /**
  * Read-only user query used by the existing auth UI. Role assignment is never
@@ -390,19 +391,6 @@ export const acceptStaffInvite = mutation({
     return { ok: true as const, role: invite.role, email, tokens };
   },
 });
-
-/**
- * Akun pemilik. Perannya hanya boleh diubah oleh dirinya sendiri.
- *
- * Daftar ini sengaja pendek dan tinggal di satu tempat supaya mudah ditinjau:
- * menambah nama berarti menambah satu baris di sini, bukan Menambah kondisi
- * baru yang tersembunyi di beberapa tempat.
- */
-const OWNER_ACCOUNT_EMAILS = new Set(["qoidrifat23@gmail.com"]);
-
-function isOwnerAccount(email: string | null | undefined): boolean {
-  return OWNER_ACCOUNT_EMAILS.has((email ?? "").trim().toLowerCase());
-}
 
 export const changeStaffRole = mutation({
   args: { userId: v.id("users"), role: staffRoleValidator },

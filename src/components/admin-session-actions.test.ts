@@ -120,3 +120,46 @@ test("dialog memakai animasi miliknya sendiri pada dua state", () => {
   // `will-change` hanya saat bergerak, supaya tidak memboroskan memori diam.
   expect(css).toContain("will-change: transform, opacity");
 });
+
+/**
+ * Kontrol "Ubah passcode" hanya untuk akun pemilik.
+ *
+ * Sisi klien di sini bukan batas keamanan — `changeAdminPasscode` menolak
+ * sendiri di server — tapi menampilkannya kepada yang tidak berhak adalah
+ * janji palsu yang lebih buruk daripada tidak menampilkannya. Yang dikunci:
+ * tombol benar-benar dibungkus kondisi `isOwnerAccount`, dan gelarnya bukan
+ * lagi teks yang ditulis manual di dua tempat.
+ */
+test("tombol 'Ubah passcode' hanya dirender untuk akun pemilik", () => {
+  expect(component).toContain("{session?.isOwnerAccount ? (");
+  // Penutup kondisi harus ada, kalau tidak seluruh sisa panel ikut hilang.
+  expect(component).toContain(") : null}");
+  // `isOwnerAccount` berasal dari server; klien tidak pernah menilainya sendiri.
+  expect(component).not.toMatch(/isOwnerAccount\s*[,=}]/);
+});
+
+test("baris Peran memakai gelar pemilik dari modul bersama", () => {
+  expect(component).toContain(
+    '<Row label="Peran">{session.isOwnerAccount ? OWNER_ACCOUNT_TITLE : session.role}</Row>',
+  );
+  expect(component).toContain(
+    'import { OWNER_ACCOUNT_TITLE } from "@/lib/owner-account"',
+  );
+  // Role mentah untuk non-pemilik, gelar untuk pemilik — bukan syarat yang
+  // ditulis dua kali.
+  expect(component).not.toContain("SuperAdmin");
+});
+
+test("daftar pengelola juga memakai gelar yang sama", () => {
+  const governance = readFileSync(
+    new URL("./admin-governance.tsx", import.meta.url),
+    "utf8",
+  );
+  expect(governance).toContain(
+    'import { OWNER_ACCOUNT_TITLE } from "@/lib/owner-account"',
+  );
+  expect(governance).toContain(">{OWNER_ACCOUNT_TITLE}</span>");
+  expect(governance).not.toContain("SuperAdmin");
+  // Warna gelarnya menandai akun terkunci: peran tidak bisa diubah dari sini.
+  expect(governance).toContain("member.roleLocked");
+});

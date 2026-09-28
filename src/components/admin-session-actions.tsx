@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { inputClass } from "@/components/admin-workspace";
+import { OWNER_ACCOUNT_TITLE } from "@/lib/owner-account";
 
 /**
  * "Sesi Anda" + tindakan keamanan untuk ruang admin.
@@ -385,7 +386,7 @@ export function AdminSessionActions() {
 
       {session ? (
         <dl className="mt-3 grid gap-x-6 md:grid-cols-2">
-          <Row label="Peran">{session.role}</Row>
+          <Row label="Peran">{session.isOwnerAccount ? OWNER_ACCOUNT_TITLE : session.role}</Row>
           <Row label="Nama akun">{shown(session.name)}</Row>
           <Row label="Masuk sejak">
             {session.signedInAt ? <TimeStampLabel timestamp={session.signedInAt} withSeconds /> : shown(null)}
@@ -411,15 +412,21 @@ export function AdminSessionActions() {
           Tindakan keamanan
         </h4>
         <div className="mt-2 flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setPasscodeOpen(true)}
-            className="admin-btn admin-btn-secondary inline-flex min-h-12"
-          >
-            <KeyRound className="size-5" aria-hidden="true" />
-            Ubah passcode
-          </button>
+          {/* Passcode hanya milik akun pemilik. Tombolnya disembunyikan untuk
+              yang lain, dan server juga menolaknya — lihat
+              `changeAdminPasscode`. Menyembunyikan tombol saja tidak cukup,
+              tapi menyembunyikannya pun tetap langkah yang benar. */}
+          {session?.isOwnerAccount ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setPasscodeOpen(true)}
+              className="admin-btn admin-btn-secondary inline-flex min-h-12"
+            >
+              <KeyRound className="size-5" aria-hidden="true" />
+              Ubah passcode
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={busy}

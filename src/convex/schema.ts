@@ -256,6 +256,16 @@ const schema = defineSchema(
     auditLogs: defineTable({
       action: v.string(),
       actorId: v.optional(v.id("users")),
+      // Potret pelaku pada saat kejadian, bukan hanya id-nya. Id user masih
+      // ada, tapi id saja tidak bisa dibaca siapa pelakunya kalau akunnya
+      // sudah dihapus atau emailnya berubah setelah kejadian.
+      actorName: v.optional(v.string()),
+      actorEmail: v.optional(v.string()),
+      actorRole: v.optional(v.string()),
+      // Nomor sesi ringkas dari id sesi Convex Auth, diturunkan satu arah.
+      // Stored supaya "siapa melakukan perubahan" tetap punya jejak perangkat
+      // yang bisa diperiksa ulang di Security Desk.
+      sessionRef: v.optional(v.string()),
       vendorId: v.optional(v.id("vendors")),
       requestId: v.optional(v.id("serviceRequests")),
       entityId: v.optional(v.string()),

@@ -25,6 +25,7 @@ import { internalAction, internalMutation, internalQuery, mutation, query } from
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireManagementViewer, requireStaff } from "./access";
+import { resolveAuditActor } from "./audit";
 import {
   DEDUPE_WINDOW_MS,
   REPORT_REUSE_WINDOW_MS,
@@ -225,6 +226,10 @@ const recordReport = async (
   if (alertScheduled) scheduleAlert(ctx, id);
   await ctx.db.insert("auditLogs", {
     action: "error_report.created",
+    // Laporan error bisa datang dari klien yang sedang crash, jadi pelaku
+    // sering memang tidak ada. `resolveAuditActor` tetap mencoba membaca
+    // sesi supaya jejaknya tidak hilang sepenuhnya.
+    ...(await resolveAuditActor(ctx)),
     entityId: report.reportId,
     metadata: {
       severity: report.severity,
@@ -575,7 +580,7 @@ export const setErrorReportStatus = mutation({
     await ctx.db.patch(args.id, { status: args.status, updatedAt: now });
     await ctx.db.insert("auditLogs", {
       action: "error_report.status",
-      actorId: access.userId,
+      ...(await resolveAuditActor(ctx, access.userId)),
       entityId: current.reportId,
       metadata: { from: current.status, to: args.status },
       createdAt: now,

@@ -479,15 +479,47 @@ export const listStaffInvites = query({
   },
 });
 
+/**
+ * Audit log terbaru, diperkaya untuk panel admin.
+ *
+ * Nama, email, dan peran PELAKU diambil ulang dari `users`/`staffMembers` saat
+ * dibaca, bukan hanya dari snapshot yang tersimpan saat kejadian. Snapshot saja
+ * tidak cukup untuk baris lama: kolom itu baru ada belakangan, jadi semua
+ * baris yang tertulis sebelumnya akan tampil sebagai "Tanpa pelaku" yang
+ * permanen — persis baris yang paling sering ditanyakan.
+ *
+ * Snapshot tetap dipakai sebagai cadangan kalau akunnya sudah dihapus, karena
+ * "pernah bernama siapa" lebih berharga daripada "sekarang tidak ada".
+ */
 export const listAuditLogs = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     await requireManagementViewer(ctx);
     const rows = await ctx.db.query("auditLogs").collect();
-    return rows
+    const recent = rows
       .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, Math.min(Math.max(args.limit ?? 60, 1), 200))
-      .map((row) => ({ ...row, oldValue: row.oldValue, newValue: row.newValue }));
+      .slice(0, Math.min(Math.max(args.limit ?? 60, 1), 200));
+    const enriched = await Promise.all(
+      recent.map(async (row) => {
+        if (!row.actorId) {
+          return { ...row, actorName: row.actorName, actorEmail: row.actorEmail, actorRole: row.actorRole };
+        }
+        const [user, membership] = await Promise.all([
+          ctx.db.get(row.actorId),
+          ctx.db
+            .query("staffMembers")
+            .withIndex("byUser", (q) => q.eq("userId", row.actorId as never))
+            .unique(),
+        ]);
+        return {
+          ...row,
+          actorName: user?.name ?? row.actorName,
+          actorEmail: user?.email ?? row.actorEmail,
+          actorRole: membership?.role ?? row.actorRole,
+        };
+      }),
+    );
+    return enriched.map((row) => ({ ...row, oldValue: row.oldValue, newValue: row.newValue }));
   },
 });
 

@@ -17,6 +17,7 @@ import { TimeStampLabel, inputClass } from "./admin-workspace";
 import { AdminSecurityLog } from "./admin-security-log";
 import { AdminSessionActions } from "./admin-session-actions";
 import { AdminErrorReports } from "./admin-error-reports";
+import { AdminAuditLog } from "./admin-audit-log";
 import {
   ADMIN_EMPTY_MASCOT_SIZE,
   AdminEmptyMascot,
@@ -193,7 +194,11 @@ export function AdminGovernance() {
 
         <article className="border-2 border-[#121212] bg-white p-4 xl:col-span-2">
           <h3 className="text-lg font-black text-[#1A1A1A]">Audit log terbaru</h3>
-          <div className="mt-3 max-h-64 overflow-auto">{audit?.length ? audit.map((entry) => <div key={entry._id} className="border-b border-[#D6D3D1] py-2 text-sm"><p className="font-black">{entry.action}</p><p className="text-[#525252]"><TimeStampLabel timestamp={entry.createdAt} withSeconds />{entry.vendorId ? ` · listing ${entry.vendorId}` : ""}</p></div>) : <p className="text-sm text-[#525252]">Belum ada aktivitas tercatat.</p>}</div>
+          <p className="mt-1 text-xs leading-5 text-[#525252]">
+            Setiap baris mencatat siapa yang mengubah, email dan nomor sesinya, serta nilai
+            sebelum dan sesudah. Rincian metadata dibuka per baris.
+          </p>
+          <AdminAuditLog entries={audit ?? undefined} />
         </article>
       </div>
       {notice ? <p className="border-t-2 border-[#121212] bg-[#DCEBD7] px-4 py-3 text-sm font-black text-[#24533A]" role="status">{notice}</p> : null}

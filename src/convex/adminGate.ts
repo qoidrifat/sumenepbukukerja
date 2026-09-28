@@ -860,7 +860,19 @@ export const adminSecuritySummary = query({
   },
 });
 
-/** Memangkas riwayat lama agar tabel tidak tumbuh tanpa batas. */
+/**
+ * Memangkas riwayat lama agar tabel tidak tumbuh tanpa batas.
+ *
+ * Dijalankan setiap hari oleh cron di `src/convex/crons.ts`. Sengaja
+ * `internalMutation`: tidak ada jalan untuk memanggilnya dari sisi klien,
+ * jadi tidak ada siapa pun — termasuk admin — yang bisa memanggilnya dengan
+ * `keepLatest: 0` lalu mengosongkan Security Desk. Batasannya hanya bisa
+ * diubah di server lewat `ADMIN_SECURITY_RETENTION_DAYS` di Keys.
+ *
+ * Versi `pruneSecurityContexts` yang lama dihapus: isinya sudah tercakup penuh
+ * di sini (konteks lewat `byExpiresAt`, kehadiran lewat `byLastSeenAt`), dan
+ * karena tidak pernah dipanggil, ia cuma kode mati.
+ */
 export const pruneAdminSecurityEvents = internalMutation({
   args: { keepLatest: v.optional(v.number()), retentionDays: v.optional(v.number()) },
   handler: async (ctx, args) => {
@@ -873,12 +885,20 @@ export const pruneAdminSecurityEvents = internalMutation({
     const retentionDays =
       args.retentionDays ?? (Number.isFinite(configuredDays) && configuredDays > 0 ? configuredDays : 30);
     const cutoff = Date.now() - retentionDays * 24 * 60 * 60_000;
-    const keep = Math.max(sorted.length - (args.keepLatest ?? 500), 0);
+    // `keep` adalah JUMLAH baris yang dipertahankan, bukan banyaknya baris
+    // yang dibuang. Versi sebelumnya menulis `max(sorted.length - keepLatest, 0)`
+    // sehingga selama tabel masih berisi kurang dari `keepLatest` baris, `keep`
+    // bernilai 0 — dan loop batas usia di bawahnya tidak pernah jalan sama
+    // sekali. Akibatnya data IP bisa disimpan tanpa batas selama berbulan-bulan,
+    // persis hal yang fungsi ini dibuat untuk cegah.
+    const keep = args.keepLatest ?? 500;
     let removed = 0;
     for (const row of sorted.slice(keep)) {
       await ctx.db.delete(row._id);
       removed += 1;
     }
+    // Batas usia berlaku ke semua baris di dalam N terbaru, bukan hanya yang
+    // sudah melewati batas jumlah: usia adalah batas mutlak.
     for (const row of sorted.slice(0, keep)) {
       if (row.createdAt < cutoff) {
         await ctx.db.delete(row._id);
@@ -900,19 +920,9 @@ export const pruneAdminSecurityEvents = internalMutation({
   },
 });
 
-/** Membuang konteks yang sudah kedaluwarsa; dipanggil berkala dari sisi klien. */
-export const pruneSecurityContexts = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const stale = await ctx.db
-      .query("adminSecurityContexts")
-      .withIndex("byExpiresAt", (q) => q.lt("expiresAt", now))
-      .collect();
-    for (const row of stale) await ctx.db.delete(row._id);
-    return stale.length;
-  },
-});
+/* ------------------------------------------------------------------ *
+ * Retensi
+ * ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ *
  * Rotasi passcode, logout, dan sesi-management

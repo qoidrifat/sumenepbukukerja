@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { readFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test } from "vitest";
 import { encodePasscodeHash } from "../lib/admin-passcode";
@@ -1244,5 +1245,163 @@ describe("gerbang passcode dan security desk", () => {
     // Hash internal tidak boleh keluar; hanya bentuk yang tersamar.
     expect(serialized).not.toContain("hash-rahasia");
     expect(serialized).toContain("203.0.113.xxx");
+  });
+});
+/**
+ * Retensi data keamanan.
+ *
+ * Fungsi pemangkas ini sebelumnya ada tapi tidak pernah dipanggil siapa pun,
+ * jadi batas jumlah baris dan batas usia di dalam kodenya hanya hiasan.
+ * Tes di sini mengunci dua sisi: logikanya benar, dan cron-nya benar-benar
+ * terdaftar. Tes cron membaca sumbernya karena kegagalan di sini adalah
+ * keheningan: menghapus baris `crons.daily(...)` harus menggagalkan tes ini,
+ * bukan lolos tanpa terasa.
+ */
+
+describe("retensi data keamanan", () => {
+  const DAY = 24 * 60 * 60_000;
+  const readSource = (name: string) =>
+    readFileSync(new URL(name, import.meta.url), "utf8");
+
+  test("cron harian memanggil pemangkas, dan tidak lewat api publik", () => {
+    const crons = readSource("./crons.ts");
+    expect(crons).toContain("internal.adminGate.pruneAdminSecurityEvents");
+    expect(crons).toMatch(/crons\.daily\(/);
+    // Kalau cron mengarahkan ke `api.*`, permukaannya jadi publik dan
+    // siapa pun bisa memicu pemangkasan.
+    expect(crons).not.toMatch(/crons\.\w+\([^)]*api\./s);
+
+    // Pemangkas sendiri harus tetap internal. Menurunkannya ke `mutation`
+    // akan membuka jalan untuk mengosongkan Security Desk.
+    const adminGate = readSource("./adminGate.ts");
+    const declaration = adminGate.match(
+      /export const pruneAdminSecurityEvents = (\w+)\(/,
+    );
+    expect(declaration?.[1]).toBe("internalMutation");
+  });
+
+  test("batas jumlah baris: yang tertua dibuang, yang terbaru utuh", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 5; i++) {
+        await ctx.db.insert("adminPasscodeAttempts", {
+          key: `kunci-${i}`,
+          outcome: "failed",
+          createdAt: now - i * 60_000, // i=0 paling baru
+        });
+      }
+    });
+
+    const removed = await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {
+      keepLatest: 2,
+      retentionDays: 30,
+    });
+    expect(removed).toBe(3);
+
+    const left = await t.run(async (ctx) => {
+      const rows = await ctx.db.query("adminPasscodeAttempts").collect();
+      return rows.map((row) => row.key).sort();
+    });
+    expect(left).toEqual(["kunci-0", "kunci-1"]);
+  });
+
+  test("batas usia tetap berlaku walau barisnya masih sedikit", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      // Lima perlakuan, hanya dua yang sudah melewati 30 hari.
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: "lama-a",
+        outcome: "failed",
+        createdAt: now - 40 * DAY,
+      });
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: "lama-b",
+        outcome: "failed",
+        createdAt: now - 31 * DAY,
+      });
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: "baru-a",
+        outcome: "success",
+        createdAt: now - 10 * DAY,
+      });
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: "baru-b",
+        outcome: "success",
+        createdAt: now - 1 * DAY,
+      });
+    });
+
+    // `keepLatest` sengaja dikembalikan ke 500 supaya barisnya sudah di bawah
+    // batas jumlah: kalau tes ini masih membuang baris, yang bekerja adalah
+    // batas usia.
+    const removed = await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {
+      keepLatest: 500,
+      retentionDays: 30,
+    });
+    expect(removed).toBe(2);
+
+    const left = await t.run(async (ctx) => {
+      const rows = await ctx.db.query("adminPasscodeAttempts").collect();
+      return rows.map((row) => row.key).sort();
+    });
+    expect(left).toEqual(["baru-a", "baru-b"]);
+  });
+
+  test("konteks kedaluwarsa dan kehadiran lama ikut dibersihkan", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    const userId = await seedUserId(t, { name: "Admin Retensi", email: "retensi@sumenep.co.id" });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adminSecurityContexts", {
+        token: "basi",
+        ipSource: "CF-Connecting-IP",
+        requestId: "r1",
+        expiresAt: now - 60_000,
+        createdAt: now - 60_000,
+      });
+      await ctx.db.insert("adminSecurityContexts", {
+        token: "masih-hidup",
+        ipSource: "CF-Connecting-IP",
+        requestId: "r2",
+        expiresAt: now + 5 * 60_000,
+        createdAt: now,
+      });
+      await ctx.db.insert("adminPresence", {
+        userId: userId as never,
+        lastSeenAt: now - 30 * DAY,
+        firstSeenAt: now - 30 * DAY,
+      });
+      await ctx.db.insert("adminPresence", {
+        userId: userId as never,
+        lastSeenAt: now,
+        firstSeenAt: now,
+      });
+    });
+
+    await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {
+      keepLatest: 500,
+      retentionDays: 30,
+    });
+
+    const state = await t.run(async (ctx) => {
+      const contexts = await ctx.db.query("adminSecurityContexts").collect();
+      const presence = await ctx.db.query("adminPresence").collect();
+      return {
+        tokens: contexts.map((row) => row.token).sort(),
+        presenceCount: presence.length,
+      };
+    });
+    expect(state.tokens).toEqual(["masih-hidup"]);
+    expect(state.presenceCount).toBe(1);
+  });
+
+  test("prune yang tidak menemukan apa pun tetap idempoten", async () => {
+    const t = convexTest(schema, modules);
+    const first = await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {});
+    const second = await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {});
+    expect(first).toBe(0);
+    expect(second).toBe(0);
   });
 });

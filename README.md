@@ -359,6 +359,44 @@ backup yang bocor berarti membocorkan seluruh riwayat backup.
   `users.profileImageStorageId`, atau dipakai dokumen cadangan.
 - Unggahan foto memakai dedup sha256 di peramban: berkas identik tidak pernah
   diunggah dua kali (lihat `src/lib/image-upload.ts`).
+## Utang teknis yang disengaja (Fase 2, Juli 2026)
+
+Tiga berkas masih besar. Ini dicatat, bukan diperbaiki:
+
+| Berkas | Baris |
+|---|---|
+| `src/pages/Admin.tsx` | 1.537 |
+| `src/convex/adminGate.ts` | 1.549 |
+| `src/convex/community.ts` | 1.388 |
+| `src/convex/community.ts` | 1.388 |
+
+Ekstraksi pertama sudah dilakukan dan berhasil (`admin-workspace-hero.tsx`),
+tapi sisa monolith **ditunda**, bukan diselesaikan. Alasannya teknis, bukan
+waktu: memindahkan fungsi Convex mengubah nama referensinya
+(`api.community.createReport` → `api.reports.createReport`), dan setiap
+penggantian nama itu adalah perubahan API yang bisa menjatuhkan klien lama yang
+masih memakai versi deploy sebelumnya. Memindahkannya butuh strategi
+kompatibilitas yang sadar-migrasi — alias satu versi, atau nama fungsi
+berversi — dan itu pekerjaan tersendiri yang harus punya tujuannya sendiri.
+
+Yang sudah diekstraksi (bukti bahwa jalurnya bekerja):
+
+- `src/components/admin-workspace-hero.tsx` — hero ruang kerja admin.
+
+Yang dilakukan sebagai gantinya: pengujian di `Admin.tsx` dipindah mengikuti
+kodenya, dan batas file dikunci agar tidak tumbuh lagi tanpa alasan.
+
+## Catatan SEO
+
+Metadata listing publik (`title`, `description`, Open Graph, canonical,
+JSON-LD `LocalBusiness`) ditulis di peramban lewat `useEffect` pada
+`src/lib/use-listing-metadata.ts`. Konsekuensinya harus diketahui: crawler
+yang tidak menjalankan JavaScript hanya melihat metadata generik dari
+`index.html`. Sitemap XML (`/sitemap.xml`) dan `/robots.txt` tersedia di router
+HTTP Convex, jadi mesin pencari tetap punya peta URL yang benar, dan URL itu
+sama dengan yang dirender peramban. Untuk metadata di HTML awal, diperlukan
+prerender di platform — lihat "Deferred Work" pada laporan Fase 2.
+
 - This includes importing generated files like `@/convex/_generated/server`, `@/convex/_generated/api`
 - Remember to import functions like useQuery, useMutation, useAction, etc. from `convex/react`
 - NEVER have return type validators.

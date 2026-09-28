@@ -104,7 +104,8 @@ describe("cadangan bisa dipakai sebagai sumber pemulihan", () => {
     // Dan angkanya di baris metadata ikut jujur, bukan hanya isi filenya.
     // `tableCounts` adalah `v.record`, yang tidak punya bentuk baris di tipos
     // generated, jadi dibaca lewat bentuk yang memang dikembalikan server.
-    const counts = (row?.tableCounts ?? {}) as Record<string, number>;
+    const counts: Record<string, number> =
+      (row as unknown as { tableCounts?: Record<string, number> })?.tableCounts ?? {};
     expect(counts.vendors).toBe(live.vendors.length);
     expect(counts.reports).toBe(live.reports.length);
   });
@@ -137,7 +138,7 @@ describe("cadangan bisa dipakai sebagai sumber pemulihan", () => {
     await seedRecoverableData(t);
     const run = await t.action(internal.storage.writeWeeklyBackup, {});
 
-    const latest = await t.query(internal.storage.latestBackupRuns, { limit: 5 });
+    const latest = await t.query(internal.storage.latestBackupRuns, {});
     expect(latest[0]?.weekKey).toBe(run.weekKey);
     expect(latest[0]?.status).toBe("ok");
     expect(latest[0]?.storageId).toBeTruthy();

@@ -196,12 +196,25 @@ function VendorCard({ vendor, landmark, saved, onSave, onCompare }: { vendor: Ve
   );
 }
 
-function AppShell({ children }: { children: React.ReactNode }) {
-  return <div className="min-h-dvh min-h-[100svh] w-full overflow-x-hidden bg-[#f7f8fc] pb-safe-nav lg:hidden">{children}</div>;
-}
-
-function WebShell({ children }: { children: React.ReactNode }) {
-  return <div className="hidden min-h-dvh min-h-[100svh] w-full overflow-x-hidden bg-[#f7f8fc] lg:block">{children}</div>;
+/**
+ * Satu shell untuk satu pasang DOM.
+ *
+ * Sebelumnya halaman dirender DUA KALI: AppShell (mobile, `lg:hidden`) dan
+ * WebShell (desktop, `hidden lg:block`) sama-sama membungkus DirectoryContent
+ * yang isinya identik. Bedanya cuma satu: `pb-safe-nav` untuk ruang BottomNav
+ * di mobile.
+ *
+ * Dua salinan itu tidak cuma boros (~2.500 node DOM, bukan ~1.250), tapi
+ * benar-benar merusak: `id` jadi ganda di DOM, dan `getElementById`/
+ * navigasi fragment browser selalu mendarat di salinan PERTAMA - yaitu shell
+ * mobile yang `display:none` di lebar desktop. Akibatnya di desktop semua
+ * anchor dalam halaman (`#katalog`, `#permintaan`, `#cara-pakai`) dan tombol
+ * hero "Mulai cari jasa" tidak melakukan apa-apa.
+ *
+ * Perbedaannya sekarang cukup satu aturan di `pb-safe-nav` (lihat index.css).
+ */
+function LandingShell({ children }: { children: React.ReactNode }) {
+  return <div className="min-h-dvh min-h-[100svh] w-full overflow-x-hidden bg-[#f7f8fc] pb-safe-nav">{children}</div>;
 }
 
 function NotebookBackdrop() {
@@ -587,5 +600,5 @@ export default function Landing() {
   const catalogVendors = useCatalogVendors();
   const { location, status, error, requestLocation, clearLocation } = useUserLocation();
   const locationState = { vendors: catalogVendors, location, locationStatus: status, locationError: error, onRequestLocation: requestLocation, onClearLocation: clearLocation };
-  return <><AppShell><DirectoryContent {...locationState} /></AppShell><WebShell><DirectoryContent {...locationState} /></WebShell></>;
+  return <LandingShell><DirectoryContent {...locationState} /></LandingShell>;
 }

@@ -92,6 +92,18 @@ test("daftar kosong dan memuat punya pesan masing-masing", () => {
   expect(render(undefined)).toContain("Memuat audit log");
 });
 
+test("foto pelaku dirender ketika server mengirim URL-nya", () => {
+  const html = render([{ ...ENTRY, actorImageUrl: "https://storage.example/foto.jpg" }]);
+  expect(html).toContain('src="https://storage.example/foto.jpg"');
+  expect(html).toContain('alt=""');
+});
+
+test("tanpa foto, inisial dari nama yang dipakai — bukan kotak rusak", () => {
+  const html = render([{ ...ENTRY, actorImageUrl: undefined }]);
+  expect(html).not.toContain("<img");
+  expect(html).toContain("SD");
+});
+
 test("kartu baris memakai token admin yang sama dengan panel lain", () => {
   const html = render([ENTRY]);
   expect(html).toContain('data-slot="audit-entry"');

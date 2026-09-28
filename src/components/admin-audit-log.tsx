@@ -32,6 +32,10 @@ export type AuditLogEntry = {
   actorName?: string;
   actorEmail?: string;
   actorRole?: string;
+  // URL foto TERKINI milik akun pelaku, dihitung server saat log dibaca.
+  // Sengaja bukan id storage: blob foto lama selalu dihapus saat diganti, jadi
+  // id lama hanya akan menghasilkan tautan mati.
+  actorImageUrl?: string;
   sessionRef?: string;
   vendorId?: string;
   requestId?: string;
@@ -124,12 +128,21 @@ export function AdminAuditLog({
             <div className="mt-3 grid gap-3 border-t border-[#D6D3D1] pt-3 sm:grid-cols-3">
               <Field icon={<UserRound className="size-3.5" aria-hidden="true" />} label="Pelaku">
                 <div className="flex items-start gap-2">
-                  <span
-                    aria-hidden="true"
-                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-[2px] border-2 border-[#121212] bg-[#FFE662] text-xs font-black text-[#121212]"
-                  >
-                    {initialsOf(actorName)}
-                  </span>
+                  {entry.actorImageUrl ? (
+                    <img
+                      src={entry.actorImageUrl}
+                      alt=""
+                      loading="lazy"
+                      className="size-8 shrink-0 rounded-[2px] border-2 border-[#121212] bg-[#FFE662] object-cover"
+                    />
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-[2px] border-2 border-[#121212] bg-[#FFE662] text-xs font-black text-[#121212]"
+                    >
+                      {initialsOf(actorName)}
+                    </span>
+                  )}
                   <div className="min-w-0">
                     <p className="font-black">{actorName}</p>
                     {entry.actorEmail ? (

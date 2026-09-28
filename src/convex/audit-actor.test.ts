@@ -313,4 +313,129 @@ describe("pembacaan audit log oleh pengelola", () => {
     const resident = t.withIdentity({ subject: residentId });
     await expect(resident.query(api.users.listAuditLogs, {})).rejects.toThrow();
   });
+
+  test("foto pelaku tersinkron realtime saat dibaca — tanpa menulis baris baru", async () => {
+    // Baris audit adalah POTRET kejadian, bukan pelanggan profil: menyimpan id
+    // foto di dalamnya hanya menghasilkan tautan mati, karena `updateMyProfile`
+    // selalu menghapus blob lama begitu diganti. Sinkronisasi terjadi saat
+    // DIBACA, dari baris `users` yang sekarang — dan query reaktif akan
+    // menjalankan ulang pembacaan itu begitu profilnya berubah.
+    const t = convexTest(schema, modules);
+    const actorId = await seedUser(
+      t,
+      { name: "Nama Awal", email: "aktor@sumenep.co.id" },
+      "admin",
+    );
+    const readerId = await seedUser(
+      t,
+      { name: "Pembaca Log", email: "pembaca@sumenep.co.id" },
+      "admin",
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert("auditLogs", {
+        action: "listing.published",
+        actorId: actorId as never,
+        createdAt: Date.now() - 60_000,
+      });
+    });
+
+    const reader = t.withIdentity({ subject: readerId });
+
+    // Belum ada foto: tanpa URL, tanpa inisial yang dikarang server.
+    const before = await reader.query(api.users.listAuditLogs, {});
+    expect(before[0]?.actorImageUrl ?? null).toBeNull();
+
+    // Unggah foto lewat jalur nyata (metada `contentType` diisi seperti yang
+    // ditulis endpoint unggah — lihat catatan `storeImage` di profil.test).
+    const firstImage = await t.run(async (ctx) => {
+      const id = await ctx.storage.store(new Blob([new Uint8Array(512)]));
+      const system = ctx.db as unknown as {
+        patch: (id: never, value: { contentType: string }) => Promise<void>;
+      };
+      await system.patch(id as never, { contentType: "image/jpeg" });
+      return id as never;
+    });
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        patch: (id: never, value: { profileImageStorageId: string }) => Promise<void>;
+      };
+      await db.patch(actorId as never, { profileImageStorageId: firstImage });
+    });
+
+    const withPhoto = await reader.query(api.users.listAuditLogs, {});
+    expect(typeof withPhoto[0]?.actorImageUrl).toBe("string");
+
+    // Ganti foto: URL harus ikut berubah pada pembacaan berikutnya, padahal
+    // tidak ada satu baris audit pun yang ditulis ulang.
+    const secondImage = await t.run(async (ctx) => {
+      const id = await ctx.storage.store(new Blob([new Uint8Array(256)]));
+      const system = ctx.db as unknown as {
+        patch: (id: never, value: { contentType: string }) => Promise<void>;
+      };
+      await system.patch(id as never, { contentType: "image/png" });
+      return id as never;
+    });
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        patch: (id: never, value: { profileImageStorageId: string }) => Promise<void>;
+      };
+      await db.patch(actorId as never, { profileImageStorageId: secondImage });
+    });
+
+    const after = await reader.query(api.users.listAuditLogs, {});
+    expect(after[0]?.actorImageUrl).not.toBe(withPhoto[0]?.actorImageUrl);
+    expect(typeof after[0]?.actorImageUrl).toBe("string");
+
+    // Nama yang diubah juga ikut — sisi sinkronisasi yang sudah ada, dipakai
+    // sebagai pembuktian bahwa foto berperilaku sama persis.
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        patch: (id: never, value: { name: string }) => Promise<void>;
+      };
+      await db.patch(actorId as never, { name: "Nama Baru" });
+    });
+    const renamed = await reader.query(api.users.listAuditLogs, {});
+    expect(renamed[0]?.actorName).toBe("Nama Baru");
+  });
+
+  test("blob foto yang sudah hilang tidak menghasilkan URL mati", async () => {
+    const t = convexTest(schema, modules);
+    const actorId = await seedUser(
+      t,
+      { name: "Aktor", email: "aktor@sumenep.co.id" },
+      "admin",
+    );
+    const readerId = await seedUser(
+      t,
+      { name: "Pembaca Log", email: "pembaca@sumenep.co.id" },
+      "admin",
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert("auditLogs", {
+        action: "listing.published",
+        actorId: actorId as never,
+        createdAt: Date.now() - 60_000,
+      });
+    });
+    // Baris `users` masih menunjuk foto, tapi blob-nya sudah tidak ada.
+    const deadStorageId = await t.run(async (ctx) => {
+      const id = await ctx.storage.store(new Blob([new Uint8Array(64)]));
+      const system = ctx.db as unknown as {
+        patch: (id: never, value: { contentType: string }) => Promise<void>;
+      };
+      await system.patch(id as never, { contentType: "image/jpeg" });
+      return id as never;
+    });
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        patch: (id: never, value: { profileImageStorageId: string }) => Promise<void>;
+      };
+      await db.patch(actorId as never, { profileImageStorageId: deadStorageId });
+      await ctx.storage.delete(deadStorageId);
+    });
+
+    const reader = t.withIdentity({ subject: readerId });
+    const rows = await reader.query(api.users.listAuditLogs, {});
+    expect(rows[0]?.actorImageUrl ?? null).toBeNull();
+  });
 });

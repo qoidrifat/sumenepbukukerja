@@ -1,5 +1,6 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
+import type { DataModel } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { getStaffAccess, requireManagementViewer, requireStaff, requireUser, type StaffRole } from "./access";
@@ -647,23 +648,59 @@ export const listAuditLogs = query({
       .withIndex("byCreatedAt")
       .order("desc")
       .take(take);
+    // Foto pelaku ikut disinkronkan saat dibaca, dengan alasan yang sama seperti
+    // nama dan email di atas. Membedanya: blob foto lama SELALU dihapus begitu
+    // diganti (lihat `updateMyProfile`), jadi menyimpan id fotonya di baris
+    // audit hanya akan menghasilkan URL mati. Yang bisa sinkron realtime adalah
+    // foto TERKINI milik akun itu — dan query reaktif menjalankan ulang
+    // pembacaan ini begitu baris `users`-nya berubah, tanpa muat ulang halaman.
+    // Aktor yang sama pada banyak baris dibaca sekali saja per panggilan; satu
+    // admin yang menulis 80 baris berarti 3 pembacaan, bukan 240.
+    const actorCache = new Map<
+      string,
+      { name?: string; email?: string; role?: string; imageUrl?: string }
+    >();
+    const actorOf = async (actorId: DataModel["users"]["document"]["_id"]) => {
+      const cached = actorCache.get(actorId);
+      if (cached) return cached;
+      const [user, membership] = await Promise.all([
+        ctx.db.get(actorId),
+        ctx.db
+          .query("staffMembers")
+          .withIndex("byUser", (q) => q.eq("userId", actorId))
+          .unique(),
+      ]);
+      const resolved = {
+        name: user?.name ?? undefined,
+        email: user?.email ?? undefined,
+        role: membership?.role ?? undefined,
+        // `getUrl` mengembalikan null kalau baris storage-nya sudah hilang;
+        // hasilnya tanpa foto, bukan URL rusak yang gagal dimuat.
+        imageUrl: user?.profileImageStorageId
+          ? ((await ctx.storage.getUrl(user.profileImageStorageId as never)) ?? undefined)
+          : undefined,
+      };
+      actorCache.set(actorId, resolved);
+      return resolved;
+    };
     const enriched = await Promise.all(
       recent.map(async (row) => {
         if (!row.actorId) {
-          return { ...row, actorName: row.actorName, actorEmail: row.actorEmail, actorRole: row.actorRole };
+          return {
+            ...row,
+            actorName: row.actorName,
+            actorEmail: row.actorEmail,
+            actorRole: row.actorRole,
+            actorImageUrl: undefined,
+          };
         }
-        const [user, membership] = await Promise.all([
-          ctx.db.get(row.actorId),
-          ctx.db
-            .query("staffMembers")
-            .withIndex("byUser", (q) => q.eq("userId", row.actorId as never))
-            .unique(),
-        ]);
+        const actor = await actorOf(row.actorId);
         return {
           ...row,
-          actorName: user?.name ?? row.actorName,
-          actorEmail: user?.email ?? row.actorEmail,
-          actorRole: membership?.role ?? row.actorRole,
+          actorName: actor.name ?? row.actorName,
+          actorEmail: actor.email ?? row.actorEmail,
+          actorRole: actor.role ?? row.actorRole,
+          actorImageUrl: actor.imageUrl,
         };
       }),
     );

@@ -3,6 +3,9 @@ import { useAction, useMutation, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { vendors as seedVendors, vendorBySlug, type Vendor } from "./catalog";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers } from "./offline-queue";
+import { useErrorReporter, withErrorReporting } from "./error-reporter";
+import type { RegisteredReporter } from "./error-report-bus";
+import { ERROR_CODES, type ErrorCode, type ErrorKind } from "./error-reporting";
 
 export type VendorReview = {
   _id: string;
@@ -471,6 +474,97 @@ export function useFavorites() {
   };
 }
 
+/**
+ * Peta pelaporan per aksi.
+ *
+ * Ini satu-satunya tempat yang tahu fitur mana milik operasi mana, jadi
+ * laporan di panel pengelola bisa dibaca tanpa menebak. Aksi yang tidak
+ * ada di sini tetap berjalan tanpa pelaporan -- lebih baik dilaporkan
+ * sebagai `operation` generik daripada tidak sama sekali.
+ *
+ * `kind` menentukan apakah kegagalan layak membangunkan admin:
+ * `validation` dan `permission` tidak pernah didukung.
+ */
+type ActionReportContext = {
+  feature: string;
+  operation: string;
+  kind?: ErrorKind;
+  code?: ErrorCode;
+};
+
+const ACTION_REPORT_CONTEXT: Record<string, ActionReportContext> = {
+  create: { feature: "Listing Management", operation: "vendors.createVendor" },
+  update: { feature: "Listing Management", operation: "vendors.updateVendor" },
+  archive: { feature: "Listing Management", operation: "vendors.archiveVendor" },
+  click: { feature: "Analytics", operation: "vendors.incrementClick", kind: "operation" },
+  recordSearch: { feature: "Catalog Search", operation: "vendors.recordSearch" },
+  favorite: { feature: "Saved Listings", operation: "vendors.toggleFavorite" },
+  syncLocalFavorites: { feature: "Saved Listings", operation: "vendors.syncLocalFavorites" },
+  review: { feature: "Reviews", operation: "vendors.addReview" },
+  feedback: { feature: "Catalog Feedback", operation: "vendors.submitFeedback" },
+  subscription: { feature: "Listing Subscription", operation: "vendors.setSubscription" },
+  generateUploadUrl: { feature: "File Upload", operation: "vendors.generateUploadUrl", code: ERROR_CODES.storage },
+  availability: { feature: "Availability", operation: "community.updateAvailability" },
+  interaction: { feature: "Interaction History", operation: "community.recordInteraction" },
+  updateInteraction: { feature: "Interaction History", operation: "community.updateInteraction" },
+  createRequest: { feature: "Community Requests", operation: "community.createRequest" },
+  claimRequest: { feature: "Community Requests", operation: "community.claimRequest" },
+  updateRequest: { feature: "Community Requests", operation: "community.updateRequestStatus" },
+  createPackage: { feature: "Packages", operation: "community.createPackage" },
+  updatePackage: { feature: "Packages", operation: "community.updatePackage" },
+  removePackage: { feature: "Packages", operation: "community.removePackage" },
+  markNotificationsRead: { feature: "Notifications", operation: "community.markNotificationsRead" },
+  setNotificationPreferences: {
+    feature: "WhatsApp Notification Settings",
+    operation: "community.setNotificationPreferences",
+  },
+  createReport: { feature: "Listing Reports", operation: "community.createReport" },
+  updateReport: { feature: "Listing Reports", operation: "community.updateReport" },
+  moderatePhoto: { feature: "Photo Moderation", operation: "community.moderateVendorPhoto" },
+  createPhoto: { feature: "File Upload", operation: "community.createVendorPhoto", code: ERROR_CODES.storage },
+  removePhoto: { feature: "Photo Moderation", operation: "community.removeVendorPhoto" },
+  submitClaim: { feature: "Listing Claim", operation: "claims.claimVendorListing" },
+  reviewClaim: { feature: "Claim Moderation", operation: "claims.reviewVendorClaim" },
+  offerRequest: { feature: "Request Offers", operation: "offers.offerRequest" },
+  acceptOffer: { feature: "Request Offers", operation: "offers.acceptRequestOffer" },
+  withdrawOffer: { feature: "Request Offers", operation: "offers.withdrawRequestOffer" },
+  reopenRequest: { feature: "Community Requests", operation: "community.reopenRequest" },
+  track: { feature: "Analytics", operation: "analytics.track" },
+  sendTestWhatsapp: {
+    feature: "WhatsApp Notification Settings",
+    operation: "whatsapp.sendTestWhatsapp",
+    kind: "integration",
+    code: ERROR_CODES.whatsappSend,
+  },
+  markWhatsappThreadRead: {
+    feature: "WhatsApp Notification Settings",
+    operation: "whatsapp.markWhatsappThreadRead",
+  },
+};
+
+type AnyAction = (args: never) => Promise<unknown>;
+
+/**
+ * Bungkus sekumpulan aksi Convex dengan pelaporan error.
+ *
+ * Error asli diteruskan tanpa perubahan, jadi setiap komponen yang sudah
+ * punya penanganan error sendiri tetap bekerja persis seperti sebelumnya.
+ * Yang ditambahkan hanya satu lapis pelaporan di sampingnya.
+ */
+const reportActions = <T extends Record<string, AnyAction>>(
+  reporter: RegisteredReporter,
+  actions: T,
+): T => {
+  const output: Record<string, unknown> = {};
+  for (const [name, action] of Object.entries(actions)) {
+    const context = ACTION_REPORT_CONTEXT[name];
+    output[name] = context
+      ? withErrorReporting(reporter, context.operation, action, context)
+      : action;
+  }
+  return output as T;
+};
+
 export function useCatalogActions() {
   const create = useMutation(api.vendors.createVendor);
   const update = useMutation(api.vendors.updateVendor);
@@ -508,7 +602,7 @@ export function useCatalogActions() {
   const track = useMutation(api.analytics.track);
   const sendTestWhatsapp = useAction(api.whatsapp.sendTestWhatsapp);
   const markWhatsappThreadRead = useMutation(api.whatsapp.markWhatsappThreadRead);
-  return {
+  return reportActions(useErrorReporter(), {
     create,
     update,
     archive,
@@ -545,7 +639,7 @@ export function useCatalogActions() {
     track,
     sendTestWhatsapp,
     markWhatsappThreadRead,
-  };
+  });
 }
 
 export function useServiceRequests(args: {
@@ -589,6 +683,34 @@ export function useCommunityMetrics() {
 
 export function useCurrentAccess() {
   return useQuery(api.users.currentAccess, {});
+}
+
+/* ------------------------------------------------------------------ */
+/* Laporan error (khusus panel pengelola)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Query laporan error melempar untuk akun biasa -- inilah yang membuat
+ * `useQuery` di panel admin jatuh ke error boundary kalau bukan pengelola.
+ */
+export function useErrorReports(status?: "open" | "acknowledged" | "resolved" | "ignored") {
+  return useQuery(api.errorReports.listErrorReports, status ? { status } : {});
+}
+
+export type AdminErrorReport = NonNullable<ReturnType<typeof useErrorReports>>[number];
+
+export function useErrorReportSummary() {
+  return useQuery(api.errorReports.errorReportSummary, {});
+}
+
+export function useErrorReportActions() {
+  const setErrorReportStatus = useMutation(api.errorReports.setErrorReportStatus);
+  const setStatus = useCallback(
+    (id: string, status: "open" | "acknowledged" | "resolved" | "ignored") =>
+      setErrorReportStatus({ id: id as never, status }),
+    [setErrorReportStatus],
+  );
+  return { setStatus };
 }
 
 export function useOpenReports() {

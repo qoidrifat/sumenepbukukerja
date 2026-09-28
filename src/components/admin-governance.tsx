@@ -14,6 +14,7 @@ import {
 } from "@/lib/catalog-store";
 import { TimeStampLabel, inputClass } from "./admin-workspace";
 import { AdminSecurityLog } from "./admin-security-log";
+import { AdminErrorReports } from "./admin-error-reports";
 import {
   ADMIN_EMPTY_MASCOT_SIZE,
   AdminEmptyMascot,
@@ -160,6 +161,8 @@ export function AdminGovernance() {
         </article>
 
         <AdminSecurityLog />
+
+        <AdminErrorReports />
 
         <article className="border-2 border-[#121212] bg-white p-4 xl:col-span-2">
           <h3 className="text-lg font-black text-[#1A1A1A]">Audit log terbaru</h3>

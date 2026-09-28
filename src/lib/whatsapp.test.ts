@@ -13,6 +13,19 @@ describe("formatConvexError", () => {
     ).toBe("Meta menolak pesan teks di luar jendela layanan 24 jam. Kode 131008");
   });
 
+  test("melepas amplop CONVEX, Request ID, dan penanda Server Error", () => {
+    expect(
+      formatConvexError(
+        new Error(
+          "[CONVEX A(whatsapp:sendTestWhatsapp)] [Request ID: 922580608e953084] Server Error Uncaught Error: Access token Meta kedaluwarsa atau dicabut. Kode 190, pesan provider: Authentication Error. at handler (../src/convex/whatsapp.ts:1109:4) Called by client",
+        ),
+        "fallback",
+      ),
+    ).toBe(
+      "Access token Meta kedaluwarsa atau dicabut. Kode 190, pesan provider: Authentication Error.",
+    );
+  });
+
   test("pesan server tanpa pembungkus tetap utuh", () => {
     expect(
       formatConvexError(

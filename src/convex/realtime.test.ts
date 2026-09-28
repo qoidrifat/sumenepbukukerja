@@ -267,6 +267,210 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     expect(delivery?.attempts).toBe(1);
   });
 
+  test("laporan error dari klien dinormalisasi, disanitasi, dan disimpan", async () => {
+    const t = convexTest(schema, modules);
+    const resident = await signedInUser(t, "Warga Pelapor");
+    const result = await resident.mutation(api.errorReports.reportError, {
+      kind: "integration",
+      code: "WHATSAPP_SEND_FAILED",
+      feature: "WhatsApp Notification Settings",
+      operation: "whatsapp.sendTestWhatsapp",
+      route: "/dashboard",
+      message: "Meta menolak pesan. Kode 131008",
+      userMessage: "Integrasi WhatsApp belum dapat mengirim pesan uji",
+      provider: "meta",
+      providerCode: "131008",
+      context: { access_token: "EAAGZx0123456789abcdefghijk", stage: "send" },
+    });
+    expect(result.reported).toBe(true);
+    const stored = await t.run(async (ctx) => await ctx.db.query("errorReports").collect());
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({
+      severity: "error",
+      status: "open",
+      errorCode: "WHATSAPP_SEND_FAILED",
+      feature: "WhatsApp Notification Settings",
+      operation: "whatsapp.sendTestWhatsapp",
+      occurrences: 1,
+      alertStatus: "queued",
+    });
+    expect(stored[0]?.reportId).toMatch(/^ERR-\d{8}-[0-9A-Z]+$/);
+    // Rahasia di context tidak pernah ikut tersimpan.
+    expect(JSON.stringify(stored[0]?.context)).not.toContain("EAAGZx");
+  });
+
+  test("kesalahan yang diharapkan tidak pernah membuat laporan", async () => {
+    const t = convexTest(schema, modules);
+    const resident = await signedInUser(t, "Warga Validasi");
+    for (const args of [
+      { kind: "validation" as const, message: "Masukkan nomor WhatsApp yang valid sebelum mengaktifkan notifikasi" },
+      { kind: "permission" as const, message: "Hanya pemilik listing yang dapat mengubah data ini" },
+      { kind: "auth" as const, message: "Masuk untuk menggunakan fitur Buku Kerja" },
+      { kind: "operation" as const, message: "Masuk untuk menguji notifikasi WhatsApp" },
+    ]) {
+      const result = await resident.mutation(api.errorReports.reportError, {
+        feature: "Pengaturan",
+        operation: "community.setNotificationPreferences",
+        ...args,
+      });
+      expect(result.reported).toBe(false);
+    }
+    expect(await t.run(async (ctx) => await ctx.db.query("errorReports").collect())).toHaveLength(0);
+  });
+
+  test("kesalahan yang sama digabung, bukan multiplied", async () => {
+    const t = convexTest(schema, modules);
+    const resident = await signedInUser(t, "Warga Berulang");
+    const args = {
+      kind: "integration" as const,
+      code: "WHATSAPP_SEND_FAILED",
+      feature: "WhatsApp Notification Settings",
+      operation: "whatsapp.sendTestWhatsapp",
+      message: "Meta menolak pesan. Kode 131008",
+    };
+    const first = await resident.mutation(api.errorReports.reportError, args);
+    const second = await resident.mutation(api.errorReports.reportError, args);
+    const third = await resident.mutation(api.errorReports.reportError, args);
+    expect(second.reportId).toBe(first.reportId);
+    expect(third.reportId).toBe(first.reportId);
+    const stored = await t.run(async (ctx) => await ctx.db.query("errorReports").collect());
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.occurrences).toBe(3);
+    // Perbedaan pada request ID tidak boleh memecah dedup.
+    await resident.mutation(api.errorReports.reportError, { ...args, requestId: "req-0001" });
+    await resident.mutation(api.errorReports.reportError, { ...args, requestId: "req-0002" });
+    const afterIds = await t.run(async (ctx) => await ctx.db.query("errorReports").collect());
+    expect(afterIds).toHaveLength(1);
+    expect(afterIds[0]?.occurrences).toBe(5);
+  });
+
+  test("kegagalan dengan bentuk berbeda menjadi laporan terpisah", async () => {
+    const t = convexTest(schema, modules);
+    const resident = await signedInUser(t, "Warga Bentuk Beda");
+    const base = { kind: "integration" as const, feature: "WhatsApp", operation: "whatsapp.sendTestWhatsapp" };
+    await resident.mutation(api.errorReports.reportError, { ...base, message: "Meta menolak pesan. Kode 131008", providerCode: "131008" });
+    await resident.mutation(api.errorReports.reportError, { ...base, message: "Meta menolak autentikasi. Kode 190", providerCode: "190" });
+    await resident.mutation(api.errorReports.reportError, { ...base, operation: "whatsapp.deliver", message: "Meta menolak pesan. Kode 131008", providerCode: "131008" });
+    const stored = await t.run(async (ctx) => await ctx.db.query("errorReports").collect());
+    expect(stored).toHaveLength(3);
+    expect(new Set(stored.map((row) => row.fingerprint)).size).toBe(3);
+  });
+
+  test("alert yang diblokir provider tidak menghapus laporan", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, vendorId } = await createOwnerListing(t);
+    await promoteToAdmin(t, vendorId);
+    const created = await owner.mutation(api.errorReports.reportError, {
+      kind: "integration",
+      code: "WHATSAPP_SEND_FAILED",
+      feature: "WhatsApp Notification Settings",
+      operation: "whatsapp.sendTestWhatsapp",
+      message: "Meta menolak pesan. Kode 131008",
+    });
+    expect(created.reported).toBe(true);
+    const row = await t.run(async (ctx) => await ctx.db.query("errorReports").first());
+    // Provider belum dikonfigurasi di lingkungan uji, jadi alert harus ditandai
+    // diblokir -- bukan gagal diam-diam, dan bukan menghapus laporan.
+    const result = await t.action(internal.errorReports.deliverAdminAlert, { reportId: row!._id });
+    expect(result.sent).toBe(false);
+    const after = await t.run(async (ctx) => await ctx.db.get(row!._id));
+    expect(after?.alertStatus).toBe("blocked");
+    expect(after?.alertReason).toBeTruthy();
+    // Laporan utuh dan tetap terlihat.
+    expect(after?.message).toContain("131008");
+    // Tidak ada laporan baru yang muncul: reporter tidak melaporkan dirinya.
+    expect(await t.run(async (ctx) => await ctx.db.query("errorReports").collect())).toHaveLength(1);
+  });
+
+  test("hanya pengelola yang boleh membaca riwayat laporan", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, vendorId } = await createOwnerListing(t);
+    await promoteToAdmin(t, vendorId);
+    await owner.mutation(api.errorReports.reportError, {
+      kind: "critical",
+      code: "RUNTIME_ERROR",
+      feature: "Application Shell",
+      operation: "RootErrorBoundary",
+      message: "Aplikasi mengalami gangguan total.",
+    });
+    const resident = await signedInUser(t, "Warga Biasa");
+    await expect(resident.query(api.errorReports.listErrorReports, {})).rejects.toThrow(/pengelola/i);
+    await expect(resident.query(api.errorReports.errorReportSummary, {})).rejects.toThrow(/pengelola/i);
+    await expect(
+      resident.mutation(api.errorReports.setErrorReportStatus, {
+        id: (await t.run(async (ctx) => await ctx.db.query("errorReports").first()))!._id as never,
+        status: "resolved",
+      }),
+    ).rejects.toThrow(/pengelola/i);
+    const list = await owner.query(api.errorReports.listErrorReports, {});
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ severity: "critical", errorCode: "RUNTIME_ERROR" });
+  });
+
+  test("perubahan status laporan tercatat di audit log", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, vendorId } = await createOwnerListing(t);
+    await promoteToAdmin(t, vendorId);
+    await owner.mutation(api.errorReports.reportError, {
+      kind: "operation",
+      severity: "error",
+      code: "OPERATION_FAILED",
+      feature: "Listing Management",
+      operation: "vendors.updateVendor",
+      message: "Server tidak dapat menghubungi database.",
+    });
+    const row = (await t.run(async (ctx) => await ctx.db.query("errorReports").first()))!;
+    await owner.mutation(api.errorReports.setErrorReportStatus, { id: row._id as never, status: "resolved" });
+    const audit = await t.run(async (ctx) => await ctx.db.query("auditLogs").collect());
+    expect(audit.some((entry) => entry.action === "error_report.created")).toBe(true);
+    expect(
+      audit.some(
+        (entry) =>
+          entry.action === "error_report.status" &&
+          JSON.stringify(entry.metadata).includes("resolved"),
+      ),
+    ).toBe(true);
+  });
+
+  test("alert sistem tidak ikut menghabiskan kuota warga", async () => {
+    const t = convexTest(schema, modules);
+    const requester = await signedInUser(t, "Warga Pengaju");
+    const neighbour = await signedInUser(t, "Warga Tetangga");
+    await neighbour.mutation(api.community.setNotificationPreferences, {
+      whatsappUpdates: true,
+      requestUpdates: true,
+      whatsappPhone: "081234567890",
+    });
+    const request = await requester.mutation(api.community.createRequest, {
+      title: "Butuh pompa air",
+      description: "Pompa di rumah bermasalah dan perlu diperbaiki segera.",
+      category: "Servis Teknik",
+      landmark: "kalianget",
+    });
+    // Baris alert sistem tidak punya userId, jadi ledger kuota (yang hanya
+    // membaca lewat indeks byUser) tidak pernah menghitungnya.
+    await t.mutation(internal.whatsapp.queueSystemDelivery, {
+      deliveryKey: "system:error-alert:ERR-1",
+      title: "ERROR WHATSAPP_SEND_FAILED",
+      body: "Isi alert",
+    });
+    const recipients = await t.query(internal.whatsapp.notificationRecipients, {
+      kind: "request_created",
+      entityId: request as never,
+    });
+    expect(recipients).toHaveLength(1);
+    // Jejak audit sistem terpisah: tidak ada notifikasi dalam aplikasi untuk
+    // warga, dan barisnya tidak punya userId sama sekali.
+    const systemRows = await t.run(async (ctx) =>
+      (await ctx.db.query("whatsappDeliveries").collect()).filter((row) => row.audience === "system"),
+    );
+    expect(systemRows).toHaveLength(1);
+    expect(systemRows[0]?.userId).toBeUndefined();
+    expect(
+      await t.run(async (ctx) => await ctx.db.query("notifications").collect()),
+    ).toHaveLength(0);
+  });
+
   test("pesan masuk dari webhook tersimpan per nomor dan terhubung ke penggunanya", async () => {
     const t = convexTest(schema, modules);
     const resident = await signedInUser(t, "Warga Balasan");

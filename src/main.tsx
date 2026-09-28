@@ -9,6 +9,10 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import { useCatalogSeedBootstrap } from "@/lib/catalog-store";
 import { BrandMascot } from "@/components/brand-mascot";
+import { ErrorReportDialog, ErrorReportProvider } from "@/components/error-report-dialog";
+import { getErrorReporter } from "@/lib/error-report-bus";
+import { reportErrorToServer } from "@/lib/error-reporter";
+import { ERROR_CODES } from "@/lib/error-reporting";
 import "./index.css";
 
 // Lazy load route components for better code splitting
@@ -57,18 +61,39 @@ class ToolbarErrorBoundary extends React.Component<
 /** Hard guard so runtime errors never leave the preview as a blank page. */
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { hasError: boolean; message: string; stack: string }
+  { hasError: boolean; message: string; stack: string; reportId?: string }
 > {
-  state = { hasError: false, message: "", stack: "" };
+  state = { hasError: false, message: "", stack: "", reportId: undefined };
   static getDerivedStateFromError(error: Error) {
     return {
       hasError: true,
       message: error.message || "Unknown runtime error",
       stack: error.stack || "",
+      reportId: undefined,
     };
   }
   componentDidCatch(err: Error) {
     console.error("[Preview] Root crash:", err);
+    // Crash total dilaporkan, tapi popup sengaja tidak dibuka: dialog-nya ada
+    // di dalam provider yang justru ikut tumbang. ID laporan ditampilkan
+    // inline supaya pengguna bisa menyebutkannya.
+    const reporter = getErrorReporter();
+    if (!reporter) return;
+    void reportErrorToServer(reporter, {
+      kind: "critical",
+      code: ERROR_CODES.runtime,
+      severity: "critical",
+      source: "client",
+      feature: "Application Shell",
+      operation: "RootErrorBoundary",
+      route: typeof window === "undefined" || !window.location ? undefined : window.location.pathname,
+      message: err.message,
+      stack: err.stack,
+      userMessage: "Aplikasi mengalami gangguan total dan dimuat ulang.",
+      context: { boundary: "root" },
+    }).then((outcome) => {
+      if (outcome.reportId) this.setState({ reportId: outcome.reportId });
+    });
   }
   render() {
     if (this.state.hasError) {
@@ -78,6 +103,11 @@ class RootErrorBoundary extends React.Component<
             <p className="text-lg font-black">Buku Kerja sedang mengalami gangguan</p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">Data Anda tidak diubah. Muat ulang halaman atau kembali ke katalog untuk melanjutkan.</p>
             <p className="mt-3 break-words text-xs text-muted-foreground">{this.state.message}</p>
+            {this.state.reportId ? (
+              <p className="mt-2 font-mono text-xs font-bold text-muted-foreground">
+                ID Laporan {this.state.reportId}
+              </p>
+            ) : null}
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               <button type="button" onClick={() => window.location.reload()} className="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">Muat ulang</button>
               <a href="/" className="inline-flex min-h-11 items-center rounded-lg border border-border px-4 text-sm font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">Kembali ke katalog</a>
@@ -141,6 +171,7 @@ createRoot(document.getElementById("root")!).render(
         <VlyToolbar />
       </ToolbarErrorBoundary>
       <ConvexAuthProvider client={convex}>
+        <ErrorReportProvider>
         <BrowserRouter>
           <CatalogBootstrap />
           <RouteSyncer />
@@ -172,6 +203,8 @@ createRoot(document.getElementById("root")!).render(
           </Suspense>
         </BrowserRouter>
         <Toaster />
+        <ErrorReportDialog />
+        </ErrorReportProvider>
       </ConvexAuthProvider>
     </RootErrorBoundary>
   </StrictMode>,

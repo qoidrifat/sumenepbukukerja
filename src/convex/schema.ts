@@ -344,7 +344,12 @@ const schema = defineSchema(
 
     whatsappDeliveries: defineTable({
       deliveryKey: v.string(),
-      userId: v.id("users"),
+      // Kosong untuk kiriman sistem (alert bug ke admin). Alert admin bukan
+      // notifikasi warga, jadi tidak boleh ikut menghitung atau menghabiskan
+      // kuota tiga pesan per hari milik siapa pun.
+      userId: v.optional(v.id("users")),
+      // `resident` = notifikasi warga, `system` = alert operasional ke admin.
+      audience: v.optional(v.union(v.literal("resident"), v.literal("system"))),
       providerMessageId: v.optional(v.string()),
       status: v.union(v.literal("queued"), v.literal("sent"), v.literal("delivered"), v.literal("failed")),
       attempts: v.number(),
@@ -476,6 +481,72 @@ const schema = defineSchema(
     })
       .index("byUser", ["userId"])
       .index("byLastSeenAt", ["lastSeenAt"]),
+
+
+
+
+
+    // Observability aplikasi. Satu baris per bentuk kegagalan yang berbeda,
+    // bukan satu baris per kejadian: kejadian berulang dihitung lewat
+    // `occurrences`, sehingga tabel ini tidak tumbuh tanpa batas.
+    errorReports: defineTable({
+      reportId: v.string(),
+      fingerprint: v.string(),
+      severity: v.union(
+        v.literal("info"),
+        v.literal("warning"),
+        v.literal("error"),
+        v.literal("critical"),
+      ),
+      status: v.union(
+        v.literal("open"),
+        v.literal("acknowledged"),
+        v.literal("resolved"),
+        v.literal("ignored"),
+      ),
+      errorCode: v.string(),
+      title: v.string(),
+      message: v.string(),
+      userMessage: v.optional(v.string()),
+      feature: v.string(),
+      operation: v.string(),
+      source: v.union(v.literal("client"), v.literal("server"), v.literal("webhook")),
+      route: v.optional(v.string()),
+      component: v.optional(v.string()),
+      requestId: v.optional(v.string()),
+      provider: v.optional(v.string()),
+      providerCode: v.optional(v.string()),
+      providerMessage: v.optional(v.string()),
+      userRef: v.optional(v.string()),
+      browser: v.optional(v.string()),
+      os: v.optional(v.string()),
+      stack: v.optional(v.string()),
+      context: v.optional(v.any()),
+      retryable: v.boolean(),
+      recommendedAction: v.string(),
+      environment: v.string(),
+      occurrences: v.number(),
+      firstSeenAt: v.number(),
+      lastSeenAt: v.number(),
+      alertStatus: v.union(
+        v.literal("skipped"),
+        v.literal("queued"),
+        v.literal("sent"),
+        v.literal("blocked"),
+        v.literal("failed"),
+      ),
+      alertReason: v.optional(v.string()),
+      alertCode: v.optional(v.string()),
+      alertAt: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("byReportId", ["reportId"])
+      .index("byFingerprint", ["fingerprint"])
+      .index("bySeverity", ["severity"])
+      .index("byStatus", ["status"])
+      .index("byLastSeenAt", ["lastSeenAt"])
+      .index("byAlertStatus", ["alertStatus"]),
 
     vendorSubscriptions: defineTable({
       vendorId: v.id("vendors"),

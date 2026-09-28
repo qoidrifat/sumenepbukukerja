@@ -83,6 +83,42 @@ async function validMetaSignature(request: Request, body: string) {
   return sameSecret(`sha256=${await hmacHex(secret, body, "SHA-256")}`, header);
 }
 
+/**
+ * Catat kegagalan webhook ke pusat observability.
+ *
+ * Sengaja memakai `recordServerError` yang sama dengan mutasi biasa, dan
+ * Sengaja tidak pernah melempar: kalau pelapor sendiri gagal, callback
+ * provider tidak boleh ikut gagal dan memicu percobaan beruntun.
+ */
+const reportWebhookIssue = async (
+  ctx: GenericActionCtx<DataModel>,
+  input: {
+    feature: string;
+    operation: string;
+    kind: "integration" | "critical" | "operation";
+    code: string;
+    severity: "warning" | "error" | "critical";
+    message: string;
+    context?: Record<string, unknown>;
+  },
+) => {
+  try {
+    await ctx.runMutation(internal.errorReports.recordServerError, {
+      kind: input.kind,
+      code: input.code,
+      severity: input.severity,
+      source: "webhook",
+      feature: input.feature,
+      operation: input.operation,
+      message: input.message,
+      context: input.context,
+    });
+  } catch (error) {
+    // Reporter gagal. Dicatat di log server, lalu dihentikan di sini.
+    console.warn("[ERROR_REPORT] gagal mencatat laporan webhook:", error);
+  }
+};
+
 const applyMetaStatuses = async (ctx: GenericActionCtx<DataModel>, payload: unknown) => {
   let applied = 0;
   for (const event of parseMetaStatuses(payload)) {
@@ -137,12 +173,32 @@ const whatsappWebhook = httpAction(async (ctx, request) => {
 
   if (contentType.includes("application/json")) {
     if (!(await validMetaSignature(request, body))) {
+      // Sering terjadi kalau secret belum cocok. Dipilih `warning`, bukan
+      // `error`: tidak membangunkan admin, tapi tetap terlihat sebagai pola.
+      await reportWebhookIssue(ctx, {
+        feature: "WhatsApp Webhook",
+        operation: "webhook.whatsapp.meta.signature",
+        kind: "operation",
+        code: "WHATSAPP_WEBHOOK_SIGNATURE",
+        severity: "warning",
+        message: "Webhook Meta ditolak karena signature tidak cocok.",
+        context: { provider: "meta", path: new URL(request.url).pathname },
+      });
       return new Response("Invalid signature", { status: 403 });
     }
     let payload: unknown;
     try {
       payload = JSON.parse(body);
     } catch {
+      await reportWebhookIssue(ctx, {
+        feature: "WhatsApp Webhook",
+        operation: "webhook.whatsapp.meta.parse",
+        kind: "integration",
+        code: "WHATSAPP_WEBHOOK_FAILED",
+        severity: "error",
+        message: "Body webhook Meta bukan JSON yang valid.",
+        context: { provider: "meta", bytes: body.length },
+      });
       return new Response("Invalid JSON", { status: 400 });
     }
     const applied = await applyMetaStatuses(ctx, payload);
@@ -155,6 +211,15 @@ const whatsappWebhook = httpAction(async (ctx, request) => {
 
   const params = new URLSearchParams(body);
   if (!(await validTwilioSignature(request, body, params))) {
+    await reportWebhookIssue(ctx, {
+      feature: "WhatsApp Webhook",
+      operation: "webhook.whatsapp.twilio.signature",
+      kind: "operation",
+      code: "WHATSAPP_WEBHOOK_SIGNATURE",
+      severity: "warning",
+      message: "Webhook Twilio ditolak karena signature tidak cocok.",
+      context: { provider: "twilio", path: new URL(request.url).pathname },
+    });
     return new Response("Invalid signature", { status: 403 });
   }
   // Twilio memakai satu endpoint untuk status pengiriman dan pesan masuk. Status

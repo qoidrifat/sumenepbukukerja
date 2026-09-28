@@ -5,6 +5,11 @@ import { action, internalAction, internalMutation, internalQuery, mutation, quer
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { buildTemplatePayload, buildTextPayload } from "../lib/whatsapp-payload";
+import {
+  ERROR_CODES,
+  normalizeErrorReport,
+  whatsappRecommendedAction,
+} from "../lib/error-reporting";
 
 const notificationKindValidator = v.union(
   v.literal("request_created"),
@@ -343,7 +348,6 @@ export const notificationRecipients = internalQuery({
         .query("whatsappDeliveries")
         .withIndex("byUser", (q) => q.eq("userId", userId))
         .collect();
-      
       const deliveryKey =
         args.kind === "request_status"
           ? `whatsapp:${args.kind}:${args.entityId}:${request?.status ?? "unknown"}`
@@ -363,6 +367,9 @@ export const notificationRecipients = internalQuery({
           now - item.createdAt < 24 * 60 * 60 * 1000 &&
           !deliveryKeys.has(item.kind),
       ).length;
+      // Delivery rows milik warga saja yang dihitung. Baris `audience: system`
+      // tidak punya `userId`, jadi tidak pernah muncul di query `byUser` ini dan
+      // tidak pernah menghabiskan kuota warga.
       if (recentDeliveries.length + legacyWhatsappCount >= 3) continue;
 
       recipients.push({
@@ -376,6 +383,29 @@ export const notificationRecipients = internalQuery({
       if (recipients.length >= 50) break;
     }
     return recipients;
+  },
+});
+
+/**
+ * Alasan alert admin tidak bisa dikirim saat ini.
+ *
+ * Dicek sebelum mencoba mengirim, supaya provider yang memang tidak bisa
+ * mengirim tidak pernah membakar baris delivery dan tidak pernah memunculkan
+ * error yang-balJadi laporan kedua. Dilaporkan sebagai daftar, bukan error,
+ * karena ini kondisi yang diketahui -- bukan kegagalan yang baru terjadi.
+ */
+export const adminAlertBlockers = internalQuery({
+  args: {},
+  handler: async () => {
+    const blockers: string[] = [];
+    const issue = providerIssue();
+    if (issue) blockers.push(issue);
+    if (activeProvider() === "meta" && !metaConfig().templateName) {
+      blockers.push(
+        "Template WhatsApp Utility belum disetujui, jadi Meta akan menolak pesan yang dikirim dari server (kode 131008).",
+      );
+    }
+    return blockers;
   },
 });
 
@@ -449,6 +479,7 @@ export const queueWhatsappDelivery = internalMutation({
     const id = await ctx.db.insert("whatsappDeliveries", {
       deliveryKey: args.deliveryKey,
       userId: args.userId as DataModel["users"]["document"]["_id"],
+      audience: "resident",
       status: "queued",
       attempts: 0,
       title: args.title,
@@ -457,6 +488,44 @@ export const queueWhatsappDelivery = internalMutation({
       updatedAt: Date.now(),
     });
     return { id, shouldSend: true, status: "queued" as const, attempts: 0 };
+  },
+});
+
+/**
+ * Baris delivery untuk kiriman sistem (alert bug ke admin).
+ *
+ * Sengaja TIDAK memakai `queueWhatsappDelivery`: fungsi itu selalu punya
+ * `userId`, sedangkan alert admin tidak milik warga mana pun. Karena
+ * `userId`-nya kosong, baris ini otomatis tidak ikut menghitung kuota tiga
+ * pesan per hari -- `notificationRecipients` hanya membaca lewat indeks
+ * `byUser` milik penerima tertentu.
+ */
+export const queueSystemDelivery = internalMutation({
+  args: {
+    deliveryKey: v.string(),
+    title: v.string(),
+    body: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("whatsappDeliveries")
+      .withIndex("byDeliveryKey", (q) => q.eq("deliveryKey", args.deliveryKey))
+      .unique();
+    if (existing) {
+      return { id: existing._id, shouldSend: false, status: existing.status };
+    }
+    const now = Date.now();
+    const id = await ctx.db.insert("whatsappDeliveries", {
+      deliveryKey: args.deliveryKey,
+      audience: "system",
+      status: "queued",
+      attempts: 0,
+      title: args.title,
+      body: args.body,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { id, shouldSend: true, status: "queued" as const };
   },
 });
 
@@ -474,7 +543,23 @@ export const markWhatsappSent = internalMutation({
       nextAttemptAt: undefined,
       updatedAt: now,
     });
-    const notifications = await ctx.db.query("notifications").withIndex("byUser", (q) => q.eq("userId", current.userId)).collect();
+    const notifications = current.userId
+      ? await ctx.db.query("notifications").withIndex("byUser", (q) => q.eq("userId", current.userId!)).collect()
+      : [];
+    // Notifikasi dalam aplikasi hanya milik warga. Alert sistem tidak boleh
+    // muncul di lonceng notifikasi siapa pun.
+    if (current.userId && !notifications.some((notification) => notification.kind === current.deliveryKey)) {
+      await ctx.db.insert("notifications", {
+        userId: current.userId,
+        kind: current.deliveryKey,
+        title: current.title,
+        body: current.body,
+        channel: "whatsapp",
+        providerMessageId: args.providerMessageId,
+        read: true,
+        createdAt: now,
+      });
+    }
     if (!notifications.some((notification) => notification.kind === current.deliveryKey)) {
       await ctx.db.insert("notifications", {
         userId: current.userId,
@@ -497,9 +582,12 @@ export const markWhatsappFailed = internalMutation({
     if (!current || current.status === "delivered") return;
     const attempts = current.attempts + 1;
     // Pesan uji tidak dijadwalkan ulang: file selalu dikirim manual oleh pemiliknya,
-    // jadi retry hanya menambah derau dan menghabiskan kuota harian.
+    // jadi retry hanya menambah derau dan menghabiskan kuota harian. Alert sistem
+    // juga tidak: kegagalannya sudah tercatat di laporan errornya sendiri, dan
+    // retry diam-diam akan membuat bug yang sama_DOMAIN muncul berulang.
     const isTest = current.deliveryKey.startsWith("whatsapp:test:");
-    const nextAttemptAt = !isTest && attempts < 3 ? Date.now() + attempts * 60_000 : undefined;
+    const isSystem = current.audience === "system" || !current.userId;
+    const nextAttemptAt = !isTest && !isSystem && attempts < 3 ? Date.now() + attempts * 60_000 : undefined;
     await ctx.db.patch(args.id, {
       status: "failed",
       attempts,
@@ -820,11 +908,84 @@ export const sendVendorUpdatedNotifications = internalAction({
     deliver(ctx, "vendor_updated", args.vendorId),
 });
 
+/**
+ * Satu-satunya jalan keluar untuk pesan sistem (alert bug ke admin).
+ *
+ * Sengaja memakai `sendWhatsappMessage` yang sama dengan notifikasi warga:
+ * satu klien WhatsApp di repo ini, satu daftar provider, satu format
+ * payload, satu penanganan error. Tidak ada SDK atau jalur kedua.
+ *
+ * Tidak pernah memanggil pelapor error. Kegagalan pengiriman dikembalikan
+ * sebagai nilai, bukan dilempar ke atas, supaya `deliverAdminAlert` bisa
+ * menandainya `blocked` tanpa memicu laporan kedua.
+ */
+export const sendAdminAlert = internalAction({
+  args: {
+    deliveryKey: v.string(),
+    phone: v.string(),
+    title: v.string(),
+    body: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ sent: boolean; reason?: string; messageId?: string }> => {
+    const phone = normalizePhone(args.phone);
+    if (!phone) return { sent: false, reason: "nomor tujuan alert tidak valid" };
+    const queued = await ctx.runMutation(internal.whatsapp.queueSystemDelivery, {
+      deliveryKey: args.deliveryKey,
+      title: args.title,
+      body: args.body,
+    });
+    if (!queued.shouldSend) {
+      // Percobaan sebelumnya gagal: buka lagi baris yang sama supaya jejak
+      // audit tetap satu dan nomor tidak terbih dua kali.
+      const reopened =
+        queued.status === "failed"
+          ? await ctx.runMutation(internal.whatsapp.reopenFailedDelivery, { id: queued.id })
+          : false;
+      if (!reopened) {
+        return { sent: queued.status === "sent" || queued.status === "delivered" };
+      }
+    }
+    try {
+      const result = await sendWhatsappMessage({
+        phone,
+        title: args.title,
+        body: args.body,
+      });
+      if (result.skipped) {
+        await ctx.runMutation(internal.whatsapp.markWhatsappFailed, {
+          id: queued.id,
+          errorCode: "not_configured",
+        });
+        return { sent: false, reason: "provider tidak dikonfigurasi" };
+      }
+      await ctx.runMutation(internal.whatsapp.markWhatsappSent, {
+        id: queued.id,
+        providerMessageId: result.messageId,
+      });
+      return { sent: true, messageId: result.messageId };
+    } catch (error) {
+      await ctx.runMutation(internal.whatsapp.markWhatsappFailed, {
+        id: queued.id,
+        errorCode: errorCodeOf(error),
+      });
+      // Baris delivery yang sama dibuka kembali pada percobaan berikutnya,
+      // bukan membuat baris baru: satu laporan, satu jejak audit.
+      return { sent: false, reason: errorCodeOf(error) };
+    }
+  },
+});
+
 export const retryWhatsappDelivery = internalAction({
   args: { deliveryId: v.id("whatsappDeliveries") },
   handler: async (ctx, args) => {
     const delivery = await ctx.runQuery(internal.whatsapp.deliveryForRetry, { deliveryId: args.deliveryId });
     if (!delivery || delivery.status === "delivered" || delivery.status === "sent" || delivery.attempts >= 3 || (delivery.nextAttemptAt !== undefined && delivery.nextAttemptAt > Date.now())) return { sent: false };
+    // Alert sistem ke admin tidak punya akun pengirim, jadi tidak bisa di-retry
+    // dari preferensi warga. Tidak ada yang perlu diulang di sini.
+    if (!delivery.userId) return { sent: false };
     // Sebelumnya guard ini memakai `twilioConfig()`, jadi pada instalasi yang
     // memakai Meta saja retry selalu berhenti di sini tanpa satu percobaan pun.
     if (providerIssue()) return { sent: false };
@@ -893,10 +1054,59 @@ export const sendTestWhatsapp = action({
       return { sent: true };
     } catch (error) {
       const code = errorCodeOf(error);
+      const userFacing = describeProviderFailure(code, errorTextOf(error));
       await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: queued.id, errorCode: code });
+      // Ini insiden yang sedang kita tangani. Dicatat lewat
+      // jalur pelaporan terpusat supaya ada laporan, ada alert ke admin, dan
+      // ada jejak audit -- bukan cuma kalimat merah di layar.
+      const report = normalizeErrorReport(
+        {
+          kind: "integration",
+          code: ERROR_CODES.whatsappSend,
+          severity: "error",
+          source: "server",
+          feature: "WhatsApp Notification Settings",
+          operation: "whatsapp.sendTestWhatsapp",
+          route: "/dashboard",
+          message: errorTextOf(error) ?? (error instanceof Error ? error.message : userFacing),
+          userMessage: userFacing,
+          provider: activeProvider(),
+          providerCode: code,
+          providerMessage: errorTextOf(error),
+          userId,
+          retryable: true,
+          recommendedAction: whatsappRecommendedAction({
+            providerCode: code,
+            templateConfigured: Boolean(metaConfig().templateName),
+            providerIssue: providerIssue(),
+          }),
+          context: { deliveryKey, stage: "send" },
+        },
+        Date.now(),
+      );
+      if (report) {
+        await ctx.runMutation(internal.errorReports.recordServerError, {
+          kind: "integration",
+          code: ERROR_CODES.whatsappSend,
+          severity: "error",
+          source: "server",
+          feature: report.feature,
+          operation: report.operation,
+          route: report.route,
+          message: report.message,
+          userMessage: report.userMessage,
+          provider: report.provider,
+          providerCode: report.providerCode,
+          providerMessage: report.providerMessage,
+          retryable: true,
+          recommendedAction: report.recommendedAction,
+          context: report.context,
+          actorId: userId,
+        });
+      }
       // Ini pesan yang dibaca orang, jadi harus menyebut penyebab dan kodenya.
       // Kalimat generik sebelumnya membuat masalah ini mustahil didiagnosis.
-      throw new Error(describeProviderFailure(code, errorTextOf(error)));
+      throw new Error(userFacing);
     }
   },
 });

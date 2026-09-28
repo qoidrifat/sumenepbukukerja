@@ -11,11 +11,18 @@ export const sanitizePhoneNumber = (phone: string) => phone.replace(/\D/g, "").r
 export const formatConvexError = (caught: unknown, fallback: string) => {
   const raw = caught instanceof Error ? caught.message : typeof caught === "string" ? caught : "";
   const cleaned = raw
+    // Amplop yang ditambahkan klien Convex: nama fungsi, Request ID, dan
+    // penanda "Server Error". Semuanya jejak internal, bukan untuk pengguna.
+    .replace(/^\s*\[CONVEX[^\]]*\]\s*/i, "")
+    .replace(/^\s*\[Request ID:[^\]]*\]\s*/i, "")
+    .replace(/^\s*Server Error\s*/i, "")
     .replace(/^Uncaught Error:\s*/i, "")
     .replace(/^Error:\s*/i, "")
     .replace(/\s+at handler\s*\([^)]*\)\s*Called by client\s*$/i, "")
+    .replace(/\s+at [^()]*\([^)]*\)\s*$/i, "")
     .replace(/\s*\(?\.\.\/src\/convex\/[^)]*\)?\s*$/i, "")
     .replace(/\s*\(?src\/convex\/[^)]*\)?\s*$/i, "")
+    .replace(/\n{2,}/g, "\n")
     .trim();
   return cleaned || fallback;
 };

@@ -51,3 +51,10 @@ export const interactionStatusSelectOptions: ThemedSelectOption[] = [
   { value: "completed", label: "Sudah selesai" },
   { value: "dismissed", label: "Tutup" },
 ]
+
+export const errorReportStatusSelectOptions: ThemedSelectOption[] = [
+  { value: "open", label: "Terbuka" },
+  { value: "acknowledged", label: "Ditangani" },
+  { value: "resolved", label: "Selesai" },
+  { value: "ignored", label: "Diabaikan" },
+]

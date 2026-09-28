@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { getStaffAccess, requireManagementViewer, requireStaff, requireUser, type StaffRole } from "./access";
 import { writeAudit } from "./audit";
 import { isOwnerAccount } from "../lib/owner-account";
+import { imageRejection } from "../lib/image-upload";
 
 /**
  * Read-only user query used by the existing auth UI. Role assignment is never
@@ -36,26 +37,20 @@ export const currentUserId = query({
 /* Profil pengelola                                                   */
 /* ------------------------------------------------------------------ */
 
-const MAX_PROFILE_IMAGE_BYTES = 1_000_000;
 const MAX_PROFILE_NAME_LENGTH = 80;
 
 /**
- * Apakah berkas di storage benar-benar gambar?
+ * Aturan jenis dan ukuran foto tinggal di `@/lib/image-upload` supaya klien dan
+ * server memakai kalimat yang sama persis. Di sini hanya diteruskan, bukan
+ * ditulis ulang — dua salinan aturan berarti dua kesempatan untuk berbeda.
  *
- * `contentType` dibaca dari metadata storage, bukan dari `File` yang dikirim
- * klien — nama berkas dan `type` di sisi klien bisa dipalsukan, metadata ini
- * tidak. Kalau `contentType`-nya KOSONG, berkas ditolak: memperbolehkannya
- * berarti siapa pun bisa mengunggah apa saja dengan sengaja tidak mengirim
- * header, dan berkas itu lalu disajikan ulang dari storage milik kita.
+ * `isStoredImage` tetap diekspor dari modul ini karena sudah dipakai test;
+ * yang diekspor adalah fungsi yang sama, bukan salinannya.
  *
- * Diekspor untuk diuji. `convex-test` tidak mencatat `contentType` saat
- * menyimpan blob, jadi jalur "berterima" tidak bisa dibuktikan lewat mutasi
- * di test — yang diuji di sini aturanNYA, sementara mutasi menguji sisi
- * tolak. Melonggarkan aturan supaya test bisa lewat akan membuka lubang nyata.
+ * Aturan yang sama juga dipakai foto listing (`community.ts`), jadi unggahan
+ * tanpa header `Content-Type` ditolak di kedua tempat dengan alasan yang sama.
  */
-export function isStoredImage(contentType: string | undefined): boolean {
-  return typeof contentType === "string" && contentType.startsWith("image/");
-}
+export { isStoredImage } from "../lib/image-upload";
 
 /**
  * Profil pengelola yang sedang masuk, siap ditampilkan.
@@ -135,10 +130,14 @@ export const updateMyProfile = mutation({
     } else if (args.imageStorageId) {
       const metadata = await ctx.db.system.get("_storage", args.imageStorageId as never);
       if (!metadata) throw new Error("Foto profil tidak ditemukan");
-      if (metadata.size > MAX_PROFILE_IMAGE_BYTES) throw new Error("Ukuran foto maksimal 1 MB");
-      if (!isStoredImage(metadata.contentType)) {
-        throw new Error("Berkas harus berupa foto");
-      }
+      // Satu aturan, satu kalimat — sama persis dengan yang ditampilkan klien
+      // sebelum berkasnya diunggah. Ukuran dan jenisnya dibaca dari metadata
+      // storage, bukan dari `File` di peramban.
+      const rejection = imageRejection({
+        size: metadata.size,
+        contentType: metadata.contentType,
+      });
+      if (rejection) throw new Error(rejection);
       nextStorageId = args.imageStorageId;
     }
 

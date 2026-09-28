@@ -36,6 +36,29 @@ async function signedInUser(t: ReturnType<typeof convexTest>, name: string) {
   return t.withIdentity({ name });
 }
 
+type StorageContext = {
+  storage: { store: (blob: Blob) => Promise<unknown> };
+  db: unknown;
+};
+
+/**
+ * Simpan blob DAN tandai jenis berkasnya.
+ *
+ * `convex-test` tidak mencatat `contentType` saat menyimpan blob — metadata
+ * hasilnya hanya berisi `sha256` dan `size`. Server membaca jenis berkas dari
+ * metadata itu, jadi tanpa langkah ini SETIAP unggahan di tes terlihat seperti
+ * berkas yang sengaja tidak mengirim header, dan unggahan yang sah pun ikut
+ * ditolak. Tabel sistem tidak bisa di-INSERT, tapi PATCH ke barisnya berhasil.
+ */
+async function storeImage(ctx: StorageContext, body: Blob, contentType = "image/jpeg") {
+  const id = await ctx.storage.store(body);
+  const system = ctx.db as unknown as {
+    patch: (id: never, value: { contentType: string }) => Promise<void>;
+  };
+  await system.patch(id as never, { contentType });
+  return id as never;
+}
+
 /**
  * convex-test tidak membuat dokumen `users` untuk sebuah identity, jadi
  * `getAuthUserId()` mengembalikan id yang tidak ada isinya. Di produksi baris
@@ -271,7 +294,9 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
     await promoteToAdmin(t, vendorId);
     await publishListing(owner, vendorId);
-    const storageId = await owner.run(async (ctx) => await ctx.storage.store(new Blob(["photo-test"])));
+    const storageId = await owner.run(
+      async (ctx) => await storeImage(ctx, new Blob(["photo-test"])),
+    );
     const photoId = await owner.mutation(api.community.createVendorPhoto, { vendorId, storageId, caption: "Etalase" });
     expect(await owner.query(api.community.listVendorPhotos, { vendorId })).toHaveLength(1);
     await owner.mutation(api.community.moderateVendorPhoto, { id: photoId, decision: "approved" });
@@ -623,7 +648,9 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     const owner = await signedInUser(t, "Pemilik Moderasi");
     const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
     await promoteToAdmin(t, vendorId);
-    const storageId = await owner.run(async (ctx) => await ctx.storage.store(new Blob(["photo"], { type: "image/jpeg" })));
+    const storageId = await owner.run(
+      async (ctx) => await storeImage(ctx, new Blob(["photo"], { type: "image/jpeg" })),
+    );
     const photoId = await owner.mutation(api.community.createVendorPhoto, { vendorId, storageId, caption: "Foto uji" });
     const viewer = t.withIdentity({ name: "Viewer Moderasi" });
     const viewerRequest = await viewer.mutation(api.community.createRequest, { title: "Permintaan viewer", description: "Deskripsi cukup panjang untuk moderasi.", category: "Kuliner", landmark: "pragaan" });
@@ -760,8 +787,8 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
       });
     });
 
-    const storageId = await t.run(async (ctx) =>
-      ctx.storage.store(new Blob(["foto"], { type: "image/jpeg" })),
+    const storageId = await t.run(
+      async (ctx) => await storeImage(ctx, new Blob(["foto"], { type: "image/jpeg" })),
     );
     const owner = await signedInUser(t, "Pemilik Foto");
     const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
@@ -786,8 +813,8 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     expect(photoNotice[0].read).toBe(false);
 
     // Foto kedua untuk listing yang sama tidak menambah notifikasi baru.
-    const second = await t.run(async (ctx) =>
-      ctx.storage.store(new Blob(["foto2"], { type: "image/jpeg" })),
+    const second = await t.run(
+      async (ctx) => await storeImage(ctx, new Blob(["foto2"], { type: "image/jpeg" })),
     );
     await owner.mutation(api.community.createVendorPhoto, { vendorId, storageId: second });
     const afterSecond = (await owner.query(api.community.listNotifications, {})) as Array<{ kind: string }>;

@@ -9,13 +9,24 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { staffRoleLongLabel } from "@/lib/select-options";
+import {
+  MAX_IMAGE_LABEL,
+  formatBytes,
+  imageRejection,
+  readUploadedStorageId,
+} from "@/lib/image-upload";
 
 /**
  * Pengaturan profil pengelola.
  *
- * Dua hal yang diperiksa sebelum menulis apa pun:
- *  - Ukuran dan jenis foto dibaca dari metadata STORAGE, bukan dari `File` di
- *    sisi klien. Nama berkas dan `type` bisa dipalsukan; metadata storage tidak.
+ * Tiga hal yang sengaja dibuat begitu:
+ *  - Aturan ukuran dan jenis foto TIDAK ditulis di sini. Keduanya datang dari
+ *    `@/lib/image-upload`, modul yang sama yang dipakai server — jadi
+ *    peringatan di peramban dan penolakan di server tidak mungkin berbunyi
+ *    berbeda untuk berkas yang sama.
+ *  - Jenis dan ukuran yang MENGIKAT dibaca server dari metadata storage, bukan
+ *    dari `File` di sisi klien. Nama berkas dan `type` bisa dipalsukan; metadata
+ *    storage tidak. Pemeriksaan di peramban hanya untuk umpan balik instan.
  *  - Email sengaja tidak bisa diubah di sini. Mengganti email berarti reset
  *    password dan verifikasi ulang, jadi membukanya di panel profil hanya
  *    menciptakan akun yang tidak bisa masuk lagi.
@@ -26,7 +37,6 @@ import { staffRoleLongLabel } from "@/lib/select-options";
  * tengah ruang yang serba Warm Brutalism.
  */
 
-const MAX_IMAGE_BYTES = 1_000_000;
 const MAX_NAME_LENGTH = 80;
 
 export function AdminProfile() {
@@ -37,6 +47,13 @@ export function AdminProfile() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [pending, setPending] = useState<string | null>(null);
+  // "Hapus foto" adalah NIAT, bukan kesimpulan dari keadaan. Sebelumnya niat
+  // itu disimpulkan dari `!pending && profile?.hasImage` — dan begitu foto baru
+  // selesai tersimpan, `hasImage` jadi true sementara `pending` sudah null,
+  // sehingga menekan "Simpan profil" untuk kedua kalinya menghapus foto yang
+  // baru saja disimpan. Sekarang hanya aksi eksplisit yang menyalakannya.
+  const [removePhoto, setRemovePhoto] = useState(false);
+  const [picked, setPicked] = useState<{ name: string; size: number } | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -50,6 +67,8 @@ export function AdminProfile() {
   const openProfile = () => {
     setName(profile?.name ?? "");
     setPending(null);
+    setRemovePhoto(false);
+    setPicked(null);
     setError("");
     setNotice("");
     setOpen(true);
@@ -67,17 +86,20 @@ export function AdminProfile() {
     if (!file) return;
     setError("");
     setNotice("");
-    // Pemeriksaan di sini hanya agar umpan baliknya instan; yang menentukan
-    // tetap validasi server. Menolak dua kali bukan pemborosan, menolak satu
-    // kali adalah kegagalan.
-    if (!file.type.startsWith("image/")) {
-      setError("Berkas harus berupa foto.");
+    setPicked({ name: file.name, size: file.size });
+
+    // Aturan yang sama dipakai server, jadi tidak mungkin ada berkas yang lolos
+    // di sini lalu ditolak di sana dengan kalimat yang berbeda. Pemeriksaan di
+    // sini hanya agar umpan baliknya instan dan tidak ada byte yang terbuang
+    // untuk berkas yang sudah pasti ditolak; server tetap memeriksa ulang dari
+    // metadata storage, karena `File` di peramban bisa dipalsukan.
+    const rejection = imageRejection({ size: file.size, contentType: file.type });
+    if (rejection) {
+      setError(rejection);
+      setPicked(null);
       return;
     }
-    if (file.size > MAX_IMAGE_BYTES) {
-      setError("Ukuran foto maksimal 1 MB.");
-      return;
-    }
+
     try {
       const uploadUrl = await generateUploadUrl();
       const response = await fetch(uploadUrl, {
@@ -86,9 +108,17 @@ export function AdminProfile() {
         body: file,
       });
       if (!response.ok) throw new Error("upload gagal");
-      setPending((await response.json()) as string);
+      // Endpoint unggah Convex menjawab `{ storageId }`, bukan string. Membaca
+      // seluruh jawabannya sebagai id adalah bug yang membuat tombol Simpan
+      // dikirim objek ke validator `v.string()` — lihat `readUploadedStorageId`.
+      const storageId = readUploadedStorageId(await response.json().catch(() => null));
+      if (!storageId) throw new Error("id berkas tidak diterima");
+      setPending(storageId);
+      setRemovePhoto(false);
       setNotice("Foto baru siap disimpan. Tekan Simpan profil.");
     } catch {
+      setPending(null);
+      setPicked(null);
       setError("Foto belum berhasil diunggah. Coba lagi.");
     }
   };
@@ -101,10 +131,12 @@ export function AdminProfile() {
       await updateProfile({
         name,
         imageStorageId: pending ?? undefined,
-        removeImage: !pending && profile?.hasImage ? true : undefined,
+        removeImage: removePhoto ? true : undefined,
       });
       setNotice("Profil tersimpan.");
       setPending(null);
+      setRemovePhoto(false);
+      setPicked(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Profil belum dapat disimpan.");
     } finally {
@@ -201,7 +233,10 @@ export function AdminProfile() {
                     className="admin-btn admin-btn-quiet px-3 text-xs"
                     onClick={() => {
                       setPending(null);
+                      setPicked(null);
                       setNotice("");
+                      setError("");
+                      setRemovePhoto(true);
                     }}
                   >
                     <Trash2 className="size-4" aria-hidden="true" />
@@ -210,9 +245,14 @@ export function AdminProfile() {
                 ) : null}
               </div>
               <p className="mt-2 text-xs leading-5 text-[#525252]">
-                Maksimal 1 MB, berkas gambar. Foto disimpan di server dan hanya
-                tautan sementara yang dikirim ke peramban.
+                Maksimal {MAX_IMAGE_LABEL}, berkas gambar. Foto disimpan di server
+                dan hanya tautan sementara yang dikirim ke peramban.
               </p>
+              {picked && pending ? (
+                <p className="mt-2 break-all text-xs font-bold text-[#525252]">
+                  {picked.name} · {formatBytes(picked.size)} · siap disimpan
+                </p>
+              ) : null}
               <input
                 ref={fileRef}
                 type="file"

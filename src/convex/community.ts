@@ -7,6 +7,7 @@ import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { writeAudit, writeListingHistory } from "./audit";
 import { requireManagementViewer } from "./access";
+import { imageRejection } from "../lib/image-upload";
 
 const categoryValidator = v.union(
   v.literal("Servis Teknik"),
@@ -113,7 +114,7 @@ async function requireVendorManager(
   return userId;
 }
 
-const MAX_PHOTO_BYTES = 1_000_000;
+
 
 async function validatePhotoFile(
   ctx: GenericMutationCtx<DataModel>,
@@ -121,10 +122,13 @@ async function validatePhotoFile(
 ) {
   const metadata = await ctx.db.system.get("_storage", storageId as never);
   if (!metadata) throw new Error("File foto tidak ditemukan");
-  if (metadata.size > MAX_PHOTO_BYTES) throw new Error("Ukuran foto maksimal 1 MB");
-  if (metadata.contentType && !metadata.contentType.startsWith("image/")) {
-    throw new Error("File harus berupa foto");
-  }
+  // Sebelumnya jenis berkas hanya diperiksa `if (contentType && ...)`, jadi
+  // unggahan yang sengaja TIDAK mengirim header lolos apa adanya dan berkas
+  // sembarang lalu disajikan ulang dari storage milik kita. Sekarang aturannya
+  // sama persis dengan foto profil: jenis kosong DITOLAK, dan batas ukurannya
+  // satu sumber.
+  const rejection = imageRejection({ size: metadata.size, contentType: metadata.contentType });
+  if (rejection) throw new Error(rejection);
 }
 
 async function notifyUser(
@@ -997,7 +1001,8 @@ export const createVendorPhoto = mutation({
     // requireVendorManager sudah melempar kalau listing hilang, tapi TypeScript
     // tidak bisa menyimpulkan itu dari return type-nya.
     if (!vendor) throw new Error("Listing tidak ditemukan");
-    if (!args.storageId) throw new Error("Foto belum berhasil diunggah");    await validatePhotoFile(ctx, args.storageId);
+    if (!args.storageId) throw new Error("Foto belum berhasil diunggah");
+    await validatePhotoFile(ctx, args.storageId);
     if (args.caption && args.caption.trim().length > 160) throw new Error("Deskripsi foto maksimal 160 karakter");
     const currentPhotos = await ctx.db
       .query("vendorPhotos")

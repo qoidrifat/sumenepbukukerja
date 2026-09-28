@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import { isStoredImage } from "./users";
+import { MAX_IMAGE_BYTES, imageRejection } from "../lib/image-upload";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -35,17 +36,39 @@ async function seedAdmin(t: ReturnType<typeof convexTest>, email = "admin@sumene
 }
 
 /**
- * Simpan berkas ke storage.
- *
- * CATATAN: `convex-test` tidak mencatat `contentType` untuk blob yang
- * disimpan, jadi setiap unggahan di test dianggap "tanpa tipe" dan DITOLAK —
- * persis seperti perilaku produksi untuk unggahan tanpa header. Jalur
- * "berterima" karena itu diuji lewat aturan murni `isStoredImage` di bawah,
- * bukan lewat mutasi. Melonggarkan aturan supaya test mutasi bisa lewat akan
- * membuka lubang nyata.
+ * Simpan berkas TANPA jenis berkas — persis seperti unggahan yang sengaja
+ * tidak mengirim header `Content-Type`. Ini jalur yang harus selalu ditolak.
  */
 const storeBlob = (t: ReturnType<typeof convexTest>, bytes: number) =>
   t.run(async (ctx) => await ctx.storage.store(new Blob([new Uint8Array(bytes)])));
+
+/**
+ * Simpan blob yang benar-benar punya jenis berkas.
+ *
+ * `convex-test` tidak mencatat `contentType` saat menyimpan blob — metadata
+ * hasilnya hanya berisi `sha256` dan `size`. Server membaca jenis berkas dari
+ * metadata itu, jadi tanpa langkah ini SETIAP berkas di tes terlihat seperti
+ * unggahan tanpa header, dan jalur "berterima" tidak akan pernah bisa dicoba.
+ * Tabel sistem tidak bisa di-INSERT, tapi PATCH ke barisnya berhasil — jadi
+ * metadata itu bisa diisi persis seperti yang ditulis endpoint unggah.
+ *
+ * Sebelum ini, komentar lama di berkas ini menyimpulkan bahwa jalur berterima
+ * memang tidak bisa diuji di sini. Kesimpulan itu ternyata keliru: satu PATCH
+ * cukup, dan sekarang unggahan foto yang sesungguhnya berhasil ikut diuji.
+ */
+const storeImage = (
+  t: ReturnType<typeof convexTest>,
+  bytes: number,
+  contentType = "image/jpeg",
+) =>
+  t.run(async (ctx) => {
+    const id = await ctx.storage.store(new Blob([new Uint8Array(bytes)]));
+    const system = ctx.db as unknown as {
+      patch: (id: never, value: { contentType: string }) => Promise<void>;
+    };
+    await system.patch(id as never, { contentType });
+    return id as never;
+  });
 
 describe("perbarui profil pengelola", () => {
   test("nama dipangkas, spasi dirapatkan, dan batasannya ditegakkan", async () => {
@@ -99,6 +122,152 @@ describe("perbarui profil pengelola", () => {
     const profile = await admin.query(api.users.myProfile, {});
     expect(profile?.name).toBe("Nama Lama");
     expect(profile?.hasImage).toBe(false);
+  });
+
+  test("penolakan server memakai kalimat yang sama persis dengan yang dipakai klien", async () => {
+    // Server dan peramban memakai aturan yang sama dari `@/lib/image-upload`.
+    // Yang diuji di sini adalah sambungannya: pesan yang keluar dari mutasi
+    // harus pesan yang dihasilkan aturan itu untuk metadata yang sama — bukan
+    // kalimat lain yang ditulis ulang di dalam mutasi.
+    const t = convexTest(schema, modules);
+    const { admin } = await seedAdmin(t);
+    const storageId = await storeBlob(t, 512);
+    const expected = imageRejection({ size: 512, contentType: undefined });
+    expect(expected).not.toBeNull();
+
+    await expect(
+      admin.mutation(api.users.updateMyProfile, {
+        name: "Dengan Foto",
+        imageStorageId: storageId,
+      }),
+    ).rejects.toThrow(expected!);
+  });
+
+  test("unggahan foto yang sah benar-benar tersimpan dan bisa dibaca kembali", async () => {
+    // Inilah jalur yang dipakai pengguna saat menekan "Simpan profil" setelah
+    // memilih foto — dan inilah jalur yang dulu gagal. Sebelumnya tes ini tidak
+    // ada karena dianggap mustahil; ternyata cukup satu PATCH metadata.
+    const t = convexTest(schema, modules);
+    const { admin } = await seedAdmin(t);
+    const storageId = await storeImage(t, 512);
+
+    const saved = await admin.mutation(api.users.updateMyProfile, {
+      name: "  Nama  Dengan   Foto ",
+      imageStorageId: storageId,
+    });
+    expect(saved.name).toBe("Nama Dengan Foto");
+
+    const profile = await admin.query(api.users.myProfile, {});
+    expect(profile?.hasImage).toBe(true);
+    expect(profile?.name).toBe("Nama Dengan Foto");
+  });
+
+  test("foto kedua menggantikan yang pertama dan berkas lamanya dibersihkan", async () => {
+    const t = convexTest(schema, modules);
+    const { admin } = await seedAdmin(t);
+    const first = await storeImage(t, 256);
+    const second = await storeImage(t, 512);
+
+    await admin.mutation(api.users.updateMyProfile, { name: "Ganti Foto", imageStorageId: first });
+    await admin.mutation(api.users.updateMyProfile, { name: "Ganti Foto", imageStorageId: second });
+
+    const gone = await t.run(async (ctx) =>
+      Boolean(await ctx.db.system.get("_storage", first as never)),
+    );
+    const kept = await t.run(async (ctx) =>
+      Boolean(await ctx.db.system.get("_storage", second as never)),
+    );
+    expect(gone).toBe(false);
+    expect(kept).toBe(true);
+  });
+
+  test("foto yang terlalu besar ditolak walau jenisnya benar, dan foto lama tetap terpasang", async () => {
+    const t = convexTest(schema, modules);
+    const { admin } = await seedAdmin(t);
+    const good = await storeImage(t, 256);
+    await admin.mutation(api.users.updateMyProfile, { name: "Punya Foto", imageStorageId: good });
+
+    const oversized = await storeImage(t, MAX_IMAGE_BYTES + 1);
+    const expected = imageRejection({ size: MAX_IMAGE_BYTES + 1, contentType: "image/jpeg" });
+    await expect(
+      admin.mutation(api.users.updateMyProfile, {
+        name: "Punya Foto",
+        imageStorageId: oversized,
+      }),
+    ).rejects.toThrow(expected!);
+
+    // Penolakan tidak boleh menyentuh apa pun: nama dan foto lama tetap utuh.
+    const profile = await admin.query(api.users.myProfile, {});
+    expect(profile?.name).toBe("Punya Foto");
+    expect(profile?.hasImage).toBe(true);
+  });
+
+  test("berkas berjenis bukan gambar ditolak dengan pesan yang sesuai", async () => {
+    const t = convexTest(schema, modules);
+    const { admin } = await seedAdmin(t);
+    const pdf = await storeImage(t, 512, "application/pdf");
+
+    await expect(
+      admin.mutation(api.users.updateMyProfile, { name: "Dengan PDF", imageStorageId: pdf }),
+    ).rejects.toThrow("harus berupa foto");
+
+    const profile = await admin.query(api.users.myProfile, {});
+    expect(profile?.hasImage).toBe(false);
+  });
+
+  test("berkas kosong ditolak walau jenisnya gambar", async () => {
+    const t = convexTest(schema, modules);
+    const { admin } = await seedAdmin(t);
+    const empty = await storeImage(t, 0);
+
+    await expect(
+      admin.mutation(api.users.updateMyProfile, { name: "Berkas Kosong", imageStorageId: empty }),
+    ).rejects.toThrow("kosong");
+  });
+
+  test("id berkas diterima sebagai string, dan id yang tidak ada ditolak dengan jelas", async () => {
+    // Kontrak yang sebenarnya diinginkan validator: STRING, apa pun isinya.
+    // Id yang tidak menunjuk berkas apa pun bukan kesalahan pemanggil — itu
+    // berkas yang sudah hilang — jadi pesannya harus berkata begitu, bukan
+    // "value tidak cocok validator".
+    const t = convexTest(schema, modules);
+    const { admin } = await seedAdmin(t);
+
+    await expect(
+      admin.mutation(api.users.updateMyProfile, {
+        name: "Dengan Foto",
+        imageStorageId: "000000000000000000000000_storage",
+      }),
+    ).rejects.toThrow("Foto profil tidak ditemukan");
+  });
+
+  test("objek dikirim di tempat id ditolak sebelum sempat menyentuh storage", async () => {
+    // Bentuk inilah yang dulu dikirim panel profil: seluruh jawaban endpoint
+    // unggah diteruskan apa adanya, sehingga yang sampai ke server adalah
+    // `{ storageId: "..." }`. Dikunci di sini supaya tidak kembali diam-diam.
+    const t = convexTest(schema, modules);
+    const { admin } = await seedAdmin(t);
+
+    await expect(
+      admin.mutation(api.users.updateMyProfile, {
+        name: "Dengan Foto",
+        imageStorageId: { storageId: "kg2br8d4dtkqs00aq0t91dxwxh8f8pv2" } as never,
+      }),
+    ).rejects.toBeTruthy();
+
+    const profile = await admin.query(api.users.myProfile, {});
+    expect(profile?.name).toBe("Nama Lama");
+  });
+
+  test("batas 1 MB ditegakkan dari metadata storage, satu byte lebih ditolak", () => {
+    // `convex-test` tidak mencatat `contentType`, jadi cabang UKURAN tidak bisa
+    // dijalankan lewat mutasi di sini — metadata hasil penyimpanan hanya berisi
+    // `sha256` dan `size`. Karena aturannya tinggal di satu fungsi murni, batas
+    // itu tetap bisa diuji apa adanya, dan mutasi menguji sambungannya di atas.
+    expect(imageRejection({ size: MAX_IMAGE_BYTES, contentType: "image/jpeg" })).toBeNull();
+    expect(
+      imageRejection({ size: MAX_IMAGE_BYTES + 1, contentType: "image/jpeg" }),
+    ).not.toBeNull();
   });
 
   test("aturan jenis berkas hanya menerima contentType gambar", () => {

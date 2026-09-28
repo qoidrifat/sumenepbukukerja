@@ -63,6 +63,41 @@ test("email sengaja tidak bisa diedit di panel profil", () => {
   expect(profile).toContain("Email tidak bisa diubah di sini.");
 });
 
+test("id berkas dibaca dari jawaban unggah, bukan dari seluruh jawabannya", () => {
+  // Ini error yang benar-benar terjadi: `setPending((await response.json()) as
+  // string)` membuat `imageStorageId` berisi `{ storageId: "..." }`, dan server
+  // menolaknya dengan ArgumentValidationError karena validatornya `v.string()`.
+  // `as` mematikan pemeriksaan tipe, jadi tidak ada satu pun peringatan dari
+  // TypeScript sebelum kejadian itu.
+  expect(profile).toContain("readUploadedStorageId(await response.json()");
+  expect(profile).not.toMatch(/response\.json\(\)\)\s*as\s+string/);
+  // Semua situs unggah lain di aplikasi sudah memakai bentuk `{ storageId }`;
+  // panel profil sekarang satu bahasa dengan mereka.
+  expect(profile).toContain("setPending(storageId)");
+});
+
+test("aturan ukuran dan jenis foto diambil dari modul bersama, bukan ditulis ulang", () => {
+  // Dua salinan aturan berarti dua kesempatan untuk berbeda pendapat — dan
+  // yang paling sering terjadi adalah pesannya berbeda untuk berkas yang sama.
+  expect(profile).toContain('from "@/lib/image-upload"');
+  expect(profile).toContain("imageRejection({ size: file.size, contentType: file.type })");
+  expect(profile).not.toContain("MAX_IMAGE_BYTES");
+  // Teks batasnya pun dari modul itu, jadi tidak bisa lagi berbunyi "1 MB" di
+  // UI sementara aturannya 1 MiB di server.
+  expect(profile).toContain("Maksimal {MAX_IMAGE_LABEL}");
+  expect(profile).toContain("formatBytes(picked.size)");
+});
+
+test("menghapus foto adalah niat eksplisit, bukan kesimpulan dari keadaan", () => {
+  // Kalau `removeImage` disimpulkan dari `!pending && profile?.hasImage`, maka
+  // setelah foto baru tersimpan `hasImage` menjadi true sementara `pending`
+  // sudah null — dan menekan "Simpan profil" untuk kedua kalinya menghapus
+  // foto yang baru saja disimpan.
+  expect(profile).toContain("removeImage: removePhoto ? true : undefined");
+  expect(profile).not.toContain("removeImage: !pending");
+  expect(profile).toContain("setRemovePhoto(true)");
+});
+
 test("field tanggal publik memakai varian publik, bukan varian admin", () => {
   expect(community).toContain("field-date field-date--public");
   expect(community).not.toContain("field-date--admin");

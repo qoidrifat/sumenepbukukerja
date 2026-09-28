@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ArrowRight, MonitorSmartphone, UserRound } from "lucide-react";
 import { TimeStampLabel } from "@/components/admin-workspace";
+import { OWNER_AUDIT_ROLE_LABEL } from "@/lib/owner-account";
 import {
   auditActionChipClass,
   auditActionLabel,
@@ -36,6 +37,9 @@ export type AuditLogEntry = {
   // Sengaja bukan id storage: blob foto lama selalu dihapus saat diganti, jadi
   // id lama hanya akan menghasilkan tautan mati.
   actorImageUrl?: string;
+  // Dihitung server memakai daftar akun pemilik yang sama dengan gerbang
+  // passcode. Klien hanya menyesuaikan tampilan, bukan menentukan siapa pemilik.
+  actorIsOwnerAccount?: boolean;
   sessionRef?: string;
   vendorId?: string;
   requestId?: string;
@@ -101,7 +105,13 @@ export function AdminAuditLog({
               ? { label: "Entitas", value: shortId(entry.entityId) }
               : null;
         const actorName =
-          entry.actorName?.trim() || entry.actorEmail?.split("@")[0] || "Tanpa pelaku";
+          entry.actorName?.trim() ||
+          (entry.actorIsOwnerAccount
+            ? // Email akun pemilik disembunyikan, jadi nama tampilan juga
+              // tidak boleh diambil dari email kalau namanya kosong.
+              OWNER_AUDIT_ROLE_LABEL
+            : entry.actorEmail?.split("@")[0]) ||
+          "Tanpa pelaku";
         const hasDetail = Boolean(before || after || metadata.length || entry.actorId);
 
         return (
@@ -116,7 +126,12 @@ export function AdminAuditLog({
                 <p className="mt-0.5 font-mono text-[0.65rem] text-[#525252]">{entry.action}</p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1.5">
-                <span className={auditActionChipClass(entry.action)}>{roleLabel(entry.actorRole)}</span>
+                <span
+                  className={auditActionChipClass(entry.action)}
+                  title={entry.actorIsOwnerAccount ? "Gelar khusus akun pemilik sistem" : undefined}
+                >
+                  {entry.actorIsOwnerAccount ? OWNER_AUDIT_ROLE_LABEL : roleLabel(entry.actorRole)}
+                </span>
                 <TimeStampLabel
                   timestamp={entry.createdAt}
                   withSeconds
@@ -145,13 +160,18 @@ export function AdminAuditLog({
                   )}
                   <div className="min-w-0">
                     <p className="font-black">{actorName}</p>
-                    {entry.actorEmail ? (
+                    {/* Email akun pemilik sengaja tidak ditampilkan di log:
+                        identitasnya sudah jelas dari gelar dan id-nya, dan
+                        alamat itu berulang di puluhan baris setiap kali panel
+                        dibaca. Baris "Email tidak tercatat" juga tidak relevan
+                        di sini karena emailnya justru yang disembunyikan. */}
+                    {entry.actorEmail && !entry.actorIsOwnerAccount ? (
                       <p className="break-all font-mono text-xs text-[#525252]">
                         {entry.actorEmail}
                       </p>
-                    ) : (
+                    ) : !entry.actorIsOwnerAccount ? (
                       <p className="text-xs text-[#525252]">Email tidak tercatat</p>
-                    )}
+                    ) : null}
                     {entry.actorId ? (
                       <p className="mt-0.5 break-all font-mono text-[0.65rem] text-[#525252]">
                         id {shortId(entry.actorId, 12)}

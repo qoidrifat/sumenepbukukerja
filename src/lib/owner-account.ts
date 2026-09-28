@@ -25,6 +25,16 @@ export const OWNER_ACCOUNT_EMAILS: ReadonlySet<string> = new Set([OWNER_ACCOUNT_
 export const OWNER_ACCOUNT_TITLE = "SuperAdmin · Developer";
 
 /**
+ * Gelar singkat untuk permukaan yang sempit — chip peran pada baris audit log.
+ *
+ * Versi lengkapnya (`OWNER_ACCOUNT_TITLE`) terlalu panjang untuk chip kecil,
+ * jadi baris audit memakai bentuk singkat ini. Dua-duanya hidup di sini supaya
+ * mengubah keduanya berarti menyentuh satu berkas, bukan mencari string
+ * yang tersebar.
+ */
+export const OWNER_AUDIT_ROLE_LABEL = "Super Admin";
+
+/**
  * Apakah sebuah email adalah akun pemilik.
  *
  * Normalisasi dilakukan di sini, bukan di pemanggil: `Qoidrifat23@Gmail.COM `

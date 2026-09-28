@@ -658,7 +658,7 @@ export const listAuditLogs = query({
     // admin yang menulis 80 baris berarti 3 pembacaan, bukan 240.
     const actorCache = new Map<
       string,
-      { name?: string; email?: string; role?: string; imageUrl?: string }
+      { name?: string; email?: string; role?: string; imageUrl?: string; isOwner?: boolean }
     >();
     const actorOf = async (actorId: DataModel["users"]["document"]["_id"]) => {
       const cached = actorCache.get(actorId);
@@ -679,6 +679,10 @@ export const listAuditLogs = query({
         imageUrl: user?.profileImageStorageId
           ? ((await ctx.storage.getUrl(user.profileImageStorageId as never)) ?? undefined)
           : undefined,
+        // Dihitung server dengan aturan yang sama dengan gerbang passcode.
+        // Klien tidak pernah menentukan sendiri siapa akun pemilik — sama
+        // seperti `roleLocked` pada `listStaff`.
+        isOwner: isOwnerAccount(user?.email),
       };
       actorCache.set(actorId, resolved);
       return resolved;
@@ -692,6 +696,7 @@ export const listAuditLogs = query({
             actorEmail: row.actorEmail,
             actorRole: row.actorRole,
             actorImageUrl: undefined,
+            actorIsOwnerAccount: false,
           };
         }
         const actor = await actorOf(row.actorId);
@@ -701,6 +706,7 @@ export const listAuditLogs = query({
           actorEmail: actor.email ?? row.actorEmail,
           actorRole: actor.role ?? row.actorRole,
           actorImageUrl: actor.imageUrl,
+          actorIsOwnerAccount: actor.isOwner ?? false,
         };
       }),
     );

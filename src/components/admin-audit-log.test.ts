@@ -104,6 +104,31 @@ test("tanpa foto, inisial dari nama yang dipakai — bukan kotak rusak", () => {
   expect(html).toContain("SD");
 });
 
+test("akun pemilik memakai gelar Super Admin dan emailnya disembunyikan", () => {
+  const html = render([{ ...ENTRY, actorIsOwnerAccount: true }]);
+  expect(html).toContain(">Super Admin</span>");
+  // Chip peran tepat "Super Admin" — bukan label "Admin" biasa.
+  expect(html).not.toContain(">Admin</span>");
+  // Email tidak boleh muncul di mana pun di dalam baris.
+  expect(html).not.toContain("qoidrifat23@gmail.com");
+  // Dan tidak boleh digantikan baris "tidak tercatat" yang menyesatkan.
+  expect(html).not.toContain("Email tidak tercatat");
+});
+
+test("nama tampilan akun pemilik tidak diambil dari email yang disembunyikan", () => {
+  const html = render([
+    { ...ENTRY, actorName: undefined, actorIsOwnerAccount: true },
+  ]);
+  expect(html).toContain("Super Admin");
+  expect(html).not.toContain("qoidrifat23");
+});
+
+test("akun biasa tetap menampilkan email dan label perannya", () => {
+  const html = render([{ ...ENTRY, actorIsOwnerAccount: false }]);
+  expect(html).toContain("qoidrifat23@gmail.com");
+  expect(html).toContain(">Admin<");
+});
+
 test("kartu baris memakai token admin yang sama dengan panel lain", () => {
   const html = render([ENTRY]);
   expect(html).toContain('data-slot="audit-entry"');

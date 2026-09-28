@@ -398,6 +398,47 @@ describe("pembacaan audit log oleh pengelola", () => {
     expect(renamed[0]?.actorName).toBe("Nama Baru");
   });
 
+  test("baris akun pemilik ditandai server dengan actorIsOwnerAccount", async () => {
+    // Penanda ini yang dipakai panel untuk menampilkan gelar Super Admin dan
+    // menyembunyikan emailnya. Dihitung server memakai daftar yang sama dengan
+    // gerbang passcode — kalau klien yang menentukan, daftar itu harus disalin
+    // ke berkas kedua dan cepat atau lambat keduanya berbeda pendapat.
+    const t = convexTest(schema, modules);
+    const ownerId = await seedUser(
+      t,
+      { name: "noir", email: "qoidrifat23@gmail.com" },
+      "admin",
+    );
+    const otherId = await seedUser(
+      t,
+      { name: "Pengelola Lain", email: "lain@sumenep.co.id" },
+      "admin",
+    );
+    const readerId = await seedUser(
+      t,
+      { name: "Pembaca Log", email: "pembaca@sumenep.co.id" },
+      "admin",
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert("auditLogs", {
+        action: "listing.published",
+        actorId: ownerId as never,
+        createdAt: Date.now() - 60_000,
+      });
+      await ctx.db.insert("auditLogs", {
+        action: "listing.published",
+        actorId: otherId as never,
+        createdAt: Date.now() - 30_000,
+      });
+    });
+
+    const rows = await t.withIdentity({ subject: readerId }).query(api.users.listAuditLogs, {});
+    expect(rows).toHaveLength(2);
+    const byActor = (id: string) => rows.find((row) => row.actorId === id);
+    expect(byActor(ownerId)?.actorIsOwnerAccount).toBe(true);
+    expect(byActor(otherId)?.actorIsOwnerAccount).toBe(false);
+  });
+
   test("blob foto yang sudah hilang tidak menghasilkan URL mati", async () => {
     const t = convexTest(schema, modules);
     const actorId = await seedUser(

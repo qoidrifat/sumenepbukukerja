@@ -263,7 +263,7 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
     return new Response("Method not allowed", { status: 405 });
   }
   try {
-    const { ip, source } = resolveClientIp(request.headers);
+    const resolved = resolveClientIp(request.headers);
     const requestId = `req_${bytesToHex(crypto.getRandomValues(new Uint8Array(8)))}`;
     const userAgent = trimUserAgent(request.headers.get("user-agent") ?? undefined) ?? undefined;
     const referrer = sanitizeReferrer(request.headers.get("referer") ?? undefined) ?? undefined;
@@ -271,14 +271,21 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
 
     // Geolokasi hanya dijalankan bila operator benar-benar mengonfigurasi
     // provider, dan tidak pernah menggagalkan login.
-    const geo = ip ? await lookupGeoLocation(ip, process.env) : { city: null, region: null, country: null, networkType: null };
+    const geo = resolved.ip
+      ? await lookupGeoLocation(resolved.ip, process.env)
+      : { city: null, region: null, country: null, networkType: null };
 
     const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
     const expiresAt = await ctx.runMutation(internal.adminGate.captureSecurityContext, {
       token,
-      ipHash: ip ? await sha256Hex(ip) : undefined,
-      ipMasked: maskIpForDisplay(ip) ?? undefined,
-      ipSource: source,
+      ipHash: resolved.ip ? await sha256Hex(resolved.ip) : undefined,
+      ipMasked: maskIpForDisplay(resolved.ip) ?? undefined,
+      ipSource: resolved.source,
+      ipFamily: resolved.family,
+      ipTrust: resolved.trust,
+      proxyDetected: resolved.proxyDetected,
+      chainLength: resolved.chainLength,
+      mappedFromIpv6: resolved.mappedFromIpv6,
       userAgent,
       referrer,
       acceptLanguage,
@@ -294,8 +301,12 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
         contextId: token,
         requestId,
         // Masked saja. Browser tidak pernah melihat alamat lengkap.
-        ipMasked: maskIpForDisplay(ip) ?? null,
-        ipSource: source,
+        ipMasked: maskIpForDisplay(resolved.ip) ?? null,
+        ipSource: resolved.source,
+        ipFamily: resolved.family,
+        ipTrust: resolved.trust,
+        proxyDetected: resolved.proxyDetected,
+        chainLength: resolved.chainLength,
         userAgent: userAgent ?? null,
         acceptLanguage: acceptLanguage ?? null,
         country: geo.country ?? null,
@@ -311,7 +322,16 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
     // Gagal menangkap konteks bukan alasan menolak halaman auth — login tetap
     // jalan, hanya auditnya yang lebih tipis.
     return Response.json(
-      { contextId: null, requestId: null, ipMasked: null, ipSource: "Unknown" },
+      {
+        contextId: null,
+        requestId: null,
+        ipMasked: null,
+        ipSource: "Unknown",
+        ipFamily: "unknown",
+        ipTrust: "unknown",
+        proxyDetected: false,
+        chainLength: 0,
+      },
       { status: 200, headers: { "cache-control": "no-store" } },
     );
   }

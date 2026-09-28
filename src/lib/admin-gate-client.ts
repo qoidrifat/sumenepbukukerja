@@ -21,6 +21,21 @@ const CONTEXT_ROUTE = "/admin-gate/context";
 const CONTEXT_TIMEOUT_MS = 2_500;
 
 /**
+ * Custom HTTP route Convex hanya dilayani di origin `.convex.site`, bukan di
+ * `.convex.cloud` yang dipakai `useConvex().url` untuk query dan action.
+ *
+ * Ini bug yang tidak terlihat dari kode: `fetch` ke `.convex.cloud` membalas
+ * 404, `fetchServerContext` mengembalikan objek kosong tanpa error, dan hasilnya
+ * audit tidak pernah punya IP server sama sekali. Terbukti ke produksi:
+ * `.convex.cloud/admin-gate/context` -> 404, `.convex.site/...` -> 200 dengan
+ * `CF-Connecting-IP`. Karena itu origin diturunkan di sini, bukan dibaca dari
+ * environment yang bisa lupa diisi.
+ */
+export function convexSiteUrl(cloudUrl: string): string {
+  return cloudUrl.replace(/\.convex\.cloud(?=\/|$)/, ".convex.site");
+}
+
+/**
  * ID perangkat acak, hanya untuk membedakan rate limit antar perangkat. Bukan
  * pengenal yang stabil, dan sengaja bisa dihapus pengguna — itu sebabnya ada
  * juga plafon global di server.
@@ -77,6 +92,23 @@ type ServerContext = {
   requestId: string | null;
   ipMasked: string | null;
   ipSource: string;
+  ipFamily: string;
+  ipTrust: string;
+  proxyDetected: boolean;
+  chainLength: number;
+  geoResolved: boolean;
+};
+
+const EMPTY_CONTEXT: ServerContext = {
+  contextId: null,
+  requestId: null,
+  ipMasked: null,
+  ipSource: "Unknown",
+  ipFamily: "unknown",
+  ipTrust: "unknown",
+  proxyDetected: false,
+  chainLength: 0,
+  geoResolved: false,
 };
 
 /**
@@ -84,30 +116,29 @@ type ServerContext = {
  * tidak menunggu, dan kegagalan diam-diam diabaikan — login tidak boleh
  * bergantung pada ini.
  */
-async function fetchServerContext(convexUrl: string): Promise<ServerContext> {
-  const empty: ServerContext = {
-    contextId: null,
-    requestId: null,
-    ipMasked: null,
-    ipSource: "Unknown",
-  };
+async function fetchServerContext(cloudUrl: string): Promise<ServerContext> {
   try {
-    const response = await fetch(`${convexUrl}${CONTEXT_ROUTE}`, {
+    const response = await fetch(`${convexSiteUrl(cloudUrl)}${CONTEXT_ROUTE}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{}",
       signal: AbortSignal.timeout(CONTEXT_TIMEOUT_MS),
     });
-    if (!response.ok) return empty;
+    if (!response.ok) return EMPTY_CONTEXT;
     const payload = (await response.json()) as Partial<ServerContext>;
     return {
       contextId: payload.contextId ?? null,
       requestId: payload.requestId ?? null,
       ipMasked: payload.ipMasked ?? null,
       ipSource: payload.ipSource ?? "Unknown",
+      ipFamily: payload.ipFamily ?? "unknown",
+      ipTrust: payload.ipTrust ?? "unknown",
+      proxyDetected: payload.proxyDetected === true,
+      chainLength: Number.isFinite(payload.chainLength) ? Number(payload.chainLength) : 0,
+      geoResolved: payload.geoResolved === true,
     };
   } catch {
-    return empty;
+    return EMPTY_CONTEXT;
   }
 }
 

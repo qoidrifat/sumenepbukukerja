@@ -17,7 +17,11 @@ export type AuditAction =
   | "report.moderated"
   | "staff.invited"
   | "staff.role_changed"
-  | "staff.invite_accepted";
+  | "staff.invite_accepted"
+  | "admin.logout"
+  | "admin.passcode_changed"
+  | "admin.security_viewed"
+  | "admin.security_detail_viewed";
 
 export async function writeAudit(
   ctx: GenericMutationCtx<DataModel>,

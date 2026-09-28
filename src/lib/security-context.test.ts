@@ -94,24 +94,55 @@ describe("normalizeIp", () => {
 });
 
 describe("resolveClientIp", () => {
-  it("mendahulukan CF-Connecting-IP", () => {
+  it("mendahulukan CF-Connecting-IP dan menandainya tepercaya", () => {
     const result = resolveClientIp(
       headers({ "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.1" }),
     );
-    expect(result).toEqual({ ip: "203.0.113.7", source: "CF-Connecting-IP" });
+    expect(result).toMatchObject({
+      ip: "203.0.113.7",
+      source: "CF-Connecting-IP",
+      trust: "edge",
+      family: "IPv4",
+      proxyDetected: true,
+      chainAvailable: true,
+      chainLength: 1,
+    });
   });
 
-  it("memakai entri paling kiri X-Forwarded-For", () => {
+  it("XFF yang dipalsukan klien tidak menang begitu ada header edge", () => {
+    // Bukti produksi: klien mengirim x-forwarded-for palsu, jawaban server tetap
+    // IP asli dari edge. Entri XFF dicatat sebagai rantai, bukan sebagai sumber.
     const result = resolveClientIp(
-      headers({ "x-forwarded-for": "198.51.100.1, 10.0.0.1, 10.0.0.2" }),
+      headers({ "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "1.2.3.4" }),
     );
-    expect(result).toEqual({ ip: "198.51.100.1", source: "X-Forwarded-For" });
+    expect(result.ip).toBe("203.0.113.7");
+    expect(result.trust).toBe("edge");
+  });
+
+  it("memakai entri paling kanan X-Forwarded-For, bukan paling kiri", () => {
+    // Klien hanya bisa menambah entri di sebelah kiri, jadi sisi kiri justru
+    // yang paling mudah dipalsukan. Sisi kanan ditulis proxy terdekat.
+    const result = resolveClientIp(
+      headers({ "x-forwarded-for": "1.2.3.4, 10.0.0.1, 10.0.0.2" }),
+    );
+    expect(result).toMatchObject({
+      ip: "10.0.0.2",
+      source: "X-Forwarded-For",
+      trust: "chain",
+      chainLength: 3,
+    });
   });
 
   it("mengembalikan Unknown saat tidak ada header IP", () => {
     expect(resolveClientIp(headers({ "user-agent": "curl/8" }))).toEqual({
       ip: null,
+      family: "unknown",
       source: "Unknown",
+      trust: "unknown",
+      proxyDetected: false,
+      chainAvailable: false,
+      chainLength: 0,
+      mappedFromIpv6: false,
     });
   });
 
@@ -119,7 +150,21 @@ describe("resolveClientIp", () => {
     const result = resolveClientIp(
       headers({ "x-real-ip": "not-an-ip", "x-forwarded-for": "198.51.100.9" }),
     );
-    expect(result).toEqual({ ip: "198.51.100.9", source: "X-Forwarded-For" });
+    expect(result).toMatchObject({ ip: "198.51.100.9", source: "X-Forwarded-For" });
+  });
+
+  it("mengenali IPv6 dan IPv4-mapped", () => {
+    expect(resolveClientIp(headers({ "cf-connecting-ip": "2001:db8::1" }))).toMatchObject({
+      ip: "2001:db8::1",
+      family: "IPv6",
+    });
+    // ::ffff:192.0.2.1 adalah IPv4 yang lewat dual-stack; dinormalkan supaya
+    // satu address tidak terhitung dua kali saat agregasi.
+    expect(resolveClientIp(headers({ "cf-connecting-ip": "::ffff:192.0.2.1" }))).toMatchObject({
+      ip: "192.0.2.1",
+      family: "IPv4",
+      mappedFromIpv6: true,
+    });
   });
 });
 

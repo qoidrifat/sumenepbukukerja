@@ -424,6 +424,16 @@ const schema = defineSchema(
       sessionFingerprint: v.optional(v.string()),
       requestId: v.optional(v.string()),
       attemptNumber: v.optional(v.number()),
+      // Hasil resolusi IP di lapisan server. Alamat lengkap tetap tidak
+      // disimpan; yang dicatat adalah seberapa kuat sumbernya, supaya operator
+      // tahu sebuah IP benar-benar diamati edge atau hanya Percaya rantai proxy.
+      ipFamily: v.optional(v.string()),
+      ipTrust: v.optional(v.string()),
+      proxyDetected: v.optional(v.boolean()),
+      chainLength: v.optional(v.number()),
+      mappedFromIpv6: v.optional(v.boolean()),
+      signals: v.optional(v.array(v.string())),
+      userId: v.optional(v.id("users")),
       createdAt: v.number(),
     })
       .index("byKey", ["key"])
@@ -439,9 +449,14 @@ const schema = defineSchema(
       tokenHash: v.string(),
       expiresAt: v.number(),
       consumedAt: v.optional(v.number()),
+      // Generasi passcode saat tiket diterbitkan. Setelah passcode diubah, tiket
+      // dari generasi lama otomatis tidak berlaku, jadi sesi yang sudah membuka
+      // gerbang tidak bisa menyelesaikan langkah email dengan passcode lama.
+      generation: v.optional(v.number()),
       createdAt: v.number(),
     })
-      .index("byTokenHash", ["tokenHash"]),
+      .index("byTokenHash", ["tokenHash"])
+      .index("byGeneration", ["generation"]),
 
     // Konteks request yang ditangkap sekali lewat httpAction. Hanya
     // httpAction Convex yang menerima objek `Request`; action biasa tidak
@@ -464,6 +479,11 @@ const schema = defineSchema(
       region: v.optional(v.string()),
       city: v.optional(v.string()),
       networkType: v.optional(v.string()),
+      ipFamily: v.optional(v.string()),
+      ipTrust: v.optional(v.string()),
+      proxyDetected: v.optional(v.boolean()),
+      chainLength: v.optional(v.number()),
+      mappedFromIpv6: v.optional(v.boolean()),
       expiresAt: v.number(),
       createdAt: v.number(),
     })
@@ -478,9 +498,42 @@ const schema = defineSchema(
       sessionFingerprint: v.optional(v.string()),
       route: v.optional(v.string()),
       lastSeenAt: v.number(),
+      // Konteks server untuk "Sesi Anda". Tetap bentuk tersamar: ipHash untuk
+      // korelasi, ipMasked untuk dibaca. Alamat lengkap tidak pernah disimpan.
+      ipHash: v.optional(v.string()),
+      ipMasked: v.optional(v.string()),
+      ipSource: v.optional(v.string()),
+      ipFamily: v.optional(v.string()),
+      requestId: v.optional(v.string()),
+      userAgent: v.optional(v.string()),
+      browser: v.optional(v.string()),
+      os: v.optional(v.string()),
+      deviceType: v.optional(v.string()),
+      timezone: v.optional(v.string()),
+      firstSeenAt: v.optional(v.number()),
+      signedInAt: v.optional(v.number()),
     })
       .index("byUser", ["userId"])
       .index("byLastSeenAt", ["lastSeenAt"]),
+
+    // Passcode admin hasil rotasi dari dalam aplikasi.
+    //
+    // Sebelumnya hash hanya hidup di environment, jadi satu-satunya cara
+    // mengganti passcode adalah menulis environment dari luar aplikasi. Baris
+    // di sini membuat rotasi bisa dilakukan admin yang sedang masuk, tanpa
+    // mengubah arsitektur: yang disimpan tetap hash PBKDF2, tidak pernah
+    // passcode apa adanya.
+    //
+    // `generation` naik setiap kali passcode berubah. Semua tiket gerbang dari
+    // generasi lama otomatis tidak berlaku, sehingga sesi yang sudah memegang
+    // tiket sebelum rotasi tidak bisa menyelesaikan langkah verifikasi email.
+    adminPasscodeConfig: defineTable({
+      hash: v.string(),
+      generation: v.number(),
+      source: v.union(v.literal("env"), v.literal("rotated")),
+      updatedAt: v.number(),
+      updatedBy: v.optional(v.id("users")),
+    }),
 
 
 

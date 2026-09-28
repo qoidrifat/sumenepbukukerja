@@ -23,7 +23,7 @@ import { useAdminSecurityEvents, useAdminSecuritySummary } from "@/lib/catalog-s
 import { UNKNOWN_LABEL, describeFailure } from "@/lib/security-context";
 import { formatRelativeTime } from "@/lib/datetime";
 
-type SecurityEvent = NonNullable<ReturnType<typeof useAdminSecurityEvents>>[number];
+type SecurityEvent = NonNullable<ReturnType<typeof useAdminSecurityEvents>>["events"][number];
 
 const OUTCOME_FILTERS = [
   { value: "all", label: "Semua" },
@@ -199,7 +199,7 @@ export function AdminSecurityLog() {
   }, []);
 
   const visible = useMemo(() => {
-    const rows = events ?? [];
+    const rows = events?.events ?? [];
     const since = windowFilter === "24h" && now > 0 ? now - 24 * 60 * 60_000 : 0;
     return rows.filter(
       (row) =>
@@ -279,7 +279,7 @@ export function AdminSecurityLog() {
           ))}
         </div>
         <span className="ml-auto text-xs font-black text-[#525252]">
-          Menampilkan {visible.length} dari {events?.length ?? 0} percobaan
+          Menampilkan {visible.length} dari {events?.total ?? 0} percobaan
         </span>
       </div>
 
@@ -292,12 +292,12 @@ export function AdminSecurityLog() {
           </span>
           <div className="min-w-0">
             <p className="text-sm font-black text-[#1A1A1A]">
-              {events.length === 0
+              {events.total === 0
                 ? "Belum ada percobaan masuk."
                 : "Tidak ada percobaan yang cocok dengan filter ini."}
             </p>
             <p className="mt-0.5 text-xs font-bold text-[#525252]">
-              {events.length === 0
+              {events.total === 0
                 ? "Aktivitas akses admin akan muncul di sini."
                 : "Ubah filter hasil atau rentang waktu di atas."}
             </p>

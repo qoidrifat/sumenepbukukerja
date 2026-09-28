@@ -25,16 +25,22 @@
 // atau JWT yang masuk ke log.
 
 import { anyApi } from "convex/server";
+import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
+import type { DataModel } from "./_generated/dataModel";
+import { getAuthUserId } from "@convex-dev/auth/server";
+import { writeAudit } from "./audit";
 import { v } from "convex/values";
-import { action, internalMutation, mutation, query } from "./_generated/server";
-import { requireManagementViewer, requireUser } from "./access";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { getStaffAccess, requireManagementViewer, requireStaff, requireUser } from "./access";
 import {
   GLOBAL_ATTEMPT_CEILING,
   LOCKOUT_MS,
   MAX_ATTEMPTS,
   PASSCODE_MAX_LENGTH,
+  assessPasscode,
   deriveAttemptKey,
   derivePasscodeHash,
+  encodePasscodeHash,
   maskEmail,
   maskIp,
   normalizePasscode,
@@ -43,6 +49,7 @@ import {
   trimUserAgent,
 } from "../lib/admin-passcode";
 import {
+  deriveSecuritySignals,
   deriveSessionFingerprint,
   maskFingerprint,
   maskRequestId,
@@ -62,6 +69,15 @@ const toHex = (bytes: Uint8Array) => bytesToHex(bytes);
 
 const passcodeHashEnv = () => process.env.ADMIN_PASSCODE_HASH?.trim();
 
+/**
+ * Generasi passcode aktif. 0 selama masih memakai hash dari environment, dan
+ * naik setiap kali passcode dirotasi dari dalam aplikasi.
+ */
+const currentGeneration = async (ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>) => {
+  const rows = await ctx.db.query("adminPasscodeConfig").collect();
+  return rows.sort((a, b) => b.updatedAt - a.updatedAt)[0]?.generation ?? 0;
+};
+
 type AttemptContext = {
   key: string;
   emailMasked?: string;
@@ -76,6 +92,10 @@ export type ServerRequestContext = {
   ipHash?: string;
   ipMasked?: string;
   ipSource: string;
+  ipFamily?: string;
+  ipTrust?: string;
+  proxyDetected?: boolean;
+  chainLength?: number;
   userAgent?: string;
   acceptLanguage?: string;
   referrer?: string;
@@ -92,6 +112,11 @@ export const captureSecurityContext = internalMutation({
     ipHash: v.optional(v.string()),
     ipMasked: v.optional(v.string()),
     ipSource: v.string(),
+    ipFamily: v.optional(v.string()),
+    ipTrust: v.optional(v.string()),
+    proxyDetected: v.optional(v.boolean()),
+    chainLength: v.optional(v.number()),
+    mappedFromIpv6: v.optional(v.boolean()),
     userAgent: v.optional(v.string()),
     acceptLanguage: v.optional(v.string()),
     referrer: v.optional(v.string()),
@@ -208,6 +233,12 @@ export const recordAttempt = internalMutation({
     ipHash: v.optional(v.string()),
     ipMasked: v.optional(v.string()),
     ipSource: v.optional(v.string()),
+    ipFamily: v.optional(v.string()),
+    ipTrust: v.optional(v.string()),
+    proxyDetected: v.optional(v.boolean()),
+    chainLength: v.optional(v.number()),
+    signals: v.optional(v.array(v.string())),
+    userId: v.optional(v.id("users")),
     country: v.optional(v.string()),
     region: v.optional(v.string()),
     city: v.optional(v.string()),
@@ -247,6 +278,7 @@ export const issueTicket = internalMutation({
       // "passcode dulu, baru verifikasi email" bisa jalan.
       email: "",
       tokenHash: args.tokenHash,
+      generation: await currentGeneration(ctx),
       expiresAt: now + TICKET_TTL_MS,
       createdAt: now,
     });
@@ -264,6 +296,12 @@ export const consumeTicket = internalMutation({
     if (!row) return { ok: false, reason: "invalid" };
     if (row.consumedAt) return { ok: false, reason: "used" };
     if (row.expiresAt <= Date.now()) return { ok: false, reason: "expired" };
+    // Tiket terbit sebelum rotasi passcode tidak boleh menyelesaikan langkah
+    // email dengan passcode yang sudah diganti.
+    if ((row.generation ?? 0) !== (await currentGeneration(ctx))) {
+      await ctx.db.delete(row._id);
+      return { ok: false, reason: "superseded" };
+    }
     await ctx.db.patch(row._id, { consumedAt: Date.now(), email: args.email });
     return { ok: true, reason: "ok" };
   },
@@ -362,6 +400,10 @@ export const verifyAdminPasscode = action({
       ipHash: serverContext?.ipHash,
       ipMasked: serverContext?.ipMasked,
       ipSource: serverContext?.ipSource,
+      ipFamily: serverContext?.ipFamily,
+      ipTrust: serverContext?.ipTrust,
+      proxyDetected: serverContext?.proxyDetected,
+      chainLength: serverContext?.chainLength,
       country: serverContext?.country,
       region: serverContext?.region,
       city: serverContext?.city,
@@ -497,11 +539,11 @@ export const verifyAdminTicket = action({
  * atau ID perangkat di dalam respons ini.
  */
 export const listAdminSecurityEvents = query({
-  args: { limit: v.optional(v.number()) },
+  args: { limit: v.optional(v.number()), cursor: v.optional(v.string()) },
   handler: async (ctx, args) => {
     await requireManagementViewer(ctx);
     const rows = (await ctx.db.query("adminPasscodeAttempts").withIndex("byCreatedAt").collect()).sort(
-      (a, b) => b.createdAt - a.createdAt,
+      (a, b) => b.createdAt - a.createdAt || (a._id < b._id ? 1 : -1),
     );
     const now = Date.now();
     const presence = await ctx.db.query("adminPresence").collect();
@@ -509,11 +551,28 @@ export const listAdminSecurityEvents = query({
       presence.filter((row) => now - row.lastSeenAt < PRESENCE_STALE_MS && row.sessionFingerprint).map((row) => row.sessionFingerprint as string),
     );
 
+    // Kursor disusun dari `createdAt` + `_id` supaya baris dengan timestamp sama
+    // tidak saling menimpa saat halaman dimuat berikutnya.
+    let start = 0;
+    if (args.cursor) {
+      const parsed = args.cursor.split(":");
+      const at = Number(parsed[0]);
+      if (Number.isFinite(at)) {
+        start = rows.findIndex((row) => row.createdAt < at);
+        if (start < 0) start = rows.length;
+      }
+    }
+
     const windowStart = now - LOCKOUT_MS;
     const successes = rows.filter((row) => row.outcome === "success");
+    const knownIps = new Set(rows.map((row) => row.ipHash).filter((value): value is string => Boolean(value)));
     const limit = Math.min(Math.max(args.limit ?? 25, 1), 100);
+    const page = rows.slice(start, start + limit);
+    const last = page[page.length - 1];
+    const nextCursor =
+      page.length === limit && last ? `${last.createdAt}:${last._id}` : null;
 
-    return rows.slice(0, limit).map((row) => {
+    const events = page.map((row) => {
       const related = rows.filter(
         (other) =>
           other.createdAt >= windowStart &&
@@ -525,6 +584,23 @@ export const listAdminSecurityEvents = query({
         (other) => other.createdAt < row.createdAt && other.sessionFingerprint === row.sessionFingerprint,
       );
       const locked = row.outcome === "locked";
+      const ipRows = row.ipHash ? rows.filter((other) => other.ipHash === row.ipHash) : [];
+      const signals = deriveSecuritySignals({
+        ipHash: row.ipHash,
+        seenIps: knownIps,
+        previousSameSession: previous ?? null,
+        browser: row.browser,
+        os: row.os,
+        deviceType: row.deviceType,
+        timezone: row.timezone,
+        country: row.country,
+        failedInWindow,
+        rapidAttempts: rows.filter(
+          (other) => other.createdAt >= row.createdAt - 60_000 && other.createdAt <= row.createdAt,
+        ).length,
+        maxAttempts: MAX_ATTEMPTS,
+        proxyDetected: row.proxyDetected,
+      });
       return {
         _id: row._id,
         outcome: row.outcome,
@@ -532,6 +608,11 @@ export const listAdminSecurityEvents = query({
         emailMasked: row.emailMasked ?? null,
         ipMasked: row.ipMasked ?? row.reportedIp ?? null,
         ipSource: row.ipSource ?? null,
+        ipFamily: row.ipFamily ?? null,
+        ipTrust: row.ipTrust ?? null,
+        proxyDetected: row.proxyDetected ?? null,
+        chainLength: row.chainLength ?? null,
+        mappedFromIpv6: row.mappedFromIpv6 ?? null,
         country: row.country ?? null,
         region: row.region ?? null,
         city: row.city ?? null,
@@ -560,6 +641,11 @@ export const listAdminSecurityEvents = query({
         attemptsInWindow: related.length + 1,
         failedInWindow,
         successfulInWindow: related.filter((other) => other.outcome === "success").length,
+        ipTotal: ipRows.length,
+        ipFirstSeenAt: ipRows.reduce((min, other) => Math.min(min, other.createdAt), row.createdAt),
+        ipLastSeenAt: ipRows.reduce((max, other) => Math.max(max, other.createdAt), row.createdAt),
+        ipSuccessCount: ipRows.filter((other) => other.outcome === "success").length,
+        ipFailureCount: ipRows.filter((other) => other.outcome === "failed").length,
         status: securityStatus({ outcome: row.outcome, failedInWindow, locked, maxAttempts: MAX_ATTEMPTS }),
         sessionLive: row.sessionFingerprint ? liveFingerprints.has(row.sessionFingerprint) : false,
         previousSuccessAt: previous?.createdAt ?? null,
@@ -567,26 +653,189 @@ export const listAdminSecurityEvents = query({
         sameDeviceAsPrevious: previous
           ? previous.browser === row.browser && previous.os === row.os && previous.deviceType === row.deviceType
           : null,
+        signals,
       };
     });
+    return { events, nextCursor, total: rows.length };
+  },
+});
+
+/** Detail satu percobaan, lengkap dengan riwayat IP-nya. */
+export const getAdminSecurityAttempt = query({
+  args: { attemptId: v.id("adminPasscodeAttempts") },
+  handler: async (ctx, args) => {
+    const { userId } = await requireManagementViewer(ctx);
+    const row = await ctx.db.get(args.attemptId);
+    if (!row) return null;
+    const all = await ctx.db.query("adminPasscodeAttempts").collect();
+    const ipRows = row.ipHash ? all.filter((other) => other.ipHash === row.ipHash) : [];
+    void userId;
+    return {
+      _id: row._id,
+      outcome: row.outcome,
+      failureReason: row.failureReason ?? null,
+      emailMasked: row.emailMasked ?? null,
+      ipMasked: row.ipMasked ?? row.reportedIp ?? null,
+      ipSource: row.ipSource ?? null,
+      ipFamily: row.ipFamily ?? null,
+      ipTrust: row.ipTrust ?? null,
+      proxyDetected: row.proxyDetected ?? null,
+      chainLength: row.chainLength ?? null,
+      country: row.country ?? null,
+      region: row.region ?? null,
+      city: row.city ?? null,
+      networkType: row.networkType ?? null,
+      userAgent: row.userAgent ?? null,
+      browser: row.browser ?? null,
+      browserVersion: row.browserVersion ?? null,
+      os: row.os ?? null,
+      osVersion: row.osVersion ?? null,
+      deviceType: row.deviceType ?? null,
+      timezone: row.timezone ?? null,
+      locale: row.locale ?? null,
+      platform: row.platform ?? null,
+      viewport: row.viewport ?? null,
+      devicePixelRatio: row.devicePixelRatio ?? null,
+      touchPoints: row.touchPoints ?? null,
+      route: row.route ?? null,
+      returnTo: row.returnTo ?? null,
+      referrer: row.referrer ?? null,
+      acceptLanguage: row.acceptLanguage ?? null,
+      sessionFingerprint: maskFingerprint(row.sessionFingerprint),
+      requestId: maskRequestId(row.requestId),
+      attemptNumber: row.attemptNumber ?? null,
+      createdAt: row.createdAt,
+      signals: row.signals ?? [],
+      ipHistory: ipRows
+        .slice()
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 20)
+        .map((other) => ({
+          _id: other._id,
+          outcome: other.outcome,
+          createdAt: other.createdAt,
+          browser: other.browser ?? null,
+          os: other.os ?? null,
+          deviceType: other.deviceType ?? null,
+          country: other.country ?? null,
+        })),
+      ipTotals: {
+        attempts: ipRows.length,
+        success: ipRows.filter((other) => other.outcome === "success").length,
+        failed: ipRows.filter((other) => other.outcome === "failed").length,
+        locked: ipRows.filter((other) => other.outcome === "locked").length,
+        firstSeenAt: ipRows.length
+          ? Math.min(...ipRows.map((other) => other.createdAt))
+          : null,
+        lastSeenAt: ipRows.length
+          ? Math.max(...ipRows.map((other) => other.createdAt))
+          : null,
+      },
+    };
+  },
+});
+
+/** "Aktivitas berdasarkan IP": satu baris per IP, untuk orientasi cepat. */
+export const listAdminIpActivity = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await requireManagementViewer(ctx);
+    const rows = await ctx.db.query("adminPasscodeAttempts").collect();
+    const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
+    const byIp = new Map<string, typeof rows>();
+    for (const row of rows) {
+      if (!row.ipHash) continue;
+      const bucket = byIp.get(row.ipHash) ?? [];
+      bucket.push(row);
+      byIp.set(row.ipHash, bucket);
+    }
+    return [...byIp.entries()]
+      .map(([ipHash, bucket]) => {
+        const sorted = bucket.slice().sort((a, b) => b.createdAt - a.createdAt);
+        const latest = sorted[0];
+        return {
+          ipHash,
+          ipMasked: latest.ipMasked ?? null,
+          ipSource: latest.ipSource ?? null,
+          ipFamily: latest.ipFamily ?? null,
+          ipTrust: latest.ipTrust ?? null,
+          proxyDetected: latest.proxyDetected ?? null,
+          attempts: bucket.length,
+          success: bucket.filter((row) => row.outcome === "success").length,
+          failed: bucket.filter((row) => row.outcome === "failed").length,
+          locked: bucket.filter((row) => row.outcome === "locked").length,
+          firstSeenAt: Math.min(...bucket.map((row) => row.createdAt)),
+          lastSeenAt: Math.max(...bucket.map((row) => row.createdAt)),
+          lastBrowser: latest.browser ?? null,
+          lastBrowserVersion: latest.browserVersion ?? null,
+          lastOs: latest.os ?? null,
+          lastOsVersion: latest.osVersion ?? null,
+          lastDeviceType: latest.deviceType ?? null,
+          country: latest.country ?? null,
+          region: latest.region ?? null,
+          city: latest.city ?? null,
+          isNew: bucket.length === 1,
+        };
+      })
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+      .slice(0, limit);
   },
 });
 
 /** Ringkasan untuk strip pembuka panel audit, dihitung dari data yang sama. */
 export const adminSecuritySummary = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { windowHours: v.optional(v.number()) },
+  handler: async (ctx, args) => {
     await requireManagementViewer(ctx);
     const rows = await ctx.db.query("adminPasscodeAttempts").withIndex("byCreatedAt").collect();
     const now = Date.now();
-    const dayStart = now - 24 * 60 * 60_000;
+    const hours = Math.min(Math.max(args.windowHours ?? 24, 1), 24 * 90);
+    const dayStart = now - hours * 60 * 60_000;
     const today = rows.filter((row) => row.createdAt >= dayStart);
+    const earlier = rows.filter((row) => row.createdAt < dayStart);
+
+    const ipOf = (row: (typeof rows)[number]) => row.ipHash;
+    const knownBefore = new Set(earlier.map(ipOf).filter((value): value is string => Boolean(value)));
+    const knownDevicesBefore = new Set(
+      earlier.map((row) => `${row.browser ?? ""}|${row.os ?? ""}|${row.deviceType ?? ""}`),
+    );
+    const currentIps = [...new Set(today.map(ipOf).filter((value): value is string => Boolean(value)))];
+
+    // Sinyal dihitung ulang untuk jendela ini, supaya angka di ringkasan
+    // konsisten dengan yang tampil di daftar.
+    let riskFlags = 0;
+    for (const row of today) {
+      riskFlags += deriveSecuritySignals({
+        ipHash: row.ipHash,
+        seenIps: knownBefore,
+        previousSameSession: null,
+        browser: row.browser,
+        os: row.os,
+        deviceType: row.deviceType,
+        timezone: row.timezone,
+        country: row.country,
+        failedInWindow: 1,
+        proxyDetected: row.proxyDetected,
+      }).length;
+    }
+
+    await Promise.resolve();
     return {
+      windowHours: hours,
       total: rows.length,
       last24h: today.length,
       succeeded24h: today.filter((row) => row.outcome === "success").length,
       failed24h: today.filter((row) => row.outcome === "failed").length,
       locked24h: today.filter((row) => row.outcome === "locked").length,
+      uniqueIps: currentIps.length,
+      newIps: currentIps.filter((ip) => !knownBefore.has(ip)).length,
+      newDevices: today.filter(
+        (row) =>
+          row.browser &&
+          !knownDevicesBefore.has(`${row.browser}|${row.os ?? ""}|${row.deviceType ?? ""}`),
+      ).length,
+      countries: [...new Set(today.map((row) => row.country).filter(Boolean))].length,
+      riskFlags,
       lastEventAt: rows.reduce((max, row) => Math.max(max, row.createdAt), 0) || null,
     };
   },
@@ -594,12 +843,29 @@ export const adminSecuritySummary = query({
 
 /** Memangkas riwayat lama agar tabel tidak tumbuh tanpa batas. */
 export const pruneAdminSecurityEvents = internalMutation({
-  args: { keepLatest: v.optional(v.number()) },
+  args: { keepLatest: v.optional(v.number()), retentionDays: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const rows = await ctx.db.query("adminPasscodeAttempts").withIndex("byCreatedAt").collect();
     const sorted = rows.sort((a, b) => b.createdAt - a.createdAt);
+    // Dua batas, bukan satu: jumlah baris supaya tabel tetap kecil, dan usia
+    // supaya tidak ada data IP yang disimpan tanpa batas. Batas usia
+    // dikonfigurasi lewat `ADMIN_SECURITY_RETENTION_DAYS` di Keys.
+    const configuredDays = Number(process.env.ADMIN_SECURITY_RETENTION_DAYS);
+    const retentionDays =
+      args.retentionDays ?? (Number.isFinite(configuredDays) && configuredDays > 0 ? configuredDays : 30);
+    const cutoff = Date.now() - retentionDays * 24 * 60 * 60_000;
     const keep = Math.max(sorted.length - (args.keepLatest ?? 500), 0);
-    for (const row of sorted.slice(keep)) await ctx.db.delete(row._id);
+    let removed = 0;
+    for (const row of sorted.slice(keep)) {
+      await ctx.db.delete(row._id);
+      removed += 1;
+    }
+    for (const row of sorted.slice(0, keep)) {
+      if (row.createdAt < cutoff) {
+        await ctx.db.delete(row._id);
+        removed += 1;
+      }
+    }
     const now = Date.now();
     const staleContexts = await ctx.db
       .query("adminSecurityContexts")
@@ -611,7 +877,7 @@ export const pruneAdminSecurityEvents = internalMutation({
       .withIndex("byLastSeenAt", (q) => q.lt("lastSeenAt", now - 7 * 24 * 60 * 60_000))
       .collect();
     for (const row of stalePresence) await ctx.db.delete(row._id);
-    return sorted.length - keep;
+    return removed;
   },
 });
 
@@ -626,5 +892,283 @@ export const pruneSecurityContexts = internalMutation({
       .collect();
     for (const row of stale) await ctx.db.delete(row._id);
     return stale.length;
+  },
+});
+
+/* ------------------------------------------------------------------ *
+ * Rotasi passcode, logout, dan sesi-management
+ * ------------------------------------------------------------------ */
+
+/**
+ * Sumber kebenaran passcode aktif.
+ *
+ * Environment tetap jadi baseline supaya instalasi baru langsung jalan tanpa
+ * langkah tambahan. Setelah admin merotasi dari Security Desk, baris di tabel
+ * yang menang — dan apa pun yang masih di environment diabaikan sampai baris
+ * itu dihapus. Yang disimpan tetap hash PBKDF2, tidak pernah passcode mentah.
+ */
+export const passcodeConfig = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const generation = await currentGeneration(ctx);
+    const rows = await ctx.db.query("adminPasscodeConfig").collect();
+    const stored = rows.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (stored) return { hash: stored.hash, generation, source: stored.source as "env" | "rotated" };
+    return { hash: passcodeHashEnv() ?? null, generation, source: "env" as const };
+  },
+});
+
+/** Peran pemanggil, untuk gerbang internal yang dipanggil dari action. */
+export const callerRole = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    return (await getStaffAccess(ctx, userId))?.role ?? null;
+  },
+});
+
+/**
+ * Terapkan hash baru. Otorisasi ada DI SINI, bukan di action: action hanya
+ * memegang kripto, sedangkan ctx action tidak punya akses database sama sekali.
+ * Tanpa gerbang ini, siapa pun yang bisa memanggil action bisa merotasi passcode.
+ */
+export const applyPasscodeChange = internalMutation({
+  args: { hash: v.string() },
+  handler: async (ctx, args) => {
+    const { userId } = await requireStaff(ctx, "admin");
+    const now = Date.now();
+    const existing = await ctx.db.query("adminPasscodeConfig").collect();
+    for (const row of existing) await ctx.db.delete(row._id);
+    await ctx.db.insert("adminPasscodeConfig", {
+      hash: args.hash,
+      // Generasi memakai timestamp supaya selalu naik dan tidak perlu dihitung.
+      generation: now,
+      source: "rotated",
+      updatedAt: now,
+      updatedBy: userId,
+    });
+
+    // Tiket gerbang yang belum dipakai ikut dibatalkan. Tanpa ini, seseorang
+    // yang sudah melewati passcode sebelum rotasi masih bisa menyelesaikan
+    // langkah verifikasi email dan masuk dengan passcode yang sudah diganti.
+    const tickets = await ctx.db.query("adminPasscodeTickets").collect();
+    let revokedTickets = 0;
+    for (const ticket of tickets) {
+      if (!ticket.consumedAt) {
+        await ctx.db.delete(ticket._id);
+        revokedTickets += 1;
+      }
+    }
+
+    const presence = await ctx.db
+      .query("adminPresence")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .unique();
+    if (presence) await ctx.db.delete(presence._id);
+
+    await writeAudit(ctx, {
+      action: "admin.passcode_changed",
+      actorId: userId,
+      entityId: String(userId),
+      newValue: "rotated",
+      // Tidak ada passcode lama/baru, hash, salt, atau secret di sini.
+      metadata: { revokedTickets, source: "admin_security_desk" },
+    });
+    return { revokedTickets, generation: now };
+  },
+});
+
+export type ChangePasscodeResult =
+  | { ok: true; revokedTickets: number; level: "weak" | "fair" | "strong" }
+  | { ok: false; reason: "unauthorized" | "unconfigured" | "wrong_current" | "weak"; issues?: string[] };
+
+/**
+ * Ganti passcode admin.
+ *
+ * Gerbang session DITARUH DI AWAL, dan itu bukan formalitas: tanpa ia, action
+ * ini jadi oracle penebakan passcode tanpa rate limit, karena siapa pun bisa
+ * memanggilnya. Setelah itu passcode lama diperiksa dengan PBKDF2 dan
+ * perbandingan waktu-tetap, persis seperti di gerbang masuk.
+ */
+export const changeAdminPasscode = action({
+  args: { currentPasscode: v.string(), newPasscode: v.string() },
+  handler: async (ctx, args): Promise<ChangePasscodeResult> => {
+    const role = await ctx.runQuery(anyApi.adminGate.callerRole, {});
+    if (role !== "admin") return { ok: false, reason: "unauthorized" };
+
+    const config = await ctx.runQuery(anyApi.adminGate.passcodeConfig, {});
+    if (!config.hash) return { ok: false, reason: "unconfigured" };
+    const parsed = parsePasscodeHash(config.hash);
+    if (!parsed) throw new Error("Passcode admin belum dikonfigurasi dengan benar di server.");
+
+    const candidate = normalizePasscode(args.currentPasscode);
+    const matches =
+      candidate.length > 0 &&
+      candidate.length <= PASSCODE_MAX_LENGTH &&
+      timingSafeEqual(
+        await derivePasscodeHash(candidate, parsed.salt, parsed.iterations),
+        parsed.hash,
+      );
+    if (!matches) return { ok: false, reason: "wrong_current" };
+
+    const assessment = assessPasscode(args.newPasscode, args.currentPasscode);
+    if (!assessment.ok) return { ok: false, reason: "weak", issues: assessment.issues };
+
+    const encoded = await encodePasscodeHash(normalizePasscode(args.newPasscode));
+    const applied = await ctx.runMutation(anyApi.adminGate.applyPasscodeChange, { hash: encoded });
+    return { ok: true, revokedTickets: applied.revokedTickets, level: assessment.level };
+  },
+});
+
+/**
+ * Logout admin.
+ *
+ * Yang diinvalidasi di sisi server: presence (supaya sesi ini tidak lagi
+ * ditandai "Aktif sekarang") dan jejak audit. Token sesi Convex Auth sendiri
+ * dicabut oleh `signOut()` di browser; begitu JWT dicabut, setiap query
+ * berikutnya ditolak server, jadi tombol Back tidak membuka apa-apa.
+ */
+/**
+ * Jejak bahwa Security Desk dibuka.
+ *
+ * Sengaja mutation, bukan query: query Convex tidak boleh menulis. Jadi panel
+ * memanggilnya sekali saat dibuka dan sekali saat detail satu baris dibuka,
+ * supaya ada jejak siapa yang meninjau data login tanpa menambah satu
+ * write per render.
+ */
+export const recordSecurityDeskEvent = mutation({
+  args: {
+    kind: v.union(v.literal("viewed"), v.literal("detail_viewed")),
+    attemptId: v.optional(v.id("adminPasscodeAttempts")),
+    windowHours: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { userId, role } = await requireManagementViewer(ctx);
+    await writeAudit(ctx, {
+      action: args.kind === "viewed" ? "admin.security_viewed" : "admin.security_detail_viewed",
+      actorId: userId,
+      entityId: args.attemptId,
+      metadata: {
+        role,
+        ...(args.windowHours ? { windowHours: args.windowHours } : {}),
+      },
+    });
+    return true;
+  },
+});
+
+export const logoutAdmin = mutation({
+  args: { route: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const { userId, role } = await requireStaff(ctx);
+    const presence = await ctx.db
+      .query("adminPresence")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .unique();
+    if (presence) await ctx.db.delete(presence._id);
+    await writeAudit(ctx, {
+      action: "admin.logout",
+      actorId: userId,
+      entityId: String(userId),
+      newValue: role,
+      metadata: { route: (args.route ?? "/admin").slice(0, 60) },
+    });
+    return { at: Date.now() };
+  },
+});
+
+/**
+ * Simpan konteks server untuk sesi yang sedang aktif, supaya panel "Sesi Anda"
+ * menampilkan IP yang benar-benar diamati origin — bukan yang diklaim browser.
+ * Nilainya disamarkan persis seperti di log percobaan masuk.
+ */
+export const reportSessionContext = internalMutation({
+  args: {
+    token: v.string(),
+    ipHash: v.optional(v.string()),
+    ipMasked: v.optional(v.string()),
+    ipSource: v.optional(v.string()),
+    ipFamily: v.optional(v.string()),
+    requestId: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    browser: v.optional(v.string()),
+    os: v.optional(v.string()),
+    deviceType: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    sessionFingerprint: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    if (!(await getStaffAccess(ctx, userId))) return null;
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("adminPresence")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .unique();
+    const isNewSession = !existing || existing.sessionFingerprint !== args.sessionFingerprint;
+    const fields = {
+      sessionFingerprint: args.sessionFingerprint ?? existing?.sessionFingerprint,
+      ipHash: args.ipHash ?? existing?.ipHash,
+      ipMasked: args.ipMasked ?? existing?.ipMasked,
+      ipSource: args.ipSource ?? existing?.ipSource,
+      ipFamily: args.ipFamily ?? existing?.ipFamily,
+      requestId: args.requestId ?? existing?.requestId,
+      userAgent: args.userAgent ?? existing?.userAgent,
+      browser: args.browser ?? existing?.browser,
+      os: args.os ?? existing?.os,
+      deviceType: args.deviceType ?? existing?.deviceType,
+      timezone: args.timezone ?? existing?.timezone,
+      lastSeenAt: now,
+    };
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        ...fields,
+        // `signedInAt` hanya bergerak saat perangkatnya benar-benar berganti,
+        // jadi heartbeat tiap menit tidak mereset "masuk sejak".
+        signedInAt: isNewSession ? now : existing.signedInAt ?? now,
+        firstSeenAt: existing.firstSeenAt ?? now,
+      });
+    } else {
+      await ctx.db.insert("adminPresence", {
+        userId,
+        ...fields,
+        firstSeenAt: now,
+        signedInAt: now,
+      });
+    }
+    return { isNewSession };
+  },
+});
+
+/** Panel "Sesi Anda". Hanya untuk pengelola, hanya tentang dirinya sendiri. */
+export const currentAdminSession = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId, role } = await requireStaff(ctx);
+    const user = await ctx.db.get(userId);
+    const presence = await ctx.db
+      .query("adminPresence")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .unique();
+    const now = Date.now();
+    return {
+      role,
+      name: user?.name ?? null,
+      signedInAt: presence?.signedInAt ?? presence?.lastSeenAt ?? null,
+      lastSeenAt: presence?.lastSeenAt ?? null,
+      active: presence ? now - presence.lastSeenAt < PRESENCE_STALE_MS : false,
+      sessionFingerprint: maskFingerprint(presence?.sessionFingerprint),
+      requestId: maskRequestId(presence?.requestId),
+      ipMasked: presence?.ipMasked ?? null,
+      ipSource: presence?.ipSource ?? null,
+      ipFamily: presence?.ipFamily ?? null,
+      userAgent: presence?.userAgent ?? null,
+      browser: presence?.browser ?? null,
+      os: presence?.os ?? null,
+      deviceType: presence?.deviceType ?? null,
+      timezone: presence?.timezone ?? null,
+    };
   },
 });

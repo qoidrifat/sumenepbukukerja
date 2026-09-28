@@ -13,13 +13,17 @@ import { expect, test, vi } from "vitest";
  */
 
 const state = vi.hoisted(() => ({
-  events: [] as unknown[],
+  events: null as unknown,
   summary: null as unknown,
+  ips: [] as unknown[],
+  session: null as unknown,
 }));
 
 vi.mock("@/lib/catalog-store", () => ({
   useAdminSecurityEvents: () => state.events,
   useAdminSecuritySummary: () => state.summary,
+  useAdminIpActivity: () => state.ips,
+  useCurrentAdminSession: () => state.session,
 }));
 
 const { AdminSecurityLog } = await import("./admin-security-log");
@@ -99,7 +103,7 @@ const fullEvent = makeEvent({
 });
 
 const render = (events: unknown[], summary: unknown = null) => {
-  state.events = events;
+  state.events = { events, nextCursor: null, total: events.length };
   state.summary = summary;
   return renderToStaticMarkup(createElement(AdminSecurityLog));
 };

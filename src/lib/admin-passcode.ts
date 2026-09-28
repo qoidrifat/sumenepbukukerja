@@ -147,6 +147,72 @@ export function trimUserAgent(value?: string) {
 }
 
 export const PASSCODE_MAX_LENGTH = 200;
+
+/**
+ * Passcode ini menambah gesekan di depan gerbang admin, bukan rahasia utama —
+ * peran tetap diputuskan server dari `staffMembers`. Karena itu kebijakannya
+ * dibuat tetap wajar dan tidak ekstrem: yang dicek adalah panjang, variasi, dan
+ * nilai yang jelas-jelas sudah dipakai orang lain. Aturan yang lebih ketat
+ * hanya akan mendorong admin menulis passcode yang lebih mudah ditebak.
+ */
+export const PASSCODE_MIN_LENGTH = 8;
+
+/** Nilai yang jelas sudah dipakai orang lain di dunia nyata. */
+const COMMON_PASSWORDS = new Set([
+  "password", "password1", "password123", "admin123", "administrator",
+  "12345678", "123456789", "1234567890", "qwerty123", "abc12345",
+  "adminadmin", "passcode", "bukukerja", "sumenep", "sumenep123",
+  "iloveyou", "letmein", "welcome", "welcome1", "changeme",
+]);
+
+export type PasscodeAssessment = {
+  ok: boolean;
+  level: "weak" | "fair" | "strong";
+  label: string;
+  issues: string[];
+};
+
+/**
+ * Nilai kecocokan passcode, murni supaya bisa diuji tanpa menjalankan action.
+ * Server tetap jadi otoritas: assessment ini hanya untuk memberi umpan balik
+ * sebelum dikirim, bukan untuk menggantikan pemeriksaan di server.
+ */
+export function assessPasscode(passcode: string, current?: string): PasscodeAssessment {
+  const value = normalizePasscode(passcode);
+  const issues: string[] = [];
+  if (value.length < PASSCODE_MIN_LENGTH) {
+    issues.push(`Pakai minimal ${PASSCODE_MIN_LENGTH} karakter.`);
+  }
+  if (value.length > PASSCODE_MAX_LENGTH) {
+    issues.push(`Maksimal ${PASSCODE_MAX_LENGTH} karakter.`);
+  }
+  const lower = value.toLowerCase();
+  if (COMMON_PASSWORDS.has(lower)) {
+    issues.push("Passcode ini terlalu umum dan mudah ditebak.");
+  }
+  if (current !== undefined && value === normalizePasscode(current)) {
+    issues.push("Passcode baru harus berbeda dari passcode lama.");
+  }
+  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((pattern) =>
+    pattern.test(value),
+  ).length;
+  if (value.length >= 8 && classes < 2) {
+    issues.push("Campurkan huruf, angka, atau simbol agar lebih sulit ditebak.");
+  }
+
+  const level: PasscodeAssessment["level"] =
+    issues.length === 0 && classes >= 3 && value.length >= 12
+      ? "strong"
+      : issues.length === 0
+        ? "fair"
+        : "weak";
+  return {
+    ok: issues.length === 0,
+    level,
+    label: level === "strong" ? "Kuat" : level === "fair" ? "Cukup" : "Lemah",
+    issues,
+  };
+}
 export const MAX_ATTEMPTS = 3;
 export const LOCKOUT_MS = 60 * 60_000;
 /**

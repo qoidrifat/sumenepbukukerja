@@ -793,9 +793,19 @@ export function useAdminSecurityEvents(limit = 25, enabled = true) {
   return useQuery(api.adminGate.listAdminSecurityEvents, enabled ? { limit } : "skip");
 }
 
-/** Ringkasan 24 jam untuk strip pembuka panel audit keamanan. */
-export function useAdminSecuritySummary(enabled = true) {
-  return useQuery(api.adminGate.adminSecuritySummary, enabled ? {} : "skip");
+/** Ringkasan jendela waktu untuk strip pembuka panel audit keamanan. */
+export function useAdminSecuritySummary(windowHours = 24, enabled = true) {
+  return useQuery(api.adminGate.adminSecuritySummary, enabled ? { windowHours } : "skip");
+}
+
+/** "Aktivitas berdasarkan IP": satu baris per IP dengan hitungan dan geo. */
+export function useAdminIpActivity(limit = 20, enabled = true) {
+  return useQuery(api.adminGate.listAdminIpActivity, enabled ? { limit } : "skip");
+}
+
+/** Panel "Sesi Anda": hanya tentang sesi pengelola yang sedang membaca. */
+export function useCurrentAdminSession(enabled = true) {
+  return useQuery(api.adminGate.currentAdminSession, enabled ? {} : "skip");
 }
 
 export function useReviewQueue(enabled = true) {

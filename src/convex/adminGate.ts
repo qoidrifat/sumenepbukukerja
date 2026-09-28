@@ -1137,6 +1137,15 @@ export const reportSessionContext = mutation({
     os: v.optional(v.string()),
     deviceType: v.optional(v.string()),
     timezone: v.optional(v.string()),
+    // Klien mengirim device id mentah, sama seperti saat login. Yang tersimpan
+    // di server tetap hasil hash-nya, persis seperti `verifyAdminPasscode`
+    // melakukan. Kalau klien boleh mengirim sidik jadi, kedua sisi tidak pernah
+    // bisa dibandingkan — dan device id mentah ikut bocor ke tabel presence.
+    deviceId: v.optional(v.string()),
+    // Nama lama. Klien versi sebelumnya mengirim device id mentah di sini juga,
+    // jadi nilainya identik dan bisa langsung di-hash. Satu argumen transisional
+    // ini membuat urutan deploy tidak penting: klien lama tidak diam-diam gagal
+    // heartbeat, dan adaptsinya ke bentuk baru selesai sendiri.
     sessionFingerprint: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -1144,6 +1153,10 @@ export const reportSessionContext = mutation({
     if (!userId) return null;
     if (!(await getStaffAccess(ctx, userId))) return null;
     const now = Date.now();
+    const deviceId = args.deviceId ?? args.sessionFingerprint;
+    const sessionFingerprint = deviceId
+      ? await deriveSessionFingerprint(deviceId, FINGERPRINT_SALT)
+      : undefined;
     // Id sesi dibaca dari JWT yang ditandatangani server, tidak pernah dari
     // klien. Kalau ini diambil dari argumen, siapa pun bisa menulis id sesi
     // orang lain lalu mencabutnya.
@@ -1153,9 +1166,9 @@ export const reportSessionContext = mutation({
       .query("adminPresence")
       .withIndex("byUser", (q) => q.eq("userId", userId))
       .unique();
-    const isNewSession = !existing || existing.sessionFingerprint !== args.sessionFingerprint;
+    const isNewSession = !existing || existing.sessionFingerprint !== sessionFingerprint;
     const fields = {
-      sessionFingerprint: args.sessionFingerprint ?? existing?.sessionFingerprint,
+      sessionFingerprint: sessionFingerprint ?? existing?.sessionFingerprint,
       ipHash: args.ipHash ?? existing?.ipHash,
       ipMasked: args.ipMasked ?? existing?.ipMasked,
       ipSource: args.ipSource ?? existing?.ipSource,
@@ -1189,27 +1202,41 @@ export const reportSessionContext = mutation({
     // nyata. Tanpa langkah ini Security Desk hanya tahu "passcode cocok", bukan
     // "ada sesi hidup dari perangkat ini" — sehingga tidak ada yang bisa
     // dicabut. Lihat `adminSessionBindings` di schema.
-    if (sessionId && sessionReference) {
+    if (sessionId && sessionReference && sessionFingerprint) {
       await bindAttemptToSession(ctx, {
         userId,
         sessionId,
         sessionReference,
-        fingerprint: args.sessionFingerprint,
+        fingerprint: sessionFingerprint,
       });
     }
     return { isNewSession };
   },
 });
 
-/** Seberapa lama percobaan "berhasil" masih boleh diklaim oleh sebuah sesi. */
-const SESSION_BIND_WINDOW_MS = 30 * 60_000;
+/**
+ * Seberapa lama percobaan "berhasil" masih boleh diklaim oleh sebuah sesi.
+ *
+ * Jendelanya longgar karena pencocokan sekarang WAJIB persis pada sidik jari
+ * perangkat, bukan sekadar "percobaan sukses terbaru". Device id yang sudah
+ * di-hash dan bergaram tidak bisa ditebak, jadi melebar jendela di sini tidak
+ * menambah permukaan serangan. Justru sebaliknya: pengikatan jadi andal
+ * tanpa perlu melonggarkan pengecekan sama sekali.
+ */
+const SESSION_BIND_WINDOW_MS = 24 * 60 * 60_000;
 
 /**
  * Menemukan percobaan "berhasil" yang menjadi asal sesi ini lalu mengikatnya.
  *
  * Syaratnya sengaja ketat: hanya percobaan sukses, hanya yang belum terikat,
- * dan hanya dalam jendela waktu dekat. Tanpa itu, sesi baru bisa mengambil
- * alih percobaan lama sehingga admin bisa mencabut perangkat yang salah.
+ * dan sidik jarinya harus PERSIS sama dengan perangkat yang sedang melapor.
+ *
+ * Sebelumnya ada fallback "ambil kandidat terbaru saja" kalau sidik jarinya
+ * tidak cocok. Fallback itu yang membuat dua admin yang kebetulan login di
+ * menit yang sama bisa saling mengambil-alih percobaan, sehingga tombol
+ * "Cabut Sesi Ini" bisa mengarahkan admin mencabut perangkat yang salah.
+ * Fallback itu sudah dihapus; sekarang tidak cocok berarti tidak terikat, dan
+ * UI jujur menampilkan "sesi tidak terlacak".
  */
 async function bindAttemptToSession(
   ctx: GenericMutationCtx<DataModel>,
@@ -1220,6 +1247,7 @@ async function bindAttemptToSession(
     fingerprint?: string;
   },
 ) {
+  if (!args.fingerprint) return null;
   const windowStart = Date.now() - SESSION_BIND_WINDOW_MS;
   const candidates = (
     await ctx.db
@@ -1227,15 +1255,15 @@ async function bindAttemptToSession(
       .withIndex("byCreatedAt", (q) => q.gte("createdAt", windowStart))
       .collect()
   )
-    .filter((row) => row.outcome === "success" && !row.sessionReference)
+    .filter(
+      (row) =>
+        row.outcome === "success" &&
+        !row.sessionReference &&
+        row.sessionFingerprint === args.fingerprint,
+    )
     .sort((a, b) => b.createdAt - a.createdAt);
 
-  // Perangkat yang sama lebih kuat bukti_than email yang sama: satu orang bisa
-  // punya beberapa perangkat, tapi satu perangkat hanya punya satu sesi.
-  const match =
-    (args.fingerprint
-      ? candidates.find((row) => row.sessionFingerprint === args.fingerprint)
-      : undefined) ?? candidates[0];
+  const match = candidates[0];
   if (!match) return null;
 
   await ctx.db.insert("adminSessionBindings", {

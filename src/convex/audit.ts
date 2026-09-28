@@ -17,6 +17,7 @@ export type AuditAction =
   | "report.moderated"
   | "staff.invited"
   | "staff.role_changed"
+  | "staff.role_change_blocked"
   | "staff.invite_accepted"
   | "admin.invite_created"
   | "staff.invite_rejected"

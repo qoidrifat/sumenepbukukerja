@@ -82,14 +82,13 @@ function useAdminSessionBeacon() {
           userAgent?: string | null;
         };
         if (!payload.contextId) return;
-        const deviceId =
-          (() => {
-            try {
-              return window.localStorage.getItem("bk.device-id") ?? undefined;
-            } catch {
-              return undefined;
-            }
-          })() ?? undefined;
+        const deviceId = (() => {
+          try {
+            return window.localStorage.getItem("bk.device-id") ?? undefined;
+          } catch {
+            return undefined;
+          }
+        })();
         await report({
           token: payload.contextId,
           requestId: payload.requestId ?? undefined,
@@ -97,7 +96,10 @@ function useAdminSessionBeacon() {
           ipSource: payload.ipSource ?? undefined,
           ipFamily: payload.ipFamily ?? undefined,
           userAgent: payload.userAgent ?? window.navigator.userAgent,
-          sessionFingerprint: deviceId,
+          // Yang dikirim device id mentah; server yang meng-hash-nya, sama
+          // seperti saat login. Mengirim sidik jadi dari klien membuat dua sisi
+          // tidak bisa dibandingkan, dan device id mentah ikut tersimpan.
+          deviceId,
         });
       } catch {
         // Beacon bukan syarat. Panel sesi tetap berguna tanpa IP.

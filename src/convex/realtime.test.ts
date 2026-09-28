@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test } from "vitest";
 import { encodePasscodeHash } from "../lib/admin-passcode";
-import { sha256Hex } from "../lib/security-context";
+import { deriveSessionFingerprint, sha256Hex } from "../lib/security-context";
 import { api, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import schema from "./schema";
@@ -2074,5 +2074,280 @@ describe("pencabutan sesi admin", () => {
         revokedBy: "dipalsukan",
       } as never),
     ).rejects.toBeTruthy();
+  });
+});
+
+describe("pengikatan percobaan login ke sesi nyata", () => {
+  const SALT = "sumenep-buku-kerja";
+
+  async function staff(t: ReturnType<typeof convexTest>, email: string) {
+    const userId = await seedUserId(t, { name: "Penguji", email });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("staffMembers", {
+        userId: userId as never,
+        role: "admin",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    return userId;
+  }
+
+  async function authSession(t: ReturnType<typeof convexTest>, userId: string) {
+    return await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+      };
+      return await db.insert("authSessions", {
+        userId,
+        expirationTime: Date.now() + 30 * 24 * 60 * 60_000,
+      });
+    });
+  }
+
+  async function successAttempt(
+    t: ReturnType<typeof convexTest>,
+    createdAt: number,
+    fingerprint?: string,
+  ) {
+    return await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+      };
+      return await db.insert("adminPasscodeAttempts", {
+        key: "kunci-uji-pengikatan",
+        outcome: "success",
+        createdAt,
+        sessionFingerprint: fingerprint,
+      });
+    });
+  }
+
+  test("deviceId dari klien di-hash server dan tidak pernah tersimpan mentah", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await staff(t, "hash-owner@sumenep.co.id");
+    const sessionId = await authSession(t, userId);
+    const rawDeviceId = "4e137404de5843fc6fc2855180057be9";
+    const admin = t.withIdentity({ subject: `${userId}|${sessionId}` });
+
+    await admin.mutation(api.adminGate.reportSessionContext, { token: "kctx-uji", deviceId: rawDeviceId });
+
+    const presence = await t.run(async (ctx) => ctx.db.query("adminPresence").collect());
+    const expected = await deriveSessionFingerprint(rawDeviceId, SALT);
+
+    // Yang tersimpan harus bentuk ber-prefix `sfp_`, sama seperti yang dipakai
+    // tabel percobaan. Bentuk mentah di sini berarti klien pernah kirim sidik
+    // jadi, dan pengikatan tidak akan pernah cocok.
+    expect(presence[0]?.sessionFingerprint).toBe(expected);
+    expect(presence[0]?.sessionFingerprint).toMatch(/^sfp_/);
+    // Device id mentah tidak boleh muncul di baris mana pun.
+    expect(JSON.stringify(presence)).not.toContain(rawDeviceId);
+  });
+
+  test("percobaan sukses diikat ke sesi saat sidik jarinya sama persis", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await staff(t, "bind-owner@sumenep.co.id");
+    const sessionId = await authSession(t, userId);
+    const deviceId = "abcdef0123456789abcdef0123456789";
+    const fingerprint = await deriveSessionFingerprint(deviceId, SALT);
+    const attemptId = await successAttempt(t, Date.now() - 5_000, fingerprint);
+    const admin = t.withIdentity({ subject: `${userId}|${sessionId}` });
+
+    await admin.mutation(api.adminGate.reportSessionContext, { token: "kctx-uji", deviceId });
+
+    const bindings = await t.run(async (ctx) => ctx.db.query("adminSessionBindings").collect());
+    expect(bindings.length).toBe(1);
+    expect(bindings[0]?.attemptId).toBe(attemptId);
+    expect(bindings[0]?.sessionId).toBe(sessionId);
+
+    // Baris percobaan ikut ditandai supaya Security Desk tahu ada sesi hidup.
+    const attempts = await t.run(async (ctx) => ctx.db.query("adminPasscodeAttempts").collect());
+    expect(attempts[0]?.sessionReference).toBe(bindings[0]?.sessionReference);
+  });
+
+  test("sidik jari berbeda tidak boleh mengambil alih percobaan orang lain", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await staff(t, "isolasi-owner@sumenep.co.id");
+    const sessionId = await authSession(t, userId);
+
+    // Percobaan milik admin lain, dengan sidik jari perangkat yang lain.
+    const otherFingerprint = await deriveSessionFingerprint("perangkat-orang-lain", SALT);
+    const now = Date.now();
+    await successAttempt(t, now - 2_000, otherFingerprint);
+    await successAttempt(t, now - 1_000, otherFingerprint);
+
+    const admin = t.withIdentity({ subject: `${userId}|${sessionId}` });
+    await admin.mutation(api.adminGate.reportSessionContext, {
+      token: "kctx-uji",
+      deviceId: "perangkat-yang-sama-sekali-berbeda",
+    });
+
+    // Ini regresi untuk fallback lama. Fallback "ambil kandidat terbaru saja"
+    // akan mengikat dua percobaan itu ke sesi admin ini, sehingga admin bisa
+    // mencabut perangkat yang salah orang.
+    const bindings = await t.run(async (ctx) => ctx.db.query("adminSessionBindings").collect());
+    expect(bindings.length).toBe(0);
+  });
+
+  test("klien versi lama yang masih memakai nama argumen lama tetap aman", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await staff(t, "lama-owner@sumenep.co.id");
+    const sessionId = await authSession(t, userId);
+    const rawDeviceId = "lama-device-id-000000000000000000";
+    const admin = t.withIdentity({ subject: `${userId}|${sessionId}` });
+
+    // Klien yang sudah terbuka sebelum deploy baru tetap mengirim device id
+    // mentah di argimen bernama lama. Kalau server menolaknya, heartbeat-nya
+    // gagal diam-diam dan baris presence membeku. Nilainya tetap di-hash, jadi
+    // tidak ada jalan untuk menyimpan device id mentah.
+    await admin.mutation(api.adminGate.reportSessionContext, {
+      token: "kctx-uji",
+      sessionFingerprint: rawDeviceId,
+    });
+
+    const presence = await t.run(async (ctx) => ctx.db.query("adminPresence").collect());
+    expect(presence[0]?.sessionFingerprint).toBe(await deriveSessionFingerprint(rawDeviceId, SALT));
+    expect(JSON.stringify(presence)).not.toContain(rawDeviceId);
+  });
+
+  test("percobaan lebih tua dari satu hari tidak diklaim meski sidik jarinya sama", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await staff(t, "jendela-owner@sumenep.co.id");
+    const sessionId = await authSession(t, userId);
+    const deviceId = "jendeladeviceid0000000000000000abcd";
+    const fingerprint = await deriveSessionFingerprint(deviceId, SALT);
+    await successAttempt(t, Date.now() - 25 * 60 * 60_000, fingerprint);
+    const admin = t.withIdentity({ subject: `${userId}|${sessionId}` });
+
+    await admin.mutation(api.adminGate.reportSessionContext, { token: "kctx-uji", deviceId });
+
+    const bindings = await t.run(async (ctx) => ctx.db.query("adminSessionBindings").collect());
+    expect(bindings.length).toBe(0);
+  });
+
+  test("percobaan yang sama tidak diklaim dua kali saat beacon berulang", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await staff(t, "ulang-owner@sumenep.co.id");
+    const sessionId = await authSession(t, userId);
+    const deviceId = "ulangdeviceid0000000000000000000abcd";
+    const fingerprint = await deriveSessionFingerprint(deviceId, SALT);
+    await successAttempt(t, Date.now() - 3_000, fingerprint);
+    const admin = t.withIdentity({ subject: `${userId}|${sessionId}` });
+
+    for (let i = 0; i < 3; i += 1) {
+      await admin.mutation(api.adminGate.reportSessionContext, { token: "kctx-uji", deviceId });
+    }
+
+    const bindings = await t.run(async (ctx) => ctx.db.query("adminSessionBindings").collect());
+    expect(bindings.length).toBe(1);
+  });
+});
+
+describe("perlindungan peran akun pemilik", () => {
+  const OWNER_EMAIL = "qoidrifat23@gmail.com";
+
+  async function adminMember(
+    t: ReturnType<typeof convexTest>,
+    email: string,
+    role: "admin" | "staff" | "viewer" = "admin",
+  ) {
+    const userId = await seedUserId(t, { name: `Uji ${email}`, email });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("staffMembers", {
+        userId: userId as never,
+        role,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    return userId;
+  }
+
+  test("admin lain tidak dapat mengubah peran akun pemilik", async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await adminMember(t, OWNER_EMAIL);
+    const otherId = await adminMember(t, "admin-lain@sumenep.co.id");
+    const other = t.withIdentity({ subject: otherId });
+
+    const result = await other.mutation(api.users.changeStaffRole, {
+      userId: ownerId as never,
+      role: "staff",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("pemilik");
+
+    // Perannya benar-benar tidak berubah di server.
+    const membership = await t.run(async (ctx) =>
+      ctx.db
+        .query("staffMembers")
+        .withIndex("byUser", (q) => q.eq("userId", ownerId as never))
+        .unique(),
+    );
+    expect(membership?.role).toBe("admin");
+  });
+
+  test("percobaan sneaking role owner tercatat di audit", async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await adminMember(t, OWNER_EMAIL);
+    const otherId = await adminMember(t, "audit-admin@sumenep.co.id");
+    const other = t.withIdentity({ subject: otherId });
+
+    const result = await other.mutation(api.users.changeStaffRole, {
+      userId: ownerId as never,
+      role: "viewer",
+    });
+    expect(result.ok).toBe(false);
+
+    const audits = await t.run(async (ctx) =>
+      ctx.db
+        .query("auditLogs")
+        .withIndex("byAction", (q) => q.eq("action", "staff.role_change_blocked"))
+        .collect(),
+    );
+    expect(audits.length).toBe(1);
+    expect(audits[0]?.entityId).toBe(ownerId);
+  });
+
+  test("peran akun selain pemilik tetap bisa diubah admin lain", async () => {
+    const t = convexTest(schema, modules);
+    const targetId = await adminMember(t, "biasa@sumenep.co.id", "staff");
+    const otherId = await adminMember(t, "pengubah@sumenep.co.id");
+    const other = t.withIdentity({ subject: otherId });
+
+    await other.mutation(api.users.changeStaffRole, { userId: targetId as never, role: "viewer" });
+    const membership = await t.run(async (ctx) =>
+      ctx.db
+        .query("staffMembers")
+        .withIndex("byUser", (q) => q.eq("userId", targetId as never))
+        .unique(),
+    );
+    expect(membership?.role).toBe("viewer");
+  });
+
+  test("pemilik tidak terkunci dari akunnya sendiri di daftar pengelola", async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await adminMember(t, OWNER_EMAIL);
+    const otherId = await adminMember(t, "penampil@sumenep.co.id");
+    const other = t.withIdentity({ subject: otherId });
+
+    const seenByOther = await other.query(api.users.listStaff, {});
+    expect(seenByOther.find((m) => m.userId === ownerId)?.roleLocked).toBe(true);
+
+    const owner = t.withIdentity({ subject: ownerId });
+    const seenByOwner = await owner.query(api.users.listStaff, {});
+    expect(seenByOwner.find((m) => m.userId === ownerId)?.roleLocked).toBe(false);
+  });
+
+  test("huruf besar dan spasi tidak membatalkan perlindungan", async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await adminMember(t, "  Qoidrifat23@Gmail.COM  ");
+    const otherId = await adminMember(t, "kasus-2@sumenep.co.id");
+    const other = t.withIdentity({ subject: otherId });
+
+    const result = await other.mutation(api.users.changeStaffRole, {
+      userId: ownerId as never,
+      role: "staff",
+    });
+    expect(result.ok).toBe(false);
   });
 });

@@ -109,7 +109,15 @@ export function AdminGovernance() {
     setError("");
     setNotice("");
     try {
-      await task();
+      const result = await task();
+      // Sebagian mutasi mengembalikan `{ ok: false }` alih-alih melempar,
+      // supaya penolakannya sempat tercatat di audit. Menampilkan
+      // "berhasil" untuk hasil seperti itu akan berbohong ke operator.
+      if (result && typeof result === "object" && "ok" in result && (result as { ok?: unknown }).ok === false) {
+        const message = (result as { message?: string }).message;
+        setError(message ?? "Aksi governance belum dapat diselesaikan.");
+        return;
+      }
       setNotice(success);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Aksi governance belum dapat diselesaikan.");
@@ -161,7 +169,7 @@ export function AdminGovernance() {
             setEmail(""); }, "Tautan undangan dibuat. Bagikan sekali lewat kanal pribadi."); }} className="mt-3 grid gap-2 sm:grid-cols-[1fr_9rem_auto]"><label className="sr-only" htmlFor="staff-invite-email">Email pengelola</label><input id="staff-invite-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="email@contoh.id" className={inputClass} required /><label className="sr-only" htmlFor="staff-invite-role">Peran pengelola</label><ThemedSelect id="staff-invite-role" variant="admin" value={inviteRole} onValueChange={(value) => setInviteRole(value as typeof inviteRole)} options={staffRoleSelectOptions} /><button type="submit" className="admin-btn admin-btn-primary" disabled={busy === "invite"}>Buat invite</button></form> : <p className="mt-3 text-sm text-[#525252]">Hanya admin yang dapat membuat atau mengubah peran.</p>}
           {inviteLink ? <InviteLinkResult url={inviteLink.url} email={inviteLink.email} role={inviteLink.role} expiresAt={inviteLink.expiresAt} /> : null}
           <form onSubmit={(event) => { event.preventDefault(); void run("accept", () => acceptInvite({ token: acceptCode }), "Peran akun diperbarui."); }} className="mt-3 flex gap-2"><label className="sr-only" htmlFor="staff-accept-code">Kode undangan</label><input id="staff-accept-code" value={acceptCode} onChange={(event) => setAcceptCode(event.target.value)} placeholder="Tempel kode undangan" className={inputClass} required /><button type="submit" className="admin-btn admin-btn-secondary" disabled={busy === "accept"}>Terima</button></form>
-          <div className="mt-4 space-y-2">{members?.map((member) => <div key={member._id} className="flex flex-wrap items-center justify-between gap-2 border-b border-[#D6D3D1] pb-2 text-sm"><span className="font-bold">{member.name} · {member.email}</span>{access.canManageRoles ? <ThemedSelect aria-label={`Peran ${member.name}`} variant="admin" size="sm" className="w-auto min-w-[7.5rem]" value={member.role} onValueChange={(value) => void run(member._id, () => changeRole({ userId: member.userId as never, role: value as "admin" | "staff" | "viewer" }), "Peran diperbarui.")} options={staffRoleSelectOptions} /> : <span className="rounded-full bg-[#F1EDE3] px-2 py-1 text-xs font-black">{member.role}</span>}</div>)}</div>
+          <div className="mt-4 space-y-2">{members?.map((member) => <div key={member._id} className="flex flex-wrap items-center justify-between gap-2 border-b border-[#D6D3D1] pb-2 text-sm"><span className="font-bold">{member.name} · {member.email}</span>{access.canManageRoles && !member.roleLocked ? <ThemedSelect aria-label={`Peran ${member.name}`} variant="admin" size="sm" className="w-auto min-w-[7.5rem]" value={member.role} onValueChange={(value) => void run(member._id, () => changeRole({ userId: member.userId as never, role: value as "admin" | "staff" | "viewer" }), "Peran diperbarui.")} options={staffRoleSelectOptions} /> : member.roleLocked ? <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F1EDE3] px-2 py-1 text-xs font-black text-[#525252]" title="Peran akun pemilik hanya dapat diubah oleh pemilik akun tersebut">{member.role} <span className="font-medium">· akun pemilik</span></span> : <span className="rounded-full bg-[#F1EDE3] px-2 py-1 text-xs font-black">{member.role}</span>}</div>)}</div>
           {invites?.filter((invite) => !invite.acceptedAt && !invite.revokedAt).length ? <details className="mt-3 text-sm"><summary className="cursor-pointer font-black">Undangan aktif</summary><ul className="mt-2 space-y-2">{invites.filter((invite) => !invite.acceptedAt && !invite.revokedAt).map((invite) => <li key={invite._id} className="flex items-center justify-between gap-2"><span>{invite.email} · {invite.role}</span>{access.canManageRoles ? <button type="button" className="font-black text-red-700" onClick={() => void run(invite._id, () => revokeInvite({ inviteId: invite._id }), "Undangan dicabut.")}>Cabut</button> : null}</li>)}</ul></details> : null}
         </article>
 

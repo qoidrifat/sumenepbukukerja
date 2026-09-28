@@ -391,6 +391,19 @@ export const acceptStaffInvite = mutation({
   },
 });
 
+/**
+ * Akun pemilik. Perannya hanya boleh diubah oleh dirinya sendiri.
+ *
+ * Daftar ini sengaja pendek dan tinggal di satu tempat supaya mudah ditinjau:
+ * menambah nama berarti menambah satu baris di sini, bukan Menambah kondisi
+ * baru yang tersembunyi di beberapa tempat.
+ */
+const OWNER_ACCOUNT_EMAILS = new Set(["qoidrifat23@gmail.com"]);
+
+function isOwnerAccount(email: string | null | undefined): boolean {
+  return OWNER_ACCOUNT_EMAILS.has((email ?? "").trim().toLowerCase());
+}
+
 export const changeStaffRole = mutation({
   args: { userId: v.id("users"), role: staffRoleValidator },
   handler: async (ctx, args) => {
@@ -403,9 +416,35 @@ export const changeStaffRole = mutation({
       .withIndex("byUser", (q) => q.eq("userId", args.userId))
       .unique();
     if (!membership) throw new Error("Anggota pengelola tidak ditemukan");
+    if (membership.role !== args.role) {
+      const target = await ctx.db.get(args.userId);
+      // Dilarang oleh siapa pun selain pemiliknya sendiri. Perbandingan memakai
+      // id, bukan email, jadi akun yang dihapus lalu dibuat ulang dengan email
+      // sama tidak mewarisi perlindungan ini.
+      //
+      // Penolakan ini sengaja dikembalikan, bukan dilempar. Melempar akan
+      // membatalkan seluruh transaksi, termasuk pencatatan audit-nya — dan
+      // percobaan mengubah peran akun pemilik justru salah satu hal yang
+      // paling perlu terlihat di log.
+      if (args.userId !== actorId && isOwnerAccount(target?.email)) {
+        await writeAudit(ctx, {
+          action: "staff.role_change_blocked",
+          actorId,
+          entityId: args.userId,
+          oldValue: membership.role,
+          newValue: args.role,
+          metadata: { reason: "OWNER_ACCOUNT" },
+        });
+        return {
+          ok: false as const,
+          reason: "OWNER_ACCOUNT_PROTECTED" as const,
+          message: "Peran akun pemilik hanya dapat diubah oleh pemilik akun tersebut",
+        };
+      }
+    }
     await ctx.db.patch(membership._id, { role: args.role, updatedAt: Date.now() });
     await writeAudit(ctx, { action: "staff.role_changed", actorId, entityId: args.userId, oldValue: membership.role, newValue: args.role });
-    return membership._id;
+    return { ok: true as const, membershipId: membership._id };
   },
 });
 
@@ -425,7 +464,7 @@ export const revokeStaffInvite = mutation({
 export const listStaff = query({
   args: {},
   handler: async (ctx) => {
-    await requireStaff(ctx, "admin");
+    const { userId: actorId } = await requireStaff(ctx, "admin");
     const rows = await ctx.db.query("staffMembers").collect();
     return Promise.all(rows.map(async (membership) => {
       const user = await ctx.db.get(membership.userId);
@@ -434,6 +473,11 @@ export const listStaff = query({
         name: user?.name ?? "Pengguna",
         email: user?.email ?? "Email belum tersedia",
         emailVerified: Boolean(user?.emailVerificationTime),
+        // Dihitung dari server memakai aturan yang sama persis dengan mutasi
+        // ubah peran. Daftar akun pemilik hanya ada di satu tempat; kalau
+        // aturan ini ikut disalin ke klien, cepat atau lambat keduanya
+        // berbeda pendapat.
+        roleLocked: membership.userId !== actorId && isOwnerAccount(user?.email),
       };
     }));
   },

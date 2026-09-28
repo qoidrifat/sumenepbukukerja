@@ -30,6 +30,7 @@ import {
 import {
   useCatalogVendors,
   useCatalogActions,
+  useImageUpload,
   useFavorites,
   useOwnerVendors,
   useMyClaims,
@@ -285,6 +286,7 @@ function OwnerListingManager() {
       .map((claim) => String(claim.vendorId)),
   );
   const { create, update, archive, availability, generateUploadUrl } = useCatalogActions();
+  const uploadImageFile = useImageUpload();
   const categoryFieldId = useId();
   const areaFieldId = useId();
   const statusFieldId = useId();
@@ -353,16 +355,10 @@ function OwnerListingManager() {
     try {
       let photoId = draft.photoId;
       if (photoFile) {
-        if (photoFile.size > 1_000_000) throw new Error("Ukuran foto maksimal 1 MB.");
-        const uploadUrl = await generateUploadUrl();
-        const response = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": photoFile.type || "image/jpeg" },
-          body: photoFile,
-        });
-        if (!response.ok) throw new Error("Foto gagal diunggah. Coba foto yang lebih kecil.");
-        const uploaded = (await response.json()) as { storageId?: string };
-        if (!uploaded.storageId) throw new Error("ID foto belum diterima.");
+        // Satu alur unggah: downscale bila perlu, dedup lewat peta blob. Aturan
+        // ukuran/jenis tidak ditulis ulang di sini — semuanya di
+        // `@/lib/image-upload`, sama seperti yang dipakai server.
+        const uploaded = await uploadImageFile(photoFile, () => generateUploadUrl());
         photoId = uploaded.storageId;
       }
       const payload = ownerListingPayload(draft, photoId);

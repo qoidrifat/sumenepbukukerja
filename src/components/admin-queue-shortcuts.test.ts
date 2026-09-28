@@ -16,6 +16,11 @@ import { queueFilters, type QueueFilter } from "@/components/admin-workspace";
  */
 
 const adminPage = readFileSync(new URL("../pages/Admin.tsx", import.meta.url), "utf8");
+// Blok Ringkasan cepat dipindah ke komponennya sendiri saat `Admin.tsx`
+// dipecah. Kontraknya tidak berubah, hanya tempatnya — jadi kedua berkas
+// sama-sama diperiksa, bukan hanya yang baru.
+const hero = readFileSync(new URL("./admin-workspace-hero.tsx", import.meta.url), "utf8");
+const source = adminPage + hero;
 
 test("setiap antrean punya pilihan filter di meja triage", () => {
   // Tanpa ini, shortcut akan_filter yang tidak ada di mana pun.
@@ -36,9 +41,11 @@ test("nama antrean bukan kode mesin", () => {
 test("shortcut menuju meja triage dan sekaligus menyaring antrean", () => {
   // `href` saja tidak cukup: ia akan melompat ke tabel yang masih menampilkan
   // semua listing, jadi antrean yang diklik tidak terlihat.
-  expect(adminPage).toContain('href="#admin-triage"');
-  expect(adminPage).toContain("onClick={() => setQueueFilter(shortcut.queue)}");
-  expect(adminPage).toContain("aria-label=\"Shortcut antrean kerja\"");
+  expect(source).toContain('href="#admin-triage"');
+  expect(source).toContain("onClick={() => onSelectQueue(shortcut.queue)}");
+  // Dan halaman harus benar-benar meneruskan setter-nya ke komponen hero.
+  expect(adminPage).toContain("onSelectQueue={setQueueFilter}");
+  expect(source).toContain("aria-label=\"Shortcut antrean kerja\"");
 });
 
 test("angka shortcut dan isi tabel memakai predikat yang sama", () => {

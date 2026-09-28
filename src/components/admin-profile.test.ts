@@ -69,23 +69,42 @@ test("id berkas dibaca dari jawaban unggah, bukan dari seluruh jawabannya", () =
   // menolaknya dengan ArgumentValidationError karena validatornya `v.string()`.
   // `as` mematikan pemeriksaan tipe, jadi tidak ada satu pun peringatan dari
   // TypeScript sebelum kejadian itu.
-  expect(profile).toContain("readUploadedStorageId(await response.json()");
+  //
+  // Pembacaan jawaban jawaban sekarang TIDAK ditulis di komponen ini lagi:
+  // seluruh alur unggah melewati `uploadWithDedup`, satu-satunya tempat yang
+  // boleh menyentuh `response.json()`.
+  expect(profile).toContain("uploadWithDedup(");
   expect(profile).not.toMatch(/response\.json\(\)\)\s*as\s+string/);
-  // Semua situs unggah lain di aplikasi sudah memakai bentuk `{ storageId }`;
-  // panel profil sekarang satu bahasa dengan mereka.
-  expect(profile).toContain("setPending(storageId)");
+  expect(profile).not.toContain("await response.json()");
+  // Semua situs unggah lain di aplikasi memakai modul yang sama, jadi panel
+  // profil dan galeri listing tidak bisa lagi berbeda.
+  expect(profile).toContain("setPending(result.storageId)");
 });
 
 test("aturan ukuran dan jenis foto diambil dari modul bersama, bukan ditulis ulang", () => {
   // Dua salinan aturan berarti dua kesempatan untuk berbeda pendapat — dan
   // yang paling sering terjadi adalah pesannya berbeda untuk berkas yang sama.
+  // Validasi sekarang tinggal di dalam `uploadWithDedup`; komponen ini
+  // tidak boleh menulis ulang aturan maupun batasnya sendiri.
   expect(profile).toContain('from "@/lib/image-upload"');
-  expect(profile).toContain("imageRejection({ size: file.size, contentType: file.type })");
+  expect(profile).not.toContain("imageRejection(");
   expect(profile).not.toContain("MAX_IMAGE_BYTES");
   // Teks batasnya pun dari modul itu, jadi tidak bisa lagi berbunyi "1 MB" di
   // UI sementara aturannya 1 MiB di server.
   expect(profile).toContain("Maksimal {MAX_IMAGE_LABEL}");
   expect(profile).toContain("formatBytes(picked.size)");
+});
+
+test("dedup dan downscale dilewati lewat satu alur unggah bersama", () => {
+  // Tiga jalur unggah (profil, galeri listing, bukti klaim) memakai helper
+  // yang sama. Kalau panel profil kembali mengunggah sendiri lewat `fetch`,
+  // foto profil berhenti ikut downscale dan dedup — dua keunggulan yang
+  // justru paling besar di byte yang terkirim ke storage.
+  expect(profile).toContain("uploadWithDedup(file, {");
+  expect(profile).toContain("lookupBlobBySha");
+  expect(profile).toContain("recordUploadedBlob");
+  // Tidak ada unggahan yang menentukan storageId di tempat lain.
+  expect(profile).not.toMatch(/fetch\(uploadUrl/);
 });
 
 test("menghapus foto adalah niat eksplisit, bukan kesimpulan dari keadaan", () => {

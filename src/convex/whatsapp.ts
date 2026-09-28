@@ -1039,6 +1039,83 @@ export const sendVendorUpdatedNotifications = internalAction({
  * sebagai nilai, bukan dilempar ke atas, supaya `deliverAdminAlert` bisa
  * menandainya `blocked` tanpa memicu laporan kedua.
  */
+/**
+ * Ringkasan harian untuk admin.
+ *
+ * Tiga angka saja, dan ketiganya dibaca lewat indeks dengan batas atas —
+ * bukan dengan menghitung seluruh tabel. Ini Sending HARIAN, bukan laporan
+ * lengkap: kalau tidak ada yang perlu diketahui, angka nol tetap dikirim,
+ * karena "tidak ada apa-apa hari ini" adalah informasi yang berguna.
+ */
+export const adminDailySummaryCounts = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const since = Date.now() - 24 * 60 * 60_000;
+    const [openErrors, newRequests, presence] = await Promise.all([
+      ctx.db
+        .query("errorReports")
+        .withIndex("byStatus", (q) => q.eq("status", "open"))
+        .take(1_000),
+      ctx.db
+        .query("serviceRequests")
+        .withIndex("byCreatedAt", (q) => q.gte("createdAt", since))
+        .take(1_000),
+      // Tabel `adminPresence` hanya berisi pengelola yang sedang masuk, jadi
+      // jumlahnya kecil; batas 200 tetap dipasang supaya tidak pernah berubah
+      // menjadi pemindaian penuh kalau strukturnya nanti bertambah.
+      ctx.db.query("adminPresence").take(200),
+    ]);
+    const activeSessions = presence.filter((row) => Date.now() - row.lastSeenAt < 15 * 60_000).length;
+    return {
+      openErrorReports: openErrors.length,
+      newRequests: newRequests.length,
+      activeAdminSessions: activeSessions,
+    };
+  },
+});
+
+/**
+ * Kirim ringkasan harian (dipanggil cron, dan bisa dipanggil manual).
+ *
+ * Idempoten lewat `deliveryKey` yang memuat tanggal WIB: jalan dua kali pada
+ * hari yang sama tidak menghasilkan dua pesan, dan bangun ulang cron setelah
+ * kegagalan tidak mengirim ulang pesan yang sudah sampai.
+ *
+ * Nomor tujuan memakai `ERROR_ALERT_WHATSAPP` yang sama dengan alert error.
+ * Kalau kosong, pengiriman DILEWATI dengan alasan tercatat — bukan nomor
+ * cadangan yang tertulis di source, dan bukan pesan yang diam-diam hilang.
+ */
+export const sendAdminDailySummary = internalAction({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{ sent: boolean; reason?: string; summary?: { openErrorReports: number; newRequests: number; activeAdminSessions: number } }> => {
+    const summary = await ctx.runQuery(internal.whatsapp.adminDailySummaryCounts, {});
+    // Tanggal WIB (UTC+7) — zona waktu operasi, bukan zona server.
+    const wib = new Date(Date.now() + 7 * 60 * 60_000).toISOString().slice(0, 10);
+    const phone = (process.env.ERROR_ALERT_WHATSAPP ?? "").trim();
+    if (!phone) {
+      return { sent: false as const, reason: "ERROR_ALERT_WHATSAPP belum diisi", summary };
+    }
+    const body = [
+      `Laporan Buku Kerja ${wib}`,
+      `Laporan error belum ditangani: ${summary.openErrorReports}`,
+      `Permintaan warga 24 jam: ${summary.newRequests}`,
+      `Sesi admin aktif: ${summary.activeAdminSessions}`,
+    ].join("\n");
+    // Logika pengiriman TIDAK diduplikasi: ringkasan ini memakai action alert
+    // yang sama dengan notifikasi error, lengkap dengan dedup `deliveryKey`,
+    // percobaan ulang, dan pencatatan status kiriman yang sama.
+    const result = await ctx.runAction(internal.whatsapp.sendAdminAlert, {
+      deliveryKey: `admin-summary:${wib}`,
+      phone,
+      title: "Ringkasan harian Buku Kerja",
+      body,
+    });
+    return { ...result, summary };
+  },
+});
+
 export const sendAdminAlert = internalAction({
   args: {
     deliveryKey: v.string(),

@@ -22,6 +22,7 @@ import { CategoryMascot } from "@/components/category-mascot";
 import { distanceLabel } from "@/lib/catalog-data";
 import {
   useCatalogActions,
+  useImageUpload,
   useCatalogVendors,
   useOwnerVendors,
   useMyInteractions,
@@ -804,6 +805,7 @@ export function ClaimListingPanel({ vendorId, vendorName, phone, address, ownedB
   const navigate = useNavigate();
   const claims = useVendorClaims(isAuthenticated ? vendorId : undefined);
   const { submitClaim, generateUploadUrl } = useCatalogActions();
+  const uploadImageFile = useImageUpload();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [whatsappPhone, setWhatsappPhone] = useState(phone);
@@ -820,12 +822,11 @@ export function ClaimListingPanel({ vendorId, vendorName, phone, address, ownedB
     try {
       let evidenceStorageId: string | undefined;
       if (evidence) {
-        if (evidence.size > 1_000_000) throw new Error("Bukti foto maksimal 1 MB.");
-        const uploadUrl = await generateUploadUrl();
-        const response = await fetch(uploadUrl, { method: "POST", headers: { "Content-Type": evidence.type || "image/jpeg" }, body: evidence });
-        if (!response.ok) throw new Error("Bukti gagal diunggah.");
-        const result = (await response.json()) as { storageId?: string };
-        evidenceStorageId = result.storageId;
+        // Jalur sama dengan foto profil dan galeri: downscale bila perlu, cek
+        // peta blob, unggah hanya kalau belum ada. Aturan ukuran/jenis tetap
+        // satu sumber di `@/lib/image-upload`, tidak ditulis ulang di sini.
+        const uploaded = await uploadImageFile(evidence, () => generateUploadUrl());
+        evidenceStorageId = uploaded.storageId;
       }
       await submitClaim({ vendorId: vendorId as never, email, whatsappPhone, businessAddress, evidenceStorageId });
       setStatus("pending");
@@ -857,6 +858,7 @@ export function ClaimListingPanel({ vendorId, vendorName, phone, address, ownedB
 export function OwnerGalleryManager({ vendorId, vendorName }: { vendorId: string; vendorName: string }) {
   const photos = useVendorPhotos(vendorId) ?? [];
   const { generateUploadUrl, createPhoto, removePhoto } = useCatalogActions();
+  const uploadImageFile = useImageUpload();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -865,29 +867,27 @@ export function OwnerGalleryManager({ vendorId, vendorName }: { vendorId: string
     setBusy(true);
     setMessage("");
     let uploaded = 0;
+    let resized = 0;
     try {
       for (const file of Array.from(files).slice(0, 12)) {
-        if (file.size > 1_000_000) {
-          setMessage("Setiap foto maksimal 1 MB.");
-          continue;
-        }
         if (photos.length + uploaded >= 12) {
           setMessage("Maksimal 12 foto per listing.");
           break;
         }
-        const uploadUrl = await generateUploadUrl();
-        const response = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": file.type || "image/jpeg" },
-          body: file,
-        });
-        if (!response.ok) throw new Error("Foto gagal diunggah.");
-        const result = (await response.json()) as { storageId?: string };
-        if (!result.storageId) throw new Error("ID foto belum diterima.");
-        await createPhoto({ vendorId: vendorId as never, storageId: result.storageId, caption: file.name.slice(0, 120) });
-        uploaded += 1;
+        // Downscale + dedup: foto 3 MB dari kamera ponsel diperkecil sebelum
+        // menyentuh jaringan, dan foto identik yang sudah ada di server tidak
+        // diunggah dua kali. Kesalahan per berkas tidak menghentikan sisa antrean.
+        try {
+          const result = await uploadImageFile(file, () => generateUploadUrl());
+          await createPhoto({ vendorId: vendorId as never, storageId: result.storageId, caption: file.name.slice(0, 120) });
+          uploaded += 1;
+          if (result.resized) resized += 1;
+        } catch (caught) {
+          setMessage(caught instanceof Error ? caught.message : "Foto belum dapat diunggah.");
+        }
       }
-      if (uploaded > 0) setMessage(`${uploaded} foto masuk antrean moderasi.`);
+      if (resized > 0) setMessage(`${uploaded} foto masuk antrean moderasi · ${resized} diperkecil otomatis.`);
+      if (uploaded > 0 && resized === 0) setMessage(`${uploaded} foto masuk antrean moderasi.`);
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : "Foto belum dapat diunggah.");
     } finally {

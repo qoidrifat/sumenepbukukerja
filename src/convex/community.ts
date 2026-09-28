@@ -1343,6 +1343,27 @@ export const updateReport = mutation({
       oldValue: report.status,
       newValue: args.status,
     });
+    // Pelapor perlu tahu hasil laporannya. Sebelumnya moderasi hanya mengubah
+    // status di server — dari sisi warga, laporannya hilang tanpa kabar, dan
+    // tidak ada cara untuk tahu apakah sudah ditinjau atau diabaikan.
+    // Hanya dibuat saat status benar-benar BERUBAH, supaya moderasi ulang
+    // dengan status yang sama tidak menumpuk notifikasi.
+    if (report.reporterId && report.status !== args.status) {
+      const labels: Record<string, string> = {
+        reviewing: "sedang ditinjau pengelola",
+        resolved: "sudah ditangani",
+        dismissed: "ditutup tanpa tindakan",
+      };
+      await ctx.db.insert("notifications", {
+        userId: report.reporterId,
+        kind: `report_update:${args.id}`,
+        title: "Laporan Anda diperbarui",
+        body: `Laporan Anda untuk ${report.vendorId ? "listing" : "permintaan"} ${labels[args.status] ?? args.status}.`,
+        vendorId: report.vendorId,
+        read: false,
+        createdAt: Date.now(),
+      });
+    }
     return args.id;
   },
 });

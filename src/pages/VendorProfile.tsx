@@ -26,6 +26,7 @@ import {
   useVendorPhotos,
 } from "@/lib/catalog-store";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
+import { useListingMetadata } from "@/lib/use-listing-metadata";
 import { BlurText, GlassSurface, ScrollReveal } from "@/components/react-bits";
 import { AvailabilityBadge, ClaimListingPanel, PackageList, ReportListingButton } from "@/components/community-widgets";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
@@ -90,6 +91,26 @@ function VendorProfileContent() {
   const { slug } = useParams();
   const vendor = useVendor(slug);
   const photoUrl = useVendorPhoto(vendor?.photoId);
+  // Metadata publik per listing: judul, deskripsi, Open Graph, kanonik, dan
+  // JSON-LD LocalBusiness. Ditulis saat data sudah ada, bukan saat render —
+  // sehingga yang tampil di head adalah data listing yang sedang dibuka.
+  useListingMetadata(
+    vendor
+      ? {
+          slug: vendor.slug,
+          name: vendor.name,
+          category: vendor.category,
+          description: vendor.description,
+          hours: vendor.hours,
+          address: vendor.address,
+          landmark: vendor.landmark,
+          phone: vendor.phone,
+          rating: vendor.rating,
+          reviewsCount: vendor.reviewsCount,
+        }
+      : null,
+    photoUrl,
+  );
   const photos = useVendorPhotos(vendor?._id);
   const favorites = useFavorites();
   const { click, review, interaction, track } = useCatalogActions();

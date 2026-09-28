@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   Archive,
   Building2,
-  Check,
   CheckCircle2,
   Clock3,
   Eye,
@@ -47,6 +46,7 @@ import {
 import {
   useAdminVendors,
   useCatalogActions,
+  useImageUpload,
   useCommunityMetrics,
   useCurrentAccess,
   useOpenReports,
@@ -84,6 +84,7 @@ import {
   type PendingConfirmation,
   type QueueFilter,
 } from "@/components/admin-workspace";
+import { AdminNotice, AdminWorkspaceHero } from "@/components/admin-workspace-hero";
 
 const EMPTY_ITEMS: VendorRecord[] = [];
 
@@ -221,6 +222,7 @@ function AdminWorkspace() {
     generateUploadUrl,
     updateReport,
   } = useCatalogActions();
+  const uploadImageFile = useImageUpload();
   const [draft, setDraft] = useState<(Vendor & { _id?: string }) | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -309,20 +311,9 @@ function AdminWorkspace() {
       let photoId = draft.photoId;
 
       if (photoFile) {
-        const uploadUrl = await generateUploadUrl();
-        const response = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": photoFile.type || "image/jpeg" },
-          body: photoFile,
-        });
-        if (!response.ok) {
-          throw new Error("Foto gagal diunggah. Coba foto yang lebih kecil.");
-        }
-        const result = (await response.json()) as { storageId?: string };
-        if (!result.storageId) {
-          throw new Error("ID foto tidak diterima oleh penyimpanan.");
-        }
-        photoId = result.storageId;
+        // Satu alur unggah: downscale bila perlu, dedup lewat peta blob.
+        const uploaded = await uploadImageFile(photoFile, () => generateUploadUrl());
+        photoId = uploaded.storageId;
       }
 
       const next = {
@@ -804,113 +795,17 @@ function AdminWorkspace() {
       <main className="admin-shell-frame mx-auto max-w-[1600px] px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10">
         {previewContent}
 
-        <section className="admin-panel admin-panel-lg overflow-hidden">
-          <div className="grid lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,.6fr)]">
-            <div className="p-5 sm:p-7 lg:p-9">
-              <div className="inline-flex items-center gap-2 border-2 border-[#121212] bg-[#FFE662] px-3 py-2 text-sm font-black uppercase tracking-[0.12em] shadow-[2px_2px_0_#121212]">
-                <span className="admin-sync-dot" aria-hidden="true" />
-                Meja kerja admin
-              </div>
-              <h1 className="mt-5 max-w-4xl text-[clamp(2rem,5vw,4rem)] font-black uppercase leading-[0.98] tracking-[-0.06em] text-[#1A1A1A]">
-                Triage katalog tanpa ribet.
-              </h1>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-[#525252] sm:text-lg sm:leading-8">
-                Periksa, terverifikasi, aktifkan, dan arsipkan listing dari satu
-                ruang kerja yang tersinkon langsung dengan data Sumenep Buku Kerja.
-              </p>
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                <button
-                  type="button"
-                  onClick={startNew}
-                  className="admin-btn admin-btn-primary"
-                >
-                  <Plus className="size-5" />
-                  Tambah listing
-                </button>
-                <a href="#admin-triage" className="admin-btn admin-btn-secondary">
-                  <Inbox className="size-5" />
-                  Buka meja triage
-                </a>
-              </div>
-            </div>
-
-            <div className="border-t-2 border-[#121212] bg-[#F1EDE3] p-5 sm:p-7 lg:border-l-2 lg:border-t-0 lg:p-8">
-              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#525252]">
-                Ringkasan cepat
-              </p>
-              <dl className="mt-5 space-y-4">
-                <div className="border-b-2 border-[#121212] pb-4">
-                  <dt className="text-sm font-bold text-[#525252]">Listing aktif</dt>
-                  <dd className="mt-1 text-3xl font-black tracking-[-0.05em]">
-                    {activeItems.length}
-                  </dd>
-                </div>
-                <div className="border-b-2 border-[#121212] pb-4">
-                  <dt className="text-sm font-bold text-[#525252]">
-                    Butuh tindakan
-                  </dt>
-                  <dd className="mt-1 text-3xl font-black tracking-[-0.05em] text-[#C73E16]">
-                    {actionableCount}
-                  </dd>
-                  {/*
-                    Shortcut ke antrean yang menyusun angka di atasnya. Tanpa
-                    ini, "Butuh tindakan" cuma angka: tidak ada tempat lagi
-                    untuk dikerjakan, dan tidak ada jalan lain menyelesaikannya.
-                  */}
-                  <ul className="mt-3 space-y-2" aria-label="Shortcut antrean kerja">
-                    {actionShortcuts.map((shortcut) => (
-                      <li key={shortcut.queue}>
-                        <a
-                          href="#admin-triage"
-                          onClick={() => setQueueFilter(shortcut.queue)}
-                          className="flex min-h-11 items-center justify-between gap-3 rounded-[2px] border-2 border-[#121212] bg-white px-3 py-1.5 text-sm transition-transform hover:bg-[#FFE662] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#FF5A26]"
-                        >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <shortcut.icon
-                              className="size-4 shrink-0 text-[#121212]"
-                              aria-hidden="true"
-                            />
-                            <span className="truncate font-black">{shortcut.label}</span>
-                          </span>
-                          <span className="shrink-0 font-mono text-xs font-black text-[#525252]">
-                            {shortcut.count}
-                          </span>
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <dt className="text-sm font-bold text-[#525252]">
-                    Pembaruan terakhir
-                  </dt>
-                  <dd className="mt-1 text-base font-black">
-                    <TimeStampLabel timestamp={latestUpdate} />
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          </div>
-        </section>
+        <AdminWorkspaceHero
+          activeCount={activeItems.length}
+          actionableCount={actionableCount}
+          latestUpdate={latestUpdate}
+          shortcuts={actionShortcuts}
+          onSelectQueue={setQueueFilter}
+          onCreate={startNew}
+        />
 
         {notice ? (
-          <div
-            className="mt-5 flex items-start gap-3 border-2 border-[#121212] bg-[#FFE662] px-4 py-3 shadow-[3px_3px_0_#121212]"
-            role="status"
-          >
-            <Check className="mt-0.5 size-5 shrink-0" />
-            <p className="min-w-0 flex-1 text-base font-black text-[#1A1A1A]">
-              {notice}
-            </p>
-            <button
-              type="button"
-              onClick={() => setNotice("")}
-              className="admin-icon-btn"
-              aria-label="Tutup pemberitahuan"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
+          <AdminNotice notice={notice} onDismiss={() => setNotice("")} />
         ) : null}
 
         {error ? (

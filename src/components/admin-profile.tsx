@@ -12,7 +12,6 @@ import { staffRoleLongLabel } from "@/lib/select-options";
 import {
   MAX_IMAGE_LABEL,
   formatBytes,
-  imageRejection,
   uploadWithDedup,
 } from "@/lib/image-upload";
 

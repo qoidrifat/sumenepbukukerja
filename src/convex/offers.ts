@@ -179,6 +179,19 @@ export const acceptRequestOffer = mutation({
     if (vendor.ownerId) {
       await ctx.db.insert("notifications", { userId: vendor.ownerId as DataModel["users"]["document"]["_id"], kind: "request_update", title: "Tawaran Anda diterima", body: `Permintaan "${request.title}" menerima tawaran ${vendor.name}.`, read: false, createdAt: now });
     }
+    // Peminta juga harus diberi tahu DI DALAM APLIKASI. Sebelumnya jalur ini
+    // hanya mengandalkan WhatsApp — dan saat token WhatsApp mati, warga yang
+    // menerima tawarannya hanya melihat permintaan menggantung tanpa penjelasan.
+    // Notifikasi ini idempoten secara alami: mutasi ini hanya bisa berhasil
+    // sekali untuk satu permintaan (statusnya jadi `claimed`).
+    await ctx.db.insert("notifications", {
+      userId: request.requesterId,
+      kind: `request_claimed:${args.requestId}`,
+      title: "Permintaan Anda ditawari",
+      body: `${vendor.name} menerima permintaan "${request.title}". Tawaran yang lain sudah ditarik.`,
+      read: false,
+      createdAt: now,
+    });
     await recordEvent(ctx, { event: "request_claimed", userId, requestId: args.requestId, vendorId: offer.vendorId });
     await writeAudit(ctx, { action: "request.status_changed", actorId: userId, requestId: args.requestId, vendorId: offer.vendorId, oldValue: "open", newValue: "claimed" });
     await ctx.scheduler.runAfter(0, internal.offers.sendOfferAcceptedNotification, { requestId: args.requestId });

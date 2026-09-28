@@ -39,6 +39,8 @@ const ORPHAN_BATCH = 200;
 export const lookupBlobBySha = query({
   args: { sha256: v.string() },
   handler: async (ctx, args) => {
+    // Pembacaan, bukan gerbang: memberitahu "berkas ini sudah pernah diunggah"
+    // tidak membocorkan apa pun, karena pemanggil sudah memegang berkasnya.
     await requireUser(ctx);
     const mapped = await ctx.db
       .query("uploadedBlobs")
@@ -63,7 +65,16 @@ export const lookupBlobBySha = query({
 export const recordUploadedBlob = mutation({
   args: { sha256: v.string(), storageId: v.string(), size: v.number() },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
+    const userId = await requireUser(ctx);
+    // `requireUser` sendirinya MELOLOSKAN identitas anonim Convex Auth, karena
+    // penyedia Anonymous terdaftar di `auth.ts` — itu memang desain app ini
+    // (melapor dan mencatat peristiwa tanpa akun). Tapi TIDAK ADA satu pun jalur
+    // unggah foto milik anonim: foto profil butuh akun, galeri butuh pemilik
+    // listing, bukti klaim butuh akun warga. Peta blob menambah baris, jadi ia
+    // menuntut baris `users` yang benar-benar ada — supaya pengunjung tanpa
+    // akun tidak bisa mengisinya dengan sampah.
+    const account = await ctx.db.get(userId);
+    if (!account) throw new Error("Masuk untuk mengunggah foto");
     const sha = args.sha256.trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(sha)) throw new Error("Sidik berkas tidak valid");
     // Hanya blob gambar sah yang masuk peta — peta ini khusus jalur unggahan

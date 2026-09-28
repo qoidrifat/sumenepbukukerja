@@ -288,6 +288,77 @@ When using convex, make sure:
 - You must correctly type your code so that it passes the type checker.
 - You must handle null / undefined cases of your convex queries for both frontend and backend, or else it will throw an error that your data could be null or undefined.
 - Always use the `@/folder` path, with `@/convex/folder/file.ts` syntax for importing convex files.
+
+---
+
+## Cadangan Data & Pemulihan
+
+Retensi di `src/convex/dataRetention.ts` menghapus data secara rutin — itu
+keputusan yang benar, tetapi berarti "data lama sudah hilang" adalah
+keadaan normal, bukan kegagalan. Karena itu ada cadangan mingguan otomatis.
+
+### Di mana cadangannya
+
+- Satu dokumen JSON per minggu di Convex **file storage** (PRIVATE — tidak ada
+  URL publik yang dibagikan).
+- Metadata setiap cadangan ada di tabel `backupRuns`: kunci minggu ISO
+  (`2026-W38`), `storageId`, jumlah baris per tabel, ukuran byte, dan status
+  (`ok` atau `partial`).
+- Jadwal: cron Kamis 01:00 UTC (`src/convex/crons.ts`, "cadangan data
+  mingguan"). Idempoten per minggu — jalan ulang di minggu yang sama tidak
+  membuat dokumen kedua.
+
+### Cara menemukan cadangan terbaru
+
+```bash
+# Tanpa GUI: jalankan internal query dari dashboard Convex
+# internal.storage.latestBackupRuns  -> 5 cadangan terakhir
+```
+
+Di dashboard: **Tables → backupRuns**, urut `byWeek` menurun. Ambil `storageId`
+teratas, lalu unduh lewat dashboard Convex → Storage.
+
+### Isi cadangan
+
+`vendors`, `reports`, `auditLogs`, `reviews`, `serviceRequests`, `errorReports`.
+Satu baris = satu dokumen `{ weekKey, generatedAt, vendors: [...], ... }`.
+
+**Tidak termasuk (sengaja):** akun, sesi, token, refresh token, passcode
+admin, dan metadata `_storage`. Kalau dokumen cadangan ikut dicadangkan, satu
+backup yang bocor berarti membocorkan seluruh riwayat backup.
+
+### Cara memulihkan
+
+1. Unduh dokumen JSON dari storage.
+2. Untuk tiap tabel di dalamnya, sisipkan kembali dokumen dengan `_id` yang SAMA
+   (bukan `_generation`) lewat skrip admin Convex atau `npx convex data` +
+   import tooling. Memakai id yang sama menjaga semua `entityId`, `vendorId`,
+   dan `actorId` yang menunjuk ke dokumen itu tetap hidup.
+3. Setelah impor, jalankan:
+   - `internal.storage.backfillAnalyticsCounters` — supaya angka dashboard
+     kembali sesuai,
+   - `internal.storage.backfillWhatsappStats` — supaya status pengiriman
+     kembali sesuai isi tabel.
+
+### Batasan yang harus diketahui
+
+- Setiap tabel dipotong pada **5.000 baris** per cadangan. Tabel yang lebih
+  besar ditandai `partial` dan ditandai `"<tabel>_truncated": true` di dalam
+  JSON — isinya bukan jumlah keseluruhan.
+- Cadangan bertipe snapshot, bukan log perubahan: perubahan yang terjadi
+  SESUDAH cadangan diambil tidak ada di dalamnya.
+- Hanya berjalan bila deployment aktif. Kalau cron berhenti (deployment
+  di-nonaktifkan), tidak ada cadangan baru; cek `backupRuns` untuk melihat
+  tanggal terakhir.
+
+### Pemeliharaan storage (terkait)
+
+- `internal.storage.pruneOrphanStorage` (harian, jam 05:00 UTC) menghapus blob
+  tanpa rujukan yang **lebih tua dari 24 jam**, dan TIDAK PERNAH menghapus
+  blob yang masih terpetakan di `uploadedBlobs`, dirujuk `vendorPhotos` atau
+  `users.profileImageStorageId`, atau dipakai dokumen cadangan.
+- Unggahan foto memakai dedup sha256 di peramban: berkas identik tidak pernah
+  diunggah dua kali (lihat `src/lib/image-upload.ts`).
 - This includes importing generated files like `@/convex/_generated/server`, `@/convex/_generated/api`
 - Remember to import functions like useQuery, useMutation, useAction, etc. from `convex/react`
 - NEVER have return type validators.

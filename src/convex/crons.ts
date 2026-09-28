@@ -83,4 +83,57 @@ crons.daily(
   {},
 );
 
+/**
+ * Pembersihan blob storage yatim.
+ *
+ * Unggahan foto listing yang dibatalkan (pengguna menutup dialog setelah foto
+ * masuk storage), foto profil yang diganti, dan foto yang gagal disimpan karena
+ * mutasinya ditolak: semuanya meninggalkan blob tanpa rujukan. Tidak ada cron
+ * lain yang menyentuh `_storage`, jadi tanpa job ini blob-blob itu tinggal
+ * selamanya.
+ *
+ * Harian sudah cukup, dan itu disengaja: job ini memakai masa tenggang 24 jam,
+ * jadi unggahan yang sedang berjalan selalu aman. Jam 5 UTC dipilih setelah
+ * retensi riwayat (jam 4) dan tidak berebut dengannya di menit yang sama.
+ */
+crons.daily(
+  "pembersihan blob storage yatim",
+  { hourUTC: 5 },
+  internal.storage.pruneOrphanStorage,
+  {},
+);
+
+/**
+ * Cadangan data mingguan.
+ *
+ * Retensi KITA menghapus data secara rutin — itu keputusan yang benar, tapi
+ * berarti "data lama sudah hilang" adalah keadaan normal, bukan kegagalan.
+ * Satu dokumen JSON per minggu (vendors, reports, auditLogs, reviews,
+ * serviceRequests, errorReports) disimpan di storage PRIVATE; recovery runbook
+ * ada di README.
+ *
+ * Jadwalnya Kamis 01:00 UTC — hari kerja, jauh dari retensi harian,
+ * supaya lonjakan resource tidak berbarengan dengan prune.
+ */
+crons.weekly(
+  "cadangan data mingguan",
+  { dayOfWeek: "thursday", hourUTC: 1 },
+  internal.storage.writeWeeklyBackup,
+  {},
+);
+
+/**
+ * Ringkasan harian untuk admin via WhatsApp.
+ *
+ * Dipasang pukul 07:00 WIB (00:00 UTC) — batas hari operasional, sebelum admin
+ * membuka meja kerja. Idempoten lewat `deliveryKey` beruffix tanggal WIB, jadi
+ * cron yang jalan dua kali pada hari yang sama tidak mengirim dua pesan.
+ */
+crons.daily(
+  "ringkasan harian admin",
+  { hourUTC: 0 },
+  internal.whatsapp.sendAdminDailySummary,
+  {},
+);
+
 export default crons;

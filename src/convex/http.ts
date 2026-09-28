@@ -20,6 +20,7 @@ import {
   sha256Hex,
   toHex as bytesToHex,
 } from "../lib/security-context";
+import { buildRobotsTxt, buildSitemapXml } from "../lib/sitemap";
 
 const http = httpRouter();
 
@@ -263,6 +264,19 @@ const ADMIN_CONTEXT_ROUTE = "/admin-gate/context";
  * jadi harus menjawab preflight. Tanpa ini `OPTIONS` jatuh ke "no matching
  * routes" dan browser memblokir beacon sepenuhnya — gejalanya persis seperti
  * "IP selalu Unknown" padahal request-nya sebenarnya sampai.
+ *
+ * CATATAN LAPISAN PLATFORM (hasil audit, bukan workaround): Security
+ * Desk masih bisa menampilkan `ipSource: "Unknown"` kalau platform meneruskan
+ * request TANPA satu pun header edge (`cf-connecting-ip`, `x-real-ip`,
+ * `true-client-ip`) dan `x-forwarded-for` hanya memuat hop proxy. Itu bukan bug
+ * di sini: `resolveClientIp` sudah membaca rantai itu dan, dengan sengaja,
+ * memakai entri paling KANAN (yang paling dekat dengan klien) alih-alih
+ * sisi paling kiri yang paling mudah dipalsukan.
+ *
+ * Yang TIDAK dilakukan demi membuat Security Desk "terisi": mengarang nilai,
+ * atau mempercayai header yang dikirim browser. Kalau platform formalized
+ * alamat klien, header itu akan otomatis terpakai pada permintaan berikutnya —
+ * tanpa perubahan kode.
  */
 const CONTEXT_CORS_HEADERS: Record<string, string> = {
   "access-control-allow-origin": "*",
@@ -360,5 +374,43 @@ http.route({ path: ADMIN_CONTEXT_ROUTE, method: "GET", handler: adminSecurityCon
 // tanpa baris ini preflight jatuh ke "no matching routes" dan beacon diblokir
 // browser, walau request-nya sebenarnya sampai ke origin.
 http.route({ path: ADMIN_CONTEXT_ROUTE, method: "OPTIONS", handler: adminSecurityContext });
+
+/**
+ * Sitemap dan robots.txt.
+ *
+ * Dipasang di origin HTTP Convex karena route di situ benar-benar dievaluasi
+ * server, sedangkan halaman `/v/:slug` dirender peramban — sehingga tidak ada
+ * satu pun route publik yang bisa "terindex" kalau tidak sengaja.
+ *
+ * Asal situs diambil dari `SITE_URL` bila diisi (domain aplikasi yang
+ * sebenarnya), lalu `CONVEX_SITE_URL` sebagai cadangan. Kalau keduanya kosong,
+ * sitemap dibalas dengan tetap valid tapi tanpa entri listing — lebih baik
+ * daripada menebak domain yang salah dan mengarahkan crawler ke tempat yang
+ * tidak ada.
+ */
+const siteOrigin = () =>
+  (process.env.SITE_URL?.trim() || process.env.CONVEX_SITE_URL?.trim() || "").replace(/\/+$/, "");
+
+const sitemap = httpAction(async (ctx) => {
+  const origin = siteOrigin();
+  const vendors = origin ? await ctx.runQuery(internal.vendors.publicSitemapVendors, {}) : [];
+  return new Response(buildSitemapXml({ origin, vendors }), {
+    status: 200,
+    headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" },
+  });
+});
+
+const robots = httpAction(async () => {
+  const origin = siteOrigin();
+  return new Response(
+    origin
+      ? buildRobotsTxt(origin)
+      : ["User-agent: *", "Allow: /", "Disallow: /admin", "Disallow: /dashboard", "Disallow: /auth", ""].join("\n"),
+    { status: 200, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=86400" } },
+  );
+});
+
+http.route({ path: "/sitemap.xml", method: "GET", handler: sitemap });
+http.route({ path: "/robots.txt", method: "GET", handler: robots });
 
 export default http;

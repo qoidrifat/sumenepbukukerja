@@ -24,6 +24,16 @@ const eventNameValidator = v.union(
 );
 
 /**
+ * Batas laju peristiwa per perangkat per jam.
+ *
+ * Angka dipilih jauh di atas pemakaian nyata satu orang (puluhan peristiwa saat
+ * menjelajah), tapi cukup rendah sehingga satu peramban yang rusak atau bermusik
+ * tidak bisa mengisi kuota. Peristiwa tanpa `anonymousId` tidak ikut dibatasi.
+ */
+export const TRACK_ANONYMOUS_HOURLY_LIMIT = 300;
+const TRACK_RATE_WINDOW_MS = 60 * 60 * 1000;
+
+/**
  * Nama peristiwa yang punya penghitung kumulatif.
  *
  * Daftarnya sengaja ditulis eksplisit, bukan diturunkan dari validator: kalau
@@ -150,6 +160,38 @@ export const track = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
+
+    // Pembatasan laju per PERANGKAT.
+    //
+    // `track` dipanggil dari peramban tanpa wajib login, jadi tanpa batas ini
+    // satu skrip bisa menulis ribuan baris per menit ke `analyticsEvents` dan
+    // membakar kuota Function calls — bukan cuma kuota I/O.
+    //
+    // Batasnya dipasang pada `anonymousId` (id perangkat dari localStorage),
+    // BUKAN pada "tidak masuk": penyedia Anonymous Convex Auth sudah memberi
+    // `userId` kepada pengunjung tanpa akun, sehingga syarat "tidak masuk"
+    // hampir tidak pernah benar dan batasnya jadi sia-sia. Batas per perangkat
+    // juga lebih tepat sasaran: yang bisa disalahgunakan adalah satu peramban,
+    // bukan status masuknya.
+    //
+    // Angkanya jauh di atas pemakaian nyata satu orang (puluhan peristiwa saat
+    // menjelajah). Peristiwa yang TIDAK membawa `anonymousId` — panggilan dari
+    // server sendiri, atau klien yang opting out — tidak pernah dibatasi.
+    //
+    // Pembacaannya BOUNDED: indeks (anonymousId, createdAt) membuat rentang satu
+    // jam per perangkat, lalu `.take(limit + 1)` berhenti di-ASAP begitu batas
+    // terlampaui. Tidak ada satu pun pemindaian tabel penuh di jalur ini.
+    if (args.anonymousId) {
+      const windowStart = Date.now() - TRACK_RATE_WINDOW_MS;
+      const recent = await ctx.db
+        .query("analyticsEvents")
+        .withIndex("byAnonymousCreatedAt", (q) =>
+          q.eq("anonymousId", args.anonymousId!).gte("createdAt", windowStart),
+        )
+        .take(TRACK_ANONYMOUS_HOURLY_LIMIT + 1);
+      if (recent.length >= TRACK_ANONYMOUS_HOURLY_LIMIT) return null;
+    }
+
     // Bound anonymous payloads to keep analytics useful without becoming a
     // general-purpose data store.
     const metadata = args.metadata && typeof args.metadata === "object"

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAction, useMutation, useQuery, useConvexAuth } from "convex/react";
+import { useAction, useConvex, useMutation, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { vendors as seedVendors, vendorBySlug, type Vendor } from "./catalog";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers } from "./offline-queue";
+import { uploadWithDedup } from "./image-upload";
 import { useErrorReporter, withErrorReporting } from "./error-reporter";
 import type { RegisteredReporter } from "./error-report-bus";
 import { ERROR_CODES, type ErrorCode, type ErrorKind } from "./error-reporting";
@@ -787,6 +788,46 @@ export function useListingHistory(vendorId: string | undefined) {
 
 export function useRecentListingHistory(enabled = true) {
   return useQuery(api.users.listRecentListingHistory, enabled ? { limit: 40 } : "skip");
+}
+
+/**
+ * Unggah foto lewat SATU alur: perkecil bila perlu, cek peta blob, unggah hanya
+ * bila benar-benar baru.
+ *
+ * Hook ini ada supaya tidak ada komponen yang menyusun sendiri rangkaian
+ * `fetch(uploadUrl)` + `recordUploadedBlob`; setiap jalur unggah yang ditulis
+ * ulang adalah satu jalur yang lupa downscale atau lupa dedup. Argumen
+ * `generateUploadUrl` diteruskan dari hook pemanggil karena tiap domain punya
+ * gerbang sendiri (foto listing butuh pemilik listing, bukti klaim
+ * butuh akun warga).
+ *
+ * Peta blob dibaca lewat client (`useConvex`) bukan `useQuery`, karena sha256
+ * baru diketahui setelah berkas dipilih — subscribing ke hook reaktif untuk
+ * nilai yang sudah lewat akan membuat satu render sia-sia per pilihan berkas.
+ */
+export function useImageUpload() {
+  const convex = useConvex();
+  const record = useMutation(api.storage.recordUploadedBlob);
+  return async (
+    file: File,
+    generateUploadUrl: () => Promise<string>,
+  ): Promise<{
+    storageId: string;
+    reused: boolean;
+    resized: boolean;
+    beforeBytes: number;
+    afterBytes: number;
+  }> =>
+    uploadWithDedup(file, {
+      lookup: async ({ sha256 }) => {
+        const found = await convex.query(api.storage.lookupBlobBySha, { sha256 });
+        return found ? { storageId: found.storageId } : null;
+      },
+      record: async (args) => {
+        await record(args);
+      },
+      generateUploadUrl,
+    });
 }
 
 export function useAdminSecurityEvents(limit = 25, cursor?: string, enabled = true) {

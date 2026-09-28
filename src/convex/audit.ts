@@ -4,6 +4,7 @@ import { sessionRefOf } from "../lib/audit-detail";
 import type { DataModel } from "./_generated/dataModel";
 
 export type AuditAction =
+  | "review.created"
   | "listing.created"
   | "listing.claim_submitted"
   | "listing.claim_approved"

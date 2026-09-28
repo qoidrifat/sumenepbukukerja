@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalQuery } from "./_generated/server";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import { vendors as seedVendors } from "../lib/catalog";
@@ -88,6 +88,50 @@ async function requireVendorManager(
   return userId;
 }
 
+/**
+ * Slug listing publik untuk sitemap.
+ *
+ * Hanya `status: "active"`. Listing draft, arsip, dan yang sedang dimoderasi
+ * TIDAK boleh muncul di peta situs: halamannya sendiri menolak status selain
+ * active, jadi memetakannya hanya menghasilkan 404 di indeks pencarian.
+ *
+ * Dijalankan dari route HTTP, jadi harus `internal` — tidak ada permukaan
+ * publik baru di aplikasi.
+ */
+export const publicSitemapVendors = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("vendors")
+      .withIndex("byStatus", (q) => q.eq("status", "active"))
+      .order("desc")
+      .take(2_000);
+    return rows
+      .map((vendor) => ({ slug: vendor.slug, updatedAt: vendor.updatedAt ?? vendor.createdAt }))
+      .filter((vendor) => Boolean(vendor.slug));
+  },
+});
+
+// TODO(paginasi): daftar listing aktif sengaja DIBACA PENUH lalu disaring di
+// memori, bukan dengan kursor paginasi. Pada skala sekarang (puluhan listing
+// aktif) itu lebih murah daripada kursor: satu pembacaan indeks `byStatus` yang
+// berurutan lebih hemat daripada N+1 pembacaan per halaman, dan tidak ada
+// tombol "Muat lagi" yang perlu diutak-atik di UX.
+//
+// Kapan harus dikerjakan ulang:
+//   - vendor `status: "active"` melewati ~500, ATAU
+//   - satu burst pembacaan dashboard/listingan terasa berat.
+//
+// Yang harus dibuat saat itu (bukan sooner):
+//   1. indeks komposit `byStatusCategory` (dan `byStatusLandmark`) supaya filter
+//      kategori/area tidak menyaring seluruh tabel di memori;
+//   2. `paginate()` pada `listActive` dengan kursor `createdAt`, dan Dashboard
+//      memakai `.continueCursor()` untuk tombol "Muat lagi";
+//   3. pencarian teks pindah ke indeks `bySearchText` (lowercase gabungan nama,
+//      kategori, tag) daripada `.includes()` di memori.
+//
+// requirement audit secara eksplisit menyatakan belum waktunya, jadi tidak ada
+// kursor paginasi yang ditulis sekarang.
 export const listActive = query({
   args: {
     category: v.optional(v.string()),
@@ -619,12 +663,41 @@ export const addReview = mutation({
     const authorName = args.authorName.trim();
     const body = args.body.trim();
     if (!authorName || !body) throw new Error("Nama dan ulasan tidak boleh kosong");
+    if (body.length > 600) throw new Error("Ulasan maksimal 600 karakter");
+    // Rating dibatasi 1-5 DAN harus bilangan bulat. Tanpa pembulatan, `4.7`
+    // akan tersimpan dan merusak rata-rata yang tampil di listing.
+    const rating = Math.round(Math.min(5, Math.max(1, args.rating)));
+
+    // Satu ulasan per orang per listing. Tanpa ini, satu akun bisa menulis
+    // ratusan ulasan dalam semalam dan mengubah rating rata-rata — dan untuk
+    // direktori lokal, rating yang bisa dib bought bukan lagi sinyal.
+    //
+    // Hanya berlaku untuk penulis yang punya akun. Penulis tanpa akun
+    // (anonim) tetap boleh menulis — itu model yang sudah berjalan — tapi tidak
+    // bisa dihitung per orang, jadi batasnya berupa kuota harian per listing.
+    if (userId) {
+      const existing = await ctx.db
+        .query("reviews")
+        .withIndex("byVendorAuthor", (q) => q.eq("vendorId", args.vendorId).eq("authorId", userId))
+        .first();
+      if (existing) throw new Error("Anda sudah menulis ulasan untuk listing ini");
+    } else {
+      const todayStart = Date.now() - 24 * 60 * 60_000;
+      const recentAnonymous = await ctx.db
+        .query("reviews")
+        .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
+        .collect();
+      const sameDay = recentAnonymous.filter(
+        (row) => !row.authorId && row.createdAt >= todayStart,
+      ).length;
+      if (sameDay >= 3) throw new Error("Terlalu banyak ulasan hari ini untuk listing ini");
+    }
 
     const reviewId = await ctx.db.insert("reviews", {
       vendorId: args.vendorId,
       authorId: userId ?? undefined,
       authorName,
-      rating: Math.min(5, Math.max(1, args.rating)),
+      rating,
       body,
       helpful: 0,
       createdAt: Date.now(),
@@ -638,6 +711,14 @@ export const addReview = mutation({
       rating: average.toFixed(1),
       reviewsCount: all.length,
       updatedAt: Date.now(),
+    });
+    await writeAudit(ctx, {
+      action: "review.created",
+      actorId: userId ?? undefined,
+      vendorId: args.vendorId,
+      entityId: reviewId,
+      newValue: rating,
+      metadata: { hasAccount: Boolean(userId) },
     });
     return reviewId;
   },

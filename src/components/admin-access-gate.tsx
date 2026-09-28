@@ -40,17 +40,43 @@ const STAFF_ROLE_CARDS = [
  * maupun warga yang sudah masuk tetapi belum punya peran.instead of redirect,
  *cbi menjelaskan di sini supaya tidak terasa seperti halaman rusak.
  */
+export type AdminAccessGateState = {
+  signedIn: boolean;
+  accountName?: string;
+  bootstrapAvailable: boolean;
+  bootstrapEligible: boolean;
+  bootstrapBlocker?: "signedOut" | "noEmail" | "notAllowlisted" | null;
+  deployment?: string | null;
+};
+
+/**
+ * Alasan tombol mati ditulis per penyebab, karena setiap penyebab punya
+ * tindakan yang sama sekali berbeda. Satu pesan generik membuat orang mencoba
+ * ulang berkali-kali tanpa tahu harus mengubah apa.
+ */
+const BLOCKER_GUIDE: Record<string, { title: string; body: string }> = {
+  noEmail: {
+    title: "Akun ini masuk sebagai tamu, jadi tidak punya email",
+    body: "Sesi yang sedang dipakai dibuat lewat Mode tamu, sehingga tidak tercatat email sama sekali. Allowlist tidak akan pernah cocok untuk akun tanpa email. Keluar dulu dari akun ini, lalu masuk lagi memakai email Anda dan kode OTP.",
+  },
+  notAllowlisted: {
+    title: "Email Anda belum terdaftar untuk akses awal",
+    body: "Akun ini punya email, tapi email itu tidak ada di daftar yang diizinkan. Daftarnya dipegang pemilik deployment lewat variabel STAFF_BOOTSTRAP_EMAILS, jadi minta email ini ditambahkan di sana, atau minta admin yang sudah aktif memberi peran lewat menu Peran & Audit.",
+  },
+  signedOut: {
+    title: "Belum masuk",
+    body: "Masuk terlebih dahulu supaya server bisa membandingkan email akun Anda dengan daftar yang diizinkan.",
+  },
+};
+
 export function AdminAccessDenied({
   signedIn,
   accountName,
   bootstrapAvailable,
   bootstrapEligible,
-}: {
-  signedIn: boolean;
-  accountName?: string;
-  bootstrapAvailable: boolean;
-  bootstrapEligible: boolean;
-}) {
+  bootstrapBlocker = null,
+  deployment = null,
+}: AdminAccessGateState) {
   const navigate = useNavigate();
   const bootstrap = useMutation(api.users.bootstrapAdministrator);
   const [error, setError] = useState("");
@@ -162,13 +188,21 @@ export function AdminAccessDenied({
                 >
                   {bootstrapEligible
                     ? "Email Anda terdaftar untuk akses awal"
-                    : "Email Anda belum terdaftar untuk akses awal"}
+                    : (BLOCKER_GUIDE[bootstrapBlocker ?? "notAllowlisted"]?.title ??
+                      "Email Anda belum terdaftar untuk akses awal")}
                 </h2>
                 <p className="mt-3 max-w-2xl text-base leading-7 text-[#525252]">
                   {bootstrapEligible
                     ? "Deployment ini masih membuka jalur bootstrap admin, dan email akun yang sedang masuk ada di daftar yang diizinkan. Klik tombol di bawah untuk menetapkan peran admin pada akun ini."
-                    : "Deployment ini masih membuka jalur bootstrap admin, tetapi email akun yang sedang masuk tidak ada di daftar yang diizinkan. Daftarnya dipegang pemilik deployment lewat variabel STAFF_BOOTSTRAP_EMAILS, jadi minta email ini ditambahkan di sana, atau minta admin yang sudah aktif memberi peran lewat menu Peran & Audit."}
+                    : (BLOCKER_GUIDE[bootstrapBlocker ?? "notAllowlisted"]?.body ??
+                      "Email akun yang sedang masuk tidak ada di daftar yang diizinkan.")}
                 </p>
+                {deployment ? (
+                  <p className="mt-4 break-all rounded-lg border-2 border-[#121212] bg-[#FAF7EE] p-3 text-xs leading-5 text-[#525252]">
+                    <span className="font-black text-[#1A1A1A]">Backend yang dipakai: </span>
+                    {deployment}
+                  </p>
+                ) : null}
                 {error ? (
                   <p className="mt-3 text-sm font-bold text-red-700" role="alert">
                     {error}

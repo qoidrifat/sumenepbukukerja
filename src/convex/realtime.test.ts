@@ -818,6 +818,34 @@ describe("jalur pemulihan akses admin lewat bootstrap", () => {
     return t.withIdentity({ name: user.name, subject: id });
   };
 
+  test("penyebab tombol mati dibedakan, bukan satu pesan generik", async () => {
+    setAllowlist("pemilik@sumenep.co.id");
+    const t = convexTest(schema, modules);
+    const allowed = await asUser(t, { name: "Pemilik", email: "pemilik@sumenep.co.id" });
+    const stranger = await asUser(t, { name: "Orang Lain", email: "bukan@sumenep.co.id" });
+    // Akun tamu: baris users ada, tapi tidak punya email sama sekali.
+    const guest = t.withIdentity({ name: "Tamu", subject: await seedUserRow(t, { name: "Tamu" }) });
+
+    expect((await allowed.query(api.users.adminSetupStatus, {})).bootstrapBlocker).toBeNull();
+    // Email ada tapi tidak di daftar: perbaikannya edit allowlist.
+    expect((await stranger.query(api.users.adminSetupStatus, {})).bootstrapBlocker).toBe("notAllowlisted");
+    // Akun tamu: perbaikannya bukan edit allowlist, tapi keluar lalu masuk
+    // ulang dengan email. Dua hal ini tidak boleh tampil sebagai pesan sama.
+    expect((await guest.query(api.users.adminSetupStatus, {})).bootstrapBlocker).toBe("noEmail");
+    expect((await t.query(api.users.adminSetupStatus, {})).bootstrapBlocker).toBe("signedOut");
+  });
+
+  test("akun tamu tidak bisa menjadi admin, dan alasannya jujur", async () => {
+    setAllowlist("pemilik@sumenep.co.id");
+    const t = convexTest(schema, modules);
+    const guest = t.withIdentity({ name: "Tamu", subject: await seedUserRow(t, { name: "Tamu" }) });
+
+    await expect(guest.mutation(api.users.bootstrapAdministrator, {})).rejects.toThrow(
+      "Email ini belum diizinkan untuk bootstrap admin awal",
+    );
+    expect(await t.query(api.users.adminSetupStatus, {})).toMatchObject({ staffCount: 0 });
+  });
+
   afterEach(() => {
     if (previousAllowlist === undefined) delete env()[ALLOWLIST_KEY];
     else env()[ALLOWLIST_KEY] = previousAllowlist;

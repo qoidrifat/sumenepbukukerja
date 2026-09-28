@@ -91,6 +91,15 @@ export const adminSetupStatus = query({
     const userId = await getAuthUserId(ctx);
     const user = userId ? await ctx.db.get(userId) : null;
     const email = normalizeEmail(user?.email ?? "");
+    const allowlist = bootstrapAllowlist();
+    const eligible = allowlist.includes(email);
+    const bootstrapBlocker: "signedOut" | "noEmail" | "notAllowlisted" | null = !userId
+      ? "signedOut"
+      : !email
+        ? "noEmail"
+        : eligible
+          ? null
+          : "notAllowlisted";
     return {
       staffCount: members.length,
       hasAnyStaff: members.length > 0,
@@ -98,7 +107,16 @@ export const adminSetupStatus = query({
       // Hanya tentang akun yang sedang ditanyakan: email-nya sendiri ada atau
       // tidak di daftar. Tidak pernah membocorkan email orang lain, dan hanya
       // dipakai untuk jujur soal tombol pemulihan di /admin.
-      bootstrapEligible: Boolean(email) && bootstrapAllowlist().includes(email),
+      bootstrapEligible: eligible,
+      // Kenapa tombolnya mati, dibedakan karena sebabnya punya tindakan yang
+      // berbeda: akun tamu tidak punya email sama sekali, sedangkan akun
+      // beremail hanya salah masuk daftar. Tanpa ini, keduanya terlihat seperti
+      // error yang sama padahal tindakan perbaikannya tidak sama.
+      bootstrapBlocker,
+      // URL backend yang benar-benar dipakai. Halaman "/admin" di laptop bisa
+      // menunjuk deployment berbeda dari Keys, dan itu yang membuat allowlist
+      // yang sudah terlihat benar tetap tidak berlaku.
+      deployment: process.env.CONVEX_CLOUD_URL ?? null,
     };
   },
 });

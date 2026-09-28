@@ -29,6 +29,8 @@ const render = (props: {
   bootstrapAvailable: boolean;
   bootstrapEligible: boolean;
   accountName?: string;
+  bootstrapBlocker?: "signedOut" | "noEmail" | "notAllowlisted" | null;
+  deployment?: string | null;
 }) => renderToStaticMarkup(createElement(AdminAccessDenied, props));
 
 const RECOVERY_HEADING = "Jalur pemulihan";
@@ -62,6 +64,45 @@ test("email di luar allowlist melihat penjelasan, bukan tombol yang pasti gagal"
   expect(markup).toContain("Email Anda belum terdaftar untuk akses awal");
   expect(markup).toContain("STAFF_BOOTSTRAP_EMAILS");
   expect(markup).toMatch(/<button[^>]*disabled/);
+});
+
+test("akun tamu diberi tahu harus keluar lalu masuk ulang, bukan edit allowlist", () => {
+  const markup = render({
+    signedIn: true,
+    bootstrapAvailable: true,
+    bootstrapEligible: false,
+    bootstrapBlocker: "noEmail",
+  });
+  expect(markup).toContain("Akun ini masuk sebagai tamu, jadi tidak punya email");
+  expect(markup).toContain("Keluar dulu dari akun ini");
+  // Petunjuk allowlist tidak boleh muncul di sini: itu akan sendingkan orang
+  // mengedit variabel yang memang isn't penyebabnya.
+  expect(markup).not.toContain("STAFF_BOOTSTRAP_EMAILS");
+  expect(markup).toMatch(/<button[^>]*disabled/);
+});
+
+test("akun beremail di luar daftar tetap diberi petunjuk allowlist", () => {
+  const markup = render({
+    signedIn: true,
+    bootstrapAvailable: true,
+    bootstrapEligible: false,
+    bootstrapBlocker: "notAllowlisted",
+  });
+  expect(markup).toContain("Email Anda belum terdaftar untuk akses awal");
+  expect(markup).toContain("STAFF_BOOTSTRAP_EMAILS");
+  expect(markup).not.toContain("Mode tamu");
+});
+
+test("backend yang dipakai ditampilkan supaya allowlist yang salah bisa terlihat", () => {
+  const markup = render({
+    signedIn: true,
+    bootstrapAvailable: true,
+    bootstrapEligible: false,
+    bootstrapBlocker: "notAllowlisted",
+    deployment: "https://rare-scorpion-625.convex.cloud",
+  });
+  expect(markup).toContain("Backend yang dipakai:");
+  expect(markup).toContain("https://rare-scorpion-625.convex.cloud");
 });
 
 test("tanpa bootstrap terbuka, layar kembali ke penjelasan lama", () => {

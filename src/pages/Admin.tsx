@@ -156,6 +156,8 @@ function AdminGate() {
       accountName={user?.name}
       bootstrapAvailable={setup.bootstrapAvailable}
       bootstrapEligible={setup.bootstrapEligible}
+      bootstrapBlocker={setup.bootstrapBlocker}
+      deployment={setup.deployment}
     />
   );
 }

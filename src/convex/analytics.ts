@@ -171,23 +171,50 @@ export const adminMetrics = query({
   args: {},
   handler: async (ctx) => {
     await requireManagementViewer(ctx);
-    const [counters, vendors, requests, photos] = await Promise.all([
+
+    // Sisa tiga pembacaan penuh digantikan rentang indeks yang sama artinya:
+    //  - `vendors`      → hanya yang berstatus aktif (indeks `byStatus`)
+    //  - `vendorPhotos` → hanya yang `approved` (indeks `byModeration`).
+    //                     Syaratnya memang persis `moderationStatus ===
+    //                     "approved"`, jadi ini bukan pendekatan yang mirip,
+    //                     melainkan himpunan yang sama.
+    //  - `serviceRequests` → dihitung per vendor lewat indeks `byVendor`, dan
+    //                     statusnya lewat `byStatus`, bukan dengan membaca
+    //                     seluruh riwayat permintaan warga.
+    const [counters, active, approvedPhotos, completedRequests] = await Promise.all([
       readCounters(ctx),
-      ctx.db.query("vendors").collect(),
-      ctx.db.query("serviceRequests").collect(),
-      ctx.db.query("vendorPhotos").collect(),
+      ctx.db.query("vendors").withIndex("byStatus", (q) => q.eq("status", "active")).collect(),
+      ctx.db
+        .query("vendorPhotos")
+        .withIndex("byModeration", (q) => q.eq("moderationStatus", "approved"))
+        .collect(),
+      ctx.db
+        .query("serviceRequests")
+        .withIndex("byStatus", (q) => q.eq("status", "completed"))
+        .collect(),
     ]);
     const count = (event: string) => counters[event] ?? 0;
-    const active = vendors.filter((vendor) => vendor.status === "active");
-    const photoIds = new Set(photos.filter((photo) => photo.active !== false && photo.moderationStatus === "approved").map((photo) => photo.vendorId));
+    const photoIds = new Set(approvedPhotos.filter((photo) => photo.active !== false).map((photo) => photo.vendorId));
     const byCategory = Object.fromEntries([...new Set(active.map((vendor) => vendor.category))].map((category) => [category, active.filter((vendor) => vendor.category === category).length]));
     const byArea = Object.fromEntries([...new Set(active.map((vendor) => vendor.landmark))].map((area) => [area, active.filter((vendor) => vendor.landmark === area).length]));
     const searchCount = count("search_impression");
     const whatsappCount = count("whatsapp_clicked");
     const responseValues = active.map((vendor) => vendor.responseMinutes).filter((value): value is number => typeof value === "number" && value > 0);
-    const topProviders = vendors
-      .filter((vendor) => vendor.ownerId)
-      .map((vendor) => ({ id: vendor._id, name: vendor.name, responseMinutes: vendor.responseMinutes ?? 999999, requests: requests.filter((request) => request.vendorId === vendor._id).length }))
+    // "Paling responsif" hanya masuk akal untuk listing yang benar-benar tayang:
+    // listing draft atau arsip tidak bisa dihubungi warga, jadi menyebutnya
+    // sebagai provider terbaik justru menyesatkan. Jumlah permintaan per vendor
+    // dibaca lewat indeks `byVendor` milik vendor itu saja.
+    const providerCandidates = active.filter((vendor) => vendor.ownerId);
+    const providerRequestCounts = await Promise.all(
+      providerCandidates.map(async (vendor) =>
+        (await ctx.db
+          .query("serviceRequests")
+          .withIndex("byVendor", (q) => q.eq("vendorId", vendor._id))
+          .collect()).length,
+      ),
+    );
+    const topProviders = providerCandidates
+      .map((vendor, index) => ({ id: vendor._id, name: vendor.name, responseMinutes: vendor.responseMinutes ?? 999999, requests: providerRequestCounts[index] }))
       .sort((a, b) => a.responseMinutes - b.responseMinutes || b.requests - a.requests)
       .slice(0, 8)
       .map(({ responseMinutes, ...provider }) => ({ ...provider, responseMinutes: responseMinutes === 999999 ? undefined : responseMinutes }));
@@ -209,7 +236,7 @@ export const adminMetrics = query({
       activeListings: active.length,
       searchToWhatsappRate: searchCount > 0 ? Math.round((whatsappCount / searchCount) * 100) : 0,
       averageResponseMinutes: responseValues.length > 0 ? Math.round(responseValues.reduce((sum, value) => sum + value, 0) / responseValues.length) : 0,
-      completedRequests: requests.filter((request) => request.status === "completed").length,
+      completedRequests: completedRequests.length,
       listingsWithoutPrice: active.filter((vendor) => !vendor.price.trim()).length,
       listingsWithoutPhotos: active.filter((vendor) => !vendor.photoId && !photoIds.has(vendor._id)).length,
       listingsWithoutHours: active.filter((vendor) => !vendor.hours.trim()).length,

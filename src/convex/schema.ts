@@ -236,6 +236,7 @@ const schema = defineSchema(
     })
       .index("byStatus", ["status"])
       .index("byReporter", ["reporterId"])
+      .index("byRequest", ["requestId"])
       .index("byVendor", ["vendorId"]),
 
     notificationPreferences: defineTable({
@@ -403,6 +404,28 @@ const schema = defineSchema(
       .index("byNextAttempt", ["nextAttemptAt"])
       .index("byCreatedAt", ["createdAt"]),
 
+    // Hitungan baris `whatsappDeliveries` menurut statusnya.
+    //
+    // Dashboard WhatsApp adalah query REAKTIF: setiap kali satu status
+    // berubah, ia dijalankan ulang. Sebelumnya query itu membaca SELURUH tabel
+    // untuk sekadar menghitung empat angka — jadi biaya satu kali kirim pesan
+    // tumbuh seiring riwayat pengiriman, bukan tetap. Dengan satu dokumen
+    // ringkasan ini, biayanya satu pembacaan kecil berapa pun panjangnya
+    // riwayat.
+    //
+    // Isinya BUKAN total sepanjang masa, melainkan jumlah baris yang SAAT INI
+    // berstatus demikian — sama persis dengan yang akan didapat dari menagregasi
+    // tabelnya. Karena itu nilainya ikut turun ketika retensi menghapus baris
+    // lama, dan `backfillWhatsappStats` bisa menghitung ulang persis dari tabel.
+    whatsappDeliveryStats: defineTable({
+      key: v.string(),
+      queued: v.number(),
+      sent: v.number(),
+      delivered: v.number(),
+      failed: v.number(),
+      updatedAt: v.number(),
+    }).index("byKey", ["key"]),
+
     // Percakapan WhatsApp yang masuk lewat webhook. Satu baris per nomor, bukan
     // satu baris per pesan: dashboard hanya perlu tahu pesan terakhir dan
     // apakah ada yang belum dibalas, dan overwrite Latest membuat dashboard
@@ -484,7 +507,13 @@ const schema = defineSchema(
       .index("byCreatedAt", ["createdAt"])
       .index("byOutcome", ["outcome"])
       .index("bySessionFingerprint", ["sessionFingerprint"])
-      .index("byIpHash", ["ipHash"]),
+      .index("byIpHash", ["ipHash"])
+      // Dua indeks komposit untuk pemeriksaan gerbang. Keduanya mengubah
+      // "baca semua baris lalu saring menurut waktu" menjadi "baca hanya baris
+      // di dalam jendelanya" — tepat pada saat tabelnya paling padat, yaitu
+      // ketika sedang ada percobaan masuk beruntun.
+      .index("byKeyCreatedAt", ["key", "createdAt"])
+      .index("byOutcomeCreatedAt", ["outcome", "createdAt"]),
 
     // Tiket sekali pakai yang diterbitkan setelah passcode admin valid.
     // Hanya hash tiket yang disimpan, bukan token aslinya.

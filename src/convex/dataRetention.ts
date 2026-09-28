@@ -2,6 +2,7 @@ import type { GenericMutationCtx } from "convex/server";
 import { v } from "convex/values";
 import type { DataModel, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
+import { applyDeliveryDelta, type DeliveryStatus } from "./whatsapp";
 
 /**
  * Retensi data yang tumbuh sendiri.
@@ -297,12 +298,24 @@ export const pruneApplicationHistory = internalMutation({
       .query("whatsappDeliveries")
       .withIndex("byCreatedAt")
       .collect();
+    // Perubahan hitungan dikumpulkan dulu, lalu diterapkan SEKALI. Kalau tiap
+    // penghapusan langsung memperbarui dokumen ringkasan, satu kali retensi
+    // akan menulis dokumen yang sama ratusan kali.
+    const deletedDeliveries: Partial<Record<DeliveryStatus, number>> = {};
     for (const row of deliveries) {
       const finished = row.status === "delivered" || row.status === "failed";
       if (finished && row.createdAt < deliveryCutoff) {
         await ctx.db.delete(row._id);
+        deletedDeliveries[row.status] = (deletedDeliveries[row.status] ?? 0) - 1;
         removed += 1;
       }
+    }
+    // Ringkasan pengiriman menyimpan jumlah baris yang SAAT INI berstatus
+    // demikian, jadi ia harus ikut turun ketika barisnya dihapus di sini.
+    // Tanpa langkah ini, angka "Delivered" di dashboard akan terus naik
+    // sementara tabelnya sudah kosong — dan tidak ada yang menyadarinya.
+    if (Object.keys(deletedDeliveries).length > 0) {
+      await applyDeliveryDelta(ctx, deletedDeliveries);
     }
 
     return removed;

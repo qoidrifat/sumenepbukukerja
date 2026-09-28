@@ -208,12 +208,16 @@ export const listAdminPresence = query({
 export const attemptWindow = internalMutation({
   args: { key: v.string() },
   handler: async (ctx, args) => {
+    // Rentang indeks komposit (key, createdAt) mempersempit pembacaan ke
+    // jendela lockout saja. Sebelumnya seluruh riwayat percobaan untuk kunci
+    // ini dibaca lalu disaring menurut waktu — dan justru saat percobaan
+    // masuk sedang beruntun, riwayat itulah yang paling panjang.
+    const since = Date.now() - LOCKOUT_MS;
     const rows = await ctx.db
       .query("adminPasscodeAttempts")
-      .withIndex("byKey", (q) => q.eq("key", args.key))
+      .withIndex("byKeyCreatedAt", (q) => q.eq("key", args.key).gte("createdAt", since))
       .collect();
-    const since = Date.now() - LOCKOUT_MS;
-    const failures = rows.filter((row) => row.createdAt >= since && row.outcome === "failed");
+    const failures = rows.filter((row) => row.outcome === "failed");
     return {
       count: failures.length,
       latestAt: failures.reduce((max, row) => Math.max(max, row.createdAt), 0),
@@ -224,12 +228,14 @@ export const attemptWindow = internalMutation({
 export const globalFailureCount = internalMutation({
   args: {},
   handler: async (ctx) => {
+    // Sama seperti `attemptWindow`: hanya percobaan gagal DI DALAM jendela
+    // lockout yang dibaca, bukan seluruh riwayat kegagalan.
+    const since = Date.now() - LOCKOUT_MS;
     const rows = await ctx.db
       .query("adminPasscodeAttempts")
-      .withIndex("byOutcome", (q) => q.eq("outcome", "failed"))
+      .withIndex("byOutcomeCreatedAt", (q) => q.eq("outcome", "failed").gte("createdAt", since))
       .collect();
-    const since = Date.now() - LOCKOUT_MS;
-    return rows.filter((row) => row.createdAt >= since).length;
+    return rows.length;
   },
 });
 
@@ -699,8 +705,14 @@ export const getAdminSecurityAttempt = query({
     const { userId } = await requireManagementViewer(ctx);
     const row = await ctx.db.get(args.attemptId);
     if (!row) return null;
-    const all = await ctx.db.query("adminPasscodeAttempts").collect();
-    const ipRows = row.ipHash ? all.filter((other) => other.ipHash === row.ipHash) : [];
+    // Riwayat IP dibaca lewat indeks `byIpHash` milik IP itu sendiri, bukan
+    // dengan mengambil seluruh riwayat percobaan lalu menyaringnya.
+    const ipRows = row.ipHash
+      ? await ctx.db
+          .query("adminPasscodeAttempts")
+          .withIndex("byIpHash", (q) => q.eq("ipHash", row.ipHash))
+          .collect()
+      : [];
     void userId;
     return {
       _id: row._id,

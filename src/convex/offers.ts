@@ -66,9 +66,35 @@ export const listOwnerRequests = query({
     const vendors = await ctx.db.query("vendors").withIndex("byOwner", (q) => q.eq("ownerId", userId)).collect();
     const vendorIds = new Set(vendors.map((vendor) => vendor._id));
     if (vendorIds.size === 0) return [];
-    const requests = await ctx.db.query("serviceRequests").collect();
-    const offers = await ctx.db.query("requestOffers").collect();
-    const visible = requests.filter((request) => request.vendorId ? vendorIds.has(request.vendorId) : vendors.some((vendor) => isMatch(request, vendor)));
+    // Dua pembacaan penuh dihapus dari sini.
+    //
+    // Yang sebelumnya dibaca adalah SELURUH permintaan warga dan SELURUH
+    // penawaran, dari semua orang, hanya untuk menyusun daftar milik satu
+    // pemilik listing. Sekarang daftarnya disusun dari dua irisan yang memang
+    // relevan: permintaan yang sudah ditugaskan ke listing saya (semua status,
+    // lewat indeks `byVendor`), dan permintaan yang masih terbuka (lewat indeks
+    // `byStatus`).
+    //
+    // Himpunan hasilnya sama persis, dan itu bisa dibuktikan dari syaratnya
+    // sendiri. Cara lama memilih: (a) permintaan yang `vendorId`-nya milik saya
+    // — status apa pun; atau (b) permintaan TANPA vendorId yang cocok dengan
+    // salah satu listing saya. Syarat (b) memanggil `isMatch`, yang langsung
+    // menolak apa pun yang statusnya bukan `open`. Jadi seluruh himpunan (b)
+    // sudah tercakup `byStatus("open")`, dan himpunan (a) sudah tercakup
+    // `byVendor` per listing milik saya. Tidak ada baris yang hilang.
+    const [assigned, openRequests] = await Promise.all([
+      Promise.all(
+        [...vendorIds].map((vendorId) =>
+          ctx.db.query("serviceRequests").withIndex("byVendor", (q) => q.eq("vendorId", vendorId)).collect(),
+        ),
+      ),
+      ctx.db.query("serviceRequests").withIndex("byStatus", (q) => q.eq("status", "open")).collect(),
+    ]);
+    const byId = new Map<string, (typeof openRequests)[number]>();
+    for (const request of [...assigned.flat(), ...openRequests]) byId.set(request._id, request);
+    const visible = [...byId.values()].filter((request) =>
+      request.vendorId ? vendorIds.has(request.vendorId) : vendors.some((vendor) => isMatch(request, vendor)),
+    );
     return Promise.all(visible.map(async (request) => {
       const requester = await ctx.db.get(request.requesterId);
       const vendor = request.vendorId ? await ctx.db.get(request.vendorId) : null;
@@ -88,7 +114,12 @@ export const listOwnerRequests = query({
         requesterName: requester?.name ?? "Warga Sumenep",
         vendorName: vendor?.name,
         vendorMatches,
-        offers: offers.filter((offer) => offer.requestId === request._id && vendorIds.has(offer.vendorId)),
+        offers: (
+          await ctx.db
+            .query("requestOffers")
+            .withIndex("byRequest", (q) => q.eq("requestId", request._id))
+            .collect()
+        ).filter((offer) => vendorIds.has(offer.vendorId)),
       };
     })).then((rows) => rows.sort((a, b) => b.updatedAt - a.updatedAt));
   },

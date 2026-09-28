@@ -177,20 +177,31 @@ export const getWhatsappStatus = query({
   args: {},
   handler: async (ctx) => {
     const config = twilioConfig();
-    const deliveries = await ctx.db.query("whatsappDeliveries").collect();
-    const counts = deliveries.reduce<Record<string, number>>((result, delivery) => {
-      result[delivery.status] = (result[delivery.status] ?? 0) + 1;
-      return result;
-    }, {});
+    const userId = await getAuthUserId(ctx);
+
+    // Empat angka ringkasan dibaca dari SATU dokumen penghitung, bukan dari
+    // mengagregasi seluruh tabel. Ini penting justru karena query ini reaktif:
+    // setiap kali satu status pengiriman berubah, ia dijalankan ulang untuk
+    // semua klien yang sedang membuka dashboard. Kalau biayanya tumbuh seiring
+    // panjang riwayat pengiriman, maka satu kali kirim pesan akan membakar
+    // kuota I/O lebih banyak dari sebelumnya — dan makin lama makin mahal.
+    const stats = await ctx.db
+      .query("whatsappDeliveryStats")
+      .withIndex("byKey", (q) => q.eq("key", DELIVERY_STATS_KEY))
+      .unique();
+
     const maskedFrom = config.from ? config.from.replace(/\d/g, "•") : undefined;
     const meta = metaConfig();
-    const userId = await getAuthUserId(ctx);
     // Status pengiriman dan chat masuk bersifat pribadi, jadi hanya diambil
-    // untuk pengguna yang sedang masuk. Query ini reaktif, jadi webhook yang
-    // menandai delivered atau mencatat pesan baru langsung terlihat di dashboard.
+    // untuk pengguna yang sedang masuk. Yang dibaca hanya pengiriman milik
+    // pengguna ini lewat indeks `byUser`.
     const ownDeliveries = userId
-      ? deliveries
-          .filter((delivery) => delivery.userId === userId)
+      ? (
+          await ctx.db
+            .query("whatsappDeliveries")
+            .withIndex("byUser", (q) => q.eq("userId", userId))
+            .collect()
+        )
           .sort((a, b) => b.createdAt - a.createdAt)
           .slice(0, 5)
           .map((delivery) => ({
@@ -233,11 +244,13 @@ export const getWhatsappStatus = query({
             unread: thread.unread,
           }
         : null,
+      // Bentuknya sengaja dipertahankan persis: empat angka yang sama, dengan
+      // arti yang sama — jumlah baris yang saat ini berstatus itu.
       deliveryCounts: {
-        queued: counts.queued ?? 0,
-        sent: counts.sent ?? 0,
-        delivered: counts.delivered ?? 0,
-        failed: counts.failed ?? 0,
+        queued: stats?.queued ?? 0,
+        sent: stats?.sent ?? 0,
+        delivered: stats?.delivered ?? 0,
+        failed: stats?.failed ?? 0,
       },
     };
   },
@@ -463,6 +476,109 @@ const errorTextOf = (error: unknown) =>
     ? safeErrorText((error as ProviderError).providerText)
     : undefined;
 
+export const DELIVERY_STATS_KEY = "global";
+export type DeliveryStatus = "queued" | "sent" | "delivered" | "failed";
+
+/**
+ * Geser hitungan status pengiriman sebanyak `delta`.
+ *
+ * Diekspor karena ada dua pihak yang mengubah isi `whatsappDeliveries`: alur
+ * pengiriman di berkas ini, dan retensi harian di `dataRetention.ts` yang
+ * menghapus baris lama. Kalau hanya salah satunya memperbarui ringkasan, dua
+ * angka di dashboard akan mulai berbeda dari kenyataan tanpa ada yang tahu —
+ * jadi keduanya memakai fungsi yang sama ini.
+ */
+export async function applyDeliveryDelta(
+  ctx: GenericMutationCtx<DataModel>,
+  delta: Partial<Record<DeliveryStatus, number>>,
+) {
+  const now = Date.now();
+  const current = await ctx.db
+    .query("whatsappDeliveryStats")
+    .withIndex("byKey", (q) => q.eq("key", DELIVERY_STATS_KEY))
+    .unique();
+  const next = {
+    queued: current?.queued ?? 0,
+    sent: current?.sent ?? 0,
+    delivered: current?.delivered ?? 0,
+    failed: current?.failed ?? 0,
+  };
+  for (const status of Object.keys(delta) as DeliveryStatus[]) {
+    // `Math.max(0, ...)` menjaga agar pengurangan tidak pernah melewati nol
+    // kalau ada baris lama yang belum pernah ikut dihitung.
+    next[status] = Math.max(0, next[status] + (delta[status] ?? 0));
+  }
+  if (current) {
+    await ctx.db.patch(current._id, { ...next, updatedAt: now });
+  } else {
+    await ctx.db.insert("whatsappDeliveryStats", {
+      key: DELIVERY_STATS_KEY,
+      ...next,
+      updatedAt: now,
+    });
+  }
+}
+
+/**
+ * Pindahkan hitungan dari satu status ke status lain.
+ *
+ * `from` dan `to` menyatakan PERPINDAHAN, bukan penambahan. Dokumen ringkasan
+ * ini menyimpan berapa baris yang SAAT INI berstatus demikian, jadi setiap
+ * transisi harus mengurangi yang lama dan menambah yang baru — kalau hanya
+ * ditambah, angkanya menjadi "total sepanjang masa" dan tidak lagi sama dengan
+ * isi tabelnya. Kesamaan itu yang membuat angkanya bisa diaudit: tesnya
+ * membandingkan dokumen ini dengan hasil pengelompokan tabel yang sesungguhnya.
+ */
+async function adjustDeliveryStats(
+  ctx: GenericMutationCtx<DataModel>,
+  from: DeliveryStatus | null,
+  to: DeliveryStatus | null,
+) {
+  if (from === to) return;
+  const delta: Partial<Record<DeliveryStatus, number>> = {};
+  if (from) delta[from] = (delta[from] ?? 0) - 1;
+  if (to) delta[to] = (delta[to] ?? 0) + 1;
+  await applyDeliveryDelta(ctx, delta);
+}
+
+/**
+ * Hitung ulang dokumen ringkasan dari isi tabel yang sebenarnya.
+ *
+ * Idempoten: nilainya dihitung dari tabel, bukan ditambahkan, jadi menjalankan
+ * dua kali memberi angka yang sama. Dipakai sekali untuk menyelaraskan data
+ * lama yang belum pernah dihitung, dan bisa dipanggil lagi kapan pun sebagai
+ * jalan perbaikan kalau ada jalur tulis yang keliru mengubah sebuah status.
+ */
+export const backfillWhatsappStats = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("whatsappDeliveries").collect();
+    const counts: Record<DeliveryStatus, number> = {
+      queued: 0,
+      sent: 0,
+      delivered: 0,
+      failed: 0,
+    };
+    for (const row of rows) counts[row.status] += 1;
+
+    const now = Date.now();
+    const current = await ctx.db
+      .query("whatsappDeliveryStats")
+      .withIndex("byKey", (q) => q.eq("key", DELIVERY_STATS_KEY))
+      .unique();
+    if (current) {
+      await ctx.db.patch(current._id, { ...counts, updatedAt: now });
+    } else {
+      await ctx.db.insert("whatsappDeliveryStats", {
+        key: DELIVERY_STATS_KEY,
+        ...counts,
+        updatedAt: now,
+      });
+    }
+    return { scanned: rows.length, ...counts };
+  },
+});
+
 export const queueWhatsappDelivery = internalMutation({
   args: {
     userId: v.string(),
@@ -487,6 +603,7 @@ export const queueWhatsappDelivery = internalMutation({
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    await adjustDeliveryStats(ctx, null, "queued");
     return { id, shouldSend: true, status: "queued" as const, attempts: 0 };
   },
 });
@@ -525,6 +642,7 @@ export const queueSystemDelivery = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    await adjustDeliveryStats(ctx, null, "queued");
     return { id, shouldSend: true, status: "queued" as const };
   },
 });
@@ -543,35 +661,34 @@ export const markWhatsappSent = internalMutation({
       nextAttemptAt: undefined,
       updatedAt: now,
     });
-    const notifications = current.userId
-      ? await ctx.db.query("notifications").withIndex("byUser", (q) => q.eq("userId", current.userId!)).collect()
-      : [];
+    await adjustDeliveryStats(ctx, current.status, "sent");
+
     // Notifikasi dalam aplikasi hanya milik warga. Alert sistem tidak boleh
     // muncul di lonceng notifikasi siapa pun.
-    if (current.userId && !notifications.some((notification) => notification.kind === current.deliveryKey)) {
-      await ctx.db.insert("notifications", {
-        userId: current.userId,
-        kind: current.deliveryKey,
-        title: current.title,
-        body: current.body,
-        channel: "whatsapp",
-        providerMessageId: args.providerMessageId,
-        read: true,
-        createdAt: now,
-      });
-    }
-    if (!notifications.some((notification) => notification.kind === current.deliveryKey)) {
-      await ctx.db.insert("notifications", {
-        userId: current.userId,
-        kind: current.deliveryKey,
-        title: current.title,
-        body: current.body,
-        channel: "whatsapp",
-        providerMessageId: args.providerMessageId,
-        read: true,
-        createdAt: now,
-      });
-    }
+    //
+    // Sebelumnya ada DUA blok penyisipan di sini, dan keduanya membaca daftar
+    // `notifications` yang sama yang diambil SEBELUM blok pertama menyisipkan.
+    // Akibatnya setiap notifikasi warga tersimpan dua kali: satu baris ganda
+    // yang tampil dobel di lonceng, dan satu baris tambahan tanpa pemilik untuk
+    // setiap alert sistem — yang tidak pernah bisa dibaca siapa pun karena
+    // selalu dibaca lewat indeks `byUser`. Blok kedua dihapus, bukan
+    // dilonggarkan.
+    if (!current.userId) return;
+    const notifications = await ctx.db
+      .query("notifications")
+      .withIndex("byUser", (q) => q.eq("userId", current.userId!))
+      .collect();
+    if (notifications.some((notification) => notification.kind === current.deliveryKey)) return;
+    await ctx.db.insert("notifications", {
+      userId: current.userId,
+      kind: current.deliveryKey,
+      title: current.title,
+      body: current.body,
+      channel: "whatsapp",
+      providerMessageId: args.providerMessageId,
+      read: true,
+      createdAt: now,
+    });
   },
 });
 
@@ -595,6 +712,7 @@ export const markWhatsappFailed = internalMutation({
       nextAttemptAt,
       updatedAt: Date.now(),
     });
+    await adjustDeliveryStats(ctx, current.status, "failed");
     if (nextAttemptAt) {
       await ctx.scheduler.runAfter(attempts * 60_000, internal.whatsapp.retryWhatsappDelivery, { deliveryId: args.id });
     }
@@ -612,6 +730,7 @@ export const reopenFailedDelivery = internalMutation({
       nextAttemptAt: undefined,
       updatedAt: Date.now(),
     });
+    await adjustDeliveryStats(ctx, "failed", "queued");
     return true;
   },
 });
@@ -721,6 +840,7 @@ export const applyDeliveryStatus = internalMutation({
       nextAttemptAt,
       updatedAt: now,
     });
+    await adjustDeliveryStats(ctx, delivery.status, args.status);
     if (nextAttemptAt) {
       await ctx.scheduler.runAfter(Math.max(1, delivery.attempts) * 60_000, internal.whatsapp.retryWhatsappDelivery, { deliveryId: delivery._id });
     }

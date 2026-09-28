@@ -1119,14 +1119,42 @@ export const listCommunityMetrics = query({
   args: {},
   handler: async (ctx) => {
     await requireManagementViewer(ctx);
-    const [vendors, requests, users, favorites, photos] = await Promise.all([
-      ctx.db.query("vendors").collect(),
-      ctx.db.query("serviceRequests").collect(),
-      ctx.db.query("users").collect(),
-      ctx.db.query("favorites").collect(),
-      ctx.db.query("vendorPhotos").collect(),
-    ]);
-    const activeVendors = vendors.filter((vendor) => vendor.status === "active");
+
+    // Lima pembacaan penuh sebelumnya digantikan pembacaan yang dipersempit.
+    // Yang paling penting: `users` TIDAK lagi dibaca seluruhnya.
+    //
+    // Tabel `users` berisi residu Convex Auth anonim yang tumbuh ~99 baris per
+    // hari (~36.000 setahun), dan panel ini adalah dashboard — dibuka berkali-
+    // kali, bukan sekali. Membaca seluruh tabel untuk MEMBAGI satu angka berarti
+    // kuota I/O habis oleh baris yang bahkan tidak punya email.
+    //
+    // Rentang indeks `email` melewati SEMUA dokumen yang tidak punya field itu,
+    // dan hanya akun anonim yang tidak punya. Jadi yang terbaca tepat "warga
+    // terdaftar", apa pun yang terjadi pada tabel bawahnya. Efek sampingnya
+    // disengaja: penyebut `returningSaverRate` sekarang berarti "warga
+    // terdaftar", bukan "termasuk bot yang tidak pernah mengisi apa pun".
+    const [activeVendors, completedRequests, expiredRequests, registeredUsers, favorites, photos] =
+      await Promise.all([
+        ctx.db.query("vendors").withIndex("byStatus", (q) => q.eq("status", "active")).collect(),
+        ctx.db
+          .query("serviceRequests")
+          .withIndex("byStatus", (q) => q.eq("status", "completed"))
+          .collect(),
+        ctx.db
+          .query("serviceRequests")
+          .withIndex("byStatus", (q) => q.eq("status", "expired"))
+          .collect(),
+        ctx.db
+          .query("users")
+          .withIndex("email", (q) => q.gt("email", ""))
+          .collect(),
+        // `favorites` sengaja dibiarkan apa adanya: barisnya berpasangan
+        // (pengguna x listing), jadi jumlahnya dibatasi oleh data nyata, bukan
+        // oleh waktu. Ia bisa ditinjau lagi kalau suatu saat jumlah barisnya
+        // melewati beberapa ribu.
+        ctx.db.query("favorites").collect(),
+        ctx.db.query("vendorPhotos").collect(),
+      ]);
     const photoVendorIds = new Set(
       photos.filter((photo) => photo.active !== false && photo.moderationStatus !== "rejected" && photo.moderationStatus !== "pending").map((photo) => photo.vendorId),
     );
@@ -1175,7 +1203,7 @@ export const listCommunityMetrics = query({
               responseValues.length,
           )
         : 0,
-      completedRequests: requests.filter((request) => request.status === "completed").length,
+      completedRequests: completedRequests.length,
       completeListingRate: activeVendors.length > 0
         ? Math.round((completeListings.length / activeVendors.length) * 100)
         : 0,
@@ -1183,13 +1211,13 @@ export const listCommunityMetrics = query({
       listingsWithPhotos: activeVendors.filter(
         (vendor) => Boolean(vendor.photoId) || photoVendorIds.has(vendor._id),
       ).length,
-      returningSaverRate: users.length > 0
-        ? Math.round((returningUsers.size / users.length) * 100)
+      returningSaverRate: registeredUsers.length > 0
+        ? Math.round((returningUsers.size / registeredUsers.length) * 100)
         : 0,
       listingsWithoutPrice: activeVendors.filter((vendor) => !vendor.price.trim()).length,
       listingsWithoutPhotos: activeVendors.filter((vendor) => !vendor.photoId && !photoVendorIds.has(vendor._id)).length,
       listingsWithoutHours: activeVendors.filter((vendor) => !vendor.hours.trim()).length,
-      expiredRequests: requests.filter((request) => request.status === "expired").length,
+      expiredRequests: expiredRequests.length,
       mostResponsiveProvider: activeVendors
         .filter((vendor) => (vendor.responseMinutes ?? 0) > 0)
         .sort((a, b) => (a.responseMinutes ?? 0) - (b.responseMinutes ?? 0))[0]?.name,
@@ -1233,10 +1261,29 @@ export const createReport = mutation({
     if (args.requestId && !request) throw new Error("Permintaan yang dilaporkan tidak ditemukan");
 
     const now = Date.now();
-    const existingReports = await ctx.db.query("reports").collect();
-    const sameTarget = (report: (typeof existingReports)[number]) =>
+
+    // Dua pembacaan yang dipersempit, bukan satu pembacaan seluruh tabel.
+    //
+    // Sebelumnya seluruh tabel `reports` dibaca untuk memeriksa duplikat dan
+    // kuota pelapor, padahal tiap aturannya hanya menyangkut satu dari dua
+    // irisan kecil: laporan untuk TARGET yang sama, dan laporan MILIK pelapor
+    // ini. Keduanya punya indeksnya sendiri sekarang, jadi tabel laporan yang
+    // menumpuk bertahun-tahun tidak lagi menentukan biaya satu kali kirim
+    // laporan.
+    const targetReports = args.vendorId
+      ? await ctx.db
+          .query("reports")
+          .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
+          .collect()
+      : args.requestId
+        ? await ctx.db
+            .query("reports")
+            .withIndex("byRequest", (q) => q.eq("requestId", args.requestId))
+            .collect()
+        : [];
+    const sameTarget = (report: (typeof targetReports)[number]) =>
       report.vendorId === args.vendorId && report.requestId === args.requestId;
-    const duplicate = existingReports.some(
+    const duplicate = targetReports.some(
       (report) =>
         sameTarget(report) &&
         report.reason === reason &&
@@ -1245,15 +1292,17 @@ export const createReport = mutation({
     );
     if (duplicate) throw new Error("Laporan serupa sudah dikirim baru saja");
 
-    const recentTargetReports = existingReports.filter(
+    const recentTargetReports = targetReports.filter(
       (report) => sameTarget(report) && now - report.createdAt < 60 * 60 * 1000,
     );
+    const ownReports = userId
+      ? await ctx.db
+          .query("reports")
+          .withIndex("byReporter", (q) => q.eq("reporterId", userId))
+          .collect()
+      : [];
     const recentReporterReports = userId
-      ? existingReports.filter(
-          (report) =>
-            report.reporterId === userId &&
-            now - report.createdAt < 24 * 60 * 60 * 1000,
-        )
+      ? ownReports.filter((report) => now - report.createdAt < 24 * 60 * 60 * 1000)
       : recentTargetReports;
     if (
       recentReporterReports.length >= (userId ? 10 : 5) ||

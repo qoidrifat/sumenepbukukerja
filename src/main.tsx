@@ -1,5 +1,6 @@
 import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
+import { SessionRevokedGuard } from "@/components/session-revoked-guard";
 import { RequireAuth } from "@/components/RequireAuth";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
@@ -175,6 +176,7 @@ createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
           <CatalogBootstrap />
           <RouteSyncer />
+          <SessionRevokedGuard>
           <Suspense fallback={<RouteLoading />}>
             <Routes>
               <Route path="/" element={<Landing />} />
@@ -201,6 +203,7 @@ createRoot(document.getElementById("root")!).render(
               ) : null}
             </Routes>
           </Suspense>
+          </SessionRevokedGuard>
         </BrowserRouter>
         <Toaster />
         <ErrorReportDialog />

@@ -27,7 +27,8 @@
 import { anyApi } from "convex/server";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthSessionId, getAuthUserId } from "@convex-dev/auth/server";
+import { sha256Hex } from "../lib/security-context";
 import { writeAudit } from "./audit";
 import { v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -565,6 +566,11 @@ export const listAdminSecurityEvents = query({
       (a, b) => b.createdAt - a.createdAt || (a._id < b._id ? 1 : -1),
     );
     const now = Date.now();
+    // Referensi sesi milik pemanggil, dihitung dari JWT-nya sendiri. Dipakai
+    // untuk menandai kartu mana yang sebenarnya perangkat yang sedang dipakai, supaya
+    // UI tidak menawarkan mencabut sesi yang sedang dinaiki.
+    const ownSessionId = await getAuthSessionId(ctx);
+    const ownSessionReference = ownSessionId ? await sha256Hex(ownSessionId) : null;
     const presence = await ctx.db.query("adminPresence").collect();
     const liveFingerprints = new Set(
       presence.filter((row) => now - row.lastSeenAt < PRESENCE_STALE_MS && row.sessionFingerprint).map((row) => row.sessionFingerprint as string),
@@ -656,6 +662,21 @@ export const listAdminSecurityEvents = query({
         requestId: maskRequestId(row.requestId),
         attemptNumber: row.attemptNumber ?? null,
         createdAt: row.createdAt,
+        // Keadaan sesi untuk tombol "Logout dari sesi ini". Yang dikirim hanya
+        // bentuk ternormalisasi, bukan id sesi maupun hash-nya: UI tidak butuh
+        // pengenal apa pun untuk memutuskan, dan begitu pengenal ikut terbawa ke
+        // payload, kebocorannya jadi jauh lebih sulit dilacak.
+        sessionState:
+          row.outcome !== "success"
+            ? ("none" as const)
+            : row.sessionRevokedAt
+              ? ("revoked" as const)
+              : !row.sessionReference
+                ? ("untracked" as const)
+                : ownSessionReference && row.sessionReference === ownSessionReference
+                  ? ("current" as const)
+                  : ("active" as const),
+        sessionRevokedAt: row.sessionRevokedAt ?? null,
         // Agregasi
         attemptsInWindow: related.length + 1,
         failedInWindow,
@@ -1132,6 +1153,11 @@ export const reportSessionContext = mutation({
     if (!userId) return null;
     if (!(await getStaffAccess(ctx, userId))) return null;
     const now = Date.now();
+    // Id sesi dibaca dari JWT yang ditandatangani server, tidak pernah dari
+    // klien. Kalau ini diambil dari argumen, siapa pun bisa menulis id sesi
+    // orang lain lalu mencabutnya.
+    const sessionId = await getAuthSessionId(ctx);
+    const sessionReference = sessionId ? await sha256Hex(sessionId) : null;
     const existing = await ctx.db
       .query("adminPresence")
       .withIndex("byUser", (q) => q.eq("userId", userId))
@@ -1150,6 +1176,7 @@ export const reportSessionContext = mutation({
       deviceType: args.deviceType ?? existing?.deviceType,
       timezone: args.timezone ?? existing?.timezone,
       lastSeenAt: now,
+      sessionReference: sessionReference ?? existing?.sessionReference,
     };
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -1167,7 +1194,153 @@ export const reportSessionContext = mutation({
         signedInAt: now,
       });
     }
+    // Ikat percobaan login berhasil terakhir ke sesi yang baru saja terbukti
+    // nyata. Tanpa langkah ini Security Desk hanya tahu "passcode cocok", bukan
+    // "ada sesi hidup dari perangkat ini" — sehingga tidak ada yang bisa
+    // dicabut. Lihat `adminSessionBindings` di schema.
+    if (sessionId && sessionReference) {
+      await bindAttemptToSession(ctx, {
+        userId,
+        sessionId,
+        sessionReference,
+        fingerprint: args.sessionFingerprint,
+      });
+    }
     return { isNewSession };
+  },
+});
+
+/** Seberapa lama percobaan "berhasil" masih boleh diklaim oleh sebuah sesi. */
+const SESSION_BIND_WINDOW_MS = 30 * 60_000;
+
+/**
+ * Menemukan percobaan "berhasil" yang menjadi asal sesi ini lalu mengikatnya.
+ *
+ * Syaratnya sengaja ketat: hanya percobaan sukses, hanya yang belum terikat,
+ * dan hanya dalam jendela waktu dekat. Tanpa itu, sesi baru bisa mengambil
+ * alih percobaan lama sehingga admin bisa mencabut perangkat yang salah.
+ */
+async function bindAttemptToSession(
+  ctx: GenericMutationCtx<DataModel>,
+  args: {
+    userId: DataModel["users"]["document"]["_id"];
+    sessionId: DataModel["authSessions"]["document"]["_id"];
+    sessionReference: string;
+    fingerprint?: string;
+  },
+) {
+  const windowStart = Date.now() - SESSION_BIND_WINDOW_MS;
+  const candidates = (
+    await ctx.db
+      .query("adminPasscodeAttempts")
+      .withIndex("byCreatedAt", (q) => q.gte("createdAt", windowStart))
+      .collect()
+  )
+    .filter((row) => row.outcome === "success" && !row.sessionReference)
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  // Perangkat yang sama lebih kuat bukti_than email yang sama: satu orang bisa
+  // punya beberapa perangkat, tapi satu perangkat hanya punya satu sesi.
+  const match =
+    (args.fingerprint
+      ? candidates.find((row) => row.sessionFingerprint === args.fingerprint)
+      : undefined) ?? candidates[0];
+  if (!match) return null;
+
+  await ctx.db.insert("adminSessionBindings", {
+    attemptId: match._id,
+    userId: args.userId,
+    sessionId: args.sessionId,
+    sessionReference: args.sessionReference,
+    sessionFingerprint: args.fingerprint,
+    createdAt: Date.now(),
+  });
+  await ctx.db.patch(match._id, { sessionReference: args.sessionReference });
+  return match._id;
+}
+
+/**
+ * Mencabut satu sesi admin dari Security Desk.
+ *
+ * Yang dicabut hanya sesi target. Sesi pemanggil sendiri dikecualikan secara
+ * eksplisit: menekan tombol dari perangkat yang sedang dipakai harus berarti
+ * "keluar dari perangkat ini", bukan "matikan semua sesi saya".
+ *
+ * Sisi idempoten: memanggilnya dua kali pada sesi yang sama tidak melempar
+ * error, hanya mengembalikan waktu pencabutan yang pertama.
+ */
+export const revokeAdminSession = mutation({
+  args: { attemptId: v.id("adminPasscodeAttempts"), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const access = await requireStaff(ctx, "admin");
+    const attempt = await ctx.db.get(args.attemptId);
+    if (!attempt) return { ok: false as const, reason: "ATTEMPT_NOT_FOUND" as const };
+    if (attempt.outcome !== "success") {
+      return { ok: false as const, reason: "NOT_A_SUCCESSFUL_ATTEMPT" as const };
+    }
+    const binding = await ctx.db
+      .query("adminSessionBindings")
+      .withIndex("byAttempt", (q) => q.eq("attemptId", args.attemptId))
+      .unique();
+    // Percobaan lama, sebelum fitur ini ada, memang tidak punya pengikat.
+    // UI sudah menampilkan ini sebagai "sesi tidak terlacak", bukan error.
+    if (!binding) return { ok: false as const, reason: "SESSION_NOT_FOUND" as const };
+
+    const already = await ctx.db
+      .query("revokedAdminSessions")
+      .withIndex("bySession", (q) => q.eq("sessionId", binding.sessionId))
+      .unique();
+    if (already) {
+      return { ok: true as const, revokedAt: already.revokedAt, alreadyRevoked: true as const };
+    }
+
+    // Menolak mencabut sesi sendiri lewat jalur ini; jalur keluar biasa yang
+    // harus dipakai untuk itu, dan UI-nya sudah memakai label yang sesuai.
+    const ownSession = await getAuthSessionId(ctx);
+    if (ownSession && binding.sessionId === ownSession) {
+      return { ok: false as const, reason: "CURRENT_SESSION" as const };
+    }
+
+    const revokedAt = Date.now();
+    await ctx.db.insert("revokedAdminSessions", {
+      sessionId: binding.sessionId,
+      userId: binding.userId,
+      attemptId: args.attemptId,
+      reason: args.reason?.slice(0, 200) || undefined,
+      revokedAt,
+      revokedBy: access.userId,
+    });
+    await ctx.db.patch(args.attemptId, { sessionRevokedAt: revokedAt });
+
+    // Kehadiran dicatat per pengguna, bukan per sesi, jadi baris Presence milik
+    // perangkat lain TIDAK ikut dihapus — memotongnya akan membuat perangkat
+    // yang masih aktif terlihat offline. Yang dilepas hanya sidik jarinya, dan
+    // hanya kalau memang milik perangkat yang dicabut.
+    const presence = await ctx.db
+      .query("adminPresence")
+      .withIndex("byUser", (q) => q.eq("userId", binding.userId))
+      .unique();
+    if (presence && presence.sessionReference === binding.sessionReference) {
+      await ctx.db.patch(presence._id, {
+        sessionFingerprint: undefined,
+        sessionReference: undefined,
+      });
+    }
+
+    await writeAudit(ctx, {
+      action: "admin.session_revoked",
+      actorId: access.userId,
+      entityId: args.attemptId,
+      // Hanya ringkasan terbaca manusia. Tidak ada id sesi, access token,
+      // atau refresh token yang masuk ke audit.
+      metadata: {
+        targetIpMasked: attempt.ipMasked || undefined,
+        targetBrowser: attempt.browser || undefined,
+        targetOs: attempt.os || undefined,
+        reason: args.reason?.slice(0, 200) || undefined,
+      },
+    });
+    return { ok: true as const, revokedAt, alreadyRevoked: false as const };
   },
 });
 

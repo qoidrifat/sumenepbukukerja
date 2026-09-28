@@ -434,6 +434,13 @@ const schema = defineSchema(
       mappedFromIpv6: v.optional(v.boolean()),
       signals: v.optional(v.array(v.string())),
       userId: v.optional(v.id("users")),
+      // Pengikat ke sesi Convex Auth yang summarised oleh percobaan ini. Yang
+      // disimpan hanya hash-nya, bukan id sesi aslinya, supaya Security Desk
+      // bisa menampilkan "sesi ini" tanpa pernah memegang pengenal yang bisa
+      // dipakai ulang. Pencabutan menandai `sessionRevokedAt` supaya kartu
+      // berubah secara reaktif begitu admin menekan tombolnya.
+      sessionReference: v.optional(v.string()),
+      sessionRevokedAt: v.optional(v.number()),
       createdAt: v.number(),
     })
       .index("byKey", ["key"])
@@ -512,9 +519,57 @@ const schema = defineSchema(
       timezone: v.optional(v.string()),
       firstSeenAt: v.optional(v.number()),
       signedInAt: v.optional(v.number()),
+      // Hash id sesi, supaya panel "Sesi Anda" bisa tahu ia sedang berjalan
+      // di perangkat yang sama dengan kartu Security Desk mana.
+      sessionReference: v.optional(v.string()),
     })
       .index("byUser", ["userId"])
       .index("byLastSeenAt", ["lastSeenAt"]),
+
+    // Pengikat percobaan login berhasil ke sesi Convex Auth yang sebenarnya.
+    //
+    // Percobaan "berhasil" dicatat saat passcode cocok, jadi saat itu BELUM
+    // ada sesi — email OTP dan sign-in baru terjadi sesudahnya. Karena itu
+    // asosiasi ini dibuat belakangan, saat perangkat sudah benar-benar masuk
+    // dan sesi aslinya bisa dibaca dari JWT yang ditandatangani server
+    // (`userId|authSessions._id`). Klien tidak pernah mengirim id sesi:
+    // kalau begitu, nilainya bisa dipalsukan.
+    //
+    // Tabel ini sengaja terpisah dari `adminPasscodeAttempts` karena yang ini
+    // tidak boleh ikut terpangkas sementara sesinya masih hidup.
+    adminSessionBindings: defineTable({
+      attemptId: v.id("adminPasscodeAttempts"),
+      userId: v.id("users"),
+      sessionId: v.id("authSessions"),
+      // SHA-256 dari id sesi. Inilah satu-satunya bentuk sesi yang keluar ke
+      // UI; id aslinya tetap di server.
+      sessionReference: v.string(),
+      sessionFingerprint: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("byAttempt", ["attemptId"])
+      .index("byUser", ["userId"])
+      .index("bySession", ["sessionId"]),
+
+    // Sesi yang dicabut admin dari Security Desk.
+    //
+    // Daftar cabut inilah yang membuat pencabutan berlaku SEKETIKA. Menghapus
+    // baris `authSessions` saja tidak cukup: access token yang sudah terbit
+    // tetap sah sampai `exp`-nya (1 jam), karena JWT-nya stateless. Setiap
+    // permintaan yang melewati `requireUser` mengecek tabel ini, jadi perangkat
+    // yang dicabut ditolak pada permintaan berikutnya juga. Id sesi bertahan
+    // lintas refresh token, jadi daftar ini juga bertahan setelah token
+    // kedaluwarsa — bukan sekadar kedaluwarsa satu jam.
+    revokedAdminSessions: defineTable({
+      sessionId: v.id("authSessions"),
+      userId: v.id("users"),
+      attemptId: v.optional(v.id("adminPasscodeAttempts")),
+      reason: v.optional(v.string()),
+      revokedAt: v.number(),
+      revokedBy: v.optional(v.id("users")),
+    })
+      .index("bySession", ["sessionId"])
+      .index("byUser", ["userId"]),
 
     // Passcode admin hasil rotasi dari dalam aplikasi.
     //

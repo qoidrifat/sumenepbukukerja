@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { TimeStampLabel } from "@/components/admin-workspace";
+import { SessionRevokeControl } from "@/components/admin-session-revoke";
 import {
   useAdminIpActivity,
   useAdminSecurityEvents,
@@ -518,6 +519,18 @@ export function AdminSecurityLog() {
                       aria-hidden="true"
                     />
                   </button>
+                </div>
+
+                {/* Baris sendiri di bawah tombol detail, bukan di dalam baris
+                    yang sama: pada 390px dua tombol bersebelahan memotong teks
+                    keduanya. Lebar penuh di HP, otomatis menyempit di desktop. */}
+                <div className="mt-2 flex flex-col items-stretch gap-1.5 sm:mt-0 sm:flex-row sm:items-center">
+                  <SessionRevokeControl
+                    attemptId={event._id}
+                    sessionState={event.sessionState}
+                    sessionRevokedAt={event.sessionRevokedAt}
+                    deviceLabel={deviceLine}
+                  />
                 </div>
 
                 {isOpen ? (

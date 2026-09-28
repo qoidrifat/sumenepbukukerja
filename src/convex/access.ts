@@ -1,4 +1,5 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthSessionId, getAuthUserId } from "@convex-dev/auth/server";
+import { ConvexError } from "convex/values";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
 
@@ -38,7 +39,38 @@ export async function getStaffAccess(ctx: Context, userId: DataModel["users"]["d
 export async function requireUser(ctx: Context) {
   const userId = await getAuthUserId(ctx);
   if (!userId) throw new Error("Masuk untuk menggunakan fitur Buku Kerja");
+  await assertSessionNotRevoked(ctx);
   return userId;
+}
+
+/**
+ * Menolak sesi yang sudah dicabut admin dari Security Desk.
+ *
+ * Kenapa ini perlu ada, dan kenapa tidak cukup dengan menghapus sesi:
+ * access token Convex Auth adalah JWT stateless yang sudah terbit dan tetap
+ * sah sampai `exp`-nya (1 jam), apa pun yang terjadi di database. Satu-satunya
+ * cara menolak seketika adalah memeriksa daftar cabut di setiap permintaan.
+ *
+ * Id sesinya dibaca dari JWT yang ditandatangani server lewat
+ * `getAuthSessionId`, tidak pernah dari klien — jadi daftar ini tidak bisa
+ * diisi dengan nilai palsu untuk membebaskan sesi orang lain.
+ *
+ * Pesannya sengaja memakai `code` terstruktur supaya sisi klien bisa
+ * membedakan "sesi dicabut" dari "belum masuk" dan langsung mengeluarkan
+ * perangkat ke `/auth`, alih-alih menampilkan error generik.
+ */
+async function assertSessionNotRevoked(ctx: Context) {
+  const sessionId = await getAuthSessionId(ctx);
+  if (!sessionId) return;
+  const revoked = await ctx.db
+    .query("revokedAdminSessions")
+    .withIndex("bySession", (q) => q.eq("sessionId", sessionId))
+    .unique();
+  if (!revoked) return;
+  throw new ConvexError({
+    code: "SESSION_REVOKED",
+    message: "Sesi Anda telah diakhiri oleh admin dari perangkat lain.",
+  });
 }
 
 export async function requireStaff(ctx: Context, minimum: "staff" | "admin" = "staff") {

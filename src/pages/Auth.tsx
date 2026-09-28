@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck, ShieldOff } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,6 +65,11 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [passcode, setPasscode] = useState("");
   const [showPasscode, setShowPasscode] = useState(false);
   const [step, setStep] = useState<"signIn" | { email: string }>("signIn");
+  // Bendera ini datang dari `SessionRevokedGuard`: perangkat ini baru saja
+  // dicabut dari Security Desk, jadi orangnya perlu tahu kenapa ia mendarat
+  // lagi di halaman masuk. Bukan error — ini konsekuensi yang dia minta sendiri
+  // (atau yang orang lain minta untuk perangkatnya).
+  const wasRevoked = searchParams.get("revoked") === "1";
   const [otp, setOtp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +184,16 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   verifikasi email.
                 </CardDescription>
               </CardHeader>
+              {wasRevoked ? (
+                <p
+                  className="flex items-start gap-2 border-t border-border px-6 py-3 text-sm font-bold text-amber-800"
+                  role="status"
+                >
+                  <ShieldOff className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                  Sesi Anda di perangkat ini sudah diakhiri dari ruang admin. Masuk lagi untuk
+                  melanjutkan.
+                </p>
+              ) : null}
               <form onSubmit={handlePasscodeSubmit}>
                 <CardContent>
                   <label className="flex flex-col gap-2">

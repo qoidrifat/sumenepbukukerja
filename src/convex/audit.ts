@@ -20,6 +20,7 @@ export type AuditAction =
   | "staff.invite_accepted"
   | "admin.logout"
   | "admin.passcode_changed"
+  | "admin.session_revoked"
   | "admin.security_viewed"
   | "admin.security_detail_viewed";
 

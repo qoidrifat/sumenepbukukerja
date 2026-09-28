@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test } from "vitest";
 import { encodePasscodeHash } from "../lib/admin-passcode";
+import { sha256Hex } from "../lib/security-context";
 import { api, internal } from "./_generated/api";
+import type { DataModel } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -1403,5 +1405,337 @@ describe("retensi data keamanan", () => {
     const second = await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {});
     expect(first).toBe(0);
     expect(second).toBe(0);
+  });
+});
+
+/**
+ * Pencabutan sesi admin dari Security Desk.
+ *
+ * Yang diuji di sini bukan cuma "tombolnya kelihatan", tapi dua hal yang
+ * lebih penting: server benar-benar menolak sesi yang dicabut pada permintaan
+ * berikutnya, dan tidak ada jalan untuk mencabut sesi orang lain.
+ */
+describe("pencabutan sesi admin", () => {
+  const DAY = 24 * 60 * 60_000;
+
+  /** Sesi Convex Auth palsu: cukup `_id`-nya yang valid untuk dipakai pengikat. */
+  async function seedSession(t: ReturnType<typeof convexTest>, userId: string) {
+    return await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+      };
+      return await db.insert("authSessions", { userId, expirationTime: Date.now() + 30 * DAY });
+    });
+  }
+
+  /** Percobaan "berhasil" + pengikatnya, seperti yang dibuat reportSessionContext. */
+  async function seedBoundAttempt(
+    t: ReturnType<typeof convexTest>,
+    args: { userId: string; sessionId: string; reference: string; outcome?: "success" | "failed" },
+  ): Promise<DataModel["adminPasscodeAttempts"]["document"]["_id"]> {
+    const attemptId = await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+        patch: (id: string, patch: Record<string, unknown>) => Promise<void>;
+      };
+      const attemptId = await db.insert("adminPasscodeAttempts", {
+        key: "kunci-uji-sesi",
+        outcome: args.outcome ?? "success",
+        ipMasked: "203.0.113.xxx",
+        sessionReference: args.reference,
+        createdAt: Date.now(),
+      });
+      if ((args.outcome ?? "success") === "success") {
+        await db.insert("adminSessionBindings", {
+          attemptId,
+          userId: args.userId,
+          sessionId: args.sessionId,
+          sessionReference: args.reference,
+          createdAt: Date.now(),
+        });
+      }
+      return attemptId;
+    });
+    return attemptId as DataModel["adminPasscodeAttempts"]["document"]["_id"];
+  }
+
+  async function setupAdmin(t: ReturnType<typeof convexTest>, email = "admin-cabut@sumenep.co.id") {
+    const userId = await seedUserId(t, { name: "Admin Cabut", email });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("staffMembers", {
+        userId: userId as never,
+        role: "admin",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    return userId;
+  }
+
+  test("warga biasa dan non-admin tidak bisa mencabut sesi siapa pun", async () => {
+    const t = convexTest(schema, modules);
+    const resident = await seededUser(t, { name: "Warga", email: "warga-cabut@sumenep.co.id" });
+    const adminId = await setupAdmin(t);
+    const sessionId = await seedSession(t, adminId);
+    const attemptId = await seedBoundAttempt(t, {
+      userId: adminId,
+      sessionId,
+      reference: "ref-target",
+    });
+
+    await expect(
+      resident.mutation(api.adminGate.revokeAdminSession, { attemptId }),
+    ).rejects.toThrow();
+
+    // smelling Viewer juga bukan admin: peran dicek sebelum apa pun.
+    const viewerId = await seedUserId(t, { name: "Lihat Saja", email: "lihat@sumenep.co.id" });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("staffMembers", {
+        userId: viewerId as never,
+        role: "viewer",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    const viewer = t.withIdentity({ subject: viewerId });
+    await expect(
+      viewer.mutation(api.adminGate.revokeAdminSession, { attemptId }),
+    ).rejects.toThrow();
+
+    const revoked = await t.run(async (ctx) =>
+      (await ctx.db.query("revokedAdminSessions").collect()).length,
+    );
+    expect(revoked).toBe(0);
+  });
+
+  test("percobaan gagal dan percobaan tanpa pengikat ditolak dengan alasan yang jelas", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await setupAdmin(t);
+    const sessionId = await seedSession(t, adminId);
+    const admin = t.withIdentity({ subject: `${adminId}|${sessionId}` });
+
+    const failedAttempt = await seedBoundAttempt(t, {
+      userId: adminId,
+      sessionId,
+      reference: "ref-gagal",
+      outcome: "failed",
+    });
+    await expect(
+      admin.mutation(api.adminGate.revokeAdminSession, { attemptId: failedAttempt }),
+    ).resolves.toEqual({ ok: false, reason: "NOT_A_SUCCESSFUL_ATTEMPT" });
+
+    // Baris lama: sukses tapi belum pernah punya pengikat sesi.
+    const legacyAttempt = await t.run(async (ctx) =>
+      ctx.db.insert("adminPasscodeAttempts", {
+        key: "kunci-lama",
+        outcome: "success" as const,
+        createdAt: Date.now(),
+      }),
+    );
+    await expect(
+      admin.mutation(api.adminGate.revokeAdminSession, { attemptId: legacyAttempt }),
+    ).resolves.toEqual({ ok: false, reason: "SESSION_NOT_FOUND" });
+  });
+
+  test("mencabut sesi menandai daftar cabut, attempt, dan menulis audit", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await setupAdmin(t);
+    const targetSessionId = await seedSession(t, adminId);
+    const callerSessionId = await seedSession(t, adminId);
+    const attemptId = await seedBoundAttempt(t, {
+      userId: adminId,
+      sessionId: targetSessionId,
+      reference: "hash-target",
+    });
+    const caller = t.withIdentity({ subject: `${adminId}|${callerSessionId}` });
+
+    const result = await caller.mutation(api.adminGate.revokeAdminSession, {
+      attemptId,
+      reason: "perangkat hilang",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("harus berhasil");
+
+    const state = await t.run(async (ctx) => {
+      const revoked = await ctx.db.query("revokedAdminSessions").collect();
+      const attempt = (await ctx.db.get(attemptId)) as
+        | { sessionRevokedAt?: number }
+        | null;
+      const audits = await ctx.db.query("auditLogs").collect();
+      return {
+        revokedCount: revoked.length,
+        revokedSessionId: revoked[0]?.sessionId,
+        attemptRevokedAt: attempt?.sessionRevokedAt,
+        auditActions: audits.map((a) => a.action),
+        auditMeta: audits[0]?.metadata ?? {},
+        auditRaw: JSON.stringify(audits),
+      };
+    });
+    expect(state.revokedCount).toBe(1);
+    expect(state.revokedSessionId).toBe(targetSessionId);
+    expect(state.attemptRevokedAt).toBeGreaterThan(0);
+    expect(state.auditActions).toContain("admin.session_revoked");
+    expect(state.auditMeta).toMatchObject({ targetIpMasked: "203.0.113.xxx", reason: "perangkat hilang" });
+    // Id sesi dan hash-nya tidak boleh bocor ke audit.
+    expect(state.auditRaw).not.toContain(targetSessionId);
+    expect(state.auditRaw).not.toContain("hash-target");
+  });
+
+  test("mencabut sesi yang sudah dicabut tidak melempar, hanya melaporkan sudah dicabut", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await setupAdmin(t);
+    const targetSessionId = await seedSession(t, adminId);
+    const callerSessionId = await seedSession(t, adminId);
+    const attemptId = await seedBoundAttempt(t, {
+      userId: adminId,
+      sessionId: targetSessionId,
+      reference: "hash-ulang",
+    });
+    const caller = t.withIdentity({ subject: `${adminId}|${callerSessionId}` });
+
+    const first = await caller.mutation(api.adminGate.revokeAdminSession, {
+      attemptId,
+    });
+    const second = await caller.mutation(api.adminGate.revokeAdminSession, {
+      attemptId,
+    });
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) throw new Error("harus berhasil");
+    expect(second.alreadyRevoked).toBe(true);
+    expect(second.revokedAt).toBe(first.revokedAt);
+
+    const rows = await t.run(async (ctx) => ctx.db.query("revokedAdminSessions").collect());
+    expect(rows.length).toBe(1);
+  });
+
+  test("sesi sendiri tidak bisa dicabut lewat jalur ini", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await setupAdmin(t);
+    const ownSessionId = await seedSession(t, adminId);
+    const attemptId = await seedBoundAttempt(t, {
+      userId: adminId,
+      sessionId: ownSessionId,
+      reference: "hash-saya",
+    });
+    const caller = t.withIdentity({ subject: `${adminId}|${ownSessionId}` });
+    await expect(
+      caller.mutation(api.adminGate.revokeAdminSession, { attemptId }),
+    ).resolves.toEqual({ ok: false, reason: "CURRENT_SESSION" });
+  });
+
+  test("perangkat yang sesinya dicabut ditolak di permintaan berikutnya dengan SESSION_REVOKED", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await setupAdmin(t);
+    const targetSessionId = await seedSession(t, adminId);
+    const callerSessionId = await seedSession(t, adminId);
+    const attemptId = await seedBoundAttempt(t, {
+      userId: adminId,
+      sessionId: targetSessionId,
+      reference: "hash-live",
+    });
+    const target = t.withIdentity({ subject: `${adminId}|${targetSessionId}` });
+    const caller = t.withIdentity({ subject: `${adminId}|${callerSessionId}` });
+
+    // Sebelum dicabut, target boleh masuk seperti biasa.
+    await expect(target.query(api.adminGate.listAdminSecurityEvents, {})).resolves.toBeTruthy();
+
+    await caller.mutation(api.adminGate.revokeAdminSession, { attemptId });
+
+    // Sesudahnya, query biasa sudah ditolak. Inilah bukti pencabutan
+    // berlaku di server dan bukan cuma berubah tampilan.
+    let caught: unknown = null;
+    try {
+      await target.query(api.adminGate.listAdminSecurityEvents, {});
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).not.toBeNull();
+    const data = (caught as { data?: { code?: string } }).data;
+    expect(data?.code).toBe("SESSION_REVOKED");
+
+    // Perangkat lain milik orang yang sama tetap jalan.
+    await expect(caller.query(api.adminGate.listAdminSecurityEvents, {})).resolves.toBeTruthy();
+  });
+
+  test("daftar Security Desk menandai state sesi tanpa mengirim pengenalnya", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await setupAdmin(t);
+    const targetSessionId = await seedSession(t, adminId);
+    const callerSessionId = await seedSession(t, adminId);
+    // Reference harus hash sungguhan dari id sesi, sama seperti yang dihitung
+    // server. String karangan tidak akan pernah cocok, dan itu memang tujuan
+    // tes ini: bandingkan hash asli, bukan label buatan.
+    const targetRef = await sha256Hex(targetSessionId);
+    const callerRef = await sha256Hex(callerSessionId);
+    const revokedAttemptId = await seedBoundAttempt(t, {
+      userId: adminId,
+      sessionId: targetSessionId,
+      reference: targetRef,
+    });
+    const ownAttemptId = await seedBoundAttempt(t, {
+      userId: adminId,
+      sessionId: callerSessionId,
+      reference: callerRef,
+    });
+    const failedAttemptId = await t.run(async (ctx) =>
+      ctx.db.insert("adminPasscodeAttempts", {
+        key: "kunci-gagal",
+        outcome: "failed" as const,
+        createdAt: Date.now(),
+      }),
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(revokedAttemptId, { sessionRevokedAt: Date.now() });
+    });
+
+    const caller = t.withIdentity({ subject: `${adminId}|${callerSessionId}` });
+    const page = await caller.query(api.adminGate.listAdminSecurityEvents, {});
+    const byId = new Map(page.events.map((event) => [event._id, event]));
+
+    expect(byId.get(ownAttemptId)?.sessionState).toBe("current");
+    expect(byId.get(revokedAttemptId)?.sessionState).toBe("revoked");
+    expect(byId.get(revokedAttemptId)?.sessionRevokedAt).toBeGreaterThan(0);
+    expect(byId.get(failedAttemptId)?.sessionState).toBe("none");
+
+    // Hash sesi tidak ikut keluar ke klien; hanya bentuk ternormalisasinya.
+    const serialized = JSON.stringify(page);
+    expect(serialized).not.toContain(targetRef);
+    expect(serialized).not.toContain(callerRef);
+    expect(serialized).not.toContain(targetSessionId);
+  });
+
+  test("presence milik perangkat lain tidak ikut terputus", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await setupAdmin(t);
+    const targetSessionId = await seedSession(t, adminId);
+    const callerSessionId = await seedSession(t, adminId);
+    const callerRef = "c".repeat(64);
+    const attemptId = await seedBoundAttempt(t, {
+      userId: adminId,
+      sessionId: targetSessionId,
+      reference: "d".repeat(64),
+    });
+    // Presence satu baris per pengguna, dan baris itu sedang milik perangkat
+    // pemanggil. Memotongnya akan membuat perangkat yang masih aktif terlihat
+    // offline — itu kesalahan yang harus diuji, bukan diasumsikan.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adminPresence", {
+        userId: adminId as never,
+        sessionFingerprint: "perangkat-admin",
+        sessionReference: callerRef,
+        lastSeenAt: Date.now(),
+        firstSeenAt: Date.now(),
+        signedInAt: Date.now(),
+      });
+    });
+
+    const caller = t.withIdentity({ subject: `${adminId}|${callerSessionId}` });
+    await caller.mutation(api.adminGate.revokeAdminSession, { attemptId });
+
+    const presence = await t.run(async (ctx) => ctx.db.query("adminPresence").collect());
+    expect(presence.length).toBe(1);
+    expect(presence[0]?.sessionFingerprint).toBe("perangkat-admin");
+    expect(presence[0]?.sessionReference).toBe(callerRef);
   });
 });

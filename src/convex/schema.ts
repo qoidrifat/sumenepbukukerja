@@ -126,7 +126,10 @@ const schema = defineSchema(
       createdAt: v.number(),
     })
       .index("byVendor", ["vendorId"])
-      .index("byCreatedAt", ["createdAt"]),
+      .index("byCreatedAt", ["createdAt"])
+      // Satu ulasan per penulis per listing. Tanpa indeks ini, "sudah pernah
+      // menilai" hanya bisa dijawab dengan membaca seluruh ulasan vendor.
+      .index("byVendorAuthor", ["vendorId", "authorId"]),
 
     favorites: defineTable({
       userId: v.id("users"),
@@ -168,6 +171,7 @@ const schema = defineSchema(
       .index("byVendor", ["vendorId"])
       .index("byVendorActive", ["vendorId", "active"])
       .index("byModeration", ["moderationStatus"])
+      .index("byStorageId", ["storageId"])
       .index("byModeratedBy", ["moderatedBy"]),
 
     serviceRequests: defineTable({
@@ -360,7 +364,11 @@ const schema = defineSchema(
     })
       .index("byEvent", ["event"])
       .index("byCreatedAt", ["createdAt"])
-      .index("byVendor", ["vendorId"]),
+      .index("byVendor", ["vendorId"])
+      // Rentang (anonymousId, createdAt) untuk pembatasan laju per peramban
+      // anonim. Tanpa indeks ini, rate limit harus memindai tabel peristiwa —
+      // persis pemborosan I/O yang Fase 2 hapus.
+      .index("byAnonymousCreatedAt", ["anonymousId", "createdAt"]),
 
     // Penghitung kumulatif per jenis peristiwa.
     //
@@ -425,6 +433,45 @@ const schema = defineSchema(
       failed: v.number(),
       updatedAt: v.number(),
     }).index("byKey", ["key"]),
+
+    // Pemetaan sha256 → blob storage.
+    //
+    // Tabel `_storage` milik Convex tidak bisa diindeks dari schema kita, jadi
+    // dedup unggahan perlu peta sendiri: satu baris per blob yang MASUK lewat
+    // jalur unggah kita. Blob yang sama tidak pernah disimpan dua kali, dan
+    // `storageId` yang sudah ada dipakai ulang. Penting: baris ini HANYA peta,
+    // bukan pemilik blob — blob hanya boleh dihapus kalau TIDAK ada baris
+    // mapping yang menunjuknya (lihat `pruneOrphanStorage`), supaya penghapusan
+    // foto lama tidak memicu pengunggahan ulang blob yang sama di lain waktu.
+    uploadedBlobs: defineTable({
+      sha256: v.string(),
+      storageId: v.string(),
+      size: v.number(),
+      createdAt: v.number(),
+      lastUsedAt: v.number(),
+    })
+      .index("bySha256", ["sha256"])
+      .index("byStorageId", ["storageId"])
+      .index("byLastUsed", ["lastUsedAt"]),
+
+    // Cadangan data mingguan (satu dokumen JSON per run).
+    //
+    // Retensi KITA menghapus data secara rutin, jadi cadangan berkala bukan
+    // lagi opsional. Satu dokumen berisi ringkasan tabel penting dalam bentuk
+    // JSON; blob-nya disimpan di `_storage` (private, tanpa URL publik).
+    // Metadata laporan di `backupRuns` supaya backup terbaru bisa ditemukan
+    // tanpa memindai storage.
+    backupRuns: defineTable({
+      weekKey: v.string(),
+      storageId: v.string(),
+      tableCounts: v.any(),
+      bytes: v.number(),
+      startedAt: v.number(),
+      finishedAt: v.optional(v.number()),
+      status: v.union(v.literal("ok"), v.literal("partial")),
+    })
+      .index("byWeek", ["weekKey"])
+      .index("byStorageId", ["storageId"]),
 
     // Percakapan WhatsApp yang masuk lewat webhook. Satu baris per nomor, bukan
     // satu baris per pesan: dashboard hanya perlu tahu pesan terakhir dan

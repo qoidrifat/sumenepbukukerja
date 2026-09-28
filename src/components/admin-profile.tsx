@@ -13,7 +13,7 @@ import {
   MAX_IMAGE_LABEL,
   formatBytes,
   imageRejection,
-  readUploadedStorageId,
+  uploadWithDedup,
 } from "@/lib/image-upload";
 
 /**
@@ -43,10 +43,19 @@ export function AdminProfile() {
   const profile = useQuery(api.users.myProfile, {});
   const updateProfile = useMutation(api.users.updateMyProfile);
   const generateUploadUrl = useMutation(api.users.generateProfileUploadUrl);
-
+  const recordBlob = useMutation(api.storage.recordUploadedBlob);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [pending, setPending] = useState<string | null>(null);
+  // sha berkas yang dipilih, sementara menunggu jawaban peta blob.
+  const [shaPending, setShaPending] = useState<string | null>(null);
+  const lookupBlob = useQuery(
+    // Peta blob hanya ditanya saat dibutuhkan — hook ini "skip" sampai
+    // `shaPending` terisi oleh `pickPhoto`.
+    api.storage.lookupBlobBySha,
+    shaPending ? { sha256: shaPending } : "skip",
+  );
+
   // "Hapus foto" adalah NIAT, bukan kesimpulan dari keadaan. Sebelumnya niat
   // itu disimpulkan dari `!pending && profile?.hasImage` — dan begitu foto baru
   // selesai tersimpan, `hasImage` jadi true sementara `pending` sudah null,
@@ -86,40 +95,38 @@ export function AdminProfile() {
     if (!file) return;
     setError("");
     setNotice("");
+    setShaPending(null);
     setPicked({ name: file.name, size: file.size });
 
-    // Aturan yang sama dipakai server, jadi tidak mungkin ada berkas yang lolos
-    // di sini lalu ditolak di sana dengan kalimat yang berbeda. Pemeriksaan di
-    // sini hanya agar umpan baliknya instan dan tidak ada byte yang terbuang
-    // untuk berkas yang sudah pasti ditolak; server tetap memeriksa ulang dari
-    // metadata storage, karena `File` di peramban bisa dipalsukan.
-    const rejection = imageRejection({ size: file.size, contentType: file.type });
-    if (rejection) {
-      setError(rejection);
-      setPicked(null);
-      return;
-    }
-
     try {
-      const uploadUrl = await generateUploadUrl();
-      const response = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": file.type },
-        body: file,
+      const result = await uploadWithDedup(file, {
+        // Peta diperiksa lewat query di atas; kalau jawabannya belum sampai,
+        // unggah biasa tetap jalan — dedup adalah optimasi, bukan gerbang.
+        lookup: async ({ sha256 }) => {
+          setShaPending(sha256);
+          return lookupBlob ?? null;
+        },
+        record: async (args) => {
+          await recordBlob(args);
+          setShaPending(null);
+        },
+        generateUploadUrl: () => generateUploadUrl(),
       });
-      if (!response.ok) throw new Error("upload gagal");
-      // Endpoint unggah Convex menjawab `{ storageId }`, bukan string. Membaca
-      // seluruh jawabannya sebagai id adalah bug yang membuat tombol Simpan
-      // dikirim objek ke validator `v.string()` — lihat `readUploadedStorageId`.
-      const storageId = readUploadedStorageId(await response.json().catch(() => null));
-      if (!storageId) throw new Error("id berkas tidak diterima");
-      setPending(storageId);
+      setPending(result.storageId);
       setRemovePhoto(false);
-      setNotice("Foto baru siap disimpan. Tekan Simpan profil.");
-    } catch {
+      setPicked({ name: result.fileName, size: result.afterBytes });
+      setNotice(
+        result.reused
+          ? "Foto identik sudah ada di server — tidak diunggah ulang. Siap disimpan."
+          : result.resized
+            ? `Foto diperkecil ${formatBytes(result.beforeBytes)} → ${formatBytes(result.afterBytes)}. Siap disimpan.`
+            : "Foto baru siap disimpan. Tekan Simpan profil.",
+      );
+    } catch (caught) {
       setPending(null);
       setPicked(null);
-      setError("Foto belum berhasil diunggah. Coba lagi.");
+      setShaPending(null);
+      setError(caught instanceof Error ? caught.message : "Foto belum berhasil diunggah. Coba lagi.");
     }
   };
 

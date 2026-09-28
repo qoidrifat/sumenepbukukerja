@@ -40,8 +40,35 @@ const STAFF_ROLE_CARDS = [
  * maupun warga yang sudah masuk tetapi belum punya peran.instead of redirect,
  *cbi menjelaskan di sini supaya tidak terasa seperti halaman rusak.
  */
-export function AdminAccessDenied({ signedIn, accountName }: { signedIn: boolean; accountName?: string }) {
+export function AdminAccessDenied({
+  signedIn,
+  accountName,
+  bootstrapAvailable,
+  bootstrapEligible,
+}: {
+  signedIn: boolean;
+  accountName?: string;
+  bootstrapAvailable: boolean;
+  bootstrapEligible: boolean;
+}) {
   const navigate = useNavigate();
+  const bootstrap = useMutation(api.users.bootstrapAdministrator);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const activate = () => {
+    setBusy(true);
+    setError("");
+    void bootstrap({})
+      .then(() => window.location.reload())
+      .catch((caught: unknown) =>
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Admin awal belum dapat diaktifkan.",
+        ),
+      )
+      .finally(() => setBusy(false));
+  };
   return (
     <div className="admin-workspace flex min-h-dvh flex-col bg-[#FAF7EE] text-[#1A1A1A]">
       <header className="border-b-2 border-[#121212] bg-[#FAF7EE] pt-[env(safe-area-inset-top)]">
@@ -93,7 +120,7 @@ export function AdminAccessDenied({ signedIn, accountName }: { signedIn: boolean
               </h1>
               <p className="mt-3 max-w-2xl text-base leading-7 text-[#525252]">
                 {signedIn
-                  ? `Akun${accountName ? ` ${accountName}` : " Anda"} sudah masuk, tetapi belum memiliki peran admin, staff, atau viewer. Peran hanya bisa diberikan oleh admin yang sudah aktif lewat menu Role & Audit, jadi ruang ini tidak bisa dibuka dari halaman ini.`
+                  ? `${accountName ? `Akun ${accountName}` : "Akun Anda"} sudah masuk, tetapi belum memiliki peran admin, staff, atau viewer.${bootstrapAvailable ? " Jalur pemulihan untuk akses awal masih terbuka di bagian bawah halaman ini." : " Peran hanya bisa diberikan oleh admin yang sudah aktif lewat menu Peran & Audit, jadi ruang ini tidak bisa dibuka dari halaman ini."}`
                   : "Ruang pengelola hanya terbuka untuk pengelola Buku Kerja. Silakan masuk terlebih dahulu, lalu hubungi admin agar akun Anda diberi peran yang sesuai."}
               </p>
             </div>
@@ -118,6 +145,53 @@ export function AdminAccessDenied({ signedIn, accountName }: { signedIn: boolean
             </Link>
           </div>
         </section>
+
+        {signedIn && bootstrapAvailable ? (
+          <section aria-labelledby="pulihkan-akses" className="admin-card p-6 sm:p-10">
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
+              <span className="flex size-16 shrink-0 items-center justify-center rounded-2xl border-2 border-[#121212] bg-[#DCEBD7] shadow-[4px_4px_0_#121212]">
+                <ShieldCheck className="size-8" aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#FF5A26]">
+                  Jalur pemulihan
+                </p>
+                <h2
+                  id="pulihkan-akses"
+                  className="mt-2 text-2xl font-black tracking-[-0.04em] sm:text-3xl"
+                >
+                  {bootstrapEligible
+                    ? "Email Anda terdaftar untuk akses awal"
+                    : "Email Anda belum terdaftar untuk akses awal"}
+                </h2>
+                <p className="mt-3 max-w-2xl text-base leading-7 text-[#525252]">
+                  {bootstrapEligible
+                    ? "Deployment ini masih membuka jalur bootstrap admin, dan email akun yang sedang masuk ada di daftar yang diizinkan. Klik tombol di bawah untuk menetapkan peran admin pada akun ini."
+                    : "Deployment ini masih membuka jalur bootstrap admin, tetapi email akun yang sedang masuk tidak ada di daftar yang diizinkan. Daftarnya dipegang pemilik deployment lewat variabel STAFF_BOOTSTRAP_EMAILS, jadi minta email ini ditambahkan di sana, atau minta admin yang sudah aktif memberi peran lewat menu Peran & Audit."}
+                </p>
+                {error ? (
+                  <p className="mt-3 text-sm font-bold text-red-700" role="alert">
+                    {error}
+                  </p>
+                ) : null}
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    disabled={busy || !bootstrapEligible}
+                    onClick={activate}
+                    className="admin-btn admin-btn-primary inline-flex min-h-12"
+                  >
+                    <ShieldCheck className="size-5" aria-hidden="true" />
+                    {busy ? "Mengaktifkan..." : "Aktifkan admin awal"}
+                  </button>
+                  <Link to="/dashboard" className="admin-btn admin-btn-secondary inline-flex min-h-12">
+                    Ruang warga saya
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section aria-labelledby="peran-pengelola">
           <h2

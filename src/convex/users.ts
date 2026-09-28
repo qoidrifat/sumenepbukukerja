@@ -78,14 +78,27 @@ const createToken = () => {
  * Query ini sengaja tidak butuh login: halaman /admin tampil untuk tamu juga,
  * dan yang dipublikasikan hanya informasi setup, bukan data pengguna.
  */
+const bootstrapAllowlist = () =>
+  (process.env.STAFF_BOOTSTRAP_EMAILS ?? "")
+    .split(",")
+    .map(normalizeEmail)
+    .filter(Boolean);
+
 export const adminSetupStatus = query({
   args: {},
   handler: async (ctx) => {
     const members = await ctx.db.query("staffMembers").collect();
+    const userId = await getAuthUserId(ctx);
+    const user = userId ? await ctx.db.get(userId) : null;
+    const email = normalizeEmail(user?.email ?? "");
     return {
       staffCount: members.length,
       hasAnyStaff: members.length > 0,
       bootstrapAvailable: Boolean(process.env.STAFF_BOOTSTRAP_EMAILS?.trim()),
+      // Hanya tentang akun yang sedang ditanyakan: email-nya sendiri ada atau
+      // tidak di daftar. Tidak pernah membocorkan email orang lain, dan hanya
+      // dipakai untuk jujur soal tombol pemulihan di /admin.
+      bootstrapEligible: Boolean(email) && bootstrapAllowlist().includes(email),
     };
   },
 });
@@ -108,10 +121,7 @@ export const bootstrapAdministrator = mutation({
     const userId = await requireUser(ctx);
     const user = await ctx.db.get(userId);
     const email = normalizeEmail(user?.email ?? "");
-    const allowlist = (process.env.STAFF_BOOTSTRAP_EMAILS ?? "")
-      .split(",")
-      .map(normalizeEmail)
-      .filter(Boolean);
+    const allowlist = bootstrapAllowlist();
     if (!email || !allowlist.includes(email)) {
       throw new Error("Email ini belum diizinkan untuk bootstrap admin awal");
     }

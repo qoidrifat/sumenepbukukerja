@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
@@ -587,7 +587,7 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     await expect(viewer.mutation(api.vendors.updateVendor, { id: vendorId, ...listingPayload, name: "Tidak boleh" })).rejects.toThrow();
   });
 
-  test("viewer tidak dapat memoderasialthough viewer dapat membaca", async () => {
+  test("viewer tidak dapat memoderasi meski viewer dapat membaca", async () => {
     const t = convexTest(schema, modules);
     const owner = await signedInUser(t, "Pemilik Moderasi");
     const vendorId = await owner.mutation(api.vendors.createVendor, listingPayload);
@@ -775,5 +775,146 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     });
     const settled = await owner.query(api.community.listReviewQueue, {});
     expect(settled).toMatchObject({ claims: 0, photos: 2, total: 2 });
+  });
+});
+
+/**
+ * Kebijakan yang dulu membuat pemilik deployment buntu: begitu ada satu
+ * baris di `staffMembers`, /admin berhenti menampilkan tombol bootstrap dan
+ * hanya menampilkan "Anda bukan staff". Padahal yang memegang peran itu bisa
+ * akun yang tidak bisa dipakai lagi (misalnya sesi anonim), sehingga tidak ada
+ * siapa pun yang bisa memulihkannya. Jalur bootstrap tidak boleh bergantung
+ * pada jumlah pengelola yang ada, selama email pemanggil ada di allowlist.
+ */
+describe("jalur pemulihan akses admin lewat bootstrap", () => {
+  const ALLOWLIST_KEY = "STAFF_BOOTSTRAP_EMAILS";
+  type EnvBag = { process?: { env?: Record<string, string | undefined> } };
+  const env = () => {
+    const bag = (globalThis as unknown as EnvBag).process?.env;
+    if (!bag) throw new Error("Test environment does not expose an env record");
+    return bag as Record<string, string | undefined>;
+  };
+  const previousAllowlist = env()[ALLOWLIST_KEY];
+  const setAllowlist = (value: string) => {
+    env()[ALLOWLIST_KEY] = value;
+  };
+
+  /**
+   * convex-test tidak membuat dokumen `users` untuk sebuah identity, jadi
+   * getAuthUserId() mengembalikan id yang tidak ada isinya. Di produksi baris
+   * itu dibuat oleh adapter Convex Auth. Test ini menirunya: seed baris users
+   * lebih dulu, lalu identity dibentuk dengan subject = id baris tersebut.
+   */
+  const seedUserRow = async (t: ReturnType<typeof convexTest>, user: { name: string; email?: string }) =>
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+      };
+      return await db.insert("users", user);
+    });
+
+  const asUser = async (t: ReturnType<typeof convexTest>, user: { name: string; email?: string }) => {
+    const id = await seedUserRow(t, user);
+    return t.withIdentity({ name: user.name, subject: id });
+  };
+
+  afterEach(() => {
+    if (previousAllowlist === undefined) delete env()[ALLOWLIST_KEY];
+    else env()[ALLOWLIST_KEY] = previousAllowlist;
+  });
+
+  test("hanya akun sendiri yang tahu apakah email-nya di allowlist", async () => {
+    setAllowlist("Pemilik@Sumenep.co.id, admin2@sumenep.co.id");
+    const t = convexTest(schema, modules);
+    const allowed = await asUser(t, { name: "Pemilik", email: "Pemilik@Sumenep.co.id" });
+    const stranger = await asUser(t, { name: "Orang Lain", email: "bukan@sumenep.co.id" });
+
+    const forAllowed = await allowed.query(api.users.adminSetupStatus, {});
+    expect(forAllowed.bootstrapAvailable).toBe(true);
+    expect(forAllowed.bootstrapEligible).toBe(true);
+
+    // Email dinormalisasi: allowlist ditulis campur huruf besar, akun memakai
+    // huruf kecil. Ini yang membuat orang mengira dirinya tidak terdaftar,
+    // padahal daftarnya yang salah kapital.
+    const forStranger = await stranger.query(api.users.adminSetupStatus, {});
+    expect(forStranger.bootstrapEligible).toBe(false);
+    // Status ini publik, jadi tidak boleh memuat email siapa pun dari allowlist.
+    expect(JSON.stringify(forStranger)).not.toContain("admin2@sumenep.co.id");
+    expect(JSON.stringify(forStranger)).not.toContain("Pemilik@Sumenep.co.id");
+
+    // Tamu tanpa akun tidak pernah eligible, dan statusnya tetap terbaca.
+    const guest = await t.query(api.users.adminSetupStatus, {});
+    expect(guest).toMatchObject({ bootstrapAvailable: true, bootstrapEligible: false });
+  });
+
+  test("bootstrap memulihkan akses meski sudah ada admin lain", async () => {
+    setAllowlist("pemilik@sumenep.co.id");
+    const t = convexTest(schema, modules);
+    const stuckId = await seedUserRow(t, { name: "Admin Lama", email: "lama@sumenep.co.id" });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("staffMembers", {
+        userId: stuckId as never,
+        role: "admin",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const owner = await asUser(t, { name: "Pemilik", email: "pemilik@sumenep.co.id" });
+
+    // Inilah kondisi buntu yang dilaporkan: sudah ada pengelola, jadi /admin
+    // menampilkan "ditolak", padahal akun ini justru yang berhak memulihkan.
+    expect(await owner.query(api.users.adminSetupStatus, {})).toMatchObject({
+      hasAnyStaff: true,
+      bootstrapEligible: true,
+    });
+
+    await owner.mutation(api.users.bootstrapAdministrator, {});
+    expect(await owner.query(api.users.currentAccess, {})).toMatchObject({
+      role: "admin",
+      isStaff: true,
+      canViewAdmin: true,
+      canManageRoles: true,
+    });
+  });
+
+  test("email di luar allowlist tetap ditolak dan tidak membuat peran baru", async () => {
+    setAllowlist("pemilik@sumenep.co.id");
+    const t = convexTest(schema, modules);
+    const stranger = await asUser(t, { name: "Orang Lain", email: "bukan@sumenep.co.id" });
+
+    await expect(stranger.mutation(api.users.bootstrapAdministrator, {})).rejects.toThrow(
+      "Email ini belum diizinkan untuk bootstrap admin awal",
+    );
+    const status = await t.query(api.users.adminSetupStatus, {});
+    expect(status).toMatchObject({ staffCount: 0, hasAnyStaff: false });
+  });
+
+  test("bootstrap idempoten: panggilan kedua tidak menggandakan peran", async () => {
+    setAllowlist("pemilik@sumenep.co.id");
+    const t = convexTest(schema, modules);
+    const owner = await asUser(t, { name: "Pemilik", email: "pemilik@sumenep.co.id" });
+
+    const first = await owner.mutation(api.users.bootstrapAdministrator, {});
+    const second = await owner.mutation(api.users.bootstrapAdministrator, {});
+    expect(second).toBe(first);
+    expect(await t.query(api.users.adminSetupStatus, {})).toMatchObject({ staffCount: 1 });
+  });
+
+  test("tanpa allowlist, tidak ada yang bisa memakai jalur pemulihan", async () => {
+    delete env()[ALLOWLIST_KEY];
+    const t = convexTest(schema, modules);
+    const owner = await asUser(t, { name: "Pemilik", email: "pemilik@sumenep.co.id" });
+
+    expect(await owner.query(api.users.adminSetupStatus, {})).toMatchObject({
+      bootstrapAvailable: false,
+      bootstrapEligible: false,
+    });
+    await expect(owner.mutation(api.users.bootstrapAdministrator, {})).rejects.toThrow(
+      "Email ini belum diizinkan untuk bootstrap admin awal",
+    );
+    expect(await owner.query(api.users.currentAccess, {})).toMatchObject({
+      role: null,
+      canViewAdmin: false,
+    });
   });
 });

@@ -150,7 +150,14 @@ function AdminGate() {
   if (!setup.hasAnyStaff) {
     return <AdminSetupRequired bootstrapAvailable={setup.bootstrapAvailable} />;
   }
-  return <AdminAccessDenied signedIn={isAuthenticated} accountName={user?.name} />;
+  return (
+    <AdminAccessDenied
+      signedIn={isAuthenticated}
+      accountName={user?.name}
+      bootstrapAvailable={setup.bootstrapAvailable}
+      bootstrapEligible={setup.bootstrapEligible}
+    />
+  );
 }
 
 export default function Admin() {

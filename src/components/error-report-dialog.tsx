@@ -16,7 +16,6 @@ import {
   closeErrorDialog,
   describeErrorDialog,
   getErrorDialog,
-  patchErrorDialog,
   registerErrorReporter,
   subscribeErrorDialog,
 } from "@/lib/error-report-bus";
@@ -123,14 +122,18 @@ export function ErrorReportDialog() {
   const view = describeErrorDialog(state);
   const open = view.open;
 
+  /**
+   * Fase dialog hanya boleh diubah oleh `reportAndNotify`. Tombol ini
+   * tidak boleh menambal fase "reporting" sendiri: kalau ia melakukannya,
+   * `reportAndNotify` akan melihat dialog sudah sibuk, menganggap dialog itu
+   * bukan miliknya sendiri, dan hasil retry tidak pernah tampil.
+   */
   const onRetry = () => {
-    const retry = state.onRetry;
-    if (!retry) {
+    if (!state.onRetry) {
       closeErrorDialog();
       return;
     }
-    patchErrorDialog({ phase: "reporting", canRetry: false });
-    retry();
+    state.onRetry();
   };
 
   if (!open) return null;

@@ -150,6 +150,24 @@ const technicalDetail = (input: ErrorReportInput) => {
 export type ReportOutcome = { reportId?: string; reported: boolean };
 
 /**
+ * Batas waktu satu percobaan pelaporan.
+ *
+ * Tanpa ini, popup bisa menggantung di "Mencatat laporan..." selamanya ketika
+ * jaringan putus: klien Convex menahan mutasi, bukan menolaknya, jadi catch
+ * tidak pernah dipanggil. Pengguna butuh tahu sekarang bahwa sistem gagal
+ * mencatat, bukan menunggu.
+ */
+export const REPORT_TIMEOUT_MS = 8000;
+
+const withTimeout = <T>(work: Promise<T>, ms: number): Promise<T | null> =>
+  Promise.race([
+    work,
+    new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), ms);
+    }),
+  ]);
+
+/**
  * Kirim satu laporan. Selalu mengembalikan nilai, tidak pernah melempar:
  * kegagalan pelapor tidak boleh menjadi kegagalan kedua yang lebih sulit
  * ditangani.
@@ -163,7 +181,10 @@ export const reportErrorToServer = async (
   const normalized = normalizeErrorReport(input);
   if (!normalized) return { reported: false };
   try {
-    const result = await reporter(pickReportFields(input));
+    const result = await withTimeout(
+      Promise.resolve(reporter(pickReportFields(input))),
+      REPORT_TIMEOUT_MS,
+    );
     return { reportId: result?.reportId, reported: Boolean(result?.reportId) };
   } catch {
     // Sengaja ditelan. Jaringan putus atau mutasi ditolak tidak boleh
@@ -221,6 +242,12 @@ export const reportAndNotify = async (
       detail: technicalDetail(enriched),
       occurredAt: Date.now(),
       canRetry: false,
+      // Disimpan sekarang, dipakai nanti. Kalau pelaporan gagal, tombol
+      // "Coba lagi" menjalankan ulang permintaan yang sama -- bukan membuka
+      // dialog kosong.
+      onRetry: () => {
+        void reportAndNotify(reporter, input);
+      },
     });
   }
   const token = opened ? getErrorDialogToken() : NOT_THE_OWNER;

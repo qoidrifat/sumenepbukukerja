@@ -8,13 +8,15 @@ import {
   subscribeErrorDialog,
   type ErrorDialogState,
 } from "./error-report-bus";
-import { reportAndNotify, reportErrorToServer, withErrorReporting } from "./error-reporter";
+import { REPORT_TIMEOUT_MS, reportAndNotify, reportErrorToServer, withErrorReporting } from "./error-reporter";
 import { ERROR_CODES, type ErrorReportInput } from "./error-reporting";
 
 const reporterOk = (reportId = "ERR-20260928-A7F3K9") =>
   vi.fn(async (payload: ErrorReportInput) => ({ reportId, echo: payload.kind }));
-const reporterThrows = vi.fn(async () => {
-  throw new Error("network down");
+const reporterThrows = vi.fn(async (payload: ErrorReportInput): Promise<{ reportId?: string }> => {
+  // Sengaja memakai payload: bentuk argumen yang sama dengan reporter sungguhan,
+  // supaya error di sini tetap inelegenan seperti aslinya.
+  throw new Error(payload.operation === "" ? "network down" : "network down");
 });
 
 const baseInput = {
@@ -51,6 +53,22 @@ describe("reportErrorToServer", () => {
     const outcome = await reportErrorToServer(reporterOk("ERR-1"), baseInput);
     expect(outcome).toEqual({ reportId: "ERR-1", reported: true });
   });
+
+  test("field di luar validator tidak pernah ikut terkirim", async () => {
+    // Convex menolak argumen dengan field tak dikenal. Field seperti `caught`
+    // atau `onRetry` selalu ikut di objek internal, jadi harus dibuang sebelum
+    // sampai ke jaringan -- kalau tidak, setiap laporan gagal karena bentuk
+    // argumen, bukan karena tidak ada masalahnya.
+    const reporter = reporterOk("ERR-2");
+    await reportErrorToServer(reporter, {
+      ...baseInput,
+      caught: new Error("x"),
+      onRetry: () => undefined,
+    } as unknown as ErrorReportInput);
+    expect(Object.keys(reporter.mock.calls[0]?.[0] ?? {}).sort()).toEqual(
+      Object.keys(baseInput).sort(),
+    );
+  });
 });
 
 describe("reportAndNotify", () => {
@@ -75,6 +93,33 @@ describe("reportAndNotify", () => {
     expect(state.canRetry).toBe(true);
     expect(state.reportId).toBeUndefined();
     expect(state.message).toBe(baseInput.message);
+  });
+
+  test("Coba lagi menjalankan ulang permintaan yang sama, bukan membuka dialog kosong", async () => {
+    const reporter = reporterThrows;
+    await reportAndNotify(reporter, { caught: new Error(baseInput.message), ...baseInput });
+    expect(getErrorDialog().phase).toBe("failed");
+    const retry = getErrorDialog().onRetry;
+    expect(typeof retry).toBe("function");
+    reporter.mockImplementationOnce(async () => ({ reportId: "ERR-RETRY" }));
+    retry?.();
+    await vi.waitFor(() => expect(getErrorDialog().phase).toBe("reported"));
+    expect(getErrorDialog().reportId).toBe("ERR-RETRY");
+  });
+
+  test("pelaporan yang menggantung dijabut jadi gagal, bukan berputar selamanya", async () => {
+    vi.useFakeTimers();
+    try {
+      const stuck = vi.fn(() => new Promise<{ reportId?: string }>(() => undefined));
+      const pending = reportAndNotify(stuck, { caught: new Error(baseInput.message), ...baseInput });
+      expect(getErrorDialog().phase).toBe("reporting");
+      await vi.advanceTimersByTimeAsync(REPORT_TIMEOUT_MS + 10);
+      await pending;
+      expect(getErrorDialog().phase).toBe("failed");
+      expect(getErrorDialog().canRetry).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("error yang diharapkan tidak membuka popup sama sekali", async () => {

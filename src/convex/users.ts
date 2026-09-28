@@ -1,4 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { getStaffAccess, requireManagementViewer, requireStaff, requireUser, type StaffRole } from "./access";
@@ -68,6 +69,14 @@ const createToken = () => {
     .replace(/\//g, "_")
     .replace(/=/g, "");
 };
+
+/**
+ * Masa berlaku undangan. Didefinisikan sekali di sini supaya backend, label
+ * di panel admin, dan halaman penerima tidak pernah berbeda pendapat: UI
+ * menampilkan `expiresAt` yang dikembalikan server, bukan menulis ulang
+ * "48 jam" di tempat lain.
+ */
+const INVITE_TTL_MS = 48 * 60 * 60 * 1000;
 
 /**
  * Status setup ruang pengelola. Tanpa ini, "/admin" menampilkan pesan yang sama
@@ -192,56 +201,193 @@ export const createStaffInvite = mutation({
     }
     const token = createToken();
     const now = Date.now();
+    const expiresAt = now + INVITE_TTL_MS;
     const inviteId = await ctx.db.insert("staffInvites", {
       email,
       role: args.role,
       tokenHash: await hashToken(token),
       invitedBy: userId,
-      expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+      expiresAt,
       createdAt: now,
     });
-    await writeAudit(ctx, { action: "staff.invited", actorId: userId, entityId: inviteId, newValue: `${email}:${args.role}` });
-    // The raw code is shown once to the admin. It is never persisted or sent to
-    // the browser from a query, so an intercepted query cannot replay it.
-    return { inviteId, token, expiresAt: now + 7 * 24 * 60 * 60 * 1000 };
+    await writeAudit(ctx, {
+      action: "admin.invite_created",
+      actorId: userId,
+      entityId: inviteId,
+      newValue: `${email}:${args.role}`,
+      metadata: { expiresAt },
+    });
+    // Token mentah hanya pernah dikembalikan di sini, sekali, ke admin yang
+    // sedang membuat undangan. Tidak ada query yang memintanya lagi, jadi
+    // siapa pun yang menyadap query tidak bisa memainkannya ulang.
+    return { inviteId, token, expiresAt, email, role: args.role };
   },
 });
 
-export const acceptStaffInvite = mutation({
+/**
+ * Ringkasan undangan untuk halaman penerima. Query publik: orang yang
+ * membuktikan diri dengan memegang tautan memang belum punya sesi.
+ *
+ * Prinsip anti-enumerasi: "tidak ada" dan "sudah dipakai" dan "kedaluwarsa"
+ * sengaja menjawab dengan bentuk yang sama persis, `valid: false`. Kalau
+ * ketiganya dibedakan, halaman ini jadi alat untuk menebak alamat email mana
+ * saja yang sudah terdaftar di sistem — itu sendiri informasi yang tidak layak
+ * dibuka ke publik.
+ *
+ * Yang keluar juga sengaja tidak memuat id baris database, id/internal
+ * pengundang, atau hash token. Untuk render cukup email, peran, nama
+ * pengundang, dan waktu berakhir.
+ */
+export const getInviteDetails = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {
-    const userId = await requireUser(ctx);
-    const user = await ctx.db.get(userId);
-    const email = normalizeEmail(user?.email ?? "");
-    if (!email || !user?.emailVerificationTime) {
-      throw new Error("Verifikasi email terlebih dahulu sebelum menerima undangan");
-    }
-    const tokenHash = await hashToken(args.token.trim());
+    const token = args.token.trim();
+    if (!token || token.length > 200) return { valid: false as const, reason: "EXPIRED_OR_INVALID" as const };
+    const tokenHash = await hashToken(token);
     const invite = await ctx.db
       .query("staffInvites")
       .withIndex("byTokenHash", (q) => q.eq("tokenHash", tokenHash))
       .unique();
     if (!invite || invite.revokedAt || invite.acceptedAt || invite.expiresAt < Date.now()) {
-      throw new Error("Kode undangan tidak valid atau sudah kedaluwarsa");
+      return { valid: false as const, reason: "EXPIRED_OR_INVALID" as const };
     }
-    if (normalizeEmail(invite.email) !== email) {
-      throw new Error("Kode undangan ini tidak cocok dengan email akun Anda");
+    const inviter = await ctx.db.get(invite.invitedBy);
+    return {
+      valid: true as const,
+      email: invite.email,
+      role: invite.role,
+      // Label tetap, bukan nama pribadi. Admin tidak perlu ikut disebut
+      // supaya penerima tahu siapa yang mengangnya.
+      invitedByName: "Administrator Sistem",
+      inviterPresent: Boolean(inviter),
+      expiresAt: invite.expiresAt,
+    };
+  },
+});
+
+/**
+ * Menerima undangan sekali klik: membuat akun bila perlu, mengikat peran,
+ * lalu menerbitkan sesi aktif dalam satu mutasi.
+ *
+ * BAHAYA YANG DISENGAJA DAN HARUS DIBAWA PEMIMPIN: alur ini TIDAK memverifikasi
+ * kepemilikan email. Yang membuktikan identitas di sini adalah token
+ * undangan itu sendiri — 256 bit acak, sekali pakai, berlaku 48 jam, terikat
+ * ke satu alamat email, bisa dicabut, dan tercatat di audit. Itu pola
+ * "magic link", sah, tapi kekuatannya setara whoever memegang tautannya.
+ * Karena itu link hanya boleh dikirim ke alamat yang diundang.
+ *
+ * Verifikasi email tetap ada di jalur lama (masuk normal lewat OTP). Yang
+ * hilang di sini hanya untuk penerima undangan, dan itu konsekuensi langsung
+ * dari permintaan "tanpa langkah registrasi manual".
+ *
+ * Sesi diterbitkan lewat `auth:store` milik Convex Auth sendiri dengan
+ * `generateTokens: true` — bukan JWT yang dirakit sendiri. Jadi sesi yang
+ * hasilnya persis jenis sesi yang dihasilkan login biasa, termasuk refresh
+ * token dan pencatatannya di `authSessions`.
+ */
+export const acceptStaffInvite = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const token = args.token.trim();
+    const reject = async (reason: string) => {
+      // Kegagalan klaim juga masuk audit: tanpa ini, orang yang memindai
+      // token tanda tangan tidak terlihat sama sekali.
+      await writeAudit(ctx, {
+        action: "staff.invite_rejected",
+        metadata: { reason, hasToken: Boolean(token) },
+      });
+      return { ok: false as const, reason };
+    };
+
+    if (!token || token.length > 200) return reject("EXPIRED_OR_INVALID");
+    const tokenHash = await hashToken(token);
+    const invite = await ctx.db
+      .query("staffInvites")
+      .withIndex("byTokenHash", (q) => q.eq("tokenHash", tokenHash))
+      .unique();
+    if (!invite) return reject("EXPIRED_OR_INVALID");
+    if (invite.revokedAt || invite.expiresAt < Date.now()) return reject("EXPIRED_OR_INVALID");
+    if (invite.acceptedAt) {
+      // Balapan: dua klaim datang hampir bersamaan. Yang menang sudah
+      // menandai `acceptedAt`, jadi yang kalah harus berhenti di sini. Convex
+      // menjalankan mutasi secara serial, jadi tidak ada kasus kedua yang
+      // berhasil menembus baris yang sama.
+      return reject("ALREADY_ACCEPTED");
     }
-    const existing = await ctx.db
+
+    // Kalau pemanggil sudah punya sesi, emailnya harus sama dengan email yang
+    // diundang. Ini yang menjaga pengikatan email tetap berarti: orang yang
+    // masuk sebagai X tidak bisa memakai undangan milik Y.
+    const callerId = await getAuthUserId(ctx);
+    if (callerId) {
+      const caller = await ctx.db.get(callerId);
+      if (normalizeEmail(caller?.email ?? "") !== normalizeEmail(invite.email)) {
+        return reject("EMAIL_MISMATCH");
+      }
+    }
+
+    const email = normalizeEmail(invite.email);
+    let userId = (
+      await ctx.db.query("users").withIndex("email", (q) => q.eq("email", email)).unique()
+    )?._id;
+    if (userId === undefined) {
+      userId = await ctx.db.insert("users", {
+        email,
+        // emailVerificationTime: alamat ini sudah dibuktikan dengan memegang
+        // undangan yang admin kirim ke sana, bukan diketik sendiri.
+        emailVerificationTime: Date.now(),
+        isAnonymous: false,
+      });
+    }
+
+    const membership = await ctx.db
       .query("staffMembers")
       .withIndex("byUser", (q) => q.eq("userId", userId))
       .unique();
-    if (existing) {
-      if (existing.role === "admin" && invite.role !== "admin") {
-        throw new Error("Admin tidak dapat diturunkan melalui undangan");
+    if (!membership) {
+      await ctx.db.insert("staffMembers", {
+        userId,
+        role: invite.role,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    } else if (membership.role !== invite.role) {
+      if (membership.role === "admin" && invite.role !== "admin") {
+        return reject("CANNOT_DEMOTE_ADMIN");
       }
-      await ctx.db.patch(existing._id, { role: invite.role, updatedAt: Date.now() });
-    } else {
-      await ctx.db.insert("staffMembers", { userId, role: invite.role, createdAt: Date.now(), updatedAt: Date.now() });
+      await ctx.db.patch(membership._id, { role: invite.role, updatedAt: Date.now() });
     }
+
     await ctx.db.patch(invite._id, { acceptedAt: Date.now(), acceptedBy: userId });
-    await writeAudit(ctx, { action: "staff.invite_accepted", actorId: userId, entityId: invite._id, newValue: invite.role });
-    return invite.role;
+    await writeAudit(ctx, {
+      action: "staff.invite_accepted",
+      actorId: userId,
+      entityId: invite._id,
+      newValue: invite.role,
+      metadata: { email, via: "invite_link" },
+    });
+
+    // Terbitkan sesi. `createNewAndDeleteExistingSession` di dalam auth hanya
+    // menghapus sesi milik pemanggil saat ini; pemanggil di sini belum punya
+    // sesi, jadi tidak ada sesi lain yang ikut hilang.
+    const minted = (await ctx.runMutation(internal.auth.store, {
+      args: { type: "signIn" as const, userId, generateTokens: true },
+    })) as unknown as { tokens: { token: string; refreshToken: string } | null } | undefined;
+
+    const tokens = minted?.tokens ?? null;
+    if (!tokens) {
+      // Akun dan peran sudah tercatat, jadi tidak ada setengah jadi yang
+      // tidak terlihat oleh admin. Yang gagal cuma penerbitan sesi; penerima
+      // bisa menerima ulang lewat OTP biasa.
+      await writeAudit(ctx, {
+        action: "staff.invite_rejected",
+        actorId: userId,
+        entityId: invite._id,
+        metadata: { reason: "SESSION_MINT_FAILED", email },
+      });
+      return { ok: false as const, reason: "SESSION_MINT_FAILED" as const, role: invite.role };
+    }
+    return { ok: true as const, role: invite.role, email, tokens };
   },
 });
 

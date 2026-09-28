@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { InviteLinkResult } from "@/components/admin-invite-link";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -89,7 +90,14 @@ export function AdminGovernance() {
   const revokeInvite = useMutation(api.users.revokeStaffInvite);
   const [email, setEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"admin" | "staff" | "viewer">("staff");
-  const [token, setToken] = useState("");
+  // Tautan lengkap, disusun dari origin browser supaya benar di
+  // preview, staging, dan produksi tanpa konfigurasi tambahan.
+  const [inviteLink, setInviteLink] = useState<{
+    url: string;
+    email: string;
+    role: string;
+    expiresAt: number;
+  } | null>(null);
   const [acceptCode, setAcceptCode] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -143,8 +151,15 @@ export function AdminGovernance() {
 
         <article className="border-2 border-[#121212] bg-white p-4">
           <h3 className="text-lg font-black text-[#1A1A1A]">Peran pengelola</h3>
-          {access.canManageRoles ? <form onSubmit={(event) => { event.preventDefault(); void run("invite", async () => { const result = await createInvite({ email, role: inviteRole }); setToken(result.token ?? ""); setEmail(""); }, "Kode undangan dibuat. Bagikan sekali melalui kanal aman."); }} className="mt-3 grid gap-2 sm:grid-cols-[1fr_9rem_auto]"><label className="sr-only" htmlFor="staff-invite-email">Email pengelola</label><input id="staff-invite-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="email@contoh.id" className={inputClass} required /><label className="sr-only" htmlFor="staff-invite-role">Peran pengelola</label><ThemedSelect id="staff-invite-role" variant="admin" value={inviteRole} onValueChange={(value) => setInviteRole(value as typeof inviteRole)} options={staffRoleSelectOptions} /><button type="submit" className="admin-btn admin-btn-primary" disabled={busy === "invite"}>Buat invite</button></form> : <p className="mt-3 text-sm text-[#525252]">Hanya admin yang dapat membuat atau mengubah peran.</p>}
-          {token ? <div className="mt-3 border-2 border-[#121212] bg-[#FFE662] p-3"><p className="text-xs font-black uppercase">Kode sekali pakai</p><code className="mt-1 block break-all text-sm">{token}</code><button type="button" onClick={() => void navigator.clipboard?.writeText(token)} className="admin-btn admin-btn-secondary mt-2 px-2 text-xs">Salin kode</button></div> : null}
+          {access.canManageRoles ? <form onSubmit={(event) => { event.preventDefault(); void run("invite", async () => { const result = await createInvite({ email, role: inviteRole });
+            setInviteLink({
+              url: `${window.location.origin}/invite/${result.token}`,
+              email: result.email,
+              role: result.role,
+              expiresAt: result.expiresAt,
+            });
+            setEmail(""); }, "Tautan undangan dibuat. Bagikan sekali lewat kanal pribadi."); }} className="mt-3 grid gap-2 sm:grid-cols-[1fr_9rem_auto]"><label className="sr-only" htmlFor="staff-invite-email">Email pengelola</label><input id="staff-invite-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="email@contoh.id" className={inputClass} required /><label className="sr-only" htmlFor="staff-invite-role">Peran pengelola</label><ThemedSelect id="staff-invite-role" variant="admin" value={inviteRole} onValueChange={(value) => setInviteRole(value as typeof inviteRole)} options={staffRoleSelectOptions} /><button type="submit" className="admin-btn admin-btn-primary" disabled={busy === "invite"}>Buat invite</button></form> : <p className="mt-3 text-sm text-[#525252]">Hanya admin yang dapat membuat atau mengubah peran.</p>}
+          {inviteLink ? <InviteLinkResult url={inviteLink.url} email={inviteLink.email} role={inviteLink.role} expiresAt={inviteLink.expiresAt} /> : null}
           <form onSubmit={(event) => { event.preventDefault(); void run("accept", () => acceptInvite({ token: acceptCode }), "Peran akun diperbarui."); }} className="mt-3 flex gap-2"><label className="sr-only" htmlFor="staff-accept-code">Kode undangan</label><input id="staff-accept-code" value={acceptCode} onChange={(event) => setAcceptCode(event.target.value)} placeholder="Tempel kode undangan" className={inputClass} required /><button type="submit" className="admin-btn admin-btn-secondary" disabled={busy === "accept"}>Terima</button></form>
           <div className="mt-4 space-y-2">{members?.map((member) => <div key={member._id} className="flex flex-wrap items-center justify-between gap-2 border-b border-[#D6D3D1] pb-2 text-sm"><span className="font-bold">{member.name} · {member.email}</span>{access.canManageRoles ? <ThemedSelect aria-label={`Peran ${member.name}`} variant="admin" size="sm" className="w-auto min-w-[7.5rem]" value={member.role} onValueChange={(value) => void run(member._id, () => changeRole({ userId: member.userId as never, role: value as "admin" | "staff" | "viewer" }), "Peran diperbarui.")} options={staffRoleSelectOptions} /> : <span className="rounded-full bg-[#F1EDE3] px-2 py-1 text-xs font-black">{member.role}</span>}</div>)}</div>
           {invites?.filter((invite) => !invite.acceptedAt && !invite.revokedAt).length ? <details className="mt-3 text-sm"><summary className="cursor-pointer font-black">Undangan aktif</summary><ul className="mt-2 space-y-2">{invites.filter((invite) => !invite.acceptedAt && !invite.revokedAt).map((invite) => <li key={invite._id} className="flex items-center justify-between gap-2"><span>{invite.email} · {invite.role}</span>{access.canManageRoles ? <button type="button" className="font-black text-red-700" onClick={() => void run(invite._id, () => revokeInvite({ inviteId: invite._id }), "Undangan dicabut.")}>Cabut</button> : null}</li>)}</ul></details> : null}

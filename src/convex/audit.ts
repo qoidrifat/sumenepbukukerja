@@ -18,6 +18,8 @@ export type AuditAction =
   | "staff.invited"
   | "staff.role_changed"
   | "staff.invite_accepted"
+  | "admin.invite_created"
+  | "staff.invite_rejected"
   | "admin.logout"
   | "admin.passcode_changed"
   | "admin.session_revoked"

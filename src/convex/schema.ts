@@ -167,7 +167,8 @@ const schema = defineSchema(
     })
       .index("byVendor", ["vendorId"])
       .index("byVendorActive", ["vendorId", "active"])
-      .index("byModeration", ["moderationStatus"]),
+      .index("byModeration", ["moderationStatus"])
+      .index("byModeratedBy", ["moderatedBy"]),
 
     serviceRequests: defineTable({
       requesterId: v.id("users"),
@@ -343,7 +344,8 @@ const schema = defineSchema(
     })
       .index("byRequest", ["requestId"])
       .index("byVendor", ["vendorId"])
-      .index("byRequestVendor", ["requestId", "vendorId"]),
+      .index("byRequestVendor", ["requestId", "vendorId"])
+      .index("byOfferer", ["offeredBy"]),
 
     analyticsEvents: defineTable({
       event: v.string(),

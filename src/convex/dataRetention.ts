@@ -14,7 +14,7 @@ import { internalMutation } from "./_generated/server";
  * Akun anonim dibuat ~81 kali sehari. Setiap penanda tangan anonim menulis
  * sekitar 5 dokumen (user + account + session + refresh token), jadi ~437
  * dokumen per hari atau ~160.000 per tahun, dari satu tombol yang ditekan di
- * halaman yang tidak seorang pun핀往来.
+ * halaman yang tidak seorang pun ballast.
  *
  * Sumbernya di luar kendali aplikasi: `src/convex/auth.ts` mendaftarkan
  * penyedia `Anonymous` dan file itu BEKU, dan tidak ada satu pun baris
@@ -64,7 +64,7 @@ async function ownsSomething(
     ctx.db.query("favorites").withIndex("byUser", (q) => q.eq("userId", userId)).first(),
     ctx.db
       .query("listingClaims")
-      .withIndex("byClaimant", (q) => q.eq("claimantId", userId))
+      .withIndex("byRequester", (q) => q.eq("requesterId", userId))
       .first(),
     ctx.db
       .query("reports")
@@ -76,7 +76,7 @@ async function ownsSomething(
       .first(),
     ctx.db
       .query("vendorPhotos")
-      .withIndex("byUploader", (q) => q.eq("uploadedBy", userId))
+      .withIndex("byModeratedBy", (q) => q.eq("moderatedBy", userId))
       .first(),
     ctx.db.query("notifications").withIndex("byUser", (q) => q.eq("userId", userId)).first(),
     ctx.db.query("adminPresence").withIndex("byUser", (q) => q.eq("userId", userId)).first(),
@@ -135,8 +135,8 @@ export const pruneAnonymousAccounts = internalMutation({
       const user = await ctx.db.get(userId);
       // Akun sudah hilang tapi barisnya masih ada: tetap dibersihkan.
       if (user && user.isAnonymous !== true) continue;
-      // Akun bertanda anonim TAPI punya email berarti ada yang promotions
-      // mengisi identitasnya. Itu akun sungguhan, bukan sisa.
+      // Akun bertanda anonim TAPI punya email berarti ada yang mengisi
+      // identitasnya. Itu akun sungguhan, bukan sisa.
       if (user?.email) continue;
       if (user && (await ownsSomething(ctx, userId))) {
         result.keptOwned += 1;

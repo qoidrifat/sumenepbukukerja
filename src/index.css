@@ -452,21 +452,49 @@
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: rgb(18 18 18 / 68%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgb(18 18 18 / 55%);
+  -webkit-backdrop-filter: blur(10px) saturate(115%);
+  backdrop-filter: blur(10px) saturate(115%);
+  animation: admin-overlay-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+.admin-dialog-overlay[data-state="closed"] {
+  animation: admin-overlay-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+/*
+  Pemusatan tanpa transform.
+
+  `DialogContent` bawaan memusatkan lewat `top-1/2 translate-y-[-50%]` dan
+  sekaligus menskalakan lewat `zoom-in-95`. Keduanya memakai property yang
+  saling berebut: `translate` untuk memusatkan, `transform`/`scale` untuk
+  animasi. Menambahkan `transform: translate(-50%, -50%)` sendiri ternyata membuat
+  dialog BERGESER DUA KALI setelah animasi selesai — diukur di browser, pusatnya
+  meleset 263px ke kiri, hampir keluar layar.
+
+  `inset: 0` + `margin: auto` memusatkan tanpa transform sama sekali. Efeknya:
+  transform bebas dipakai animasi, dan dialog yang lebih tinggi dari layar tetap
+  utuh di tengah (bukan terpotong bagian atasnya seperti pada pola top-50%).
+*/
 .admin-dialog-content {
   position: fixed;
-  top: 50%;
-  left: 50%;
+  inset: 0;
   z-index: 90;
   display: flex;
+  height: max-content;
   width: calc(100% - 2rem);
-  max-width: 32rem !important;
+  max-width: 32rem;
   max-height: calc(100dvh - 2rem);
+  margin: auto;
   flex-direction: column;
+  gap: 0;
   overflow-y: auto;
-  transform: translate(-50%, -50%);
+  translate: none;
+  transform: none;
   border: 2px solid #121212 !important;
   border-radius: 2px !important;
   color: #1a1a1a;
@@ -552,6 +580,95 @@
 .admin-dialog-content :where(a, button):focus-visible {
   outline: 4px solid #ff5a26;
   outline-offset: 4px;
+}
+
+/* Tombol tutup bawaan (shadcn) terlihat seperti komponen aplikasi lain.
+   Di dalam pita kuning dialog admin, ia dijadikan kotak admin yang rata
+   dengan header. */
+.admin-dialog-content [data-slot="dialog-close"] {
+  top: 0.75rem;
+  right: 0.75rem;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #121212;
+  border-radius: 2px;
+  color: #121212;
+  background: #ffffff;
+  opacity: 1;
+  transition: transform 75ms ease, box-shadow 75ms ease;
+}
+
+.admin-dialog-content [data-slot="dialog-close"]:hover {
+  background: #f1ede3;
+}
+
+.admin-dialog-content [data-slot="dialog-close"] svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Gerak dialog: masuk pelan dan tenang, bukan menari. Skala kecil dan
+   pendek supaya terasa seperti panel yang masuk ke tempat, bukan seperti
+   jendela yang memantul. */
+@keyframes admin-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.965);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes admin-dialog-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+
+@keyframes admin-overlay-in {
+  from {
+    opacity: 0;
+    -webkit-backdrop-filter: blur(0px) saturate(100%);
+    backdrop-filter: blur(0px) saturate(100%);
+  }
+  to {
+    opacity: 1;
+    -webkit-backdrop-filter: blur(10px) saturate(115%);
+    backdrop-filter: blur(10px) saturate(115%);
+  }
+}
+
+@keyframes admin-overlay-out {
+  from {
+    opacity: 1;
+    -webkit-backdrop-filter: blur(10px) saturate(115%);
+    backdrop-filter: blur(10px) saturate(115%);
+  }
+  to {
+    opacity: 0;
+    -webkit-backdrop-filter: blur(0px) saturate(100%);
+    backdrop-filter: blur(0px) saturate(100%);
+  }
+}
+
+.admin-dialog-content[data-state="open"] {
+  animation: admin-dialog-in 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+
+.admin-dialog-content[data-state="closed"] {
+  animation: admin-dialog-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
+  will-change: transform, opacity;
 }
 
 .admin-confirm-content {

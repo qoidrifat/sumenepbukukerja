@@ -445,7 +445,7 @@ export function AdminSessionActions() {
       ) : null}
 
       <Dialog open={passcodeOpen} onOpenChange={setPasscodeOpen}>
-        <DialogContent className="admin-dialog-content">
+        <DialogContent className="admin-dialog-content" overlayClassName="admin-dialog-overlay">
           <div className="border-b-2 border-[#121212] bg-[#FFE662] px-4 py-4 sm:px-5">
             <p className="text-[0.7rem] font-black uppercase tracking-[0.14em] text-[#525252]">
               Keamanan ruang admin

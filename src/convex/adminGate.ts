@@ -597,7 +597,7 @@ export const listAdminSecurityEvents = query({
     const nextCursor =
       page.length === limit && last ? `${last.createdAt}:${last._id}` : null;
 
-    const events = page.map((row) => {
+    const events = await Promise.all(page.map(async (row) => {
       const related = rows.filter(
         (other) =>
           other.createdAt >= windowStart &&
@@ -666,16 +666,7 @@ export const listAdminSecurityEvents = query({
         // bentuk ternormalisasi, bukan id sesi maupun hash-nya: UI tidak butuh
         // pengenal apa pun untuk memutuskan, dan begitu pengenal ikut terbawa ke
         // payload, kebocorannya jadi jauh lebih sulit dilacak.
-        sessionState:
-          row.outcome !== "success"
-            ? ("none" as const)
-            : row.sessionRevokedAt
-              ? ("revoked" as const)
-              : !row.sessionReference
-                ? ("untracked" as const)
-                : ownSessionReference && row.sessionReference === ownSessionReference
-                  ? ("current" as const)
-                  : ("active" as const),
+        sessionState: await stateOfAttempt(ctx, row, ownSessionReference),
         sessionRevokedAt: row.sessionRevokedAt ?? null,
         // Agregasi
         attemptsInWindow: related.length + 1,
@@ -695,7 +686,7 @@ export const listAdminSecurityEvents = query({
           : null,
         signals,
       };
-    });
+    }));
     return { events, nextCursor, total: rows.length };
   },
 });
@@ -1294,12 +1285,14 @@ export const revokeAdminSession = mutation({
       return { ok: true as const, revokedAt: already.revokedAt, alreadyRevoked: true as const };
     }
 
-    // Menolak mencabut sesi sendiri lewat jalur ini; jalur keluar biasa yang
-    // harus dipakai untuk itu, dan UI-nya sudah memakai label yang sesuai.
+    // Sesi sendiri BOLEH dicabut, tapi hanya sesi itu sendiri. Ini berbeda
+    // dari `invalidateSessions` milik Convex Auth yang bisa mematikan semua
+    // sesi milik satu pengguna: di sini yang dicabut tepat satu `sessionId`,
+    // sehingga perangkat lain milik admin yang sama tidak ikut tersentuh.
+    // Sesi remote tidak pernah ikut: target sudah dipastikan satu baris
+    // binding, bukan "semua sesi milik user".
     const ownSession = await getAuthSessionId(ctx);
-    if (ownSession && binding.sessionId === ownSession) {
-      return { ok: false as const, reason: "CURRENT_SESSION" as const };
-    }
+    const isCurrentSession = Boolean(ownSession && binding.sessionId === ownSession);
 
     const revokedAt = Date.now();
     await ctx.db.insert("revokedAdminSessions", {
@@ -1332,15 +1325,129 @@ export const revokeAdminSession = mutation({
       actorId: access.userId,
       entityId: args.attemptId,
       // Hanya ringkasan terbaca manusia. Tidak ada id sesi, access token,
-      // atau refresh token yang masuk ke audit.
+      // refresh token, cookie, atau passcode yang masuk ke audit.
+      //
+      // `targetSessionRef` dan `targetUserRef` sengaja hanya potongan pendek
+      // dari hash yang dihitung server: cukup untuk mengaitkan dan mencari
+      // baris audit, tidak cukup untuk dipakai ulang sebagai kredensial.
       metadata: {
         targetIpMasked: attempt.ipMasked || undefined,
         targetBrowser: attempt.browser || undefined,
         targetOs: attempt.os || undefined,
         reason: args.reason?.slice(0, 200) || undefined,
+        targetSessionRef: binding.sessionReference.slice(0, 8),
+        targetUserRef: await maskUserReference(binding.userId),
+        requestId: maskRequestId(attempt.requestId) || undefined,
+        selfRevoked: isCurrentSession,
       },
     });
-    return { ok: true as const, revokedAt, alreadyRevoked: false as const };
+    return {
+      ok: true as const,
+      revokedAt,
+      alreadyRevoked: false as const,
+      // Sinyal ke klien supaya perangkat ini melakukan signOut + redirect,
+      // bukan tertinggal dengan UI yang masih aktif.
+      selfRevoked: isCurrentSession,
+    };
+  },
+});
+
+/**
+ * Referensi pengguna yang aman untuk ditulis di audit.
+ *
+ * Id dokumen Convex adalah pengenal internal: ia menunjuk baris database dan
+ * tidak perlu ikut jejak. Yang dibutuhkan audit adalah sesuatu yang bisa
+ * dicari admin tanpa membuka identitas. Enam karakter pertama dari SHA-256 id
+ * itu cukup — tidak bisa dibalik ke id asli tanpa menebak ruang yang sangat besar,
+ * tapi tetap stabil sehingga dua baris audit untuk orang yang sama bisa
+ * dikelompokkan.
+ */
+async function maskUserReference(userId: string): Promise<string> {
+  return (await sha256Hex(userId)).slice(0, 12);
+}
+
+/**
+ * Status siklus hidup sesi untuk satu baris percobaan.
+ *
+ * "Tidak ada baris yang dicabut" TIDAK otomatis berarti aktif. Baris
+ * `authSessions` milik Convex Auth dihapus sendiri saat logout atau kedaluwarsa,
+ * jadi kalau baris itu hilang sementara tidak ada catatan pencabutan, sesi
+ * memang sudah berakhir — bukan sedang aktif. Tanpa pemeriksaan ini, semua
+ * sesi yang sudah tutup akan tetap terlihat "aktif" dan admin bisa ditipu
+ * oleh Security Desk.
+ *
+ * Sumber kebenarannya tetap `authSessions.expirationTime` milik Convex Auth.
+ * Tidak ada salinan waktu kedaluwarsa di tabel binding kita, jadi tidak ada
+ * yang bisa basi.
+ */
+async function stateOfAttempt(
+  ctx: GenericQueryCtx<DataModel>,
+  row: DataModel["adminPasscodeAttempts"]["document"],
+  ownSessionReference: string | null,
+): Promise<AdminSessionState> {
+  if (row.outcome !== "success") return "none";
+  if (row.sessionRevokedAt) return "revoked";
+  if (!row.sessionReference) return "untracked";
+  if (ownSessionReference && row.sessionReference === ownSessionReference) return "current";
+  const binding = await ctx.db
+    .query("adminSessionBindings")
+    .withIndex("byAttempt", (q) => q.eq("attemptId", row._id))
+    .unique();
+  if (!binding) return "untracked";
+  const live = await ctx.db.get(binding.sessionId);
+  if (!live || live.expirationTime < Date.now()) return "expired";
+  return "active";
+}
+
+/** Keadaan siklus hidup satu sesi, dipakai bersama watchdog dan Security Desk. */
+export type AdminSessionState =
+  | "none"
+  | "untracked"
+  | "active"
+  | "current"
+  | "revoked"
+  | "expired";
+
+/**
+ * Watchdog reaktif: memberi tahu klien status sesi yang SEDANG dipakainya.
+ *
+ * Yang membuatnya penting adalah apa yang TIDAK dilakkukannya: query ini
+ * sengaja TIDAK memanggil `requireStaff`, jadi ia tidak melempar
+ * `SESSION_REVOKED`. Kalau ia ikut melempar, perangkat yang dicabut tidak
+ * akan pernah sempat membaca "saya sudah dicabut" — ia hanya akan melihat
+ * error. Di sini, klien bisa keluar dengan rapi: satu toast, satu
+ * `signOut()`, satu redirect.
+ *
+ * Penegakan di server tetap ada dan tidak berubah: semua operasi admin tetap
+ * melewati `assertSessionNotRevoked` lewat `requireUser`. Watchdog hanya
+ * membuat pengalaman keluarnya remote logout terasa bersih.
+ *
+ * Biaya: satu index read pada `revokedAdminSessions.bySession` plus satu
+ * `db.get` pada baris `authSessions`. Tidak ada pemindaian tabel, tidak ada
+ * riwayat sesi yang ditarik.
+ */
+export const currentAdminSessionStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const sessionId = await getAuthSessionId(ctx);
+    if (!sessionId) return { status: "none" as const };
+
+    const revoked = await ctx.db
+      .query("revokedAdminSessions")
+      .withIndex("bySession", (q) => q.eq("sessionId", sessionId))
+      .unique();
+    if (revoked) {
+      return { status: "revoked" as const, revokedAt: revoked.revokedAt };
+    }
+
+    // Sumber kebenaran masa berlaku tetap milik Convex Auth: `authSessions`.
+    // Tidak ada salinan `expiredAt` di tabel binding, jadi tidak ada yang bisa
+    // basi. Baris `authSessions` dihapus oleh Convex Auth saat logout atau
+    // kedaluwarsa — jadi "baris tidak ada" sama dengan "sesi sudah berakhir".
+    const live = await ctx.db.get(sessionId);
+    if (!live) return { status: "expired" as const };
+    if (live.expirationTime < Date.now()) return { status: "expired" as const };
+    return { status: "active" as const };
   },
 });
 

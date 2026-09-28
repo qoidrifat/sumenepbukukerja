@@ -30,6 +30,9 @@ const render = (props: Partial<ControlProps>) =>
       attemptId: "evt1",
       deviceLabel: "Android 10 · Chrome 153 · Ponsel",
       sessionState: undefined,
+      loginAt: REVOKED_AT,
+      ipMasked: "203.0.113.xxx",
+      onSelfRevoked: () => {},
       ...props,
     }),
   );
@@ -44,12 +47,22 @@ test("sesi milik perangkat lain mendapat tombol mencabut dan dialog konfirmasi",
   expect(markup).toContain("type=\"button\"");
 });
 
-test("sesi milik perangkat yang sedang dipakai tidak menawarkan pencabutan", () => {
+test("sesi milik perangkat yang sedang dipakai mendapat tombol dengan risiko dinyatakan", () => {
   const markup = render({ sessionState: "current", sessionRevokedAt: null });
+  // Spec §14: sesi sendiri harus bisa dicabut, asal dengan konsekuensi yang
+  // dinyatakan jelas. Label pasif tanpa tombol justru meninggalkan operator
+  // tanpa jalan keluar.
+  expect(markup).toContain("Logout dari perangkat ini");
+  expect(markup).toContain("admin-btn-danger");
   expect(markup).toContain("Sesi Anda saat ini");
-  expect(markup).not.toContain("Logout dari sesi ini");
-  // Tidak ada jalur yang mengubah tampilan saja: tidak ada tombol sama sekali.
+});
+
+test("sesi yang sudah berakhir tampil sebagai badge, tanpa aksi", () => {
+  const markup = render({ sessionState: "expired", sessionRevokedAt: null });
+  expect(markup).toContain("Sesi telah berakhir");
   expect(markup).not.toContain("<button");
+  // Penting: "berakhir" tidak boleh disamakan dengan "aktif".
+  expect(markup).not.toContain("Cabut");
 });
 
 test("sesi yang sudah dicabut menampilkan status mati beserta waktunya", () => {

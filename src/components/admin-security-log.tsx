@@ -37,6 +37,9 @@ import { formatRelativeTime } from "@/lib/datetime";
 type SecurityEvent = NonNullable<ReturnType<typeof useAdminSecurityEvents>>["events"][number];
 type IpActivity = NonNullable<ReturnType<typeof useAdminIpActivity>>[number];
 
+/** Lihat catatan di blok `handleSelfRevoked`: keluar dari sesi sendiri ditangani watchdog. */
+const noop = () => {};
+
 const OUTCOME_FILTERS = [
   { value: "all", label: "Semua" },
   { value: "success", label: "Berhasil" },
@@ -229,6 +232,18 @@ export function AdminSecurityLog() {
   const [cursorPath, setCursorPath] = useState<(string | undefined)[]>([undefined]);
   const cursor = cursorPath[cursorPath.length - 1];
   const page = useAdminSecurityEvents(25, cursor);
+  /**
+   * Sesi milik perangkat ini sendiri bisa dicabut dari Security Desk. Setelah
+   * server mengonfirmasi pencabutan, peramban tidak boleh tetap menampilkan
+   * ruang admin yang tidak lagi didukung server — jadi keluar lewat jalur
+   * watchdog yang sama dengan perangkat yang dicabut dari tempat lain.
+   */
+  // Pencabutan sesi sendiri TIDAK ditangani di sini dengan memuat ulang halaman.
+  // Muat ulang membuang state lokal, tapi token masih tertinggal di storage dan
+  // orangnya tidak diberi tahu kenapa ia terlempar keluar. Server sudah
+  // menandai sesinya dicabut, jadi watchdog reaktif akan melihatnya dalam
+  // hitungan milidetik dan menjalankan satu jalur keluar yang bersih: satu
+  // toast, `signOut()`, baru redirect. Satu jalur keluar, bukan dua.
   const summary = useAdminSecuritySummary(24);
   const ipActivity = useAdminIpActivity(12);
   const [outcomeFilter, setOutcomeFilter] = useState<(typeof OUTCOME_FILTERS)[number]["value"]>("all");
@@ -530,6 +545,9 @@ export function AdminSecurityLog() {
                     sessionState={event.sessionState}
                     sessionRevokedAt={event.sessionRevokedAt}
                     deviceLabel={deviceLine}
+                    loginAt={event.createdAt}
+                    ipMasked={event.ipMasked}
+                    onSelfRevoked={noop}
                   />
                 </div>
 

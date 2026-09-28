@@ -11,6 +11,7 @@ import {
   Clock3,
   Eye,
   FileCheck2,
+  FileEdit,
   Filter,
   Inbox,
   MapPin,
@@ -73,15 +74,32 @@ import {
   inputClass,
   quietButtonClass,
   secondaryButtonClass,
+  queueFilters,
   statusFilters,
   statusInfo,
   vendorUpdatePayload,
   whatsappHref,
   type ModerationFilter,
   type PendingConfirmation,
+  type QueueFilter,
 } from "@/components/admin-workspace";
 
 const EMPTY_ITEMS: VendorRecord[] = [];
+
+/**
+ * predicate satu antrean, dipakai oleh filter di meja triage DAN oleh angka
+ * "Butuh tindakan" di Ringkasan cepat.
+ *
+ * Disatukan karena keduanya harus menghitung hal yang sama. Kalau shortcut
+ * bilang "3 perlu dilengkapi" lalu meja triage menampilkan 5, angka yang salah
+ * adalah yang-more-visit — dan yang lebih sering dibuka adalah yang salah.
+ */
+function matchesQueueFilter(item: VendorRecord, queue: QueueFilter): boolean {
+  if (queue === "all") return true;
+  if (queue === "draft") return (item.status ?? "active") === "draft";
+  if (queue === "archived") return (item.status ?? "active") === "archived";
+  return qualityIssues(item as Vendor).length > 0;
+}
 
 const vendorStatusSelectOptions: ThemedSelectOption[] = [
   { value: "active", label: "Aktif — tampil di katalog" },
@@ -197,6 +215,7 @@ function AdminWorkspace() {
   const [preview, setPreview] = useState<Vendor | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ModerationFilter>("all");
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<"all" | Category>("all");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] =
@@ -510,6 +529,36 @@ function AdminWorkspace() {
   );
   const actionableCount =
     draftItems.length + archivedItems.length + incompleteItems.length;
+  /**
+   * Shortcut di bawah angka "Butuh tindakan".
+   *
+   * Angkanya dihitung dengan predikat yang sama dengan filter meja triage, jadi
+   * isi shortcut dan isi tabel tidak akan pernah berbeda. Antrean dengan
+   * jumlah 0 disembunyikan: menautkan ke tabel yang sudah kosong hanya menambah
+   * satu klik tanpa menambah pekerjaan apa pun.
+   */
+  const actionShortcuts = (
+    [
+      {
+        queue: "draft" as const,
+        label: "Listing berstatus draft",
+        count: draftItems.length,
+        icon: FileEdit,
+      },
+      {
+        queue: "archived" as const,
+        label: "Listing diarsipkan",
+        count: archivedItems.length,
+        icon: Archive,
+      },
+      {
+        queue: "incomplete" as const,
+        label: "Data belum lengkap",
+        count: incompleteItems.length,
+        icon: AlertTriangle,
+      },
+    ] satisfies ReadonlyArray<{ queue: QueueFilter; label: string; count: number; icon: LucideIcon }>
+  ).filter((shortcut) => shortcut.count > 0);
   const latestUpdate = items.reduce(
     (latest, item) => Math.max(latest, item.updatedAt ?? 0),
     0,
@@ -526,6 +575,7 @@ function AdminWorkspace() {
       const currentStatus = statusInfo(item).key;
       const matchesStatus =
         statusFilter === "all" || currentStatus === statusFilter;
+      const matchesQueue = matchesQueueFilter(item, queueFilter);
       const matchesCategory =
         categoryFilter === "all" || item.category === categoryFilter;
       const haystack = [
@@ -540,9 +590,14 @@ function AdminWorkspace() {
         .toLocaleLowerCase("id-ID")
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "");
-      return matchesStatus && matchesCategory && (!needle || haystack.includes(needle));
+      return (
+        matchesStatus &&
+        matchesQueue &&
+        matchesCategory &&
+        (!needle || haystack.includes(needle))
+      );
     });
-  }, [categoryFilter, items, search, statusFilter]);
+  }, [categoryFilter, items, queueFilter, search, statusFilter]);
 
   const metrics: Array<{
     label: string;
@@ -782,6 +837,33 @@ function AdminWorkspace() {
                   <dd className="mt-1 text-3xl font-black tracking-[-0.05em] text-[#C73E16]">
                     {actionableCount}
                   </dd>
+                  {/*
+                    Shortcut ke antrean yang menyusun angka di atasnya. Tanpa
+                    ini, "Butuh tindakan" cuma angka: tidak ada tempat lagi
+                    untuk dikerjakan, dan tidak ada jalan lain menyelesaikannya.
+                  */}
+                  <ul className="mt-3 space-y-2" aria-label="Shortcut antrean kerja">
+                    {actionShortcuts.map((shortcut) => (
+                      <li key={shortcut.queue}>
+                        <a
+                          href="#admin-triage"
+                          onClick={() => setQueueFilter(shortcut.queue)}
+                          className="flex min-h-11 items-center justify-between gap-3 rounded-[2px] border-2 border-[#121212] bg-white px-3 py-1.5 text-sm transition-transform hover:bg-[#FFE662] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#FF5A26]"
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            <shortcut.icon
+                              className="size-4 shrink-0 text-[#121212]"
+                              aria-hidden="true"
+                            />
+                            <span className="truncate font-black">{shortcut.label}</span>
+                          </span>
+                          <span className="shrink-0 font-mono text-xs font-black text-[#525252]">
+                            {shortcut.count}
+                          </span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
                 <div>
                   <dt className="text-sm font-bold text-[#525252]">
@@ -1269,7 +1351,7 @@ function AdminWorkspace() {
           />
 
           <div className="border-b-2 border-[#121212] bg-[#F1EDE3] p-4 sm:p-6">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(18rem,1fr)_13rem_13rem_auto]">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(16rem,1fr)_11rem_11rem_11rem_auto]">
               <label className="relative block">
                 <span className="sr-only">Cari listing</span>
                 <Search
@@ -1282,6 +1364,16 @@ function AdminWorkspace() {
                   placeholder="Cari nama, kategori, alamat, atau nomor..."
                 className={`${inputClass} pl-11 sm:col-span-2 lg:col-span-1`}
                 type="search"
+                />
+              </label>
+              <label className="min-w-0" htmlFor="admin-queue-filter">
+                <span className="sr-only">Filter antrean kerja</span>
+                <ThemedSelect
+                  id="admin-queue-filter"
+                  variant="admin"
+                  value={queueFilter}
+                  onValueChange={(value) => setQueueFilter(value as QueueFilter)}
+                  options={queueFilters}
                 />
               </label>
               <label className="min-w-0" htmlFor="admin-status-filter">
@@ -1313,9 +1405,15 @@ function AdminWorkspace() {
                 onClick={() => {
                   setSearch("");
                   setStatusFilter("all");
+                  setQueueFilter("all");
                   setCategoryFilter("all");
                 }}
-                disabled={!search && statusFilter === "all" && categoryFilter === "all"}
+                disabled={
+                  !search &&
+                  statusFilter === "all" &&
+                  queueFilter === "all" &&
+                  categoryFilter === "all"
+                }
                 className="admin-btn admin-btn-secondary sm:col-span-2 lg:col-span-1"
               >
                 <Filter className="size-5" />

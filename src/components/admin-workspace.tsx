@@ -42,6 +42,24 @@ export const statusFilters = [
 ] as const;
 
 export type ModerationFilter = (typeof statusFilters)[number]["value"];
+
+/**
+ * Antrean kerja: status draft/arsip dan data yang belum lengkap.
+ *
+ * Ini dipisah dari `statusFilters` karena dua hal yang berbeda. Filter status di
+ * atas menjawab "seberapa dipercaya moderasi?", sementara antrean ini menjawab "apa yang
+ * belum selesai?". Tanpa pemisahan itu, angka "Butuh tindakan" di Ringkasan
+ * cepat tidak punya tujuan: tidak ada cara menyaring meja triage ke listing
+ * yang draft, ke arsip, atau ke yang datanya belum lengkap.
+ */
+export const queueFilters = [
+  { value: "all", label: "Semua antrean" },
+  { value: "draft", label: "Draft" },
+  { value: "archived", label: "Arsip" },
+  { value: "incomplete", label: "Perlu dilengkapi" },
+] as const;
+
+export type QueueFilter = (typeof queueFilters)[number]["value"];
 export type PendingConfirmation = {
   kind: "reject" | "delete";
   vendor: VendorRecord;

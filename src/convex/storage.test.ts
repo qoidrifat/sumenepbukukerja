@@ -406,3 +406,156 @@ describe("pembatasan laju peristiwa per perangkat", () => {
     }
   });
 });
+
+/**
+ * Batas tepi.
+ * *Tes di atas membuktikan "berhenti setelah melewati batas". Yang belum
+ * terkunci adalah dua tempat di mana angka ini paling sering salah: satu
+ * peristiwa terlalu banyak (galat satu langkah) dan jendela satu jam yang tidak
+ * pernah bergeser (perangkat yang terkunci selamanya). Keduanya lolos di test
+ * yang hanya menghitung jumlah, tapi justru merusak di produksi.
+ */
+describe("batas tepi pembatasan laju", () => {
+  async function trackMany(
+    send: (args: { event: "search_impression"; anonymousId?: string }) => Promise<string | null>,
+    count: number,
+    anonymousId?: string,
+  ) {
+    let accepted = 0;
+    for (let index = 0; index < count; index += 1) {
+      const id = await send({
+        event: "search_impression",
+        ...(anonymousId === undefined ? {} : { anonymousId }),
+      });
+      if (id) accepted += 1;
+    }
+    return accepted;
+  }
+
+  const visit = (t: ReturnType<typeof convexTest>) => {
+    const identity = t.withIdentity({ name: "Pengunjung" });
+    return (args: { event: "search_impression"; anonymousId?: string }) =>
+      identity.mutation(api.analytics.track, args);
+  };
+
+  test("tepat di batas masih diterima, satu berikutnya ditolak", async () => {
+    const t = convexTest(schema, modules);
+    const visitor = t.withIdentity({ name: "Pengunjung Tepi" });
+    const { TRACK_ANONYMOUS_HOURLY_LIMIT: limit } = await import("./analytics");
+
+    // Isi sampai PERSIS batas.
+    expect(await trackMany(visit(t), limit, "tepi")).toBe(limit);
+    // Peristiwa ke-(limit+1) harus ditolak, bukan diterima diam-diam.
+    const next = await visitor.mutation(api.analytics.track, {
+      event: "search_impression",
+      anonymousId: "tepi",
+    });
+    expect(next).toBeNull();
+    const stored = await t.run(async (ctx) => await ctx.db.query("analyticsEvents").collect());
+    expect(stored).toHaveLength(limit);
+  });
+
+  test("peristiwa yang ditolak tidak menambah penghitung dashboard", async () => {
+    // Kalau penolakan tetap menambah penghitung, angka dashboard dan baris
+    // mentah akan berbeda — dan tidak ada yang bisa menjelaskannya.
+    const t = convexTest(schema, modules);
+    const { TRACK_ANONYMOUS_HOURLY_LIMIT: limit } = await import("./analytics");
+    await trackMany(visit(t), limit + 4, "hitung");
+
+    const counters = await t.run(async (ctx) => await ctx.db.query("analyticsCounters").collect());
+    const impressions = counters.find((row) => row.key === "search_impression");
+    expect(impressions?.count).toBe(limit);
+  });
+
+  test("jendela satu jam bergeser: peristiwa lama tidak ikut dihitung", async () => {
+    // Seeded 400 baris untuk perangkat yang sama, semuanya DUA JAM lalu. Kalau
+    // jendela tidak ikut bergeser, perangkat ini masih terkunci selamanya
+    // padahal ia tidak mengirim apa pun dalam satu jam terakhir.
+    const t = convexTest(schema, modules);
+    const visitor = t.withIdentity({ name: "Pengunjung Jendela" });
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+      };
+      for (let index = 0; index < 400; index += 1) {
+        await db.insert("analyticsEvents", {
+          event: "search_impression",
+          anonymousId: "lama",
+          createdAt: twoHoursAgo + index,
+        });
+      }
+    });
+
+    const fresh = await visitor.mutation(api.analytics.track, {
+      event: "search_impression",
+      anonymousId: "lama",
+    });
+    expect(fresh).not.toBeNull();
+  });
+
+  test("peristiwa di batas jendela lama ikut kedaluwarsa", async () => {
+    // 61 menit lalu sudah di luar jendela; 59 menit lalu masih di dalam.
+    const t = convexTest(schema, modules);
+    const visitor = t.withIdentity({ name: "Pengunjung Tepi Jendela" });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+      };
+      await db.insert("analyticsEvents", {
+        event: "search_impression",
+        anonymousId: "tepi-jendela",
+        createdAt: now - 61 * 60 * 1000,
+      });
+    });
+    const fresh = await visitor.mutation(api.analytics.track, {
+      event: "search_impression",
+      anonymousId: "tepi-jendela",
+    });
+    expect(fresh).not.toBeNull();
+  });
+
+  test("pengguna yang sudah masuk tetap dihitung per perangkat, bukan dibebaskan", async () => {
+    // Halaman sendingirim `anonymousId` perangkat UNTUK semua orang, termasuk
+    // yang sudah masuk. Jika yang masuk dibebaskan sepenuhnya, satu akun bisa
+    // menulis event tanpa batas hanya dengan cara masuk — celah yang lebih
+    // murah daripada menebak perangkat. Batas 300/jam jauh di atas pemakaian
+    // nyata, jadi tidak ada risiko terpotong.
+    const t = convexTest(schema, modules);
+    const { asUser } = await seedUser(t, "Warga Mantap");
+    const { TRACK_ANONYMOUS_HOURLY_LIMIT: limit } = await import("./analytics");
+    const send = (args: { event: "search_impression"; anonymousId?: string }) =>
+      asUser.mutation(api.analytics.track, args);
+    expect(await trackMany(send, limit, "perangkat-warga")).toBe(limit);
+    const blocked = await send({ event: "search_impression", anonymousId: "perangkat-warga" });
+    expect(blocked).toBeNull();
+  });
+
+  test("id perangkat kosong tidak dihitung sebagai perangkat", async () => {
+    // String kosong berarti "tidak ada id", jadi harus lewat jalur tanpa batas,
+    // sama seperti `undefined`. Kalau tidak, satu pemanggil yang mengirim
+    // `anonymousId: ""` akan menarik seluruhKuota ke dirinya sendiri.
+    const t = convexTest(schema, modules);
+    const { TRACK_ANONYMOUS_HOURLY_LIMIT: limit } = await import("./analytics");
+    expect(await trackMany(visit(t), limit + 2, "")).toBe(limit + 2);
+  });
+
+  test("id perangkat terpotong 120 karakter, jadi tidak bisa meledakkan indeks", async () => {
+    // Batas panjang mencegah satu permintaan memakai kunci indeks raksasa.
+    const t = convexTest(schema, modules);
+    const visitor = t.withIdentity({ name: "Pengpanjang" });
+    const panjang = "a".repeat(400);
+    await visitor.mutation(api.analytics.track, { event: "search_impression", anonymousId: panjang });
+    const stored = await t.run(async (ctx) => await ctx.db.query("analyticsEvents").first());
+    expect(stored?.anonymousId).toHaveLength(120);
+  });
+
+  test("tanpa identitas sama sekali, peristiwa tetap bisa tercatat", async () => {
+    // Server dan cron memanggil `track` tanpa identitas; di luar jalur peramban
+    // tidak ada yang perlu dibatasi.
+    const t = convexTest(schema, modules);
+    const id = await t.mutation(api.analytics.track, { event: "search_impression" });
+    expect(id).not.toBeNull();
+  });
+});

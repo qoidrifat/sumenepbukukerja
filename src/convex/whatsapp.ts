@@ -1222,11 +1222,17 @@ export const sendTestWhatsapp = action({
     const issue = providerIssue();
     if (issue) throw new Error(issue);
     const deliveryKey = `whatsapp:test:${userId}:${new Date().toISOString().slice(0, 10)}`;
+    // Body yang disimpan ke baris delivery menyatakan NIAT, bukan hasil.
+    // Versi lama menulis "Pesan uji berhasil dikirim." saat baris masih
+    // `queued`, sehingga setiap pengiriman yang gagal dengan kode 190 tetap
+    // menampilkan kalimat sukses di panel status. Hasil sebenarnya hidup di
+    // kolom `status` dan `lastErrorCode`; kalimat di sini hanya menjelaskan
+    // untuk apa pesan ini dibuat.
     const queued = await ctx.runMutation(internal.whatsapp.queueWhatsappDelivery, {
       userId,
       deliveryKey,
       title: "WhatsApp aktif",
-      body: "Pesan uji berhasil dikirim.",
+      body: "Menguji jalur pengiriman notifikasi WhatsApp.",
     });
     if (!queued.shouldSend) {
       // Percobaan yang gagal sebelumnya tidak boleh mengunci seluruh hari:

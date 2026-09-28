@@ -18,13 +18,18 @@ const authEmail = process.env.E2E_USER_EMAIL;
 const authPassword = process.env.E2E_USER_PASSWORD;
 
 test.describe("Skenario A — landing, autentikasi, dashboard", () => {
-  test("halaman publik terbuka, dan rute terlindungi mengembalikan ke auth dengan returnTo", async ({ page }) => {
+  test("halaman publik terbuka, dan rute terlindungi menawarkan masuk sambil mempertahankan tujuan", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveTitle(/Buku Kerja/i);
 
     await page.goto("/dashboard");
-    // Rute terlindungi harus mengarahkan ke /auth sambil mempertahankan tujuan.
-    await expect(page).toHaveURL(/\/auth\?returnTo=/);
+    // `RequireAuth` di /dashboard sengaja TIDAK mengubah URL: ia menampilkan
+    // kartu "Masuk" supaya pengunjung mengerti kenapa halaman ini kosong. Yang
+    // diuji adalah konsekuensinya — tujuan harus ikut terbawa ke /auth.
+    const signIn = page.getByRole("button", { name: /^Masuk$/ }).first();
+    await expect(signIn).toBeVisible();
+    await signIn.click();
+    await expect(page).toHaveURL(/\/auth\?returnTo=%2Fdashboard/);
   });
 
   test("pendatang tanpa kredensial melihat halaman auth yang benar", async ({ page }) => {
@@ -99,7 +104,9 @@ test.describe("Skenario C — gerbang passcode admin", () => {
     const passcodeField = page.locator('input[name="passcode"]');
     test.skip((await passcodeField.count()) === 0, "Gerbang passcode tidak tampil (admin sudah masuk atau belum diaktifkan)");
     await passcodeField.fill("0000-salah-pasti");
-    await page.getByRole("button", { name: /Masuk ke Buku Kerja/i }).click();
+    // Label tombol di halaman auth bukan "Masuk ke Buku Kerja" — itu judul
+    // kartu, bukan kendali. Nama yang benar ada di `Auth.tsx`.
+    await page.getByRole("button", { name: /Verifikasi passcode/i }).click();
     // Pesan error harus muncul (role=alert), dan URL tetap di /auth.
     await expect(page.getByRole("alert").first()).toBeVisible();
     await expect(page).toHaveURL(/\/auth/);

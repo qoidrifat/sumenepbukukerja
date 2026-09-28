@@ -1,11 +1,14 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   MAX_IMAGE_BYTES,
   MAX_IMAGE_LABEL,
+  MAX_IMAGE_WIDTH,
+  downscaleImageIfLarge,
   formatBytes,
   imageRejection,
   isStoredImage,
   readUploadedStorageId,
+  uploadWithDedup,
 } from "./image-upload";
 
 /**
@@ -152,5 +155,212 @@ describe("membaca jawaban endpoint unggah", () => {
     expect(readUploadedStorageId("abc")).toBe("abc");
     expect(readUploadedStorageId("")).toBeNull();
     expect(readUploadedStorageId("   ")).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Perkecil gambar di peramban                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Canvas dan `createImageBitmap` tidak ada di lingkungan uji
+ * (`edge-runtime`), jadi keduanya diganti double yang mencatat panggilannya.
+ *
+ * Bukti bahwa modul ini benar-benar mengecilkan foto sungguhan ada di
+ * `scripts/qa/verify-downscale.mjs` — skrip itu menjalankan modul yang sama di
+ * Chromium dan mengukur lebar, rasio, dan ukuran luarnya. Test di sini
+ * mengunci KEPUTUSAN logikanya pada kondisi yang tidak bisa diuji di
+ * peramban: berkas mana yang tidak boleh disentuh, dan bagaimana kegagalan
+ * dekode diperlakukan.
+ */
+type DrawCall = { source: unknown; w: number; h: number };
+
+function stubBrowser(options: {
+  bitmap?: { width: number; height: number };
+  decodeFails?: boolean;
+  blobBytes?: number | null;
+}) {
+  const drawCalls: DrawCall[] = [];
+  let canvasCreated = 0;
+  vi.stubGlobal("createImageBitmap", async () => {
+    if (options.decodeFails) throw new Error("gagal dekode");
+    return { ...(options.bitmap ?? { width: 4000, height: 3000 }), close: () => {} };
+  });
+  vi.stubGlobal("document", {
+    createElement: (tag: string) => {
+      if (tag !== "canvas") throw new Error(`tag tak terduga: ${tag}`);
+      canvasCreated += 1;
+      const canvas = {
+        width: 0,
+        height: 0,
+        getContext: () => ({
+          drawImage: (source: unknown, _x: number, _y: number, w: number, h: number) =>
+            drawCalls.push({ source, w, h }),
+        }),
+        toBlob: (resolve: (blob: Blob | null) => void) => {
+          if (options.blobBytes === null) return resolve(null);
+          resolve(new Blob([new Uint8Array(options.blobBytes ?? 400_000)]));
+        },
+      };
+      return canvas;
+    },
+  });
+  return { drawCalls, canvasCount: () => canvasCreated };
+}
+
+function jpegFile(bytes: number, name = "foto-kamera.jpg"): File {
+  return new File([new Uint8Array(bytes)], name, { type: "image/jpeg" });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("perkecil gambar di peramban", () => {
+  test("foto besar diperkecil ke lebar 1280 dengan rasio terjaga", async () => {
+    const { drawCalls } = stubBrowser({ bitmap: { width: 4000, height: 3000 } });
+    const result = await downscaleImageIfLarge(jpegFile(3_000_000));
+
+    expect(result.resized).toBe(true);
+    expect(result.beforeBytes).toBe(3_000_000);
+    expect(result.afterBytes).toBeLessThan(result.beforeBytes);
+    // Rasio 4000:3000 harus jadi 1280:960, bukan 1280:1280.
+    expect(drawCalls[0]).toMatchObject({ w: MAX_IMAGE_WIDTH, h: 960 });
+    expect(result.file.type).toBe("image/jpeg");
+    expect(result.file.name).toBe("foto-kamera.jpg");
+  });
+
+  test("hasil perkecil tetap memenuhi batas unggah", async () => {
+    // Downscale bukan hanya soal lebar: keluarannya juga harus benar-benar
+    // bisa melewati batas 1 MB, kalau tidak menyusutnya tidak berguna.
+    stubBrowser({ bitmap: { width: 3000, height: 2000 }, blobBytes: 457_000 });
+    const result = await downscaleImageIfLarge(jpegFile(7_800_000));
+    expect(imageRejection({ size: result.afterBytes, contentType: result.file.type })).toBeNull();
+  });
+
+  test("foto yang sudah cukup kecil tidak disentuh sama sekali", async () => {
+    const { canvasCount } = stubBrowser({ bitmap: { width: 900, height: 675 } });
+    const original = jpegFile(400_000);
+    const result = await downscaleImageIfLarge(original);
+
+    expect(result.resized).toBe(false);
+    expect(result.file).toBe(original);
+    expect(result.afterBytes).toBe(result.beforeBytes);
+    // Tidak ada canvas yang dibuat: tidak ada biaya untuk gambar yang sudah ok.
+    expect(canvasCount()).toBe(0);
+  });
+
+  test("berkas non-gambar dan GIF tidak pernah didekode", async () => {
+    stubBrowser({ bitmap: { width: 5000, height: 5000 } });
+    const pdf = new File([new Uint8Array(500_000)], "dokumen.pdf", { type: "application/pdf" });
+    const gif = new File([new Uint8Array(500_000)], "animasi.gif", { type: "image/gif" });
+    for (const file of [pdf, gif]) {
+      const result = await downscaleImageIfLarge(file);
+      expect(result.file, file.name).toBe(file);
+      expect(result.resized, file.name).toBe(false);
+    }
+  });
+
+  test("kegagalan dekode mengembalikan berkas asli, bukan melempar", async () => {
+    // Kegagalan decode tidak boleh berubah menjadi "unggah rusak": pengguna
+    // tetap bisa mengunggah berkasnya dan ditolak/diterima oleh aturan yang
+    // sudah ada.
+    stubBrowser({ decodeFails: true });
+    const original = jpegFile(800_000);
+    const result = await downscaleImageIfLarge(original);
+    expect(result.file).toBe(original);
+    expect(result.resized).toBe(false);
+  });
+
+  test("canvas tanpa konteks tidak membuat berkas rusak", async () => {
+    stubBrowser({ bitmap: { width: 4000, height: 3000 }, blobBytes: null });
+    const original = jpegFile(2_000_000);
+    const result = await downscaleImageIfLarge(original);
+    expect(result.file).toBe(original);
+    expect(result.resized).toBe(false);
+  });
+
+  test("keluaran yang lebih besar dari aslinya dibuang", async () => {
+    // Kasus nyata: PNG berisi foto yang setelah diubah jadi JPEG justru lebih
+    // besar. Mengirim hasil yang lebih besar hanya membuang kuota unggah.
+    stubBrowser({ bitmap: { width: 4000, height: 3000 }, blobBytes: 2_000_001 });
+    const original = jpegFile(2_000_000);
+    const result = await downscaleImageIfLarge(original);
+    expect(result.file).toBe(original);
+    expect(result.resized).toBe(false);
+  });
+});
+
+describe("alur unggah dengan dedup", () => {
+  test("berkas yang sudah dikenal dipakai tanpa mengunggah ulang", async () => {
+    stubBrowser({ bitmap: { width: 4000, height: 3000 } });
+    const lookup = vi.fn().mockResolvedValue({ storageId: "kg2br8d4dtkqs00aq0t91dxwxh8f8pv2" });
+    const record = vi.fn();
+    const generateUploadUrl = vi.fn();
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await uploadWithDedup(jpegFile(3_000_000), {
+      lookup,
+      record,
+      generateUploadUrl,
+    });
+
+    expect(result.reused).toBe(true);
+    expect(result.storageId).toBe("kg2br8d4dtkqs00aq0t91dxwxh8f8pv2");
+    // Tidak ada unggahan, tidak ada pencatatan baru: blob tidak pernah
+    // menyentuh jaringan untuk kedua kali.
+    expect(generateUploadUrl).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  test("berkas baru diunggah sekali lalu dicatat untuk pemakaian berikutnya", async () => {
+    stubBrowser({ bitmap: { width: 4000, height: 3000 } });
+    const lookup = vi.fn().mockResolvedValue(null);
+    const record = vi.fn().mockResolvedValue(undefined);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ storageId: "kg2newblob00000000000000000000" }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await uploadWithDedup(jpegFile(3_000_000), {
+      lookup,
+      record,
+      generateUploadUrl: vi.fn().mockResolvedValue("https://upload.test/abc"),
+    });
+
+    expect(result.reused).toBe(false);
+    expect(result.storageId).toBe("kg2newblob00000000000000000000");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // Yang dikirim ke jaringan adalah HASIL perkecil, bukan berkas asli.
+    const sent = fetchSpy.mock.calls[0][1].body as File;
+    expect(sent.type).toBe("image/jpeg");
+    expect(sent.size).toBe(result.afterBytes);
+    expect(result.resized).toBe(true);
+    // SHA yang dicatat adalah SHA hasil akhir, supaya pencarian berikutnya
+    // mencocokkan berkas yang sama.
+    expect(record).toHaveBeenCalledWith({
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      storageId: "kg2newblob00000000000000000000",
+      size: result.afterBytes,
+    });
+  });
+
+  test("downscale tidak bisa dipakai menembus batas ukuran", async () => {
+    // Berkas 2 MB yang hasil perkecilnya justru lebih besar akan kembali utuh,
+    // lalu ditolak aturan 1 MB — bukan lolos karena "sudah diperkecil".
+    stubBrowser({ bitmap: { width: 4000, height: 3000 }, blobBytes: 2_000_001 });
+    const lookup = vi.fn();
+
+    await expect(
+      uploadWithDedup(jpegFile(2_000_000), {
+        lookup,
+        record: vi.fn(),
+        generateUploadUrl: vi.fn(),
+      }),
+    ).rejects.toThrow(MAX_IMAGE_LABEL);
+    expect(lookup).not.toHaveBeenCalled();
   });
 });

@@ -666,7 +666,17 @@ export const addReview = mutation({
     if (body.length > 600) throw new Error("Ulasan maksimal 600 karakter");
     // Rating dibatasi 1-5 DAN harus bilangan bulat. Tanpa pembulatan, `4.7`
     // akan tersimpan dan merusak rata-rata yang tampil di listing.
-    const rating = Math.round(Math.min(5, Math.max(1, args.rating)));
+    //
+    // Nilai DI LUAR rentang kini DITOLAK, bukan dijepit ke 1 atau 5. Versi
+    // lama memakai `Math.min(5, Math.max(1, rating))`, jadi panggilan `0`
+    // diam-diam tersimpan sebagai bintang 1 dan panggilan `99` sebagai bintang
+    // 5. UI hanya menawarkan 1-5, jadi tidak ada pengguna sah yang terdampak;
+    // yang terpengaruh hanya pemanggil yang mengirim angka tidak masuk akal —
+    // dan baginya penolakan yang jujur lebih berguna daripada bintang palsunya.
+    if (!Number.isFinite(args.rating) || args.rating < 1 || args.rating > 5) {
+      throw new Error("Rating harus antara 1 dan 5");
+    }
+    const rating = Math.round(args.rating);
 
     // Satu ulasan per orang per listing. Tanpa ini, satu akun bisa menulis
     // ratusan ulasan dalam semalam dan mengubah rating rata-rata — dan untuk

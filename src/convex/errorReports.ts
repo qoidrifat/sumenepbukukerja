@@ -40,12 +40,28 @@ import {
 } from "../lib/error-reporting";
 
 /**
- * Nomor tujuan alert bug. Env var menang kalau diisi, tapi ada default supaya
- * alert tetap punya tujuan di instalasi ini. Angka ini tidak pernah muncul di
- * UI publik: hanya di pesan admin dan di panel pengelola yang sudah melewati
- * gerbang peran.
+ * Nomor tujuan alert bug — HANYA dari environment.
+ *
+ * Versi lama memakai satu nomor telepon yang tertanam langsung di source
+ * sebagai jaring pengaman. Angka itu dihapus karena dua alasan:
+ *
+ * 1. **Jaring pengaman itu tidak pernah jatuh.** Cabang
+ *    `if (!adminAlertPhone())` di bawah sudah dirancang untuk menangani
+ *    "tujuan tidak diisi" — tetapi dengan fallback, nilainya tidak pernah
+ *    kosong, jadi cabang tersebut jadi dead code yang terlihat hidup.
+ *    Menghapus angka membuat jalur yang sudah dirancang benar-benar bekerja.
+ * 2. **Nomor operator adalah data operasional, bukan default program.**
+ *    Angka yang tertanam di source ikut ter-deploy dan bisa dibaca siapa pun
+ *    yang punya akses kode. Env var menyimpannya di Keys; source tidak
+ *    menyimpannya sama sekali.
+ *
+ * Akibatnya: `alertStatus = "blocked"` dengan alasan "Nomor tujuan alert admin
+ * belum diisi" — report tetap tercatat, alert tetap terlihat di panel
+ * pengelola, dan tidak ada nomor yang dikarang.
  */
-const ADMIN_ALERT_PHONE = process.env.ERROR_ALERT_WHATSAPP?.trim() || "6287869512332";
+function adminAlertPhone(): string {
+  return process.env.ERROR_ALERT_WHATSAPP?.trim() ?? "";
+}
 
 /** Pengaman anti-spam kalau ada klien yang salah atau penyerang. */
 const MAX_NEW_REPORTS_PER_HOUR = 500;
@@ -323,11 +339,12 @@ export const deliverAdminAlert = internalAction({
       return { sent: false as const, reason: "dilewati policy" };
     }
 
-    if (!ADMIN_ALERT_PHONE) {
+    const adminPhone = adminAlertPhone();
+    if (!adminPhone) {
       await ctx.runMutation(internal.errorReports.markAlert, {
         id: args.reportId,
         alertStatus: "blocked",
-        reason: "Nomor tujuan alert admin belum diisi.",
+        reason: "Nomor tujuan alert admin belum diisi (isi ERROR_ALERT_WHATSAPP di tab Keys).",
       });
       return { sent: false as const, reason: "tanpa tujuan" };
     }
@@ -376,7 +393,7 @@ export const deliverAdminAlert = internalAction({
     try {
       const sent = await ctx.runAction(internal.whatsapp.sendAdminAlert, {
         deliveryKey: `system:error-alert:${report.reportId}`,
-        phone: ADMIN_ALERT_PHONE,
+        phone: adminPhone,
         title: `${report.severity.toUpperCase()} ${report.errorCode} ${report.reportId}`,
         body,
       });

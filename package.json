@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "qa:downscale": "node scripts/qa/verify-downscale.mjs",
     "test:watch": "vitest",
     "format": "prettier --write .",
     "preview": "vite preview",

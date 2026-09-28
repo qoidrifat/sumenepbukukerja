@@ -14,6 +14,7 @@ import {
 } from "@/lib/catalog-store";
 import { TimeStampLabel, inputClass } from "./admin-workspace";
 import { AdminSecurityLog } from "./admin-security-log";
+import { AdminSessionActions } from "./admin-session-actions";
 import { AdminErrorReports } from "./admin-error-reports";
 import {
   ADMIN_EMPTY_MASCOT_SIZE,
@@ -159,6 +160,8 @@ export function AdminGovernance() {
           <h3 className="text-lg font-black text-[#1A1A1A]">Riwayat perubahan listing</h3>
           {history?.length ? <div className="mt-3 max-h-64 space-y-2 overflow-auto">{history.map((entry) => <article key={entry._id} className="border-b border-[#D6D3D1] pb-2 text-sm"><p className="font-black text-[#1A1A1A]">{entry.vendorName} · <TimeStampLabel timestamp={entry.createdAt} /></p>{entry.changes.map((change) => <p key={`${entry._id}-${change.field}`} className="mt-1 text-[#525252]"><span className="font-bold">{change.field}</span>: {change.oldValue ?? "—"} → {change.newValue ?? "—"}</p>)}</article>)}</div> : <p className="mt-3 text-sm text-[#525252]">Belum ada riwayat perubahan listing.</p>}
         </article>
+
+        <AdminSessionActions />
 
         <AdminSecurityLog />
 

@@ -789,8 +789,11 @@ export function useRecentListingHistory(enabled = true) {
   return useQuery(api.users.listRecentListingHistory, enabled ? { limit: 40 } : "skip");
 }
 
-export function useAdminSecurityEvents(limit = 25, enabled = true) {
-  return useQuery(api.adminGate.listAdminSecurityEvents, enabled ? { limit } : "skip");
+export function useAdminSecurityEvents(limit = 25, cursor?: string, enabled = true) {
+  return useQuery(
+    api.adminGate.listAdminSecurityEvents,
+    enabled ? { limit, cursor: cursor ?? undefined } : "skip",
+  );
 }
 
 /** Ringkasan jendela waktu untuk strip pembuka panel audit keamanan. */

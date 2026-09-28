@@ -1083,7 +1083,7 @@ export const logoutAdmin = mutation({
  * menampilkan IP yang benar-benar diamati origin — bukan yang diklaim browser.
  * Nilainya disamarkan persis seperti di log percobaan masuk.
  */
-export const reportSessionContext = internalMutation({
+export const reportSessionContext = mutation({
   args: {
     token: v.string(),
     ipHash: v.optional(v.string()),

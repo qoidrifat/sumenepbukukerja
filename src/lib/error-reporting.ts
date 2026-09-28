@@ -73,6 +73,9 @@ export const ERROR_CODES = {
   whatsappSend: "WHATSAPP_SEND_FAILED",
   whatsappWebhook: "WHATSAPP_WEBHOOK_FAILED",
   reportFailed: "REPORT_FAILED",
+  adminLogout: "ADMIN_LOGOUT_FAILED",
+  adminLogoutAudit: "ADMIN_LOGOUT_AUDIT",
+  adminPasscodeChange: "ADMIN_PASSCODE_CHANGE_FAILED",
   unknown: "UNKNOWN_ERROR",
 } as const;
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

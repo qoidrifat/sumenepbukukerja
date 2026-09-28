@@ -19,11 +19,22 @@ import {
 } from "lucide-react";
 
 import { TimeStampLabel } from "@/components/admin-workspace";
-import { useAdminSecurityEvents, useAdminSecuritySummary } from "@/lib/catalog-store";
-import { UNKNOWN_LABEL, describeFailure } from "@/lib/security-context";
+import {
+  useAdminIpActivity,
+  useAdminSecurityEvents,
+  useAdminSecuritySummary,
+} from "@/lib/catalog-store";
+import {
+  SIGNAL_LABEL,
+  UNKNOWN_LABEL,
+  describeFailure,
+  describeIpSource,
+  type SecuritySignal,
+} from "@/lib/security-context";
 import { formatRelativeTime } from "@/lib/datetime";
 
 type SecurityEvent = NonNullable<ReturnType<typeof useAdminSecurityEvents>>["events"][number];
+type IpActivity = NonNullable<ReturnType<typeof useAdminIpActivity>>[number];
 
 const OUTCOME_FILTERS = [
   { value: "all", label: "Semua" },
@@ -34,7 +45,33 @@ const OUTCOME_FILTERS = [
 
 const WINDOW_FILTERS = [
   { value: "all", label: "Semua waktu" },
+  { value: "1h", label: "1 jam" },
   { value: "24h", label: "24 jam" },
+  { value: "7d", label: "7 hari" },
+  { value: "30d", label: "30 hari" },
+] as const;
+
+const WINDOW_MS: Record<string, number> = {
+  "1h": 60 * 60_000,
+  "24h": 24 * 60 * 60_000,
+  "7d": 7 * 24 * 60 * 60_000,
+  "30d": 30 * 24 * 60 * 60_000,
+};
+
+/**
+ * Filter IP dan sinyal sengaja berupa "hanya yang punya sinyal" dan bukan
+ * "carineedle": panel ini untuk melihat apa yang berubah, bukan untuk
+ * menjelajah data mentah.
+ */
+const IP_FILTERS = [
+  { value: "all", label: "Semua IP" },
+  { value: "new", label: "IP baru" },
+  { value: "known", label: "IP dikenal" },
+] as const;
+
+const SIGNAL_FILTERS = [
+  { value: "all", label: "Semua sinyal" },
+  { value: "with", label: "Dengan security signal" },
 ] as const;
 
 /**
@@ -184,12 +221,21 @@ function FilterButton({
 }
 
 export function AdminSecurityLog() {
-  const events = useAdminSecurityEvents(50);
-  const summary = useAdminSecuritySummary();
+  // Paginasi kursor disimpan sebagai tumpukan path, bukan akumulasi di efek.
+  // Alasannya nyata: akumulasi lewat `useEffect` membuat render pertama kosong
+  // lalu diisi setelahnya, dan tidak berjalan sama sekali di render statis.
+  // Tumpukan kursor merender halaman yang benar langsung di render pertama.
+  const [cursorPath, setCursorPath] = useState<(string | undefined)[]>([undefined]);
+  const cursor = cursorPath[cursorPath.length - 1];
+  const page = useAdminSecurityEvents(25, cursor);
+  const summary = useAdminSecuritySummary(24);
+  const ipActivity = useAdminIpActivity(12);
   const [outcomeFilter, setOutcomeFilter] = useState<(typeof OUTCOME_FILTERS)[number]["value"]>("all");
   const [windowFilter, setWindowFilter] = useState<(typeof WINDOW_FILTERS)[number]["value"]>("all");
+  const [ipFilter, setIpFilter] = useState<(typeof IP_FILTERS)[number]["value"]>("all");
+  const [signalFilter, setSignalFilter] = useState<(typeof SIGNAL_FILTERS)[number]["value"]>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
-  // Waktu cutoff diambil di efek, bukan saat render, supaya filter "24 jam"
+  // Waktu cutoff diambil di efek, bukan saat render, supaya filter waktu
   // tidak memanggil fungsi impure di jalur render. Sebelum efek berjalan,
   // `now` masih 0 sehingga semua baris tampil — tidak ada data yang hilang.
   const [now, setNow] = useState(0);
@@ -199,14 +245,23 @@ export function AdminSecurityLog() {
   }, []);
 
   const visible = useMemo(() => {
-    const rows = events?.events ?? [];
-    const since = windowFilter === "24h" && now > 0 ? now - 24 * 60 * 60_000 : 0;
+    const rows = page?.events ?? [];
+    const since = windowFilter === "all" ? 0 : now - (WINDOW_MS[windowFilter] ?? 0);
+    // `signals` dihitung server, tapi baris lama di database tidak punya kolom
+    // itu. Default-nya kosong supaya baris legacy tetap tampil utuh, bukan
+    // ikut hilang karena filter.
+    const signalsOf = (row: SecurityEvent) => row.signals ?? [];
     return rows.filter(
       (row) =>
         (outcomeFilter === "all" || row.outcome === outcomeFilter) &&
-        (since === 0 || row.createdAt >= since),
+        (since === 0 || row.createdAt >= since) &&
+        (ipFilter === "all" ||
+          (ipFilter === "new"
+            ? signalsOf(row).includes("NEW_IP")
+            : !signalsOf(row).includes("NEW_IP"))) &&
+        (signalFilter === "all" || signalsOf(row).length > 0),
     );
-  }, [events, outcomeFilter, windowFilter, now]);
+  }, [page, outcomeFilter, windowFilter, ipFilter, signalFilter, now]);
 
   return (
     <article className="border-2 border-[#121212] bg-white p-4 xl:col-span-2">
@@ -232,6 +287,10 @@ export function AdminSecurityLog() {
             <h4 className="text-xs font-black uppercase tracking-[0.12em] text-[#525252]">
               24 jam terakhir
             </h4>
+            <p className="sr-only">
+              Ringkasan aktivitas keamanan 24 jam terakhir beserta IP unik, perangkat
+              baru, dan security signal.
+            </p>
             <p className="text-xs font-bold text-[#525252]">
               Total tercatat {summary.total} percobaan
             </p>
@@ -242,6 +301,11 @@ export function AdminSecurityLog() {
               { label: "Berhasil", value: summary.succeeded24h, tone: "bg-[#DCEBD7] text-[#24533A]" },
               { label: "Gagal", value: summary.failed24h, tone: "bg-[#FFE662] text-[#1A1A1A]" },
               { label: "Terkunci", value: summary.locked24h, tone: "bg-[#E9B4A7] text-[#7C2D12]" },
+              { label: "IP unik", value: summary.uniqueIps, tone: "bg-white text-[#1A1A1A]" },
+              { label: "IP baru", value: summary.newIps, tone: "bg-[#FFE662] text-[#1A1A1A]" },
+              { label: "Perangkat baru", value: summary.newDevices, tone: "bg-white text-[#1A1A1A]" },
+              { label: "Negara", value: summary.countries, tone: "bg-white text-[#1A1A1A]" },
+              { label: "Security signal", value: summary.riskFlags, tone: "bg-[#E9B4A7] text-[#7C2D12]" },
             ].map((card) => (
               <div key={card.label} className={`border-2 border-[#121212] p-2 ${card.tone}`}>
                 <dt className="text-xs font-bold uppercase tracking-[0.08em] opacity-80">{card.label}</dt>
@@ -278,12 +342,35 @@ export function AdminSecurityLog() {
             />
           ))}
         </div>
+        <span className="hidden h-6 w-0.5 bg-[#D6D3D1] sm:block" aria-hidden="true" />
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+          {IP_FILTERS.map((filter) => (
+            <FilterButton
+              key={filter.value}
+              active={ipFilter === filter.value}
+              label={filter.label}
+              tone="ink"
+              onClick={() => setIpFilter(filter.value)}
+            />
+          ))}
+        </div>
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+          {SIGNAL_FILTERS.map((filter) => (
+            <FilterButton
+              key={filter.value}
+              active={signalFilter === filter.value}
+              label={filter.label}
+              tone="orange"
+              onClick={() => setSignalFilter(filter.value)}
+            />
+          ))}
+        </div>
         <span className="ml-auto text-xs font-black text-[#525252]">
-          Menampilkan {visible.length} dari {events?.total ?? 0} percobaan
+          Menampilkan {visible.length} dari {page?.total ?? 0} percobaan
         </span>
       </div>
 
-      {!events ? (
+      {!page ? (
         <p className="mt-3 text-sm text-[#525252]">Memuat jejak percobaan...</p>
       ) : visible.length === 0 ? (
         <div className="mt-3 flex flex-col items-start gap-1.5 border-2 border-dashed border-[#121212] bg-[#F5F0E5] p-4 sm:flex-row sm:items-center sm:gap-3">
@@ -292,14 +379,14 @@ export function AdminSecurityLog() {
           </span>
           <div className="min-w-0">
             <p className="text-sm font-black text-[#1A1A1A]">
-              {events.total === 0
+              {page.total === 0
                 ? "Belum ada percobaan masuk."
                 : "Tidak ada percobaan yang cocok dengan filter ini."}
             </p>
             <p className="mt-0.5 text-xs font-bold text-[#525252]">
-              {events.total === 0
+              {page.total === 0
                 ? "Aktivitas akses admin akan muncul di sini."
-                : "Ubah filter hasil atau rentang waktu di atas."}
+                : "Ubah filter hasil, rentang waktu, atau sinyal di atas."}
             </p>
           </div>
         </div>
@@ -373,7 +460,9 @@ export function AdminSecurityLog() {
                       <p className="flex min-w-0 items-center gap-1.5 text-xs text-[#525252]">
                         <NetworkIcon className="size-3.5 shrink-0" aria-hidden="true" />
                         <span className="min-w-0 break-words">
-                          {event.ipMasked ? `IP ${event.ipMasked}` : <span className="font-medium">IP {UNKNOWN_LABEL}</span>}
+                          {event.ipMasked
+                            ? `IP ${event.ipMasked}${event.ipFamily ? ` · ${event.ipFamily}` : ""}${event.proxyDetected ? " · via proxy/CDN" : ""}`
+                            : <span className="font-medium">IP {UNKNOWN_LABEL}</span>}
                         </span>
                       </p>
                       <p className="flex min-w-0 items-center gap-1.5 text-xs text-[#525252]">
@@ -384,15 +473,30 @@ export function AdminSecurityLog() {
                       </p>
                     </div>
 
-                    {event.sameIpAsPrevious === false || event.sameDeviceAsPrevious === false || (event.status === "Normal" && event.failedInWindow > 1) ? (
+                    {(event.signals ?? []).length > 0 || event.sameIpAsPrevious === false || event.sameDeviceAsPrevious === false || event.failedInWindow > 1 ? (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {event.sameDeviceAsPrevious === false ? (
+                        {(event.signals ?? []).map((signal: SecuritySignal) => (
+                          <Chip
+                            key={signal}
+                            icon={AlertTriangle}
+                            tone={
+                              signal === "MULTIPLE_FAILED" || signal === "RAPID_RETRY" || signal === "IP_CHANGED"
+                                ? "alert"
+                                : "neutral"
+                            }
+                          >
+                            {SIGNAL_LABEL[signal]}
+                          </Chip>
+                        ))}
+                        {event.sameDeviceAsPrevious === false && !(event.signals ?? []).includes("NEW_DEVICE") ? (
                           <Chip icon={ArrowLeftRight}>Perangkat berbeda</Chip>
                         ) : null}
-                        {event.sameIpAsPrevious === false ? (
+                        {event.sameIpAsPrevious === false && !(event.signals ?? []).includes("IP_CHANGED") ? (
                           <Chip icon={ArrowLeftRight}>IP berbeda</Chip>
                         ) : null}
-                        {event.status === "Normal" && event.failedInWindow > 1 ? (
+                        {/* Badge kegagalan beruntun tetap tampil kalau belum
+                            tercakup oleh sinyal `MULTIPLE_FAILED`. */}
+                        {event.failedInWindow > 1 && !(event.signals ?? []).includes("MULTIPLE_FAILED") ? (
                           <Chip icon={AlertTriangle} tone="alert">
                             {event.failedInWindow}× gagal sebelumnya
                           </Chip>
@@ -439,7 +543,29 @@ export function AdminSecurityLog() {
                       </Group>
                       <Group title="Jaringan">
                         <Row label="IP address">{value(event.ipMasked)}</Row>
-                        <Row label="IP source">{value(event.ipSource)}</Row>
+                        <Row label="Keluarga IP">{value(event.ipFamily)}</Row>
+                        <Row label="IP source">{describeIpSource(event.ipSource)}</Row>
+                        <Row label="Kepercayaan sumber">
+                          {event.ipTrust === "edge"
+                            ? "Header edge/CDN tepercaya"
+                            : event.ipTrust === "chain"
+                              ? "Rantai proxy (X-Forwarded-For)"
+                              : UNKNOWN_LABEL}
+                        </Row>
+                        <Row label="Proxy / CDN">
+                          {event.proxyDetected ? "Terdeteksi" : "Tidak terdeteksi"}
+                        </Row>
+                        <Row label="Panjang rantai">{value(event.chainLength)}</Row>
+                        <Row label="Riwayat IP">
+                          {event.ipTotal} percobaan · {event.ipSuccessCount} berhasil ·{" "}
+                          {event.ipFailureCount} gagal
+                        </Row>
+                        <Row label="IP pertama seen">
+                          <TimeStampLabel timestamp={event.ipFirstSeenAt} withSeconds />
+                        </Row>
+                        <Row label="IP terakhir seen">
+                          <TimeStampLabel timestamp={event.ipLastSeenAt} withSeconds />
+                        </Row>
                         <Row label="Tipe jaringan">{value(event.networkType)}</Row>
                       </Group>
                       <Group title="Lokasi (perkiraan)">
@@ -504,11 +630,89 @@ export function AdminSecurityLog() {
         </ol>
       )}
 
+      {page?.nextCursor || cursorPath.length > 1 ? (
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
+          {cursorPath.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => setCursorPath((path) => path.slice(0, -1))}
+              className="admin-btn admin-btn-secondary inline-flex min-h-11"
+            >
+              Halaman sebelumnya
+            </button>
+          ) : null}
+          {page?.nextCursor ? (
+            <button
+              type="button"
+              onClick={() => setCursorPath((path) => [...path, page.nextCursor ?? undefined])}
+              className="admin-btn admin-btn-secondary inline-flex min-h-11"
+            >
+              Muat lebih banyak
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {ipActivity && ipActivity.length > 0 ? (
+        <section className="mt-4 border-t-2 border-[#121212] pt-3" aria-labelledby="aktivitas-ip">
+          <h4
+            id="aktivitas-ip"
+            className="text-sm font-black uppercase tracking-[0.12em] text-[#525252]"
+          >
+            Aktivitas berdasarkan IP
+          </h4>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full min-w-[34rem] border-collapse text-sm">
+              <thead>
+                <tr className="border-b-2 border-[#121212] text-left text-[0.7rem] uppercase tracking-[0.08em] text-[#525252]">
+                  <th scope="col" className="py-1.5 pr-2">IP</th>
+                  <th scope="col" className="py-1.5 pr-2">Percobaan</th>
+                  <th scope="col" className="py-1.5 pr-2">Berhasil / Gagal</th>
+                  <th scope="col" className="py-1.5 pr-2">Terakhir terlihat</th>
+                  <th scope="col" className="py-1.5">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ipActivity.map((row: IpActivity) => (
+                  <tr key={row.ipHash} className="border-b border-[#EDEAE0] align-top">
+                    <td className="py-1.5 pr-2">
+                      <span className="font-black text-[#1A1A1A]">{row.ipMasked ?? UNKNOWN_LABEL}</span>
+                      <span className="ml-1 text-xs text-[#525252]">
+                        {row.ipFamily ? `· ${row.ipFamily}` : ""}
+                        {row.proxyDetected ? " · via proxy/CDN" : ""}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-2 font-bold">{row.attempts}</td>
+                    <td className="py-1.5 pr-2 font-bold">
+                      {row.success} / {row.failed}
+                    </td>
+                    <td className="py-1.5 pr-2 text-xs text-[#525252]">
+                      <TimeStampLabel timestamp={row.lastSeenAt} withSeconds />
+                    </td>
+                    <td className="py-1.5">
+                      {row.isNew ? (
+                        <span className="border-2 border-[#121212] bg-[#FFE662] px-1.5 py-0.5 text-[0.7rem] font-black">
+                          IP baru
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold text-[#525252]">Sudah pernah</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
       <p className="mt-3 flex items-start gap-2 text-xs leading-6 text-[#525252]">
         <Globe className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-        Header IP hanya terbaca lewat jalur HTTP, jadi <code className="font-black">IP source</code>{" "}
-        dapat bernilai <code className="font-black">Unknown</code> bila permintaan tidak melewati
-        proxy atau CDN. Lokasi hanya terisi bila operator mengonfigurasi penyedia geolokasi.
+        Alamat IP dibaca di server dari header yang ditulis edge/CDN, bukan dari browser
+        dan bukan dari layanan pihak ketiga. Sumber yang tidak bisa dipercaya
+        ditulis <code className="font-black">Tidak terdeteksi</code>, tidak pernah ditebak.
+        Lokasi hanya terisi bila operator mengonfigurasi penyedia geolokasi, dan
+        menandai perkiraan jaringan, bukan lokasi GPS.
       </p>
     </article>
   );

@@ -6,21 +6,28 @@ import { internalMutation } from "./_generated/server";
 /**
  * Retensi data yang tumbuh sendiri.
  *
- * Audit 2026-09-28 menemukan bahwa ~98% dokumen di database ini BUKAN data
- * aplikasi. Isinya: 791 `authRefreshTokens`, 330 `users` (327 di antaranya
- * anonim), 330 `authAccounts`, 328 `authSessions` — dibanding 35 `auditLogs`,
- * 17 `errorReports`, dan 6 `vendors`.
+ * Audit 2026-09-28 mengukur langsung isi deployment dan hasilnya: 1.788 dari
+ * ~1.900 dokumen BUKAN data aplikasi. Rinciannya 800 `authRefreshTokens`,
+ * 330 `authAccounts`, 328 `authSessions`, dan 330 `users` (327 di antaranya
+ * anonim) — dibanding 35 `auditLogs`, 17 `errorReports`, 17 `analyticsEvents`,
+ * dan 6 `vendors`. Itu 94% isi database, tumbuh ~99 akun per hari, dan tidak
+ * satupun dibaca oleh satu halaman produk.
  *
- * Akun anonim dibuat ~81 kali sehari. Setiap penanda tangan anonim menulis
- * sekitar 5 dokumen (user + account + session + refresh token), jadi ~437
- * dokumen per hari atau ~160.000 per tahun, dari satu tombol yang ditekan di
- * halaman yang tidak seorang pun ballast.
+ * Tanpa cron ini, lajunya ~500 dokumen per hari atau ~180.000 per tahun.
+ * Dengan jendela 7 hari, jumlah yang mengendap di database jadi tetap:
+ * ~700 akun anonim beserta sesi dan tokennya, bukan bertambah terus.
+ *
+ * Jendelanya sengaja tidak lebih pendek dari 7 hari walaupun baris-baris ini
+ * jelas sampah. Yang dihapus adalah baris akun dan sesinya, dan sebuah sesi
+ * anonim yang masih hidup di perangkat seseorang akan langsung terputus.
+ * Pemangkasan lebih agresif hanya menghemat ~0,3 MB di kuota 2 GB, jadi tidak
+ * sepadan dengan risiko itu.
  *
  * Sumbernya di luar kendali aplikasi: `src/convex/auth.ts` mendaftarkan
  * penyedia `Anonymous` dan file itu BEKU, dan tidak ada satu pun baris
  * `signIn("anonymous")` di `src/` — itu dikunci oleh `auth-entrypoints.test.ts`.
- * Jadi pemanggilnya berasal dari luar source kita, dan satu-satunya cara
- *_membersihkan-nya adalah offendmembersihkannya.
+ * Jadi pemanggilnya berasal dari luar source kita, dan yang bisa kita lakukan
+ * hanyalah membersihkan sisanya secara berkala.
  *
  * Syaratnya sengaja konservatif: hanya akun tanpa email, sudah tua, dan tidak
  * memiliki apa pun. Akun yang masih punya listing, peran, atau Manager akan
@@ -36,6 +43,28 @@ export const RETENTION_LIMITS = {
   auditDays: 180,
   errorReportKeepLatest: 500,
   errorReportDays: 90,
+  /**
+   * Log peristiwa mentah.
+   *
+   * Jauh lebih pendek dari yang lain karena isinya sudah diringkas ke
+   * `analyticsCounters` saat ditulis: dashboard tetap tahu total sepanjang masa
+   * walaupun barisnya sudah dibuang. Yang tersimpan cuma cukup untuk menelusuri
+   * kejadian beberapa bulan terakhir.
+   */
+  analyticsDays: 90,
+  analyticsKeepLatest: 20_000,
+  /**
+   * Riwayat pengiriman WhatsApp yang sudah selesai.
+   *
+   * Satu baris per notifikasi, tanpa batas sebelumnya. Yang dibuang hanya baris
+   * yang sudah benar-benar berakhir (`delivered` atau `failed`); yang masih
+   * `queued` atau `sent` sengaja disimpan berapa pun usianya, karena baris itu
+   * justru bukti ada kiriman yang menggantung dan perlu diperiksa.
+   *
+   * Dua pengiriman terakhir per pengguna masih dibutuhkan untuk rate limit dan
+   * panel status, dan itu jauh di dalam jendela 30 hari.
+   */
+  whatsappDeliveredDays: 30,
 } as const;
 
 /**
@@ -80,6 +109,14 @@ async function ownsSomething(
       .first(),
     ctx.db.query("notifications").withIndex("byUser", (q) => q.eq("userId", userId)).first(),
     ctx.db.query("adminPresence").withIndex("byUser", (q) => q.eq("userId", userId)).first(),
+    // Tersimpan paling akhir justru yang paling penting: nomor WhatsApp yang
+    // sudah memilih ikut notifikasi. Akun anonim yang sampai ke situ berarti
+    // seseorang benar-benar memakainya, dan menghapusnya akan membuat opt-in
+    // itu menggantung tanpa pemilik.
+    ctx.db
+      .query("notificationPreferences")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .first(),
   ]);
   return checks.some(Boolean);
 }
@@ -180,12 +217,13 @@ export const pruneAnonymousAccounts = internalMutation({
 });
 
 /**
- * Retensi audit log dan laporan error.
+ * Retensi riwayat aplikasi.
  *
- * Keduanya pernah tumbuh tanpa batas: `auditLogs` ditulis setiap aksi
- * pengelola, `errorReports` setiap error aplikasi, dan tidak ada cron yang
- * menyentuhnya. Batas jumlah dan batas usia ditegakkan bersamaan, sama seperti
- * retensi data keamanan yang sudah ada.
+ * Empat tabel yang tumbuh sendiri tanpa ada yang menyentuhnya: `auditLogs`
+ * (setiap aksi pengelola), `errorReports` (setiap error aplikasi),
+ * `analyticsEvents` (setiap peristiwa produk), dan `whatsappDeliveries`
+ * (setiap notifikasi terkirim). Batas jumlah dan batas usia ditegakkan
+ * bersamaan, sama seperti retensi data keamanan yang sudah ada.
  *
  * Batas JUMLAH lebih dulu, jadi tabel yang meledak dipangkas dari yang tertua
  * walau usianya masih muda.
@@ -222,6 +260,46 @@ export const pruneApplicationHistory = internalMutation({
         continue;
       }
       if (row.lastSeenAt < errorCutoff) {
+        await ctx.db.delete(row._id);
+        removed += 1;
+      }
+    }
+
+    // Log peristiwa mentah. Angkanya sudah ada di `analyticsCounters`, jadi
+    // barisnya boleh dibuang begitu batas usia atau jumlahnya lewat.
+    const analyticsCutoff = Date.now() - RETENTION_LIMITS.analyticsDays * DAY;
+    const analyticsRows = await ctx.db
+      .query("analyticsEvents")
+      .withIndex("byCreatedAt")
+      .collect();
+    let analyticsOverflow = Math.max(
+      0,
+      analyticsRows.length - RETENTION_LIMITS.analyticsKeepLatest,
+    );
+    for (const row of analyticsRows) {
+      if (analyticsOverflow > 0) {
+        await ctx.db.delete(row._id);
+        removed += 1;
+        analyticsOverflow -= 1;
+        continue;
+      }
+      if (row.createdAt < analyticsCutoff) {
+        await ctx.db.delete(row._id);
+        removed += 1;
+      }
+    }
+
+    // Riwayat pengiriman WhatsApp yang sudah berakhir. Yang belum berakhir
+    // (`queued`/`sent`) tidak disentuh sama sekali: baris itu menandakan
+    // kiriman yang menggantung, dan menghapusnya berarti kehilangan buktinya.
+    const deliveryCutoff = Date.now() - RETENTION_LIMITS.whatsappDeliveredDays * DAY;
+    const deliveries = await ctx.db
+      .query("whatsappDeliveries")
+      .withIndex("byCreatedAt")
+      .collect();
+    for (const row of deliveries) {
+      const finished = row.status === "delivered" || row.status === "failed";
+      if (finished && row.createdAt < deliveryCutoff) {
         await ctx.db.delete(row._id);
         removed += 1;
       }

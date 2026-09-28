@@ -235,6 +235,7 @@ const schema = defineSchema(
       updatedAt: v.number(),
     })
       .index("byStatus", ["status"])
+      .index("byReporter", ["reporterId"])
       .index("byVendor", ["vendorId"]),
 
     notificationPreferences: defineTable({
@@ -360,6 +361,23 @@ const schema = defineSchema(
       .index("byCreatedAt", ["createdAt"])
       .index("byVendor", ["vendorId"]),
 
+    // Penghitung kumulatif per jenis peristiwa.
+    //
+    // `analyticsEvents` adalah log mentah yang tumbuh sendiri; dashboard admin
+    // hanya butuh JUMLAHNYA per jenis. Menghitung dari log mentah berarti
+    // membaca seluruh tabel setiap kali dashboard dibuka — makin lama makin
+    // mahal, padahal jawabannya satu angka. Tabel ini menyimpan angka itu di
+    // depan, jadi biayanya tetap 12 pembacaan kecil berapa pun besar lognya.
+    //
+    // Karena kumulatif, angka di sini tidak ikut turun saat log mentahnya
+    // dipangkas retensi. Itu disengaja: yang dimaksud dashboard memang total
+    // sepanjang masa, bukan jendela waktu.
+    analyticsCounters: defineTable({
+      key: v.string(),
+      count: v.number(),
+      updatedAt: v.number(),
+    }).index("byKey", ["key"]),
+
     whatsappDeliveries: defineTable({
       deliveryKey: v.string(),
       // Kosong untuk kiriman sistem (alert bug ke admin). Alert admin bukan
@@ -382,7 +400,8 @@ const schema = defineSchema(
       .index("byProviderMessageId", ["providerMessageId"])
       .index("byStatus", ["status"])
       .index("byUser", ["userId"])
-      .index("byNextAttempt", ["nextAttemptAt"]),
+      .index("byNextAttempt", ["nextAttemptAt"])
+      .index("byCreatedAt", ["createdAt"]),
 
     // Percakapan WhatsApp yang masuk lewat webhook. Satu baris per nomor, bukan
     // satu baris per pesan: dashboard hanya perlu tahu pesan terakhir dan

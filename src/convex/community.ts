@@ -1297,9 +1297,17 @@ export const listReports = query({
   args: {},
   handler: async (ctx) => {
     await requireManagementViewer(ctx);
-    const reports = await ctx.db.query("reports").collect();
-    return reports
-      .filter((report) => report.status === "open" || report.status === "reviewing")
-      .sort((a, b) => b.createdAt - a.createdAt);
+    // Hanya dua status yang ditampilkan, jadi hanya dua rentang indeks itu yang
+    // dibaca. Sebelumnya seluruh tabel dibaca lalu yang sudah `resolved` dan
+    // `dismissed` dibuang di memori — dan dua status itu justru yang menumpuk
+    // selamanya, karena laporan selesai tidak pernah dihapus.
+    const [open, reviewing] = await Promise.all([
+      ctx.db.query("reports").withIndex("byStatus", (q) => q.eq("status", "open")).collect(),
+      ctx.db
+        .query("reports")
+        .withIndex("byStatus", (q) => q.eq("status", "reviewing"))
+        .collect(),
+    ]);
+    return [...open, ...reviewing].sort((a, b) => b.createdAt - a.createdAt);
   },
 });

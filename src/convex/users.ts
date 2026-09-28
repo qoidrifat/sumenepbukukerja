@@ -638,10 +638,16 @@ export const listAuditLogs = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     await requireManagementViewer(ctx);
-    const rows = await ctx.db.query("auditLogs").collect();
-    const recent = rows
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, Math.min(Math.max(args.limit ?? 60, 1), 200));
+    const take = Math.min(Math.max(args.limit ?? 60, 1), 200);
+    // Ambil HANYA sebanyak yang ditampilkan, lewat indeks `byCreatedAt` urut
+    // turun. Sebelumnya seluruh tabel dibaca lalu dipotong di memori: satu kali
+    // buka panel = membaca sampai 2.000 dokumen (batas retensi) untuk
+    // menampilkan 60. Sekarang 60.
+    const recent = await ctx.db
+      .query("auditLogs")
+      .withIndex("byCreatedAt")
+      .order("desc")
+      .take(take);
     const enriched = await Promise.all(
       recent.map(async (row) => {
         if (!row.actorId) {
@@ -674,13 +680,13 @@ export const listListingHistory = query({
     if (!vendor) throw new Error("Listing tidak ditemukan");
     const access = await getStaffAccess(ctx, userId);
     if (vendor.ownerId !== userId && !access) throw new Error("Riwayat listing tidak dapat diakses");
-    const rows = await ctx.db
+    // Indeks `byVendor` sudah terurut naik menurut `createdAt`, jadi urutan
+    // turun tidak perlu menyortir seluruh riwayat listing ini di memori.
+    return await ctx.db
       .query("listingHistory")
       .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
-      .collect();
-    return rows
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, Math.min(Math.max(args.limit ?? 30, 1), 100));
+      .order("desc")
+      .take(Math.min(Math.max(args.limit ?? 30, 1), 100));
   },
 });
 
@@ -688,10 +694,11 @@ export const listRecentListingHistory = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     await requireManagementViewer(ctx);
-    const rows = await ctx.db.query("listingHistory").collect();
-    const recent = rows
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, Math.min(Math.max(args.limit ?? 40, 1), 100));
+    const recent = await ctx.db
+      .query("listingHistory")
+      .withIndex("byCreatedAt")
+      .order("desc")
+      .take(Math.min(Math.max(args.limit ?? 40, 1), 100));
     return Promise.all(recent.map(async (row) => ({
       ...row,
       vendorName: (await ctx.db.get(row.vendorId))?.name ?? "Listing",

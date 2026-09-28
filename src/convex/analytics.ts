@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import type { GenericMutationCtx } from "convex/server";
+import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
 import { requireManagementViewer } from "./access";
 
@@ -23,6 +23,66 @@ const eventNameValidator = v.union(
   v.literal("request_reopened"),
 );
 
+/**
+ * Nama peristiwa yang punya penghitung kumulatif.
+ *
+ * Daftarnya sengaja ditulis eksplisit, bukan diturunkan dari validator: kalau
+ * diturunkan, menambah satu jenis peristiwa diam-diam menambah kolom baru di
+ * dashboard tanpa ada yang memutuskan begitu.
+ */
+export const ANALYTICS_COUNTER_KEYS = [
+  "search_impression",
+  "listing_opened",
+  "whatsapp_clicked",
+  "share_clicked",
+  "call_clicked",
+  "request_created",
+  "request_claimed",
+  "request_completed",
+  "listing_published",
+  "listing_archived",
+  "photo_uploaded",
+  "notification_opted_in",
+] as const;
+
+/**
+ * Tambah satu ke penghitung kumulatif jenis peristiwa ini.
+ *
+ * Dipanggil dari dalam `recordEvent`, bukan dari tiap pemanggilnya. Ada
+ * belasan tempat yang mencatat peristiwa, dan menyuruh tiap tempat ikut
+ * menambah penghitung berarti belasan tempat yang bisa lupa satu langkah —
+ * angkanya lalu diam-diam salah tanpa ada yang tahu.
+ */
+async function bumpCounter(ctx: GenericMutationCtx<DataModel>, event: string) {
+  const key = event.slice(0, 80);
+  const existing = await ctx.db
+    .query("analyticsCounters")
+    .withIndex("byKey", (q) => q.eq("key", key))
+    .unique();
+  if (existing) {
+    await ctx.db.patch(existing._id, { count: existing.count + 1, updatedAt: Date.now() });
+    return;
+  }
+  await ctx.db.insert("analyticsCounters", { key, count: 1, updatedAt: Date.now() });
+}
+
+/**
+ * Baca semua penghitung yang dipakai dashboard. Satu pembacaan titik per jenis
+ * peristiwa — tidak peduli sudah berapa juta baris log yang menumpuk.
+ */
+async function readCounters(
+  ctx: GenericQueryCtx<DataModel>,
+): Promise<Record<string, number>> {
+  const rows = await Promise.all(
+    ANALYTICS_COUNTER_KEYS.map((key) =>
+      ctx.db.query("analyticsCounters").withIndex("byKey", (q) => q.eq("key", key)).unique(),
+    ),
+  );
+  return Object.fromEntries(
+    ANALYTICS_COUNTER_KEYS.map((key, index) => [key, rows[index]?.count ?? 0]),
+  );
+}
+
 export async function recordEvent(
   ctx: GenericMutationCtx<DataModel>,
   input: {
@@ -34,6 +94,7 @@ export async function recordEvent(
     metadata?: Record<string, string | number | boolean | undefined>;
   },
 ) {
+  await bumpCounter(ctx, input.event);
   return await ctx.db.insert("analyticsEvents", {
     event: input.event.slice(0, 80),
     userId: input.userId,
@@ -44,6 +105,40 @@ export async function recordEvent(
     createdAt: Date.now(),
   });
 }
+
+/**
+ * Isi penghitung dari log yang sudah ada.
+ *
+ * Diperlukan sekali, saat tabel penghitung baru dibuat: tanpa ini dashboard
+ * menampilkan nol untuk semua peristiwa yang terjadi sebelum tabelnya ada.
+ * Idempoten — menjalankannya dua kali menghasilkan angka yang sama, karena
+ * nilainya dihitung ulang dari log, bukan ditambahkan.
+ */
+export const backfillAnalyticsCounters = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const events = await ctx.db.query("analyticsEvents").collect();
+    const totals = new Map<string, number>();
+    for (const row of events) {
+      totals.set(row.event, (totals.get(row.event) ?? 0) + 1);
+    }
+
+    let written = 0;
+    for (const [key, count] of totals) {
+      const existing = await ctx.db
+        .query("analyticsCounters")
+        .withIndex("byKey", (q) => q.eq("key", key))
+        .unique();
+      if (existing) {
+        await ctx.db.patch(existing._id, { count, updatedAt: Date.now() });
+      } else {
+        await ctx.db.insert("analyticsCounters", { key, count, updatedAt: Date.now() });
+      }
+      written += 1;
+    }
+    return { scanned: events.length, counters: written };
+  },
+});
 
 export const track = mutation({
   args: {
@@ -76,13 +171,13 @@ export const adminMetrics = query({
   args: {},
   handler: async (ctx) => {
     await requireManagementViewer(ctx);
-    const [events, vendors, requests, photos] = await Promise.all([
-      ctx.db.query("analyticsEvents").collect(),
+    const [counters, vendors, requests, photos] = await Promise.all([
+      readCounters(ctx),
       ctx.db.query("vendors").collect(),
       ctx.db.query("serviceRequests").collect(),
       ctx.db.query("vendorPhotos").collect(),
     ]);
-    const count = (event: string) => events.filter((row) => row.event === event).length;
+    const count = (event: string) => counters[event] ?? 0;
     const active = vendors.filter((vendor) => vendor.status === "active");
     const photoIds = new Set(photos.filter((photo) => photo.active !== false && photo.moderationStatus === "approved").map((photo) => photo.vendorId));
     const byCategory = Object.fromEntries([...new Set(active.map((vendor) => vendor.category))].map((category) => [category, active.filter((vendor) => vendor.category === category).length]));

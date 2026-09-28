@@ -905,6 +905,28 @@ describe("jalur pemulihan akses admin lewat bootstrap", () => {
     });
   });
 
+  test("daftar yang diketik dengan titik koma atau baris baru tetap berlaku", async () => {
+    // Allowlist terlihat benar di Keys tapi tidak pernah cocok: pemisah yang
+    // dipakai orang tidak selalu koma.
+    setAllowlist("satu@sumenep.co.id; dua@sumenep.co.id\ntiga@sumenep.co.id ,");
+    const t = convexTest(schema, modules);
+    const second = await asUser(t, { name: "Dua", email: "DUA@sumenep.co.id" });
+
+    expect((await second.query(api.users.adminSetupStatus, {})).bootstrapEligible).toBe(true);
+    await second.mutation(api.users.bootstrapAdministrator, {});
+    expect(await second.query(api.users.currentAccess, {})).toMatchObject({ role: "admin" });
+  });
+
+  test("email akun sendiri dikembalikan supaya bisa disalin ke daftar", async () => {
+    setAllowlist("lain@sumenep.co.id");
+    const t = convexTest(schema, modules);
+    const stranger = await asUser(t, { name: "Orang Lain", email: "  Bukan@Sumenep.co.id " });
+
+    // Dinormalisasi, jadi yang disalin ke Keys langsung cocok.
+    expect((await stranger.query(api.users.adminSetupStatus, {})).accountEmail).toBe("bukan@sumenep.co.id");
+    expect((await t.query(api.users.adminSetupStatus, {})).accountEmail).toBeNull();
+  });
+
   test("email di luar allowlist tetap ditolak dan tidak membuat peran baru", async () => {
     setAllowlist("pemilik@sumenep.co.id");
     const t = convexTest(schema, modules);

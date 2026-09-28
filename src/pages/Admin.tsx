@@ -158,6 +158,7 @@ function AdminGate() {
       bootstrapEligible={setup.bootstrapEligible}
       bootstrapBlocker={setup.bootstrapBlocker}
       deployment={setup.deployment}
+      accountEmail={setup.accountEmail}
     />
   );
 }

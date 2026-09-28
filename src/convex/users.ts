@@ -78,9 +78,18 @@ const createToken = () => {
  * Query ini sengaja tidak butuh login: halaman /admin tampil untuk tamu juga,
  * dan yang dipublikasikan hanya informasi setup, bukan data pengguna.
  */
+/**
+ * Daftar email yang boleh menjalankan bootstrap admin awal.
+ *
+ * Pemisahnya longgar: koma, titik koma, dan whitespace. Dulu hanya koma yang
+ * diterima, jadi daftar yang diketik dengan baris baru atau titik koma
+ * menjadi satu email raksasa yang tidak akan pernah cocok dengan email
+ * siapa pun — allowlist terlihat benar di Keys, tapi tidak pernah berlaku.
+ * Huruf besar dan spasi tepi sudah dinormalisasi oleh normalizeEmail.
+ */
 const bootstrapAllowlist = () =>
   (process.env.STAFF_BOOTSTRAP_EMAILS ?? "")
-    .split(",")
+    .split(/[,;\s]+/)
     .map(normalizeEmail)
     .filter(Boolean);
 
@@ -113,6 +122,11 @@ export const adminSetupStatus = query({
       // beremail hanya salah masuk daftar. Tanpa ini, keduanya terlihat seperti
       // error yang sama padahal tindakan perbaikannya tidak sama.
       bootstrapBlocker,
+      // Email akun yang sedang masuk — miliknya sendiri, jadi aman dipamerkan
+      // supaya bisa disalin ke daftar yang diizinkan. Inilah aksi nyata untuk
+      // kasus "email saya tidak ada di daftar": tanpa ini orang hanya bisa
+      // menebak karakter yang salah ketik.
+      accountEmail: email || null,
       // URL backend yang benar-benar dipakai. Halaman "/admin" di laptop bisa
       // menunjuk deployment berbeda dari Keys, dan itu yang membuat allowlist
       // yang sudah terlihat benar tetap tidak berlaku.

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import {
@@ -133,18 +133,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       setError("Kode yang dimasukkan belum tepat. Silakan periksa kembali.");
       setOtp("");
     } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGuestLogin = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      await signIn("anonymous");
-      navigate(redirect);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Mode tamu belum dapat dibuka. Coba lagi.");
       setIsLoading(false);
     }
   };
@@ -352,14 +340,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     {isLoading ? <Loader2 className="size-5 animate-spin" /> : <ArrowRight className="size-5" />}
                     Kirim kode masuk
                   </Button>
-                  <div className="my-5 flex items-center gap-3" aria-hidden="true">
-                    <span className="h-px flex-1 bg-slate-200" />
-                    <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">atau</span>
-                    <span className="h-px flex-1 bg-slate-200" />
-                  </div>
-                  <Button type="button" variant="outline" className="min-h-12 w-full text-base" onClick={handleGuestLogin} disabled={isLoading}>
-                    <UserRound className="size-5" />Masuk sebagai tamu
-                  </Button>
+                  {/* Tidak ada "Masuk sebagai tamu" di halaman ini, dan
+                      sengaja tidak akan ditambah lagi. Akun anonim tidak punya
+                      email, jadi begitu peran pengelola diberikan padanya,
+                      akun itu tidak pernah bisa dibuka kembali — persis akun
+                      yang membuat seluruh deployment terkunci. Satu akun per
+                      orang, satu email nyata, satu akun yang bisa dipulihkan. */}
                 </CardContent>
               </form>
             </>

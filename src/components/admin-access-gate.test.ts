@@ -31,6 +31,7 @@ const render = (props: {
   accountName?: string;
   bootstrapBlocker?: "signedOut" | "noEmail" | "notAllowlisted" | null;
   deployment?: string | null;
+  accountEmail?: string | null;
 }) => renderToStaticMarkup(createElement(AdminAccessDenied, props));
 
 const RECOVERY_HEADING = "Jalur pemulihan";
@@ -58,12 +59,23 @@ test("warga yang tertinggal punya jalur pemulihan saat bootstrap masih terbuka",
   expect(markup).not.toContain("tidak bisa dibuka dari halaman ini");
 });
 
-test("email di luar allowlist melihat penjelasan, bukan tombol yang pasti gagal", () => {
-  const markup = render({ signedIn: true, bootstrapAvailable: true, bootstrapEligible: false });
+test("email di luar allowlist mendapat aksi nyata, bukan tombol mati", () => {
+  const markup = render({
+    signedIn: true,
+    bootstrapAvailable: true,
+    bootstrapEligible: false,
+    bootstrapBlocker: "notAllowlisted",
+    accountEmail: "bukan@sumenep.co.id",
+  });
   expect(markup).toContain(RECOVERY_HEADING);
   expect(markup).toContain("Email Anda belum terdaftar untuk akses awal");
   expect(markup).toContain("STAFF_BOOTSTRAP_EMAILS");
-  expect(markup).toMatch(/<button[^>]*disabled/);
+  // Email sendiri tampil agar bisa disalin, dan tidak ada tombol bootstrap
+  // yang pasti gagal karena diklik berkali-kali tidak terjadi apa-apa.
+  expect(markup).toContain("bukan@sumenep.co.id");
+  expect(markup).toContain("Salin email");
+  expect(markup).not.toContain(ACTIVATE_LABEL);
+  expect(markup).not.toMatch(/<button[^>]*disabled/);
 });
 
 test("akun tamu diberi tahu harus keluar lalu masuk ulang, bukan edit allowlist", () => {
@@ -72,13 +84,17 @@ test("akun tamu diberi tahu harus keluar lalu masuk ulang, bukan edit allowlist"
     bootstrapAvailable: true,
     bootstrapEligible: false,
     bootstrapBlocker: "noEmail",
+    accountEmail: null,
   });
   expect(markup).toContain("Akun ini masuk sebagai tamu, jadi tidak punya email");
   expect(markup).toContain("Keluar dulu dari akun ini");
-  // Petunjuk allowlist tidak boleh muncul di sini: itu akan sendingkan orang
-  // mengedit variabel yang memang isn't penyebabnya.
+  // Petunjuk allowlist tidak boleh muncul di sini: itu akan mengarahkan orang
+  // mengedit variabel yang memang bukan penyebabnya.
   expect(markup).not.toContain("STAFF_BOOTSTRAP_EMAILS");
-  expect(markup).toMatch(/<button[^>]*disabled/);
+  // Tidak ada tombol mati dan tidak ada email kosong yang disalin.
+  expect(markup).not.toContain(ACTIVATE_LABEL);
+  expect(markup).not.toContain("Salin email");
+  expect(markup).not.toMatch(/<button[^>]*disabled/);
 });
 
 test("akun beremail di luar daftar tetap diberi petunjuk allowlist", () => {

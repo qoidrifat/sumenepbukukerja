@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router";
 import {
   ArrowLeft,
   Check,
+  Copy,
   KeyRound,
   Lock,
   RotateCcw,
@@ -47,6 +48,7 @@ export type AdminAccessGateState = {
   bootstrapEligible: boolean;
   bootstrapBlocker?: "signedOut" | "noEmail" | "notAllowlisted" | null;
   deployment?: string | null;
+  accountEmail?: string | null;
 };
 
 /**
@@ -61,7 +63,7 @@ const BLOCKER_GUIDE: Record<string, { title: string; body: string }> = {
   },
   notAllowlisted: {
     title: "Email Anda belum terdaftar untuk akses awal",
-    body: "Akun ini punya email, tapi email itu tidak ada di daftar yang diizinkan. Daftarnya dipegang pemilik deployment lewat variabel STAFF_BOOTSTRAP_EMAILS, jadi minta email ini ditambahkan di sana, atau minta admin yang sudah aktif memberi peran lewat menu Peran & Audit.",
+    body: "Akun ini punya email, tapi email itu tidak ada di daftar yang diizinkan. Salin email di bawah, lalu tempelkan ke variabel STAFF_BOOTSTRAP_EMAILS di tab Keys. Halaman ini akan ikut berubah sendiri begitu daftarnya cocok, tanpa perlu muat ulang.",
   },
   signedOut: {
     title: "Belum masuk",
@@ -76,11 +78,20 @@ export function AdminAccessDenied({
   bootstrapEligible,
   bootstrapBlocker = null,
   deployment = null,
+  accountEmail = null,
 }: AdminAccessGateState) {
   const navigate = useNavigate();
   const bootstrap = useMutation(api.users.bootstrapAdministrator);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copyEmail = () => {
+    if (!accountEmail) return;
+    void navigator.clipboard
+      .writeText(accountEmail)
+      .then(() => setCopied(true))
+      .catch(() => setCopied(false));
+  };
   const activate = () => {
     setBusy(true);
     setError("");
@@ -208,16 +219,32 @@ export function AdminAccessDenied({
                     {error}
                   </p>
                 ) : null}
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    disabled={busy || !bootstrapEligible}
-                    onClick={activate}
-                    className="admin-btn admin-btn-primary inline-flex min-h-12"
-                  >
-                    <ShieldCheck className="size-5" aria-hidden="true" />
-                    {busy ? "Mengaktifkan..." : "Aktifkan admin awal"}
-                  </button>
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  {bootstrapEligible ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={activate}
+                      className="admin-btn admin-btn-primary inline-flex min-h-12"
+                    >
+                      <ShieldCheck className="size-5" aria-hidden="true" />
+                      {busy ? "Mengaktifkan..." : "Aktifkan admin awal"}
+                    </button>
+                  ) : accountEmail ? (
+                    <>
+                      <p className="min-w-0 flex-1 break-all rounded-lg border-2 border-[#121212] bg-[#FAF7EE] p-3 text-sm font-bold text-[#1A1A1A]">
+                        {accountEmail}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={copyEmail}
+                        className="admin-btn admin-btn-secondary inline-flex min-h-12 shrink-0"
+                      >
+                        <Copy className="size-5" aria-hidden="true" />
+                        {copied ? "Tersalin" : "Salin email"}
+                      </button>
+                    </>
+                  ) : null}
                   <Link to="/dashboard" className="admin-btn admin-btn-secondary inline-flex min-h-12">
                     Ruang warga saya
                   </Link>

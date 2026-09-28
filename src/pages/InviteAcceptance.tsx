@@ -6,6 +6,7 @@ import { useParams } from "react-router";
 
 import { api } from "@/convex/_generated/api";
 import { TimeStampLabel } from "@/components/admin-workspace";
+import { staffRoleLongLabel } from "@/lib/select-options";
 
 /**
  * Halaman penerima undangan: `/invite/:token`.
@@ -20,12 +21,6 @@ import { TimeStampLabel } from "@/components/admin-workspace";
  * keluar dari jalur undangan, sementara yang dijanjikan ke penerima
  * adalah "satu klik, langsung masuk".
  */
-
-const ROLE_LABEL: Record<string, string> = {
-  admin: "Administrator Ruang Kerja",
-  staff: "Pengelola Operasional",
-  viewer: "Pengelola Pemantau",
-};
 
 const springIn = { type: "spring" as const, stiffness: 320, damping: 26, mass: 0.9 };
 
@@ -139,7 +134,7 @@ export function InviteAcceptance() {
                   <SummaryRow label="Akun Tujuan" value={details.email} mono />
                   <SummaryRow
                     label="Amanah / Peran"
-                    value={ROLE_LABEL[details.role] ?? details.role}
+                    value={staffRoleLongLabel(details.role)}
                   />
                   <SummaryRow label="Masa Berlaku" value={<TimeStampLabel timestamp={details.expiresAt} />} />
                 </dl>

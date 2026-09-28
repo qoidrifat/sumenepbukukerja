@@ -58,3 +58,23 @@ export const errorReportStatusSelectOptions: ThemedSelectOption[] = [
   { value: "resolved", label: "Selesai" },
   { value: "ignored", label: "Diabaikan" },
 ]
+
+/**
+ * Label peran dalam bentuk panjang, untuk tampilan yang dibaca orang awam.
+ *
+ * Bentuk pendek di `staffRoleSelectOptions` untuk daftar pilih yang sempit;
+ * bentuk panjang ini untuk halaman penerima undangan dan pesan yang dikirim ke
+ * sana. Keduanya dulu ditulis terpisah di dua file, dan itu berarti penerima
+ * bisa melihat "Administrator Ruang Kerja" di kartunya lalu menerima pesan
+ * yang menyebut dirinya "admin" — dan tidak tahu mana yang benar.
+ */
+const STAFF_ROLE_LONG_LABEL: Record<string, string> = {
+  admin: "Administrator Ruang Kerja",
+  staff: "Pengelola Operasional",
+  viewer: "Pengelola Pemantau",
+}
+
+/** Label panjang sebuah peran, dengan cadangan agar UI tidak pernah kosong. */
+export function staffRoleLongLabel(role: string | null | undefined): string {
+  return STAFF_ROLE_LONG_LABEL[role ?? ""] ?? "Pengelola"
+}

@@ -507,6 +507,7 @@ export function useCatalogActions() {
   const reopenRequest = useMutation(api.community.reopenRequest);
   const track = useMutation(api.analytics.track);
   const sendTestWhatsapp = useAction(api.whatsapp.sendTestWhatsapp);
+  const markWhatsappThreadRead = useMutation(api.whatsapp.markWhatsappThreadRead);
   return {
     create,
     update,
@@ -543,6 +544,7 @@ export function useCatalogActions() {
     reopenRequest,
     track,
     sendTestWhatsapp,
+    markWhatsappThreadRead,
   };
 }
 

@@ -1,5 +1,25 @@
 export const sanitizePhoneNumber = (phone: string) => phone.replace(/\D/g, "").replace(/^0/, "62");
 
+/**
+ * Bersihkan pesan error dari server sebelum ditampilkan ke pengguna.
+ *
+ * Convex membungkus error action dengan pelacak internal
+ * ("Uncaught Error: ... at handler (src/convex/...:634:4) Called by client").
+ * Tanpa dibersihkan, kalimat yang sengaja ditulis operator ikut hilang di
+ * balik jejak internal yang tidak berguna bagi warga.
+ */
+export const formatConvexError = (caught: unknown, fallback: string) => {
+  const raw = caught instanceof Error ? caught.message : typeof caught === "string" ? caught : "";
+  const cleaned = raw
+    .replace(/^Uncaught Error:\s*/i, "")
+    .replace(/^Error:\s*/i, "")
+    .replace(/\s+at handler\s*\([^)]*\)\s*Called by client\s*$/i, "")
+    .replace(/\s*\(?\.\.\/src\/convex\/[^)]*\)?\s*$/i, "")
+    .replace(/\s*\(?src\/convex\/[^)]*\)?\s*$/i, "")
+    .trim();
+  return cleaned || fallback;
+};
+
 export type WhatsAppIntent = "general" | "availability" | "price" | "estimate" | "request";
 
 export const recommendedWhatsAppIntent = (category: string): WhatsAppIntent =>

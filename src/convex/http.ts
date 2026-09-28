@@ -4,7 +4,13 @@ import { httpAction } from "./_generated/server";
 import type { DataModel } from "./_generated/dataModel";
 import { auth } from "./auth";
 import { internal } from "./_generated/api";
-import { mapTwilioStatus, parseMetaStatuses } from "../lib/whatsapp-webhook";
+import {
+  mapTwilioStatus,
+  parseMetaInbound,
+  parseMetaStatuses,
+  parseTwilioInbound,
+  type InboundMessage,
+} from "../lib/whatsapp-webhook";
 import { lookupGeoLocation } from "../lib/geo-enrichment";
 import { trimUserAgent } from "../lib/admin-passcode";
 import {
@@ -90,6 +96,23 @@ const applyMetaStatuses = async (ctx: GenericActionCtx<DataModel>, payload: unkn
   return applied;
 };
 
+/* Webhook yang sama membawa status pengiriman dan chat masuk. Keduanya
+   dicatat supaya dashboard punya status percakapan yang nyata. */
+const recordInbound = async (ctx: GenericActionCtx<DataModel>, messages: InboundMessage[]) => {
+  let recorded = 0;
+  for (const message of messages) {
+    const id = await ctx.runMutation(internal.whatsapp.recordInboundMessage, {
+      phone: message.from,
+      providerMessageId: message.providerMessageId,
+      body: message.body,
+      kind: message.kind,
+      at: message.at,
+    });
+    if (id) recorded += 1;
+  }
+  return recorded;
+};
+
 // Satu endpoint untuk dua provider: Twilio mengirim form-encoded, Meta mengirim
 // JSON. Keduanya diverifikasi signature-nya sebelum menyentuh database.
 const whatsappWebhook = httpAction(async (ctx, request) => {
@@ -123,7 +146,8 @@ const whatsappWebhook = httpAction(async (ctx, request) => {
       return new Response("Invalid JSON", { status: 400 });
     }
     const applied = await applyMetaStatuses(ctx, payload);
-    return new Response(JSON.stringify({ ok: true, applied }), {
+    const inbound = await recordInbound(ctx, parseMetaInbound(payload));
+    return new Response(JSON.stringify({ ok: true, applied, inbound }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
@@ -132,6 +156,13 @@ const whatsappWebhook = httpAction(async (ctx, request) => {
   const params = new URLSearchParams(body);
   if (!(await validTwilioSignature(request, body, params))) {
     return new Response("Invalid signature", { status: 403 });
+  }
+  // Twilio memakai satu endpoint untuk status pengiriman dan pesan masuk. Status
+  // selalu membawa `MessageStatus`; pesan masuk tidak pernah membawanya.
+  const inboundMessage = parseTwilioInbound(params);
+  if (inboundMessage) {
+    await recordInbound(ctx, [inboundMessage]);
+    return new Response("OK", { status: 200 });
   }
   const providerMessageId = params.get("MessageSid") ?? params.get("SmsSid");
   const status = mapTwilioStatus(params.get("MessageStatus") ?? params.get("SmsStatus"));

@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import type { GenericActionCtx } from "convex/server";
+import type { GenericActionCtx, GenericMutationCtx } from "convex/server";
 import { v } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { buildTemplatePayload, buildTextPayload } from "../lib/whatsapp-payload";
@@ -81,6 +81,10 @@ const metaConfig = () => {
     templateName,
     appSecret,
     graphVersion: process.env.META_GRAPH_VERSION ?? "v21.0",
+    templateParams: {
+      title: process.env.WHATSAPP_TEMPLATE_PARAM_TITLE ?? "judul",
+      body: process.env.WHATSAPP_TEMPLATE_PARAM_BODY ?? "isi",
+    },
     configured: Boolean(accessToken && phoneNumberId),
   };
 };
@@ -95,6 +99,75 @@ const activeProvider = () => {
   return "none";
 };
 
+/**
+ * Provider aktif yang tidak bisa dipakai, atau `undefined` kalau sehat.
+ *
+ * `activeProvider()` menghormati `WHATSAPP_PROVIDER`, jadi variabel itu bisa
+ * memaksa `twilio` sementara kredensial yang terpasang milik Meta. Kondisi ini
+ * sebelumnya hanya muncul sebagai "belum dikonfigurasi" saat tombol ditekan.
+ */
+const providerIssue = () => {
+  const provider = activeProvider();
+  if (provider === "none") {
+    return "Provider WhatsApp belum dikonfigurasi. Isi kredensial Meta (WHATSAPP_ACCESS_TOKEN + WHATSAPP_PHONE_NUMBER_ID) atau Twilio (TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN + TWILIO_WHATSAPP_FROM) di tab Keys.";
+  }
+  const config = provider === "meta" ? metaConfig() : twilioConfig();
+  if (!config.configured) {
+    return `WHATSAPP_PROVIDER memaksa ${provider}, tapi kredensial ${provider} belum lengkap.`;
+  }
+  return undefined;
+};
+
+/**
+ * Peringatan yang tidak memblokir, tapi hampir selalu jadi penyebab tunggal
+ * kegagalan notifikasi yang dikirim dari server.
+ */
+const templateWarning = () => {
+  if (activeProvider() !== "meta" || metaConfig().templateName) return undefined;
+  const params = metaConfig();
+  const titleVar = "{{" + params.templateParams.title + "}}";
+  const bodyVar = "{{" + params.templateParams.body + "}}";
+  return [
+    "WHATSAPP_TEMPLATE_NAME belum diisi, jadi pesan dikirim sebagai teks bebas. Meta hanya mengizinkan teks bebas di dalam jendela layanan 24 jam, sedangkan notifikasi dari server hampir selalu berada di luar jendela itu dan ditolak dengan kode 131008.",
+    "Buat template kategori UTILITY di WhatsApp Manager dengan body persis " + JSON.stringify(titleVar + "\n\n" + bodyVar) + " (dua variabel, dipisah satu baris kosong).",
+    "Bahasa template default id; set WHATSAPP_TEMPLATE_LANGUAGE bila template disetujui sebagai en_US. Bila nama variabel template Anda berbeda, set WHATSAPP_TEMPLATE_PARAM_TITLE dan WHATSAPP_TEMPLATE_PARAM_BODY.",
+  ].join(" ");
+};
+
+/** Kode yang paling sering muncul, diterjemahkan ke tindakan yang harus dilakukan. */
+const providerFailureHints: Record<string, string> = {
+  "131008": "Meta menolak pesan teks di luar jendela layanan 24 jam.",
+  "131047": "Meta menganggap pesan harus diaktifkan ulang lewat template.",
+  "131009": "Nilai parameter template ditolak Meta.",
+  "132000": "Jumlah parameter template tidak cocok dengan template yang disetujui.",
+  "132005": "Jumlah variabel template tidak cocok.",
+  "133000": "Template tidak ditemukan atau belum disetujui di WhatsApp Manager.",
+  "131042": "Bisnis belum memenuhi syarat template atau pembayaran.",
+  "190": "Access token Meta kedaluwarsa atau dicabut.",
+  "100": "Permintaan ditolak Meta; periksa format nomor tujuan.",
+  "0": "Meta menolak autentikasi; periksa access token.",
+  "21211": "Nomor WhatsApp pengirim di Twilio belum terverifikasi.",
+  "21614": "Nomor pengirim Twilio tidak punya kemampuan WhatsApp.",
+  "6060": "Nomor pengirim Twilio tidak bisa mengirim ke nomor tujuan.",
+  "not_configured": "Kredensial provider aktif belum lengkap.",
+  "provider_error": "Provider menolak pesan tanpa kode yang bisa dibaca.",
+  "network": "Server tidak dapat menghubungi provider WhatsApp.",
+};
+
+const describeProviderFailure = (code: string, text?: string) => {
+  const hint = providerFailureHints[code] ?? "Provider menolak pesan.";
+  return `${hint} Kode ${code}${text ? `, pesan provider: ${text}` : ""}.`;
+};
+
+/** Fetch provider dibungkus supaya kegagalan jaringan punya kode sendiri. */
+const fetchProvider = async (url: string, init: RequestInit, summary: string) => {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    throw providerError(summary, "network", error instanceof Error ? error.message : String(error));
+  }
+};
+
 export const getWhatsappStatus = query({
   args: {},
   handler: async (ctx) => {
@@ -106,9 +179,35 @@ export const getWhatsappStatus = query({
     }, {});
     const maskedFrom = config.from ? config.from.replace(/\d/g, "•") : undefined;
     const meta = metaConfig();
+    const userId = await getAuthUserId(ctx);
+    // Status pengiriman dan chat masuk bersifat pribadi, jadi hanya diambil
+    // untuk pengguna yang sedang masuk. Query ini reaktif, jadi webhook yang
+    // menandai delivered atau mencatat pesan baru langsung terlihat di dashboard.
+    const ownDeliveries = userId
+      ? deliveries
+          .filter((delivery) => delivery.userId === userId)
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .slice(0, 5)
+          .map((delivery) => ({
+            deliveryKey: delivery.deliveryKey,
+            title: delivery.title,
+            status: delivery.status,
+            lastErrorCode: delivery.lastErrorCode,
+            attempts: delivery.attempts,
+            updatedAt: delivery.updatedAt,
+          }))
+      : [];
+    const thread = userId
+      ? await ctx.db
+          .query("whatsappThreads")
+          .withIndex("byUser", (q) => q.eq("userId", userId))
+          .unique()
+      : null;
     return {
-      configured: config.configured || meta.configured,
+      configured: !providerIssue(),
       provider: activeProvider(),
+      providerIssue: providerIssue(),
+      templateWarning: templateWarning(),
       twilioConfigured: config.configured,
       metaConfigured: meta.configured,
       metaPhoneNumberId: meta.phoneNumberId
@@ -120,6 +219,15 @@ export const getWhatsappStatus = query({
         ? `${process.env.CONVEX_SITE_URL}/webhook/whatsapp`
         : undefined,
       maskedFrom,
+      recent: ownDeliveries,
+      thread: thread
+        ? {
+            lastInboundAt: thread.lastInboundAt,
+            lastInboundBody: thread.lastInboundBody,
+            lastInboundKind: thread.lastInboundKind,
+            unread: thread.unread,
+          }
+        : null,
       deliveryCounts: {
         queued: counts.queued ?? 0,
         sent: counts.sent ?? 0,
@@ -127,6 +235,22 @@ export const getWhatsappStatus = query({
         failed: counts.failed ?? 0,
       },
     };
+  },
+});
+
+/** Tandai pesan masuk terakhir sudah dibaca. Satu thread per pengguna. */
+export const markWhatsappThreadRead = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return false;
+    const thread = await ctx.db
+      .query("whatsappThreads")
+      .withIndex("byUser", (q) => q.eq("userId", userId))
+      .unique();
+    if (!thread || !thread.unread) return false;
+    await ctx.db.patch(thread._id, { unread: false, updatedAt: Date.now() });
+    return true;
   },
 });
 
@@ -279,6 +403,36 @@ const safeErrorCode = (value: unknown) => {
   return code.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "provider_error";
 };
 
+/** Potong teks error provider supaya aman disimpan dan ditampilkan. */
+const safeErrorText = (value: unknown) =>
+  typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 300) : undefined;
+
+type ProviderError = Error & { providerCode?: string; providerText?: string };
+
+/**
+ * Bungkus penolakan provider jadi error yang membawa kode dan pesan aslinya.
+ *
+ * Sebelumnya kode provider dibuang dan diganti satu kalimat generik, sehingga
+ * operator tidak pernah tahu apakah masalahnya token kedaluwarsa, template
+ * belum disetujui, atau nomor belum terverifikasi.
+ */
+const providerError = (summary: string, code: unknown, text?: string) => {
+  const error = new Error(summary) as ProviderError;
+  error.providerCode = safeErrorCode(code);
+  error.providerText = safeErrorText(text);
+  return error;
+};
+
+const errorCodeOf = (error: unknown) =>
+  error && typeof error === "object" && "providerCode" in error
+    ? String((error as ProviderError).providerCode)
+    : "provider_error";
+
+const errorTextOf = (error: unknown) =>
+  error && typeof error === "object" && "providerText" in error
+    ? safeErrorText((error as ProviderError).providerText)
+    : undefined;
+
 export const queueWhatsappDelivery = internalMutation({
   args: {
     userId: v.string(),
@@ -342,7 +496,10 @@ export const markWhatsappFailed = internalMutation({
     const current = await ctx.db.get(args.id);
     if (!current || current.status === "delivered") return;
     const attempts = current.attempts + 1;
-    const nextAttemptAt = attempts < 3 ? Date.now() + attempts * 60_000 : undefined;
+    // Pesan uji tidak dijadwalkan ulang: file selalu dikirim manual oleh pemiliknya,
+    // jadi retry hanya menambah derau dan menghabiskan kuota harian.
+    const isTest = current.deliveryKey.startsWith("whatsapp:test:");
+    const nextAttemptAt = !isTest && attempts < 3 ? Date.now() + attempts * 60_000 : undefined;
     await ctx.db.patch(args.id, {
       status: "failed",
       attempts,
@@ -353,6 +510,95 @@ export const markWhatsappFailed = internalMutation({
     if (nextAttemptAt) {
       await ctx.scheduler.runAfter(attempts * 60_000, internal.whatsapp.retryWhatsappDelivery, { deliveryId: args.id });
     }
+  },
+});
+
+export const reopenFailedDelivery = internalMutation({
+  args: { id: v.id("whatsappDeliveries") },
+  handler: async (ctx, args) => {
+    const current = await ctx.db.get(args.id);
+    if (!current || current.status !== "failed") return false;
+    await ctx.db.patch(args.id, {
+      status: "queued",
+      lastErrorCode: undefined,
+      nextAttemptAt: undefined,
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+});
+
+/**
+ * Nomor yang disimpan pengguna bisa ditulis `08...`, `+62...`, atau `62...`,
+ * sedangkan webhook selalu mengirim bentuk digits `62...`. Satu index lookup
+ * per bentuk kandidat, bukan scan penuh tabel preferensi.
+ */
+const phoneCandidates = (phone: string) => {
+  const national = phone.startsWith("62") ? `0${phone.slice(2)}` : `0${phone.replace(/^0+/, "")}`;
+  return [phone, `+${phone}`, national];
+};
+
+const preferenceForPhone = async (ctx: GenericMutationCtx<DataModel>, phone: string) => {
+  for (const candidate of phoneCandidates(phone)) {
+    const found = await ctx.db
+      .query("notificationPreferences")
+      .withIndex("byPhone", (q) => q.eq("whatsappPhone", candidate))
+      .first();
+    if (found) return found;
+  }
+  return null;
+};
+
+/**
+ * Simpan satu pesan masuk dari webhook.
+ *
+ * Webhook sebelumnya hanya dibaca sisi status, jadi chat masuk hilang tanpa
+ * jejak. Baris thread di-overwrite per nomor, bukan per pesan, supaya dashboard
+ * menampilkan pesan terakhir tanpa database tumbuh tanpa batas.
+ */
+export const recordInboundMessage = internalMutation({
+  args: {
+    phone: v.string(),
+    providerMessageId: v.string(),
+    body: v.string(),
+    kind: v.string(),
+    at: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const phone = normalizePhone(args.phone);
+    if (!phone) return null;
+    // Balasan lama yang telat sampai tidak boleh menimpa pesan yang lebih baru.
+    const existing = await ctx.db
+      .query("whatsappThreads")
+      .withIndex("byPhone", (q) => q.eq("phone", phone))
+      .unique();
+    const now = Date.now();
+    const lastInboundAt = args.at > 0 ? args.at : now;
+    if (existing && existing.lastInboundAt > lastInboundAt) return existing._id;
+    const preference = await preferenceForPhone(ctx, phone);
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        userId: preference?.userId ?? existing.userId,
+        providerMessageId: args.providerMessageId,
+        lastInboundAt,
+        lastInboundBody: args.body,
+        lastInboundKind: args.kind,
+        unread: true,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+    return await ctx.db.insert("whatsappThreads", {
+      phone,
+      userId: preference?.userId,
+      providerMessageId: args.providerMessageId,
+      lastInboundAt,
+      lastInboundBody: args.body,
+      lastInboundKind: args.kind,
+      unread: true,
+      createdAt: now,
+      updatedAt: now,
+    });
   },
 });
 
@@ -401,7 +647,7 @@ async function postMetaMessage(
   if (!config.configured || !config.accessToken || !config.phoneNumberId) {
     throw new Error("Integrasi WhatsApp belum dikonfigurasi");
   }
-  const response = await fetch(
+  const response = await fetchProvider(
     `https://graph.facebook.com/${config.graphVersion}/${config.phoneNumberId}/messages`,
     {
       method: "POST",
@@ -412,15 +658,20 @@ async function postMetaMessage(
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(12_000),
     },
+    "Gagal menghubungi Graph API Meta",
   );
   const result = (await response.json()) as {
     messages?: Array<{ id?: string }>;
-    error?: { code?: number; message?: string };
+    error?: { code?: number; message?: string; error_subcode?: number; details?: string };
   };
   if (!response.ok) {
-    const error = new Error("Meta menolak pesan") as Error & { providerCode?: string };
-    error.providerCode = safeErrorCode(result.error?.code ?? response.status);
-    throw error;
+    throw providerError(
+      "Meta menolak pesan",
+      result.error?.code ?? response.status,
+      result.error?.error_subcode
+        ? `${result.error.message ?? "ditolak"} (subcode ${result.error.error_subcode})`
+        : result.error?.message,
+    );
   }
   return { messageId: result.messages?.[0]?.id };
 }
@@ -438,8 +689,8 @@ async function sendViaMeta(
     ? buildTemplatePayload(input, {
         name: config.templateName,
         language: process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? "id",
-        titleParam: process.env.WHATSAPP_TEMPLATE_PARAM_TITLE ?? "judul",
-        bodyParam: process.env.WHATSAPP_TEMPLATE_PARAM_BODY ?? "isi",
+        titleParam: config.templateParams.title,
+        bodyParam: config.templateParams.body,
       })
     : buildTextPayload(input);
   const result = await postMetaMessage(config, payload);
@@ -476,7 +727,7 @@ async function sendWhatsappMessage(input: {
   } else {
     payload.set("Body", `${input.title}\n\n${input.body}`);
   }
-  const response = await fetch(
+  const response = await fetchProvider(
     `https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Messages.json`,
     {
       method: "POST",
@@ -487,6 +738,7 @@ async function sendWhatsappMessage(input: {
       body: payload,
       signal: AbortSignal.timeout(12_000),
     },
+    "Gagal menghubungi API Twilio",
   );
   const result = (await response.json()) as {
     sid?: string;
@@ -494,9 +746,7 @@ async function sendWhatsappMessage(input: {
     code?: string | number;
   };
   if (!response.ok) {
-    const error = new Error("Twilio menolak pesan") as Error & { providerCode?: string };
-    error.providerCode = safeErrorCode(result.code ?? response.status);
-    throw error;
+    throw providerError("Twilio menolak pesan", result.code ?? response.status, result.message);
   }
   return { skipped: false, configured: true, messageId: result.sid };
 }
@@ -510,7 +760,7 @@ async function deliver(
     internal.whatsapp.notificationRecipients,
     { kind, entityId },
   );
-  if (activeProvider() === "none") {
+  if (providerIssue()) {
     return { configured: false, delivered: 0, skipped: recipients.length, failed: 0 };
   }
     let delivered = 0;
@@ -537,8 +787,7 @@ async function deliver(
         delivered += 1;
       } catch (error) {
         failed += 1;
-        const code = error && typeof error === "object" && "providerCode" in error ? String(error.providerCode) : "provider_error";
-        await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: queued.id, errorCode: code });
+        await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: queued.id, errorCode: errorCodeOf(error) });
       }
     }
     return { configured: true, delivered, skipped: 0, failed };
@@ -576,7 +825,9 @@ export const retryWhatsappDelivery = internalAction({
   handler: async (ctx, args) => {
     const delivery = await ctx.runQuery(internal.whatsapp.deliveryForRetry, { deliveryId: args.deliveryId });
     if (!delivery || delivery.status === "delivered" || delivery.status === "sent" || delivery.attempts >= 3 || (delivery.nextAttemptAt !== undefined && delivery.nextAttemptAt > Date.now())) return { sent: false };
-    if (!twilioConfig().configured) return { sent: false };
+    // Sebelumnya guard ini memakai `twilioConfig()`, jadi pada instalasi yang
+    // memakai Meta saja retry selalu berhenti di sini tanpa satu percobaan pun.
+    if (providerIssue()) return { sent: false };
     try {
       // The phone is intentionally stored only in the notification preference.
       const preference = await ctx.runQuery(internal.whatsapp.preferencesForUser, { userId: delivery.userId });
@@ -587,8 +838,7 @@ export const retryWhatsappDelivery = internalAction({
       await ctx.runMutation(internal.whatsapp.markWhatsappSent, { id: delivery._id, providerMessageId: sent.messageId });
       return { sent: true };
     } catch (error) {
-      const code = error && typeof error === "object" && "providerCode" in error ? String(error.providerCode) : "provider_error";
-      await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: delivery._id, errorCode: code });
+      await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: delivery._id, errorCode: errorCodeOf(error) });
       return { sent: false };
     }
   },
@@ -611,6 +861,8 @@ export const sendTestWhatsapp = action({
     ) {
       throw new Error("Simpan nomor lalu aktifkan notifikasi WhatsApp terlebih dahulu");
     }
+    const issue = providerIssue();
+    if (issue) throw new Error(issue);
     const deliveryKey = `whatsapp:test:${userId}:${new Date().toISOString().slice(0, 10)}`;
     const queued = await ctx.runMutation(internal.whatsapp.queueWhatsappDelivery, {
       userId,
@@ -618,20 +870,33 @@ export const sendTestWhatsapp = action({
       title: "WhatsApp aktif",
       body: "Pesan uji berhasil dikirim.",
     });
-    if (!queued.shouldSend) throw new Error("Pesan uji sudah dikirim hari ini");
+    if (!queued.shouldSend) {
+      // Percobaan yang gagal sebelumnya tidak boleh mengunci seluruh hari:
+      // salah konfigurasi hampir selalu diperbaiki lalu diuji ulang di hari yang
+      // sama. Baris yang sama dibuka lagi supaya jejak audit tetap satu baris.
+      const reopened =
+        queued.status === "failed"
+          ? await ctx.runMutation(internal.whatsapp.reopenFailedDelivery, { id: queued.id })
+          : false;
+      if (!reopened) {
+        throw new Error("Pesan uji sudah dikirim hari ini. Periksa status pengiriman di bawah sebelum mencoba lagi.");
+      }
+    }
     try {
       const result = await sendWhatsappMessage({
         phone,
         title: "Sumenep Buku Kerja",
         body: `Halo ${preference.name}, notifikasi WhatsApp Anda sudah aktif.`,
       });
-      if (result.skipped) throw new Error("Integrasi WhatsApp belum dikonfigurasi");
+      if (result.skipped) throw providerError("Integrasi WhatsApp belum dikonfigurasi", "not_configured");
       await ctx.runMutation(internal.whatsapp.markWhatsappSent, { id: queued.id, providerMessageId: result.messageId });
       return { sent: true };
     } catch (error) {
-      const code = error && typeof error === "object" && "providerCode" in error ? String(error.providerCode) : "provider_error";
+      const code = errorCodeOf(error);
       await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: queued.id, errorCode: code });
-      throw new Error("Integrasi WhatsApp belum dapat mengirim pesan uji");
+      // Ini pesan yang dibaca orang, jadi harus menyebut penyebab dan kodenya.
+      // Kalimat generik sebelumnya membuat masalah ini mustahil didiagnosis.
+      throw new Error(describeProviderFailure(code, errorTextOf(error)));
     }
   },
 });

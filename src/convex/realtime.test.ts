@@ -267,6 +267,108 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     expect(delivery?.attempts).toBe(1);
   });
 
+  test("pesan masuk dari webhook tersimpan per nomor dan terhubung ke penggunanya", async () => {
+    const t = convexTest(schema, modules);
+    const resident = await signedInUser(t, "Warga Balasan");
+    await resident.mutation(api.community.setNotificationPreferences, {
+      whatsappUpdates: true,
+      whatsappPhone: "6282337753394",
+    });
+    const first = await t.mutation(internal.whatsapp.recordInboundMessage, {
+      phone: "6282337753394",
+      providerMessageId: "wamid.1",
+      body: "Apakah masih buka?",
+      kind: "text",
+      at: 1_700_000_000_000,
+    });
+    expect(first).not.toBeNull();
+    // Balasan kedua menimpa thread yang sama, bukan membuat baris baru.
+    const second = await t.mutation(internal.whatsapp.recordInboundMessage, {
+      phone: "6282337753394",
+      providerMessageId: "wamid.2",
+      body: "Buka sampai 20.00",
+      kind: "text",
+      at: 1_700_000_060_000,
+    });
+    expect(second).toBe(first);
+    const threads = await t.run(async (ctx) => await ctx.db.query("whatsappThreads").collect());
+    expect(threads).toHaveLength(1);
+    expect(threads[0]).toMatchObject({ lastInboundBody: "Buka sampai 20.00", unread: true });
+    // Balasan lama yang telat tidak boleh menimpa pesan yang lebih baru.
+    await t.mutation(internal.whatsapp.recordInboundMessage, {
+      phone: "6282337753394",
+      providerMessageId: "wamid.late",
+      body: "Pesan lama",
+      kind: "text",
+      at: 1_600_000_000_000,
+    });
+    const afterLate = await t.run(async (ctx) => await ctx.db.query("whatsappThreads").collect());
+    expect(afterLate[0]?.lastInboundBody).toBe("Buka sampai 20.00");
+
+    const status = await resident.query(api.whatsapp.getWhatsappStatus, {});
+    expect(status.thread).toMatchObject({ lastInboundBody: "Buka sampai 20.00", unread: true });
+    await resident.mutation(api.whatsapp.markWhatsappThreadRead, {});
+    const read = await resident.query(api.whatsapp.getWhatsappStatus, {});
+    expect(read.thread?.unread).toBe(false);
+  });
+
+  test("pesan masuk dari nomor yang tidak dikenal tetap disimpan tanpa pemilik", async () => {
+    const t = convexTest(schema, modules);
+    const stored = await t.mutation(internal.whatsapp.recordInboundMessage, {
+      phone: "+62 812-9999-0000",
+      providerMessageId: "wamid.unknown",
+      body: "Halo",
+      kind: "text",
+      at: 1_700_000_000_000,
+    });
+    expect(stored).not.toBeNull();
+    const threads = await t.run(async (ctx) => await ctx.db.query("whatsappThreads").collect());
+    expect(threads[0]?.phone).toBe("6281299990000");
+    expect(threads[0]?.userId).toBeUndefined();
+  });
+
+  test("status pengiriman hanya terlihat oleh pemiliknya", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await signedInUser(t, "Pemilik Status");
+    const other = await signedInUser(t, "Warga Lain");
+    const userId = await owner.query(api.users.currentUserId, {});
+    const queued = await t.mutation(internal.whatsapp.queueWhatsappDelivery, {
+      userId: userId as never,
+      deliveryKey: "whatsapp:test:privat",
+      title: "WhatsApp aktif",
+      body: "Pesan uji",
+    });
+    await t.mutation(internal.whatsapp.markWhatsappSent, { id: queued.id, providerMessageId: "SM-privat" });
+    await t.mutation(internal.whatsapp.applyDeliveryStatus, { providerMessageId: "SM-privat", status: "delivered" });
+
+    const mine = await owner.query(api.whatsapp.getWhatsappStatus, {});
+    expect(mine.recent.map((row) => row.status)).toEqual(["delivered"]);
+    const theirs = await other.query(api.whatsapp.getWhatsappStatus, {});
+    expect(theirs.recent).toEqual([]);
+    expect(theirs.thread).toBeNull();
+    const anonymous = await t.query(api.whatsapp.getWhatsappStatus, {});
+    expect(anonymous.recent).toEqual([]);
+  });
+
+  test("pesan uji yang gagal boleh diulang pada hari yang sama", async () => {
+    const t = convexTest(schema, modules);
+    const resident = await signedInUser(t, "Warga Uji Ulang");
+    const userId = (await resident.query(api.users.currentUserId, {})) as never;
+    const args = { userId, deliveryKey: "whatsapp:test:ulang", title: "Uji", body: "Pesan" };
+    const first = await t.mutation(internal.whatsapp.queueWhatsappDelivery, args);
+    expect(first.shouldSend).toBe(true);
+    await t.mutation(internal.whatsapp.markWhatsappFailed, { id: first.id, errorCode: "131008" });
+    const again = await t.mutation(internal.whatsapp.queueWhatsappDelivery, args);
+    expect(again.shouldSend).toBe(false);
+    expect(again.status).toBe("failed");
+    expect(await t.mutation(internal.whatsapp.reopenFailedDelivery, { id: first.id })).toBe(true);
+    const reopened = await t.mutation(internal.whatsapp.queueWhatsappDelivery, args);
+    expect(reopened.status).toBe("queued");
+    // Baris yang sukses tidak boleh bisa dibuka lagi di hari yang sama.
+    await t.mutation(internal.whatsapp.markWhatsappSent, { id: first.id, providerMessageId: "SM-ulang" });
+    expect(await t.mutation(internal.whatsapp.reopenFailedDelivery, { id: first.id })).toBe(false);
+  });
+
   test("viewer bisa membaca data kelola tetapi tidak bisa mengubah listing", async () => {
     const t = convexTest(schema, modules);
     const owner = await signedInUser(t, "Admin Uji");

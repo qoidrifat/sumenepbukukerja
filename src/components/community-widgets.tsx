@@ -39,7 +39,7 @@ import {
   type ServiceRequest,
 } from "@/lib/catalog-store";
 import { useAuth } from "@/hooks/use-auth";
-import { generateWhatsAppLink } from "@/lib/whatsapp";
+import { formatConvexError, generateWhatsAppLink } from "@/lib/whatsapp";
 import { AnimatedContent, ScrollReveal } from "@/components/react-bits";
 import { PublicRequestMascot } from "@/components/public-request-mascot";
 import { ThemedSelect } from "@/components/ui/themed-select";
@@ -52,6 +52,21 @@ import {
 import { useOfflineQueue } from "@/lib/offline-queue";
 
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
+
+/** Label status pengiriman. Status comes straight from the provider webhook. */
+const deliveryStatusLabel: Record<string, string> = {
+  queued: "Menunggu",
+  sent: "Terkirim",
+  delivered: "Diterima",
+  failed: "Gagal",
+};
+
+const deliveryStatusClass: Record<string, string> = {
+  queued: "text-amber-700",
+  sent: "text-blue-700",
+  delivered: "text-emerald-700",
+  failed: "text-red-700",
+};
 const inputClass = "min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base text-slate-900 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 
 function formatRequestDate(timestamp: number) {
@@ -425,11 +440,13 @@ export function NotificationCenter() {
     markNotificationsRead,
     setNotificationPreferences,
     sendTestWhatsapp,
+    markWhatsappThreadRead,
   } = useCatalogActions();
   const [preferenceError, setPreferenceError] = useState("");
   const [whatsappPhoneDraft, setWhatsappPhoneDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testNotice, setTestNotice] = useState("");
+  const [testFailed, setTestFailed] = useState(false);
   const unread = notifications?.filter((item) => !item.read).length ?? 0;
   const prefs: NotificationPreferences = preferences
     ? {
@@ -470,15 +487,28 @@ export function NotificationCenter() {
   const sendTest = async () => {
     setPreferenceError("");
     setTestNotice("");
+    setTestFailed(false);
     setSaving(true);
     try {
       await sendTestWhatsapp({});
       setTestNotice("Pesan uji berhasil dikirim ke nomor WhatsApp.");
     } catch (caught) {
+      setTestFailed(true);
       setTestNotice(
-        caught instanceof Error
-          ? caught.message
-          : "Pesan uji belum dapat dikirim.",
+        formatConvexError(caught, "Pesan uji belum dapat dikirim."),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const markThreadRead = async () => {
+    setSaving(true);
+    try {
+      await markWhatsappThreadRead({});
+    } catch (caught) {
+      setPreferenceError(
+        formatConvexError(caught, "Pesan masuk belum dapat ditandai dibaca."),
       );
     } finally {
       setSaving(false);
@@ -526,10 +556,26 @@ export function NotificationCenter() {
         {whatsappStatus === undefined
           ? "Status pengiriman sedang dimuat."
           : whatsappStatus.configured
-            ? "WhatsApp Business API sudah terkonfigurasi."
+            ? `Pengiriman memakai ${whatsappStatus.provider === "meta" ? "Meta Cloud API" : "Twilio"}, dan status percakapan masuk dibaca otomatis lewat webhook.`
             : "WhatsApp Business API belum dikonfigurasi; preferensi tetap dapat disimpan."}
-        {" Status percakapan inbound belum dibaca otomatis; tandai status manual pada riwayat interaksi."}
       </p>
+
+      {whatsappStatus?.providerIssue ? (
+        <p
+          className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-900"
+          role="status"
+        >
+          {whatsappStatus.providerIssue}
+        </p>
+      ) : null}
+      {whatsappStatus?.templateWarning ? (
+        <p
+          className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-900"
+          role="status"
+        >
+          {whatsappStatus.templateWarning}
+        </p>
+      ) : null}
 
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
         {(
@@ -580,6 +626,59 @@ export function NotificationCenter() {
         </div>
       </label>
 
+      {whatsappStatus?.recent?.length ? (
+        <div className="mt-3">
+          <p className="text-sm font-extrabold text-slate-800">
+            Status pengiriman terakhir
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {whatsappStatus.recent.map((item) => (
+              <li
+                key={item.deliveryKey}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+              >
+                <span className="min-w-0 truncate text-sm font-bold text-slate-800">
+                  {item.title}
+                </span>
+                <span className="flex items-center gap-2 text-xs font-extrabold">
+                  {item.lastErrorCode ? (
+                    <span className="font-mono text-red-700">
+                      {item.lastErrorCode}
+                    </span>
+                  ) : null}
+                  <span className={deliveryStatusClass[item.status]}>
+                    {deliveryStatusLabel[item.status]}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {whatsappStatus?.thread ? (
+        <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-extrabold text-slate-900">
+              Balasan WhatsApp terakhir
+            </p>
+            {whatsappStatus.thread.unread ? (
+              <button
+                type="button"
+                onClick={() => void markThreadRead()}
+                className={`min-h-10 rounded-lg border border-blue-200 bg-white px-3 text-xs font-extrabold text-blue-700 hover:bg-blue-100 ${focusRing}`}
+              >
+                Tandai dibaca
+              </button>
+            ) : null}
+          </div>
+          <p className="mt-1 text-sm leading-6 text-slate-700">
+            {whatsappStatus.thread.lastInboundBody ||
+              "Pesan masuk tanpa teks."}
+          </p>
+        </div>
+      ) : null}
+
       {verifiedClaims.length > 0 ? (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
           <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -622,7 +721,10 @@ export function NotificationCenter() {
         </p>
       ) : null}
       {testNotice ? (
-        <p className="mt-2 text-sm font-bold text-blue-700" role="status">
+        <p
+          className={`mt-2 rounded-lg p-3 text-sm font-bold leading-6 ${testFailed ? "border border-red-200 bg-red-50 text-red-800" : "text-blue-700"}`}
+          role={testFailed ? "alert" : "status"}
+        >
           {testNotice}
         </p>
       ) : null}

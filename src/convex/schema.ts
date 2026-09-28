@@ -238,7 +238,11 @@ const schema = defineSchema(
       areaUpdates: v.optional(v.boolean()),
       requestUpdates: v.optional(v.boolean()),
       updatedAt: v.number(),
-    }).index("byUser", ["userId"]),
+    })
+      .index("byUser", ["userId"])
+      // Chat masuk dari webhook hanya membawa nomor, jadi nomor harus bisa
+      // dicari tanpa scan seluruh tabel preferensi.
+      .index("byPhone", ["whatsappPhone"]),
 
     staffMembers: defineTable({
       userId: v.id("users"),
@@ -356,6 +360,24 @@ const schema = defineSchema(
       .index("byStatus", ["status"])
       .index("byUser", ["userId"])
       .index("byNextAttempt", ["nextAttemptAt"]),
+
+    // Percakapan WhatsApp yang masuk lewat webhook. Satu baris per nomor, bukan
+    // satu baris per pesan: dashboard hanya perlu tahu pesan terakhir dan
+    // apakah ada yang belum dibalas, dan overwrite Latest membuat dashboard
+    // tidak tumbuh tanpa batas.
+    whatsappThreads: defineTable({
+      phone: v.string(),
+      userId: v.optional(v.id("users")),
+      providerMessageId: v.string(),
+      lastInboundAt: v.number(),
+      lastInboundBody: v.string(),
+      lastInboundKind: v.string(),
+      unread: v.boolean(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("byPhone", ["phone"])
+      .index("byUser", ["userId"]),
 
     // Percobaan masuk ke ruang /admin lewat passcode. `key` adalah hash dari
     // deviceId + IP + email, jadi indeks tidak menyimpan identitas mentah

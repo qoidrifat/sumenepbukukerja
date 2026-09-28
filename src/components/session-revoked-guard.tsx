@@ -2,6 +2,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { Component, useCallback, useEffect } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 /**
  * Reaksi ke `SESSION_REVOKED` di satu tempat: perangkat yang sesinya dicabut
@@ -87,6 +88,14 @@ class SessionRevokedBoundary extends Component<
 function SigningOutScreen({ returnTo }: { returnTo: string }) {
   const navigate = useNavigate();
   useEffect(() => {
+    // Notifikasi sesaat di layar tempat penolakan terjadi. Penting karena
+    // orang yang dicabut sedang bekerja dengan halaman yang tidak
+    // bergerak — tanpa ini dia hanya melihat layar berganti tanpa alasan.
+    // Banner di `/auth` menangani penjelasan yang bertahan setelah landing.
+    toast.warning("Sesi Anda telah diakhiri dari perangkat lain.", {
+      description: "Masuk kembali dengan passcode untuk melanjutkan.",
+      duration: 8000,
+    });
     navigate(`/auth?returnTo=${encodeURIComponent(returnTo)}&revoked=1`, { replace: true });
   }, [navigate, returnTo]);
 

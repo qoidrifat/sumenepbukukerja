@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAction, useConvex, useMutation } from "convex/react";
 import { ERROR_CODES } from "@/lib/error-reporting";
 import { useNavigate } from "react-router";
-import { Activity, KeyRound, LogOut, Monitor, Radio, ShieldCheck } from "lucide-react";
+import { Activity, Eye, EyeOff, KeyRound, LogOut, Monitor, Radio, ShieldCheck } from "lucide-react";
 
 import { useCurrentAdminSession } from "@/lib/catalog-store";
 import { useAuth } from "@/hooks/use-auth";
@@ -12,13 +12,11 @@ import { assessPasscode, PASSCODE_MIN_LENGTH } from "@/lib/admin-passcode";
 import { convexSiteUrl } from "@/lib/admin-gate-client";
 import { UNKNOWN_LABEL, describeIpSource } from "@/lib/security-context";
 import { TimeStampLabel } from "@/components/admin-workspace";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { inputClass } from "@/components/admin-workspace";
@@ -51,6 +49,133 @@ const shown = (input: string | number | null | undefined) =>
   input === null || input === undefined || input === ""
     ? <span className="font-medium text-[#525252]">{UNKNOWN_LABEL}</span>
     : String(input);
+
+/** Keterangan singkat per tingkat kekuatan, ditulis di satu tempat. */
+const STRENGTH_NOTE: Record<"weak" | "fair" | "strong", string> = {
+  weak: "Masih mudah ditebak",
+  fair: "Cukup untuk ruang admin",
+  strong: "Sulit ditebak",
+};
+
+/**
+ * Satu baris isian passcode: label, kotak isian bertema admin, tombol lihat,
+ * dan catatan kecil. Tombol lihat memakai `aria-pressed` supaya pembaca layar
+ *pembaca layar tahu sedang menampilkan atau menyembunyikan nilai.
+ */
+function PasscodeField({
+  id,
+  label,
+  value,
+  revealed,
+  autoComplete,
+  hint,
+  error,
+  onChange,
+  onToggle,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  revealed: boolean;
+  autoComplete: string;
+  hint?: string;
+  error?: string | null;
+  onChange: (value: string) => void;
+  onToggle: () => void;
+}) {
+  const hintId = `${id}-hint`;
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <label htmlFor={id} className="text-sm font-black text-[#1A1A1A]">
+          {label}
+        </label>
+        {hint ? (
+          <span id={hintId} className="text-xs text-[#525252]">
+            {hint}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-1 flex items-stretch gap-2">
+        <input
+          id={id}
+          type={revealed ? "text" : "password"}
+          autoComplete={autoComplete}
+          value={value}
+          aria-describedby={error ? `${id}-error` : hint ? hintId : undefined}
+          aria-invalid={error ? true : undefined}
+          onChange={(event) => onChange(event.target.value)}
+          className={inputClass}
+          required
+        />
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-pressed={revealed}
+          aria-label={revealed ? `Sembunyikan ${label.toLowerCase()}` : `Tampilkan ${label.toLowerCase()}`}
+          className="admin-btn admin-btn-quiet w-12 shrink-0 px-0"
+        >
+          {revealed ? (
+            <EyeOff className="size-5" aria-hidden="true" />
+          ) : (
+            <Eye className="size-5" aria-hidden="true" />
+          )}
+        </button>
+      </div>
+      {error ? (
+        <p id={`${id}-error`} className="mt-1 text-xs font-black text-[#7C2D12]">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Indikator kekuatan memakai bentuk yang sudah dikenal di meja kerja admin:
+ * kotak bertanda hub, bukan sekadar teks. Warna sendirinya tidak pernah jadi
+ * satu-satunya pembawa makna — label dan catatan selalu ikut tertulis.
+ */
+function PasscodeStrength({
+  assessment,
+}: {
+  assessment: { ok: boolean; level: "weak" | "fair" | "strong"; label: string; issues: string[] };
+}) {
+  const tone =
+    assessment.level === "strong"
+      ? { bar: "bg-[#24533A]", text: "text-[#24533A]", filled: 3 }
+      : assessment.level === "fair"
+        ? { bar: "bg-[#FF5A26]", text: "text-[#24533A]", filled: 2 }
+        : { bar: "bg-[#7C2D12]", text: "text-[#7C2D12]", filled: 1 };
+
+  return (
+    <div className="border-2 border-[#121212] bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className={`text-sm font-black ${tone.text}`}>
+          Kekuatan passcode: {assessment.label}
+        </p>
+        <p className="text-xs text-[#525252]">{STRENGTH_NOTE[assessment.level]}</p>
+      </div>
+      <div className="mt-2 flex gap-1.5" aria-hidden="true">
+        {[0, 1, 2].map((step) => (
+          <span
+            key={step}
+            className={`h-2.5 flex-1 border-2 border-[#121212] ${
+              step < tone.filled ? tone.bar : "bg-white"
+            }`}
+          />
+        ))}
+      </div>
+      {assessment.issues.length > 0 ? (
+        <ul className="mt-2 space-y-0.5 text-xs font-bold text-[#7C2D12]">
+          {assessment.issues.map((issue) => (
+            <li key={issue}>{issue}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Kirim satu jejak header ke server lalu minta server menalinkannya ke sesi
@@ -131,6 +256,8 @@ export function AdminSessionActions() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [revealed, setRevealed] = useState({ current: false, next: false, confirm: false });
+  const passcodeDescriptionId = "admin-passcode-description";
 
   const assessment = next ? assessPasscode(next, current) : null;
 
@@ -318,78 +445,90 @@ export function AdminSessionActions() {
       ) : null}
 
       <Dialog open={passcodeOpen} onOpenChange={setPasscodeOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Ubah passcode admin</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="admin-dialog-content">
+          <div className="border-b-2 border-[#121212] bg-[#FFE662] px-4 py-4 sm:px-5">
+            <p className="text-[0.7rem] font-black uppercase tracking-[0.14em] text-[#525252]">
+              Keamanan ruang admin
+            </p>
+            <DialogTitle className="mt-1 text-xl font-black text-[#121212]">
+              Ubah passcode admin
+            </DialogTitle>
+            <DialogDescription
+              id={passcodeDescriptionId}
+              className="mt-2 text-sm leading-6 text-[#1A1A1A]"
+            >
               Minimal {PASSCODE_MIN_LENGTH} karakter. Passcode baru harus berbeda dari yang
               lama, dan tidak boleh sama persis. Setelah diganti, setiap tiket masuk yang
               masih terbuka ikut dicabut.
             </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleChangePasscode} className="space-y-3">
-            <label className="block">
-              <span className="text-sm font-black text-[#1A1A1A]">Passcode saat ini</span>
-              <input
-                type="password"
-                autoComplete="current-password"
-                value={current}
-                onChange={(event) => setCurrent(event.target.value)}
-                className={`${inputClass} mt-1`}
-                required
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-black text-[#1A1A1A]">Passcode baru</span>
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={next}
-                onChange={(event) => setNext(event.target.value)}
-                className={`${inputClass} mt-1`}
-                required
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-black text-[#1A1A1A]">Ulangi passcode baru</span>
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
-                className={`${inputClass} mt-1`}
-                required
-              />
-            </label>
-            {assessment ? (
-              <p
-                className={`text-sm font-black ${
-                  assessment.ok ? "text-[#24533A]" : "text-[#7C2D12]"
-                }`}
-                aria-live="polite"
-              >
-                {assessment.ok
-                  ? `Kekuatan passcode: ${assessment.label}`
-                  : assessment.issues.join(" ")}
-              </p>
-            ) : null}
+          </div>
+
+          <form
+            onSubmit={handleChangePasscode}
+            aria-describedby={passcodeDescriptionId}
+            className="space-y-3 px-4 py-4 sm:px-5"
+          >
+            <PasscodeField
+              id="admin-passcode-current"
+              label="Passcode saat ini"
+              value={current}
+              revealed={revealed.current}
+              autoComplete="current-password"
+              onChange={setCurrent}
+              onToggle={() => setRevealed((r) => ({ ...r, current: !r.current }))}
+            />
+            <PasscodeField
+              id="admin-passcode-new"
+              label="Passcode baru"
+              value={next}
+              revealed={revealed.next}
+              autoComplete="new-password"
+              hint={`Minimal ${PASSCODE_MIN_LENGTH} karakter`}
+              onChange={setNext}
+              onToggle={() => setRevealed((r) => ({ ...r, next: !r.next }))}
+            />
+            <PasscodeField
+              id="admin-passcode-confirm"
+              label="Ulangi passcode baru"
+              value={confirm}
+              revealed={revealed.confirm}
+              autoComplete="new-password"
+              error={
+                confirm && confirm !== next
+                  ? "Konfirmasi tidak cocok dengan passcode baru."
+                  : null
+              }
+              onChange={setConfirm}
+              onToggle={() => setRevealed((r) => ({ ...r, confirm: !r.confirm }))}
+            />
+
+            {assessment ? <PasscodeStrength assessment={assessment} /> : null}
             {error ? (
-              <p className="text-sm font-bold text-[#7C2D12]" role="alert">
+              <p
+                className="border-2 border-[#7C2D12] bg-white px-3 py-2 text-sm font-black text-[#7C2D12]"
+                role="alert"
+              >
                 {error}
               </p>
             ) : null}
-            <DialogFooter>
-              <Button
+
+            <DialogFooter className="gap-2 sm:gap-2">
+              <button
                 type="button"
-                variant="outline"
                 onClick={() => setPasscodeOpen(false)}
                 disabled={busy}
+                className="admin-btn admin-btn-secondary order-2 w-full sm:order-1 sm:w-auto"
               >
                 Batal
-              </Button>
-              <Button type="submit" disabled={busy}>
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="admin-btn admin-btn-primary order-1 w-full sm:order-2 sm:w-auto"
+              >
+                <KeyRound className="size-5" aria-hidden="true" />
                 {busy ? "Menyimpan..." : "Simpan passcode baru"}
-              </Button>
+              </button>
             </DialogFooter>
           </form>
         </DialogContent>

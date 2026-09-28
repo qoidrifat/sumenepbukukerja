@@ -441,6 +441,119 @@
   background: rgb(18 18 18 / 68%);
 }
 
+/* Dialog admin (mis. Ubah passcode) dirender lewat portal Radix, jadi ia
+   berada DI LUAR .admin-workspace. Tanpa selektor di bawah, kelas admin-btn
+   dan admin-input di dalamnya tidak akan cocok sama sekali — itu sebabnya
+   form passcode terasa seperti komponen aplikasi lain, bukan meja kerja admin.
+
+   Polanya sengaja mengikuti .admin-confirm-content yang sudah ada di atas:
+   satu scope portal yang membawa token Warm Brutalism besertanya. */
+.admin-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgb(18 18 18 / 68%);
+}
+
+.admin-dialog-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 90;
+  display: flex;
+  width: calc(100% - 2rem);
+  max-width: 32rem !important;
+  max-height: calc(100dvh - 2rem);
+  flex-direction: column;
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
+  border: 2px solid #121212 !important;
+  border-radius: 2px !important;
+  color: #1a1a1a;
+  background: #fdfbf7 !important;
+  padding: 0 !important;
+  box-shadow: 6px 6px 0 0 #121212 !important;
+  outline: none;
+}
+
+.admin-dialog-content:focus-visible {
+  outline: 4px solid #ff5a26;
+  outline-offset: 4px;
+}
+
+/* Elemen di dalam dialog tetap perlu gaya admin, karena portal tidak
+   mewarisi apa pun dari .admin-workspace. */
+.admin-dialog-content .admin-btn {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 2px solid #121212;
+  border-radius: 2px;
+  padding: 0.65rem 1rem;
+  font-weight: 800;
+  color: #1a1a1a;
+  background: #ffffff;
+  box-shadow: 3px 3px 0 0 #121212;
+}
+
+.admin-dialog-content .admin-btn-primary {
+  color: #ffffff;
+  background: #ff5a26;
+}
+
+.admin-dialog-content .admin-btn-secondary {
+  color: #1a1a1a;
+  background: #ffffff;
+}
+
+.admin-dialog-content .admin-btn-highlight {
+  color: #1a1a1a;
+  background: #ffe662;
+}
+
+.admin-dialog-content .admin-btn-quiet {
+  color: #1a1a1a;
+  background: #f1ede3;
+  box-shadow: none;
+}
+
+.admin-dialog-content .admin-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.admin-dialog-content .admin-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  border: 2px solid #121212;
+  border-radius: 2px;
+  color: #1a1a1a;
+  background: #ffffff;
+  padding: 0.7rem 0.8rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  outline: none;
+  box-shadow: 2px 2px 0 0 #121212;
+}
+
+.admin-dialog-content .admin-input:focus {
+  border-color: #ff5a26;
+  box-shadow: 4px 4px 0 0 #121212;
+}
+
+.admin-dialog-content .admin-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.admin-dialog-content :where(a, button):focus-visible {
+  outline: 4px solid #ff5a26;
+  outline-offset: 4px;
+}
+
 .admin-confirm-content {
   position: fixed;
   top: 50%;
@@ -492,7 +605,9 @@
   .admin-workspace *::before,
   .admin-workspace *::after,
   .admin-confirm-content,
-  .admin-confirm-overlay {
+  .admin-confirm-overlay,
+  .admin-dialog-content,
+  .admin-dialog-overlay {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
@@ -504,21 +619,25 @@
   .admin-workspace .admin-btn,
   .admin-workspace .admin-icon-btn,
   .admin-confirm-content .admin-btn,
+  .admin-dialog-content .admin-btn,
   .admin-workspace .admin-input,
+  .admin-dialog-content .admin-input,
   .admin-workspace .admin-switch [data-slot="switch-thumb"] {
     transition: transform 75ms ease, box-shadow 75ms ease, background-color 75ms ease, border-color 75ms ease;
   }
 
   .admin-workspace .admin-btn:hover:not(:disabled),
   .admin-workspace .admin-icon-btn:hover:not(:disabled),
-  .admin-confirm-content .admin-btn:hover:not(:disabled) {
+  .admin-confirm-content .admin-btn:hover:not(:disabled),
+  .admin-dialog-content .admin-btn:hover:not(:disabled) {
     transform: translate(-1px, -1px);
     box-shadow: 4px 4px 0 0 #121212;
   }
 
   .admin-workspace .admin-btn:active:not(:disabled),
   .admin-workspace .admin-icon-btn:active:not(:disabled),
-  .admin-confirm-content .admin-btn:active:not(:disabled) {
+  .admin-confirm-content .admin-btn:active:not(:disabled),
+  .admin-dialog-content .admin-btn:active:not(:disabled) {
     transform: translate(2px, 2px);
     box-shadow: none;
   }

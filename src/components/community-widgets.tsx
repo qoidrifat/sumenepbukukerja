@@ -73,6 +73,39 @@ function formatRequestDate(timestamp: number) {
   return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(new Date(timestamp));
 }
 
+/**
+ * Batas bawah field tanggal: hari ini, dalam bentuk yang dipahami `<input
+ * type="date">`.
+ *
+ * `toISOString()` TIDAK boleh dipakai di sini: ia menghasilkan tanggal UTC, dan
+ * di zona waktu GMT+7 WIB pukul 08.00 ke bawah ia akan menghasilkan tanggal
+ * kemarin. Field "dibutuhkan kapan" yang tidak bisa dipilih sebelum hari ini
+ * jauh lebih membingungkan daripada batas yang satu hari meleset.
+ */
+function todayISODate(): string {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
+/**
+ * Tanggal pilihan pengguna, ditulis balik dalam bahasa Indonesia.
+ *
+ * Kontrol `date` digambar browser memakai lokalitas PERANGKAT, bukan `id-ID`.
+ * Artinya isian `09/10/2026` bisa dibaca 9 Oktober oleh satu orang dan 10
+ * September oleh orang lain di perangkat yang sama. Baris ini menutup celah
+ * itu tanpa mengubah perilaku kontrol aslinya.
+ */
+function formatNeededAt(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
+}
+
 export function AvailabilityBadge({ vendor }: { vendor: Vendor }) {
   const availability = vendor.availability ?? "available";
   const labels = {
@@ -128,6 +161,7 @@ function RequestForm({ onCreated }: { onCreated: () => void }) {
   const [landmark, setLandmark] = useState("all");
   const [budget, setBudget] = useState("");
   const [neededAt, setNeededAt] = useState("");
+  const neededAtHintId = useId();
   const [useLocation, setUseLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -202,7 +236,22 @@ function RequestForm({ onCreated }: { onCreated: () => void }) {
         </label>
         <label className="flex flex-col gap-2">
           <span className="text-sm font-extrabold text-slate-800">Dibutuhkan kapan <span className="font-medium text-slate-500">(opsional)</span></span>
-          <input type="date" value={neededAt} onChange={(event) => setNeededAt(event.target.value)} className={inputClass} />
+          <input
+            type="date"
+            value={neededAt}
+            // Tanpa batas bawah, tanggal lampau bisa dipilih untuk "dibutuhkan
+            // kapan" — permintaan yang mustahil dipenuhi dan hanya menambah
+            // pekerjaan untuk mitra yang membacanya.
+            min={todayISODate()}
+            onChange={(event) => setNeededAt(event.target.value)}
+            aria-describedby={neededAtHintId}
+            className={`${inputClass} field-date field-date--public`}
+          />
+          <span id={neededAtHintId} className="text-xs font-medium text-slate-500">
+            {neededAt
+              ? `Dipilih: ${formatNeededAt(neededAt)}`
+              : "Format mengikuti kalender perangkat Anda."}
+          </span>
         </label>
         <label className="flex min-h-12 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-700 sm:col-span-2">
           <input type="checkbox" checked={useLocation} onChange={(event) => setUseLocation(event.target.checked)} className="size-4 accent-blue-600" />

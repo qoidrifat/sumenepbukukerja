@@ -57,6 +57,12 @@ const schema = defineSchema(
     users: defineTable({
       name: v.optional(v.string()),
       image: v.optional(v.string()),
+      // Foto profil yang diunggah dari ruang kerja admin. Sengaja dipisah dari
+      // `image`: kolom itu milik Convex Auth dan isinya bisa berupa URL dari
+      // penyedia OAuth, bukan storage id milik kita. Menimpanya akan merusak
+      // alur yang sudah ada.
+      profileImageStorageId: v.optional(v.string()),
+      profileUpdatedAt: v.optional(v.number()),
       email: v.optional(v.string()),
       emailVerificationTime: v.optional(v.number()),
       isAnonymous: v.optional(v.boolean()),

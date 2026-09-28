@@ -1,0 +1,261 @@
+import { useRef, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { Camera, Trash2, UserRound } from "lucide-react";
+import { api } from "@/convex/_generated/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { staffRoleLongLabel } from "@/lib/select-options";
+
+/**
+ * Pengaturan profil pengelola.
+ *
+ * Dua hal yang diperiksa sebelum menulis apa pun:
+ *  - Ukuran dan jenis foto dibaca dari metadata STORAGE, bukan dari `File` di
+ *    sisi klien. Nama berkas dan `type` bisa dipalsukan; metadata storage tidak.
+ *  - Email sengaja tidak bisa diubah di sini. Mengganti email berarti reset
+ *    password dan verifikasi ulang, jadi membukanya di panel profil hanya
+ *    menciptakan akun yang tidak bisa masuk lagi.
+ *
+ * Dialog-nya memakai `admin-dialog-content`/`admin-dialog-overlay`, scope yang
+ * sama dengan form passcode. Tanpa scope itu, seluruh kelas admin di dalamnya
+ * tidak akan cocok — dialog akan tampil seperti komponen aplikasi lain di
+ * tengah ruang yang serba Warm Brutalism.
+ */
+
+const MAX_IMAGE_BYTES = 1_000_000;
+const MAX_NAME_LENGTH = 80;
+
+export function AdminProfile() {
+  const profile = useQuery(api.users.myProfile, {});
+  const updateProfile = useMutation(api.users.updateMyProfile);
+  const generateUploadUrl = useMutation(api.users.generateProfileUploadUrl);
+
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const nameId = "admin-profile-name";
+  const hintId = "admin-profile-hint";
+
+  // Formulir diisi ulang tepat saat dialog DIBUKA, bukan lewat efek.
+  // Efek yang memanggil setState secara sinkron dipanggil ulang dua kali
+  // dalam render, dan yang kedua sering membuat panel berkedip.
+  const openProfile = () => {
+    setName(profile?.name ?? "");
+    setPending(null);
+    setError("");
+    setNotice("");
+    setOpen(true);
+  };
+
+  const displayName = profile?.name?.trim() || profile?.email?.split("@")[0] || "Profil";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.slice(0, 1).toUpperCase())
+    .join("");
+
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setError("");
+    setNotice("");
+    // Pemeriksaan di sini hanya agar umpan baliknya instan; yang menentukan
+    // tetap validasi server. Menolak dua kali bukan pemborosan, menolak satu
+    // kali adalah kegagalan.
+    if (!file.type.startsWith("image/")) {
+      setError("Berkas harus berupa foto.");
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setError("Ukuran foto maksimal 1 MB.");
+      return;
+    }
+    try {
+      const uploadUrl = await generateUploadUrl();
+      const response = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!response.ok) throw new Error("upload gagal");
+      setPending((await response.json()) as string);
+      setNotice("Foto baru siap disimpan. Tekan Simpan profil.");
+    } catch {
+      setError("Foto belum berhasil diunggah. Coba lagi.");
+    }
+  };
+
+  const save = async () => {
+    setError("");
+    setNotice("");
+    setBusy(true);
+    try {
+      await updateProfile({
+        name,
+        imageStorageId: pending ?? undefined,
+        removeImage: !pending && profile?.hasImage ? true : undefined,
+      });
+      setNotice("Profil tersimpan.");
+      setPending(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Profil belum dapat disimpan.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={openProfile}
+        className="flex shrink-0 items-center gap-2 rounded-[2px] border-2 border-[#121212] bg-white px-2 py-1.5 shadow-[2px_2px_0_0_#121212] transition-transform hover:bg-[#FFE662] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#FF5A26]"
+        aria-label="Atur profil"
+        title="Atur profil"
+      >
+        <span className="flex size-8 items-center justify-center overflow-hidden rounded-[2px] border-2 border-[#121212] bg-[#FFE662] text-xs font-black text-[#121212]">
+          {profile?.imageUrl ? (
+            <img src={profile.imageUrl} alt="" className="size-full object-cover" />
+          ) : (
+            initials || <UserRound className="size-4" />
+          )}
+        </span>
+        <UserRound className="size-5 shrink-0 text-[#121212]" aria-hidden="true" />
+        <span className="hidden text-sm font-black text-[#1A1A1A] sm:inline">Profil</span>
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="admin-dialog-content" overlayClassName="admin-dialog-overlay">
+          <div className="border-b-2 border-[#121212] bg-[#FFE662] px-4 py-4 sm:px-5">
+            <p className="text-[0.7rem] font-black uppercase tracking-[0.14em] text-[#525252]">
+              Akun pengelola
+            </p>
+            <DialogTitle className="mt-1 text-xl font-black text-[#121212]">
+              Atur profil
+            </DialogTitle>
+            <DialogDescription id={hintId} className="mt-2 text-sm leading-6 text-[#1A1A1A]">
+              Nama dan foto profil muncul di panel Sesi Anda dan di jejak audit.
+              Email tidak bisa diubah di sini.
+            </DialogDescription>
+          </div>
+
+          <div className="space-y-4 px-4 py-4 sm:px-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-[2px] border-2 border-[#121212] bg-[#FFE662] text-xl font-black text-[#121212]">
+                {profile?.imageUrl ? (
+                  <img src={profile.imageUrl} alt="" className="size-full object-cover" />
+                ) : (
+                  initials || <UserRound className="size-7" />
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-black text-[#1A1A1A]">
+                  {profile?.role ? staffRoleLongLabel(profile.role) : "Pengelola"}
+                </p>
+                <p className="break-all text-sm text-[#525252]">{profile?.email}</p>
+              </div>
+            </div>
+
+            <div>
+              <label
+                className="text-xs font-black uppercase tracking-[0.1em] text-[#525252]"
+                htmlFor={nameId}
+              >
+                Nama profil
+              </label>
+              <input
+                id={nameId}
+                className="admin-input mt-1.5"
+                value={name}
+                maxLength={MAX_NAME_LENGTH}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Nama yang tampil di ruang kerja"
+                aria-describedby={hintId}
+              />
+            </div>
+
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.1em] text-[#525252]">
+                Foto profil
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-secondary px-3 text-xs"
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <Camera className="size-4" aria-hidden="true" />
+                  Pilih foto
+                </button>
+                {profile?.hasImage || pending ? (
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn-quiet px-3 text-xs"
+                    onClick={() => {
+                      setPending(null);
+                      setNotice("");
+                    }}
+                  >
+                    <Trash2 className="size-4" aria-hidden="true" />
+                    Hapus foto
+                  </button>
+                ) : null}
+              </div>
+              <p className="mt-2 text-xs leading-5 text-[#525252]">
+                Maksimal 1 MB, berkas gambar. Foto disimpan di server dan hanya
+                tautan sementara yang dikirim ke peramban.
+              </p>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(event) => {
+                  void pickPhoto(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+            </div>
+
+            {error ? (
+              <p className="rounded-[2px] border-2 border-[#121212] bg-[#E9B4A7] px-3 py-2 text-sm font-black text-[#7C2D12]" role="alert">
+                {error}
+              </p>
+            ) : null}
+            {notice ? (
+              <p className="rounded-[2px] border-2 border-[#121212] bg-[#DCEBD7] px-3 py-2 text-sm font-black text-[#24533A]" role="status">
+                {notice}
+              </p>
+            ) : null}
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="admin-btn admin-btn-secondary order-2 w-full sm:order-1 sm:w-auto"
+                onClick={() => setOpen(false)}
+              >
+                Tutup
+              </button>
+              <button
+                type="button"
+                disabled={busy || name.trim().length < 2}
+                onClick={() => void save()}
+                className="admin-btn admin-btn-primary order-1 w-full sm:order-2 sm:w-auto"
+              >
+                {busy ? "Menyimpan..." : "Simpan profil"}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

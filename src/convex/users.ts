@@ -20,8 +20,7 @@ export const currentUser = query({
   },
 });
 
-const permissionsFor = (role: StaffRole | null) => ({
-  canViewAdmin: role !== null,
+const permissionsFor = (role: StaffRole | null) => ({  canViewAdmin: role !== null,
   canModerate: role === "admin" || role === "staff",
   canManageRoles: role === "admin",
   canArchive: role === "admin" || role === "staff",
@@ -31,6 +30,150 @@ const permissionsFor = (role: StaffRole | null) => ({
 export const currentUserId = query({
   args: {},
   handler: async (ctx) => await getAuthUserId(ctx),
+});
+
+/* ------------------------------------------------------------------ */
+/* Profil pengelola                                                   */
+/* ------------------------------------------------------------------ */
+
+const MAX_PROFILE_IMAGE_BYTES = 1_000_000;
+const MAX_PROFILE_NAME_LENGTH = 80;
+
+/**
+ * Apakah berkas di storage benar-benar gambar?
+ *
+ * `contentType` dibaca dari metadata storage, bukan dari `File` yang dikirim
+ * klien — nama berkas dan `type` di sisi klien bisa dipalsukan, metadata ini
+ * tidak. Kalau `contentType`-nya KOSONG, berkas ditolak: memperbolehkannya
+ * berarti siapa pun bisa mengunggah apa saja dengan sengaja tidak mengirim
+ * header, dan berkas itu lalu disajikan ulang dari storage milik kita.
+ *
+ * Diekspor untuk diuji. `convex-test` tidak mencatat `contentType` saat
+ * menyimpan blob, jadi jalur "berterima" tidak bisa dibuktikan lewat mutasi
+ * di test — yang diuji di sini aturanNYA, sementara mutasi menguji sisi
+ * tolak. Melonggarkan aturan supaya test bisa lewat akan membuka lubang nyata.
+ */
+export function isStoredImage(contentType: string | undefined): boolean {
+  return typeof contentType === "string" && contentType.startsWith("image/");
+}
+
+/**
+ * Profil pengelola yang sedang masuk, siap ditampilkan.
+ *
+ * `imageUrl` dihitung server dari storage id. Ini satu-satunya alasan field ini
+ * ada: storage id tidak boleh bocor ke klien, dan klien juga tidak boleh
+ * menebak-nebak apakah `image` berisi URL penyedia OAuth atau storage milik kit
+ * sendiri. Kalau baris storage-nya sudah hilang, hasilnya `null` — bukan URL rusak.
+ */
+export const myProfile = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
+    const access = await getStaffAccess(ctx, userId);
+    return {
+      name: user.name ?? "",
+      email: user.email ?? "",
+      imageUrl: user.profileImageStorageId
+        ? ((await ctx.storage.getUrl(user.profileImageStorageId)) ?? null)
+        : null,
+      hasImage: Boolean(user.profileImageStorageId),
+      role: access?.role ?? null,
+      updatedAt: user.profileUpdatedAt ?? null,
+    };
+  },
+});
+
+/**
+ * URL sekali pakai untuk mengunggah foto profil.
+ *
+ * Mutation terpisah dari `updateMyProfile` karena unggahan harus lewat HTTP
+ * `POST` ke storage, sementara patch profil lewat mutation biasa. Yang
+ * dijaga di sini hanya satu: storage id yang dihasilkan HANYA boleh dipasang
+ * ke baris `users` milik pemanggil, lewat `updateMyProfile`.
+ */
+export const generateProfileUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Simpan nama dan foto profil.
+ *
+ * Batasannya sengaja dibuat di server, bukan hanya di UI:
+ *  - Nama diktrim dan dipotong; input 5.000 karakter akan disimpan utuh kalau
+ *    tidak dipotong, dan setiap panel yang menampilkannya ikut melebar.
+ *  - File dicek dari metadata storage SEBELUM patch. Metriksanya dibaca dari
+ *    storage, bukan dari `File` yang dikirim klien, karena nama file dan
+ *    `type` di sisi klien bisa dipalsukan.
+ *  - Email tidak bisa diubah dari sini. Mengganti email adalah urusan reset
+ *    password dan verifikasi ulang; membiarkan field itu terbuka di panel
+ *    profil hanya menciptakan akun yang tidak bisa masuk lagi.
+ */
+export const updateMyProfile = mutation({
+  args: {
+    name: v.string(),
+    imageStorageId: v.optional(v.string()),
+    removeImage: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const name = args.name.trim().replace(/\s+/g, " ").slice(0, MAX_PROFILE_NAME_LENGTH);
+    if (name.length < 2) throw new Error("Nama profil minimal 2 karakter");
+
+    const current = await ctx.db.get(userId);
+    const previousStorageId = current?.profileImageStorageId;
+    let nextStorageId: string | undefined = previousStorageId;
+
+    if (args.removeImage) {
+      nextStorageId = undefined;
+    } else if (args.imageStorageId) {
+      const metadata = await ctx.db.system.get("_storage", args.imageStorageId as never);
+      if (!metadata) throw new Error("Foto profil tidak ditemukan");
+      if (metadata.size > MAX_PROFILE_IMAGE_BYTES) throw new Error("Ukuran foto maksimal 1 MB");
+      if (!isStoredImage(metadata.contentType)) {
+        throw new Error("Berkas harus berupa foto");
+      }
+      nextStorageId = args.imageStorageId;
+    }
+
+    await ctx.db.patch(userId, {
+      name,
+      profileImageStorageId: nextStorageId,
+      profileUpdatedAt: Date.now(),
+    });
+
+    // Berkas lama dihapus setelah patch berhasil. Kalau lebih dulu, kegagalan
+    // patch akan membuat foto lama hilang tanpa ada yang menggantinya.
+    if (previousStorageId && previousStorageId !== nextStorageId) {
+      try {
+        await ctx.storage.delete(previousStorageId);
+      } catch {
+        // Berkas sudah hilang atau masih dirujuk. Bukan alasan gagalkan simpan.
+      }
+    }
+
+    await writeAudit(ctx, {
+      action: "admin.profile_updated",
+      metadata: {
+        nameChanged: name !== (current?.name ?? ""),
+        photoChanged: previousStorageId !== nextStorageId,
+      },
+    });
+
+    return {
+      ok: true as const,
+      name,
+      imageUrl: nextStorageId
+        ? ((await ctx.storage.getUrl(nextStorageId)) ?? null)
+        : null,
+    };
+  },
 });
 
 export const currentAccess = query({

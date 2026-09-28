@@ -150,6 +150,144 @@
   }
 }
 
+/* --------------------------------------------------------------------------
+   Field tanggal dan waktu.
+
+   Audit ini menemukan satu masalah yang tidak bisa diperbaiki dari utility
+   class: kontrol `date` dan `datetime-local` milik browser. Isiannya bisa
+   diberi gaya, tapi ikon kalender di dalamnya — dan popover kalender yang
+   muncul saat diklik — digambar oleh sistem operasi, bukan oleh halaman. Di
+   kedua tema itu muncul sebagai ikon abu-abu sistem yang tidak pernah sama
+   dengan warna di sekitarnya, dan tidak ada satu pun utility class yang
+   menyentuhnya.
+
+   Yang bisa dikendalikan ada tiga, dan ketiganya dipakai di sini:
+   1. `color-scheme` — membuat popover browser menggambar kromanya terang,
+      bukan versi gelap yang tidak cocok dengan kedua tema.
+   2. Ikon kalender diberi `filter` + `opacity` + ukuran yang mengikuti
+      warna teks surface itu.
+   3. Chrome bagian dalam (segmen hari/menit) diberi warna surface yang
+      sama, supaya kotak dialognya tidak terlihat seperti milik aplikasi lain.
+
+   Ketiganya sengaja dipisah per tema: yang publik memakai rounded-lg dan
+   biru, yang admin memakai radius 2px dan Warm Brutalism.
+   -------------------------------------------------------------------------- */
+
+.field-date,
+.field-datetime,
+.field-time {
+  /* Tanpa ini, browser bisa menggambar popover kalender gelap di atas
+     surface terang dan teksnya jadi tidak terbaca. */
+  color-scheme: light;
+}
+
+.field-date::-webkit-calendar-picker-indicator,
+.field-datetime::-webkit-calendar-picker-indicator,
+.field-time::-webkit-calendar-picker-indicator {
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.55;
+  /* Ikon bawaan digambar gelap di atas surface terang; membalikkannya
+     membuatnya ikut warna teksnya. */
+  filter: invert(1);
+  transition: opacity 120ms ease;
+}
+
+.field-date:hover::-webkit-calendar-picker-indicator,
+.field-datetime:hover::-webkit-calendar-picker-indicator,
+.field-time:hover::-webkit-calendar-picker-indicator {
+  opacity: 0.9;
+}
+
+.field-date:focus-visible::-webkit-calendar-picker-indicator,
+.field-datetime:focus-visible::-webkit-calendar-picker-indicator,
+.field-time:focus-visible::-webkit-calendar-picker-indicator {
+  opacity: 1;
+}
+
+/* Placeholder "dd/mm/yyyy" bawaan browser sering tidak mengikuti warna teks
+   form, dan di beberapa browser tidak bisa diwarnai sama sekali. */
+.field-date::-webkit-datetime-edit,
+.field-datetime::-webkit-datetime-edit,
+.field-time::-webkit-datetime-edit {
+  color: inherit;
+}
+
+.field-date:invalid::-webkit-datetime-edit,
+.field-datetime:invalid::-webkit-datetime-edit,
+.field-time:invalid::-webkit-datetime-edit {
+  color: #94a3b8;
+}
+
+/* --- Varian publik: rounded-lg, biru, slate ---------------------------- */
+.field-date--public,
+.field-datetime--public,
+.field-time--public {
+  min-height: 3rem;
+  color: #0f172a;
+  background-color: #ffffff;
+}
+
+.field-date--public:focus,
+.field-datetime--public:focus,
+.field-time--public:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px #dbeafe;
+}
+
+.field-date--public::-webkit-calendar-picker-indicator,
+.field-datetime--public::-webkit-calendar-picker-indicator,
+.field-time--public::-webkit-calendar-picker-indicator {
+  filter: none;
+  opacity: 0.45;
+}
+
+.field-date--public:hover::-webkit-calendar-picker-indicator,
+.field-datetime--public:hover::-webkit-calendar-picker-indicator,
+.field-time--public:hover::-webkit-calendar-picker-indicator {
+  opacity: 0.8;
+}
+
+/* --- Varian admin: radius 2px, Warm Brutalism --------------------------- */
+.admin-workspace .field-date,
+.admin-workspace .field-datetime,
+.admin-workspace .field-time,
+.admin-dialog-content .field-date,
+.admin-dialog-content .field-datetime,
+.admin-dialog-content .field-time {
+  color-scheme: light;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.admin-workspace .field-date::-webkit-calendar-picker-indicator,
+.admin-workspace .field-datetime::-webkit-calendar-picker-indicator,
+.admin-workspace .field-time::-webkit-calendar-picker-indicator,
+.admin-dialog-content .field-date::-webkit-calendar-picker-indicator,
+.admin-dialog-content .field-datetime::-webkit-calendar-picker-indicator,
+.admin-dialog-content .field-time::-webkit-calendar-picker-indicator {
+  /* Ikon system sudah gelap; surface admin juga terang, jadi dibalik agar
+     tidak jadi satu-satunya elemen abu-abu di dalam form. */
+  filter: invert(1);
+  opacity: 0.65;
+  border-radius: 2px;
+}
+
+.admin-workspace .field-date:hover::-webkit-calendar-picker-indicator,
+.admin-workspace .field-datetime:hover::-webkit-calendar-picker-indicator,
+.admin-workspace .field-time:hover::-webkit-calendar-picker-indicator {
+  opacity: 1;
+}
+
+/* Lingkaran hari aktif di popover browser mengikuti warna aksen, supaya
+   tanggal yang dipilih tidak terlihat seperti milik aplikasi lain. */
+.admin-workspace input[type="date"],
+.admin-workspace input[type="datetime-local"],
+.admin-workspace input[type="time"] {
+  accent-color: #ff5a26;
+}
+
 /* Admin-only Warm Brutalism layer. Never redefine public theme tokens here. */
 .admin-workspace {
   --admin-canvas: #faf7ee;

@@ -28,6 +28,8 @@ import {
 import { landmarkLabel } from "@/lib/catalog";
 import { CategoryMascot } from "@/components/category-mascot";
 import { formatDateTime, formatRelativeTime } from "@/lib/datetime";
+import { cn } from "@/lib/utils";
+import { AdminProfile } from "@/components/admin-profile";
 
 export const inputClass = "admin-input";
 export const secondaryButtonClass = "admin-btn admin-btn-secondary";
@@ -216,6 +218,11 @@ export function AdminHeader({
           <span className="mr-1.5 size-2 rounded-full bg-[#1A1A1A]" />
           {role === "admin" ? "Admin" : role === "staff" ? "Staff" : "Viewer"}
         </span>
+        {/* Ikon orang untuk pengaturan profil, persis di sebelah label peran.
+            `shrink-0` dipakai karena header ini `justify-between`: tanpa itu,
+            tombol ini ikut gepeng dan target sentuhnya mengecil — persis di
+            layar yang paling sering dipakai, yaitu ponsel. */}
+        <AdminProfile />
         {reviewQueue && reviewQueue.total > 0 ? (
           <a
             href="#governance-title"
@@ -286,6 +293,10 @@ export function Field({
   placeholder,
   type = "text",
   required = false,
+  min,
+  className,
+  hint,
+  hintId,
 }: {
   label: string;
   value: string;
@@ -293,6 +304,10 @@ export function Field({
   placeholder?: string;
   type?: string;
   required?: boolean;
+  min?: string;
+  className?: string;
+  hint?: string;
+  hintId?: string;
 }) {
   return (
     <label className="flex min-w-0 flex-col gap-2">
@@ -304,10 +319,17 @@ export function Field({
         required={required}
         type={type}
         value={value}
+        min={min}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className={inputClass}
+        aria-describedby={hintId}
+        className={cn(inputClass, className)}
       />
+      {hint ? (
+        <span id={hintId} className="text-sm font-bold text-[#525252]">
+          {hint}
+        </span>
+      ) : null}
     </label>
   );
 }

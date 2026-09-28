@@ -24,6 +24,7 @@ export type AuditAction =
   | "admin.invite_created"
   | "staff.invite_rejected"
   | "admin.logout"
+  | "admin.profile_updated"
   | "admin.passcode_changed"
   | "admin.session_revoked"
   | "admin.security_viewed"

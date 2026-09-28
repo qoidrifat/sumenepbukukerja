@@ -54,6 +54,7 @@ import {
   type VendorRecord,
 } from "@/lib/catalog-store";
 import { duplicateScore, profileCompleteness, qualityIssues } from "@/lib/catalog-data";
+import { formatDateTime } from "@/lib/datetime";
 import { AdminGovernance } from "@/components/admin-governance";
 import { useAuth } from "@/hooks/use-auth";
 import { useAdminPresence } from "@/lib/admin-presence";
@@ -116,6 +117,20 @@ const toDateTimeLocal = (timestamp?: number) => {
   if (!timestamp) return "";
   const date = new Date(timestamp);
   return new Date(timestamp - date.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
+};
+
+/**
+ * Batas bawah "perkiraan tersedia lagi" di meja kerja admin: waktu SEKARANG.
+ *
+ * Tanpa ini, admin bisa menyimpan "tersedia lagi" untuk kemarin — yang di
+ * katalog publik akan tampil sebagai jam yang sudah lewat, dan tidak ada yang
+ * bisa dikejar. Pergeseran zona waktu eksplisit karena `toISOString()` UTC.
+ */
+const minNextAvailableAtLocal = () => {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
     .toISOString()
     .slice(0, 16);
 };
@@ -1203,6 +1218,14 @@ function AdminWorkspace() {
                   }}
                   placeholder="Pilih tanggal dan jam"
                   type="datetime-local"
+                  min={minNextAvailableAtLocal()}
+                  className="field-datetime"
+                  hintId="admin-next-available-hint"
+                  hint={
+                    draft.nextAvailableAt
+                      ? `Tersimpan: ${formatDateTime(draft.nextAvailableAt, true)}`
+                      : "Batas bawahnya waktu sekarang. Format mengikuti kalender perangkat Anda."
+                  }
                 />
                 <Field
                   label="Rata-rata balas (menit)"

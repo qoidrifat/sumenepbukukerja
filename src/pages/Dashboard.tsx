@@ -78,6 +78,38 @@ type OwnerDraft = {
 const ownerInputClass =
   "min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base text-slate-900 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 
+/**
+ * Batas bawah "perkiraan tersedia lagi": waktu SEKARANG, dalam bentuk lokal.
+ *
+ * Field ini menjawab "kapan saya bisa dilayani lagi" — jawaban di masa lalu
+ * tidak pernah masuk akal, dan tanpa batas bawah orang bisa menyimpan jam
+ * 08.00 pagi yang sudah lewat. Pergeseran zona waktu dilakukan
+ * eksplisit karena `toISOString()` selalu UTC.
+ */
+function minAvailableAtLocal(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+/**
+ * Balikan waktu yang tersimpan, dalam bahasa Indonesia.
+ *
+ * Sama seperti di form permintaan: kontrol `datetime-local` memakai lokalitas
+ * perangkat, jadi isian `28/09/2026 18.30` bisa dibaca berbeda oleh orang
+ * lain. Baris ini membuat apa yang benar-benar tersimpan terlihat.
+ */
+function formatDraftAvailability(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
 const ownerStatusSelectOptions: ThemedSelectOption[] = [
   { value: "active", label: "Tayang" },
   { value: "draft", label: "Simpan sebagai draft" },
@@ -503,7 +535,7 @@ function OwnerListingManager() {
             <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-sm font-extrabold text-slate-800">Jam kerja</span><input value={draft.hours} onChange={(event) => updateDraft({ hours: event.target.value })} className={ownerInputClass} placeholder="Setiap hari · 07.00–17.00" /></label>
             <label className="flex flex-col gap-1.5" htmlFor={statusFieldId}><span className="text-sm font-extrabold text-slate-800">Status listing</span><ThemedSelect id={statusFieldId} value={draft.status} onValueChange={(value) => updateDraft({ status: value as OwnerDraft["status"] })} options={ownerStatusSelectOptions} /></label>
             <label className="flex flex-col gap-1.5" htmlFor={availabilityFieldId}><span className="text-sm font-extrabold text-slate-800">Ketersediaan</span><ThemedSelect id={availabilityFieldId} value={draft.availability} onValueChange={(value) => updateDraft({ availability: value as OwnerAvailability })} options={availabilitySelectOptions} /></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Perkiraan tersedia lagi</span><input type="datetime-local" value={draft.nextAvailableAt} onChange={(event) => updateDraft({ nextAvailableAt: event.target.value })} className={ownerInputClass} /></label>
+            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Perkiraan tersedia lagi</span><input type="datetime-local" value={draft.nextAvailableAt} min={minAvailableAtLocal()} onChange={(event) => updateDraft({ nextAvailableAt: event.target.value })} aria-describedby="next-available-hint" className={`${ownerInputClass} field-datetime field-datetime--public`} /><span id="next-available-hint" className="text-xs font-medium text-slate-500">{draft.nextAvailableAt ? `Tersimpan: ${formatDraftAvailability(draft.nextAvailableAt)}` : "Format mengikuti kalender perangkat Anda."}</span></label>
             <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Rata-rata balas (menit)</span><input type="number" min="1" value={draft.responseMinutes} onChange={(event) => updateDraft({ responseMinutes: event.target.value })} className={ownerInputClass} /></label>
             <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Radius layanan (km)</span><input type="number" min="1" value={draft.serviceRadiusKm} onChange={(event) => updateDraft({ serviceRadiusKm: event.target.value })} className={ownerInputClass} /></label>
             <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Tag pencarian</span><input value={draft.tagsText} onChange={(event) => updateDraft({ tagsText: event.target.value })} className={ownerInputClass} placeholder="Tukang, cat, perbaikan" /></label>

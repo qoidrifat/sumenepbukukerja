@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
@@ -15,24 +16,7 @@ import { api } from "./_generated/api";
  * publik - pada ukuran: produksi-saati, beberapa ratus, dan tepat di ambang.
  */
 
-const modules = {
-  access: () => import("./access"),
-  adminGate: () => import("./adminGate"),
-  analytics: () => import("./analytics"),
-  audit: () => import("./audit"),
-  auth: () => import("./auth"),
-  claims: () => import("./claims"),
-  community: () => import("./community"),
-  crons: () => import("./crons"),
-  dataRetention: () => import("./dataRetention"),
-  errorReports: () => import("./errorReports"),
-  http: () => import("./http"),
-  offers: () => import("./offers"),
-  storage: () => import("./storage"),
-  users: () => import("./users"),
-  vendors: () => import("./vendors"),
-  whatsapp: () => import("./whatsapp"),
-};
+const modules = import.meta.glob("./**/*.ts");
 
 const now = () => Date.now();
 

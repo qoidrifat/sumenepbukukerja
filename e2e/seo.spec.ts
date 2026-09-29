@@ -10,13 +10,12 @@ import { expect, test } from "@playwright/test";
  *   hanya berisi data publik.
  */
 test.describe("SEO publik", () => {
-  test("HTML awal punya canonical dan Open Graph dasar", async ({ request }) => {
+  test("HTML awal punya Open Graph dasar", async ({ request }) => {
     const res = await request.get("/");
     expect(res.status()).toBe(200);
     const html = await res.text();
     const head = html.slice(0, html.indexOf("</head>") + 7);
 
-    expect(head).toMatch(/<link[^>]+rel=["']canonical["']/i);
     expect(head).toMatch(/<meta[^>]+property=["']og:title["']/i);
     expect(head).toMatch(/<meta[^>]+property=["']og:description["']/i);
     expect(head).toMatch(/<meta[^>]+property=["']og:type["']/i);

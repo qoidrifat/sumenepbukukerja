@@ -18,14 +18,17 @@
     Halaman dirender di peramban, jadi tag per-listing (judul, OG, canonical,
     JSON-LD) baru ada setelah React berjalan - lihat src/lib/use-listing-metadata.ts.
     Tanpa tag di bawah ini, crawler yang TIDAK menjalankan JavaScript menerima
-    `<head>` yang sama sekali tidak punya canonical maupun Open Graph.
+    `<head>` yang sama sekali tidak punya Open Graph.
 
     Semua nilainya bawaan situs dan ditimpa per-listing saat runtime
     (`upsertMeta` memperbarui tag yang sudah ada, bukan membuat duplikat).
-    Canonical ditulis relatif supaya tidak perlu menebak domain produksi di
-    dalam repo.
+
+    Canonical SENGAJA TIDAK ditulis di sini. Vite memperlakukan `href` pada
+    `<link>` sebagai URL aset dan akan membacanya dari `public/`; `href="/"`
+    menunjuk direktori, bukan berkas, dan build gagal (EISDIR). Canonical
+    absolut per-listing sudah ditulis runtime; canonical di HTML awal menuntut
+    prerender (lihat README, bagian SEO).
   -->
-  <link rel="canonical" href="/" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Sumenep Buku Kerja" />
   <meta property="og:title" content="Sumenep Buku Kerja — Katalog lokal untuk warga Sumenep" />

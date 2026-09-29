@@ -359,6 +359,26 @@ backup yang bocor berarti membocorkan seluruh riwayat backup.
   `users.profileImageStorageId`, atau dipakai dokumen cadangan.
 - Unggahan foto memakai dedup sha256 di peramban: berkas identik tidak pernah
   diunggah dua kali (lihat `src/lib/image-upload.ts`).
+
+#### Apa yang sudah terbukti, dan apa yang belum
+
+Kedua hal ini sengaja dibedakan karena sumber buktinya berbeda:
+
+- **Keamanan produksi sudah terverifikasi.** Cron benar-benar berjalan di
+  deployment dan tidak salah menghapus. Eksekusi sungguhan terhadap data
+  produksi melaporkan `scanned: 0, deleted: 0` karena semua blob yang ada
+  masih di bawah masa tenggang 24 jam. Yang terbukti adalah bahwa Persyaratan
+  sudah benar, bukan bahwa ada berkas yang benar-benar terhapus.
+- **Jalur penghapusan sudah terverifikasi lewat tes otomatis.** Berkas
+  `src/convex/storage-race.test.ts` membuat blob yatim dengan umur yang
+  dipalsukan (>24 jam) lalu memastikan `deleted: 1`. Tes yang sama memastikan
+  blob yang masih muda tidak dihapus, blob yang masih dirujuk tidak dihapus,
+  dan eksekusi kedua tidak menghapus apa pun (idempoten).
+
+Belum ada bukti produksi bahwa penghapusan sungguhan terjadi. Untuk itu
+diperlukan satu blob yatim asli yang sudah melewati masa tenggang. Jangan
+mencatat "production deletion observed" sebelum itu terlihat.
+
 ## Utang teknis yang disengaja (Fase 2, Juli 2026)
 
 Tiga berkas masih besar. Ini dicatat, bukan diperbaiki:
@@ -367,7 +387,6 @@ Tiga berkas masih besar. Ini dicatat, bukan diperbaiki:
 |---|---|
 | `src/pages/Admin.tsx` | 1.537 |
 | `src/convex/adminGate.ts` | 1.549 |
-| `src/convex/community.ts` | 1.388 |
 | `src/convex/community.ts` | 1.388 |
 
 Ekstraksi pertama sudah dilakukan dan berhasil (`admin-workspace-hero.tsx`),
@@ -386,16 +405,77 @@ Yang sudah diekstraksi (bukti bahwa jalurnya bekerja):
 Yang dilakukan sebagai gantinya: pengujian di `Admin.tsx` dipindah mengikuti
 kodenya, dan batas file dikunci agar tidak tumbuh lagi tanpa alasan.
 
+## Landing dirender satu kali (Fase 3)
+
+Dulu `Landing` membungkus `DirectoryContent` dengan DUA shell: satu `lg:hidden`
+untuk mobile dan satu `hidden lg:block` untuk desktop, padahal isinya identik.
+Akibatnya:
+
+- setiap `id` jadi ganda di DOM, jadi HTML-nya tidak valid;
+- `getElementById` dan navigasi fragment browser selalu mendarat di salinan
+  PERTAMA, yaitu shell mobile yang `display:none` di lebar desktop;
+- akibat konkretnya, di desktop SEMUA anchor dalam halaman (`#katalog`,
+  `#permintaan`, `#cara-pakai`) dan tombol hero "Mulai cari jasa" tidak
+  melakukan apa-apa.
+
+Perbaikannya satu shell, dengan selisih padding `pb-safe-nav` dipindah ke
+media query `lg` di `src/index.css`. Terukur di Chromium:
+
+```text
+#katalog       : 2 -> 1
+node DOM       : 2525 -> 1280
+scrollY CTA    : 0 -> 894 (sebelumnya tidak bergerak)
+```
+
+Regresi dikunci di `src/pages/landing-shell.test.ts` (sumber) dan
+`e2e/main-flow.spec.ts` (perilaku di peramban sungguhan).
+
 ## Catatan SEO
 
 Metadata listing publik (`title`, `description`, Open Graph, canonical,
 JSON-LD `LocalBusiness`) ditulis di peramban lewat `useEffect` pada
-`src/lib/use-listing-metadata.ts`. Konsekuensinya harus diketahui: crawler
-yang tidak menjalankan JavaScript hanya melihat metadata generik dari
-`index.html`. Sitemap XML (`/sitemap.xml`) dan `/robots.txt` tersedia di router
-HTTP Convex, jadi mesin pencari tetap punya peta URL yang benar, dan URL itu
-sama dengan yang dirender peramban. Untuk metadata di HTML awal, diperlukan
-prerender di platform — lihat "Deferred Work" pada laporan Fase 2.
+`src/lib/use-listing-metadata.ts`.
+
+### Yang sudah ada
+
+- `index.html` sekarang membawa Open Graph dasar situs (`og:title`,
+  `og:description`, `og:type`, `og:site_name`, `twitter:card`), sehingga
+  crawler tanpa JavaScript tidak lagi menerima `<head>` yang kosong sama
+  sekali. Tag ini ditimpa per-listing setelah hidrasi.
+- Sitemap XML (`/sitemap.xml`) dan `/robots.txt` tersedia di router HTTP
+  Convex, jadi mesin pencari tetap punya peta URL yang benar, dan URL itu
+  sama dengan yang dirender peramban. Rute privat (`/admin`, `/dashboard`,
+  `/auth`, `/invite/*`) tidak pernah masuk sitemap.
+
+### Yang BELUM ada, dan kenapa ditunda
+
+Bukti terukur terhadap build produksi untuk `/v/<slug>`:
+
+```text
+title       : judul generik situs
+canonical   : tidak ada
+og:*        : tidak ada
+JSON-LD     : tidak ada
+nama listing: tidak ada di HTML
+```
+
+Artinya ketujuh target metadata (title, description, canonical, OG title,
+OG description, OG image, LocalBusiness JSON-LD) BELUM ada di HTML awal.
+
+**Keputusan: `DEFERRED BY DESIGN - REQUIRES HOST/BUILD PRERENDER ARCHITECTURE`.**
+
+Empat opsi yang diperiksa:
+
+| Opsi | Kenapa tidak diambil |
+|---|---|
+| A. Prerender saat build | Listing bisa berubah saat runtime (terbit, diarsipkan, diedit). Prerender build memotret data dan menghasilkan konten basi; listing baru tidak punya halaman sampai deploy ulang. |
+| B. Server HTML per rute | Tidak ada server aplikasi; aplikasi adalah SPA statis. |
+| C. HTML dari router Convex | Route HTTP Convex hanya hidup di origin `*.convex.site`, sedangkan aplikasi dilayani host lain. Tidak ada reverse proxy di repo yang memetakan domain aplikasi ke sana. |
+| D. Prerender tingkat host | Butuh konfigurasi host di luar repo, tidak bisa diverifikasi dari sini. |
+
+Yang perlu disiapkan bila someday dikerjakan: siklus build ulang (agar tidak
+basi), konfirmasi bahwa host mengutamakan berkas statis sebelum fallback SPA,
+dan `og:image` yang butuh URL absolut.
 
 - This includes importing generated files like `@/convex/_generated/server`, `@/convex/_generated/api`
 - Remember to import functions like useQuery, useMutation, useAction, etc. from `convex/react`

@@ -132,6 +132,87 @@ export const publicSitemapVendors = internalQuery({
 //
 // requirement audit secara eksplisit menyatakan belum waktunya, jadi tidak ada
 // kursor paginasi yang ditulis sekarang.
+/**
+ * Bentuk publik katalog.
+ *
+ * Prinsipnya: skema database BUKAN skema API publik. Fungsi ini memilih
+ * field per field, dan TIDAK pernah memakai `...vendor`.
+ *
+ * Sebelumnya `listActive` mengembalikan dokumen vendor utuh, jadi respons
+ * publik memuat `ownerId` (id user internal), `businessId` (id bisnis Meta),
+ * `subscriptionTier`, tiga penghitung analitik internal, `photoId`, serta
+ * `createdAt`/`updatedAt`/`_creationTime`. Semua itu tidak dipakai satu pun
+ * komponen katalog - diukur 37 field terkirim, 22 di antaranya tidak perlu.
+ *
+ * Field yang TIDAK boleh keluar dan alasannya:
+ * - `ownerId`        : pengenal user internal
+ * - `businessId`     : pengenal bisnis Meta
+ * - `subscriptionTier`: informasi komersial
+ * - `whatsappClicks` / `shareClicks` / `searchImpressions`: metrik internal
+ * - `photoId`        : id storage; kartu katalog memakai inisial `mark`
+ * - `status`         : metadata internal; katalog ini hanya berisi aktif
+ * - `createdAt` / `updatedAt` / `_creationTime`: metadata internal
+ */
+type VendorDoc = Doc<"vendors">;
+
+type PublicCatalogVendor = {
+  _id: string;
+  slug: string;
+  name: string;
+  category: string;
+  description: string;
+  address: string;
+  landmark: string;
+  lat?: number;
+  lng?: number;
+  price: string;
+  hours: string;
+  phone: string;
+  rating: string;
+  reviewsCount?: number;
+  accent: string;
+  mark: string;
+  tags: string[];
+  featured?: boolean;
+  verified?: boolean;
+  availability?: string;
+  responseMinutes?: number;
+  /** Diturunkan server, bukan field database. */
+  reviews: number;
+  openNow: boolean;
+  distanceKm?: number;
+};
+
+const toPublicCatalogVendor = (vendor: VendorDoc, derived: {
+  openNow: boolean;
+  distanceKm?: number;
+}): PublicCatalogVendor => ({
+  _id: vendor._id,
+  slug: vendor.slug,
+  name: vendor.name,
+  category: vendor.category,
+  description: vendor.description,
+  address: vendor.address,
+  landmark: vendor.landmark,
+  ...(vendor.lat === undefined ? {} : { lat: vendor.lat }),
+  ...(vendor.lng === undefined ? {} : { lng: vendor.lng }),
+  price: vendor.price,
+  hours: vendor.hours,
+  phone: vendor.phone,
+  rating: vendor.rating,
+  ...(vendor.reviewsCount === undefined ? {} : { reviewsCount: vendor.reviewsCount }),
+  accent: vendor.accent,
+  mark: vendor.mark,
+  tags: vendor.tags,
+  ...(vendor.featured === undefined ? {} : { featured: vendor.featured }),
+  ...(vendor.verified === undefined ? {} : { verified: vendor.verified }),
+  ...(vendor.availability === undefined ? {} : { availability: vendor.availability }),
+  ...(vendor.responseMinutes === undefined ? {} : { responseMinutes: vendor.responseMinutes }),
+  reviews: vendor.reviewsCount ?? 0,
+  openNow: derived.openNow,
+  ...(derived.distanceKm === undefined ? {} : { distanceKm: derived.distanceKm }),
+});
+
 export const listActive = query({
   args: {
     category: v.optional(v.string()),
@@ -164,12 +245,7 @@ export const listActive = query({
           /24|24 jam|setiap hari|senin|minggu/.test(vendor.hours.toLowerCase()) &&
           currentMinutes >= 360 &&
           currentMinutes <= 1320;
-        return {
-          ...vendor,
-          reviews: vendor.reviewsCount ?? 0,
-          distanceKm,
-          openNow,
-        };
+        return toPublicCatalogVendor(vendor, { openNow, distanceKm });
       })
       .filter(
         (vendor) =>
@@ -210,7 +286,19 @@ export const getBySlug = query({
       .withIndex("byVendor", (q) => q.eq("vendorId", vendor._id))
       .order("desc")
       .take(20);
-    return { ...vendor, reviews };
+    // Bentuk profil punya satu bidang tambahan dibanding katalog: `photoId`.
+    // Halaman profil memakainya untuk meminta URL gambar listing, dan gambar
+    // itu memang sudah ditampilkan publik - jadi ini pengenal, bukan rahasia.
+    // Field internal lainnya tetap dikecualikan, sama seperti katalog.
+    return {
+      ...toPublicCatalogVendor(vendor, { openNow: false, distanceKm: undefined }),
+      address: vendor.address,
+      availabilityNote: vendor.availabilityNote,
+      nextAvailableAt: vendor.nextAvailableAt,
+      serviceRadiusKm: vendor.serviceRadiusKm,
+      photoId: vendor.photoId,
+      reviews,
+    };
   },
 });
 

@@ -4,9 +4,9 @@ import { expect, test } from "@playwright/test";
  * Halaman publik menunggu query Convex sungguhan sebelum katalog muncul.
  * Diukur: 6,3-7,0 detik untuk muat dingin saat empat halaman dibuka
  * bersamaan. Bawaan `expect.timeout` 8 detik jadi rapuh di bawah beban,
- * jadi PROCESS_TERSEDIA dipakai untuk Assertion "aplikasi sudah ter-render".
- * Ini meny accommodating lingkungan, bukan menutupi bug: halamannya benar-
- * benar muncul, hanya butuh waktu lebih lama di bawah beban.
+ * jadi APP_SIAP dipakai untuk assertion "aplikasi sudah ter-render".
+ * Ini menyesuaikan lingkungan, bukan menutupi bug: halamannya benar-benar
+ * muncul, hanya butuh waktu lebih lama di bawah beban.
  */
 const APP_SIAP = 30_000;
 

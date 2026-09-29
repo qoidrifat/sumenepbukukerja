@@ -287,7 +287,6 @@ function RequestCard({ request }: { request: RequestWithExpiry }) {
   const [message, setMessage] = useState("");
   const matches = vendors
     .filter((vendor) => vendor.category === request.category && (request.landmark === "all" || vendor.landmark === request.landmark))
-    .filter((vendor) => vendor.status !== "archived")
     .slice(0, 3);
   const vendorSlug = request.vendorId ? vendors.find((vendor) => vendor._id === request.vendorId)?.slug : undefined;
   const isRequester = Boolean(user?._id && user._id === request.requesterId);

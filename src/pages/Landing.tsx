@@ -177,7 +177,22 @@ function VendorCard({ vendor, landmark, saved, onSave, onCompare }: { vendor: Ve
             <span className="inline-flex items-center gap-1 text-sm font-bold text-amber-700"><span aria-hidden="true">★</span> {vendor.rating} <span className="font-medium text-slate-500">({vendor.reviews})</span></span>
             <AvailabilityBadge vendor={vendor} />
           </div>
-          <h3 className="text-[clamp(1.05rem,2.5vw,1.25rem)] font-extrabold leading-snug tracking-[-0.025em] text-slate-950">{vendor.name}</h3>
+          <h3 className="text-[clamp(1.05rem,2.5vw,1.25rem)] font-extrabold leading-snug tracking-[-0.025em] text-slate-950">
+            {/*
+              Nama listing adalah tautan ke profil publiknya. Sebelumnya
+              satu-satunya jalan dari katalog ke `/v/:slug` adalah menyalakan
+              peta lalu mengklik pin, jadi halaman profil yang ada di sitemap
+              tidak bisa dijangkau dari katalog dalam satu klik.
+              Dipakai `<Link>` (bukan onClick) supaya tetap tautan sungguhan:
+              bisa difokuskan, punya href, dan berfungsi tanpa JavaScript.
+            */}
+            <Link
+              to={`/v/${vendor.slug}`}
+              className={`rounded transition-colors hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${focusRing}`}
+            >
+              {vendor.name}
+            </Link>
+          </h3>
           <p className="mt-1 line-clamp-2 text-base leading-6 text-slate-600">{vendor.description}</p>
           {vendor.featured && <span className="mt-2 inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-sm font-extrabold text-amber-800"><Sparkles className="size-3.5" />Pilihan warga</span>}
         </div>

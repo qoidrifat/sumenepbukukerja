@@ -60,22 +60,26 @@ test.describe("Sumenep Buku Kerja resident flow", () => {
     const search = page.getByPlaceholder("Cari usaha atau jasa...");
     await expect(search).toBeVisible();
 
-    // Kartu katalog di landing memang tidak punya tautan profil: konversi
-    // utamanya adalah tombol WhatsApp. Satu-satunya jalan dari katalog ke
-    // halaman profil publik adalah pin peta, dan petanya opt-in.
-    const beforeFilter = await page.locator('a[href^="/v/"]').count();
-    expect(beforeFilter).toBe(0);
+    // Setiap kartu katalog menautkan nama listingnya ke profil publiknya.
+    // Sebelumnya satu-satunya jalan ke /v/:slug adalah menyalakan peta lalu
+    // mengklik pin, jadi halaman yang ada di sitemap tidak terjangkau dalam
+    // satu klik.
+    const profileLink = page
+      .locator('#katalog a[href^="/v/"]')
+      .first();
+    await expect(profileLink).toBeVisible();
+    const hrefBefore = await profileLink.getAttribute("href");
+    expect(hrefBefore).toMatch(/^\/v\/[a-z0-9-]+$/);
 
     await search.fill("laundry");
     await expect(page.getByText(/Laundry Bersih Terang/i).first()).toBeVisible();
 
-    // Nyalakan peta, lalu klik pin listing yang muncul.
-    await page.getByRole("button", { name: /^Peta$/ }).click();
-    const pin = page.locator('a[href^="/v/"]').first();
-    await expect(pin).toBeVisible();
-    await pin.click();
+    // Klik tautan langsung di kartu, tanpa menyalakan peta.
+    const cardLink = page.locator('#katalog a[href="/v/laundry-bersih-terang"]').first();
+    await expect(cardLink).toBeVisible();
+    await cardLink.click();
 
-    await expect(page).toHaveURL(/\/v\//);
+    await expect(page).toHaveURL(/\/v\/laundry-bersih-terang$/);
     // `h1` di halaman profil berisi nama listing.
     await expect(page.getByRole("heading", { level: 1, name: /Laundry Bersih Terang/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Simpan listing|Hapus dari tersimpan/ }).first()).toBeVisible();

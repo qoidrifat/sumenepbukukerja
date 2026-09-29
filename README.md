@@ -453,13 +453,25 @@ memakainya untuk meminta URL gambar - dan gambar itu memang ditampilkan
 publik. Jadi itu pengenal, bukan rahasia; di katalog kartu tidak memakainya dan
 field-nya dihilangkan.
 
-Diukur pada 500 listing aktif: muatan JSON turun dari **447.952 ke 240.281
-byte (−46,3%)**, jumlah field per listing dari **37 ke 21**. Di 6 listing:
-5.345 ke 2.863 byte, gzip 403 byte.
+Diukur pada 500 listing aktif: muatan JSON turun dari **447.952 ke 245.781
+byte (−45,1%)**, jumlah field per listing dari **37 ke 21**. Di 6 listing:
+5.345 ke 2.929 byte, gzip 403 byte.
+
+Angka di atas diukur ulang pada 29 September 2026 (Fase 6). Nilai sebelumnya
+yang tertulis di sini (240.281 byte) sudah usang; angka baselinenya 447.952
+tetap sama karena diukur dari bentuk dokumen penuh sebelum proyeksi.
 
 Pengunci: `src/convex/public-data-surface.test.ts` (7 test) - memastikan field
 internal tidak bocor, field publik tetap ada, katalog tetap bisa dibaca tanpa
 akun, dan pengguna terautentikasi tidak mendapat field tambahan.
+
+> **Dua angka muatan yang berbeda itu disengaja, bukan pertentangan.**
+> `public-data-surface.test.ts` memakai fixture dengan deskripsi panjang
+> ("Deskripsi usaha yang cukup panjang untuk menguji beban") sehingga keluar
+> **245.781 byte**, sedangkan `catalog-scale.test.ts` memakai fixture lebih
+> pendek sehingga keluar **213.281 byte** pada 500 vendor. Yang dibandingkan
+> dengan baseline 447.952 selalu angka yang pertama, karena hanya itu yang
+> diukur sebelum-dan-sesudah pada fixture yang sama.
 
 ### Yang sengaja dibiarkan
 
@@ -468,6 +480,141 @@ memang membutuhkannya untuk menampilkan "permintaan saya" di papan warga.
 Menghilangkan field itu berarti mengganti bentuk respons dan audit logika
 pemilik di klien - pekerjaan tersendiri, bukan perbaikan kecil. Dilaporkan,
 tidak diubah diam-diam.
+
+## Backlog 17 requirement (Fase 1-6)
+
+Ini **backlog kanonik**. Penomoran di bawah adalah penomoran asli sejak awal
+proyek dan tidak boleh diubah. Laporan fase yang menyusun ulang nomor - dengan
+mencampur requirement asli dan temuan baru seperti "public data minimization"
+atau "runtime integrity" - tidak bisa dibandingkan dengan histori audit.
+Karena itu tabel ini yang jadi acuan, bukan ringkasan per fase.
+
+Status hanya boleh salah satu dari: `PASS`, `PARTIAL - DEFERRED BY DESIGN`,
+`IMPLEMENTED - EXTERNAL VERIFICATION PENDING`, `DEFERRED BY DESIGN`, `BLOCKED`,
+`FAILED`. Tidak ada "hampir selesai", "100%", atau "seharusnya jalan".
+
+### Tabel status (per 29 September 2026, akhir Fase 7)
+
+| # | Requirement | Sumber | Test | Produksi | Status |
+|---:|---|---|---|---|---|
+| 1 | WhatsApp | ya | ya | 0 terkirim / 9 gagal | `IMPLEMENTED - EXTERNAL VERIFICATION PENDING` |
+| 2 | Two-session / staff bootstrap | ya | ya | tidak dijalankan | `BLOCKED` |
+| 3 | Server-side IP context | ya | ya | ya | `PASS` |
+| 4 | SHA-256 dedup | ya | ya | ya | `PASS` |
+| 5 | Orphan cleanup | ya | ya | `deleted=0` | `IMPLEMENTED - EXTERNAL VERIFICATION PENDING` |
+| 6 | Image downscale | ya | ya | ya | `PASS` |
+| 7 | Analytics throttle | ya | ya | ya | `PASS` |
+| 8 | Bundle | ya | ya | ya | `PASS` |
+| 9 | SEO | sebagian | ya | sebagian | `PARTIAL - DEFERRED BY DESIGN` |
+| 10 | Reviews | ya | ya | ya | `PASS` |
+| 11 | Daily admin summary | ya | ya (15 test) | tidak dijalankan | `IMPLEMENTED - EXTERNAL VERIFICATION PENDING` |
+| 12 | Notifications | ya | ya | terkirim belum terbukti | `PASS` |
+| 13 | Decomposition | sebagian | - | - | `DEFERRED BY DESIGN` |
+| 14 | Playwright E2E | ya | ya | 0 gagal / 8 skip | `IMPLEMENTED - EXTERNAL VERIFICATION PENDING` |
+| 15 | Backup | ya | ya | ya | `PASS` |
+| 16 | Error aggregation | ya | ya | ya | `PASS` |
+| 17 | Pagination | sengaja tidak | ya (bukti) | - | `DEFERRED BY DESIGN` |
+
+**Rekap: `PASS` 9 · `IMPLEMENTED - EXTERNAL VERIFICATION PENDING` 4 · `BLOCKED` 1 · `PARTIAL - DEFERRED BY DESIGN` 1 · `DEFERRED BY DESIGN` 2 = 17.**
+
+Sumber per item: #1/#12 `src/convex/whatsapp.ts` · #2 `e2e/flows.spec.ts:116` ·
+#3 `src/convex/adminGate.ts:31-157` · #4 `src/convex/errorReports.ts:129-222` ·
+#5 `src/convex/dataRetention.ts` · #6 `src/lib/image-upload.ts` ·
+#7 `src/convex/analytics.ts:33` · #8 hasil `vite build` · #9 `src/lib/use-listing-metadata.ts` +
+`src/lib/sitemap.ts` · #10 `src/convex/vendors.ts:740` · #11 `src/convex/whatsapp.ts:1050,1088` ·
+#13 lihat "Utang teknis yang disengaja" · #14 `e2e/` · #15 `src/convex/storage.ts` ·
+#16 `src/convex/errorReports.ts` · #17 `src/convex/catalog-scale.test.ts`.
+
+### Temuan Fase 5-6 (bukan requirement baru - jangan diberi nomor)
+
+Temuan-temuan ini nyata dan diverifikasi, tapi bukan bagian dari 17 backlog.
+Memberinya nomor sendiri membuat hitungan jadi menyesatkan, jadi statusnya
+dicatat terpisah di sini.
+
+| Temuan | Sumber | Test | Produksi | Status |
+|---|---|---|---|---|
+| Public data minimization | `src/convex/vendors.ts:159-213` | ya | ya (21 field, live) | `PASS` |
+| Runtime integrity | `src/pages/Landing.tsx` | ya | ya | `PASS` |
+| Listing discovery `/v/:slug` | `e2e/discovery.spec.ts` | ya | ya | `PASS` |
+| Sitemap/robots di deployment | `src/convex/http.ts:413-414` | ya | **404 di origin** | `BLOCKED` |
+| Proyeksi data publik regresi | `src/convex/public-data-surface.test.ts` | ya | ya | `PASS` |
+| `community:listRequests` `requesterId` | `src/convex/community.ts:265` | - | ya (terbaca live) | `DEFERRED BY DESIGN` |
+
+### Item 11 - gap test yang ditutup di Fase 7
+
+Sampai akhir Fase 6, `adminDailySummaryCounts` (`src/convex/whatsapp.ts:1050`),
+`sendAdminDailySummary` (`:1088`), dan registrasi cron-nya **tidak punya satu
+pun test**. Kegagalan di sana adalah keheningan: ringkasan bisa diam-diam
+mengirim angka nol, melewatkan admin, atau melaporkan "terkirim" padahal
+provider menolaknya.
+
+`src/convex/admin-daily-summary.test.ts` (15 test) menutupnya TANPA kredensial
+apa pun. Yang dikunci:
+
+- angka `openErrorReports` / `newRequests` / `activeAdminSessions` dihitung
+  dari tabelnya masing-masing, dengan hanya `status: "open"` yang dihitung;
+- jendela 24 jam untuk permintaan dan 15 menit untuk sesi admin aktif;
+- tanpa `ERROR_ALERT_WHATSAPP` → dilewati dengan alasan, **tanpa** membakar
+  baris `whatsappDeliveries`;
+- provider menolak → baris tercatat `failed` + `lastErrorCode`, dan
+  **tidak pernah** `sent`;
+- `deliveryKey` beruffix tanggal WIB membuat dua kali jalan pada hari yang
+  sama tidak menghasilkan kiriman kedua;
+- cron terdaftar dan tidak diarahkan ke `api.*`;
+- `adminAlertBlockers` memperingatkan kode Meta 131008 sebelum tombol ditekan.
+
+Yang TIDAK dibuktikan berkas ini: pesan benar-benar sampai ke recipient. Itu
+masih bergantung bukti pengiriman nyata, jadi statusnya tidak naik ke `PASS`.
+
+### Item 14 - nondeterminisme E2E yang ditutup di Fase 7
+
+Laporan Fase 6 mencatat 31 passed / 9 skipped, sementara baseline yang
+disebutkan adalah 32 / 8. Penyebabnya sudah ditelusuri, bukan diasumsikan:
+
+`e2e/flows.spec.ts:170` ("passcode salah ditolak") memakai
+`test.skip((await passcodeField.count()) === 0, ...)`. Pengecekan itu dilakukan
+**seketika setelah `goto`**, padahal gerbang dirender di dalam
+`AnimatedContent` (Framer Motion) yang belum sempat me-mount. Di Desktop
+elemennya sudah ada, di Pixel 5 belum - jadi test yang sama **PASS di satu
+perangkat dan SKIP di perangkat lain**. Akibatnya seluruh pemeriksaan gerbang
+admin di mobile hilang dari laporan tanpa ada yang gagal.
+
+Skip itu tidak sah: `needsPasscode = adminGateRequired && passcodeGranted ===
+null` (`src/pages/Auth.tsx:78`) hanya bergantung URL, dan pengunjung yang
+belum masuk tidak punya tiket passcode. Jadi di konteks peramban yang bersih
+gerbang itu **wajib** muncul.
+
+Test sekarang menunggu gerbangnya (field + tombol "Verifikasi passcode",
+timeout 15 detik). Kalau gerbang benar-benar tidak muncul, test **gagal keras**
+- bukan menghilang dari laporan. Ini menambah pemeriksaan, tidak menguranginya.
+
+Hasil dua kali berturut-turut (identik, jadi deterministik):
+
+```text
+run 1 : 40 test - 32 passed - 8 skipped - 0 failed
+run 2 : 40 test - 32 passed - 8 skipped - 0 failed
+        passcode desktop 2,7s · passcode mobile 3,7s / 3,9s
+```
+
+Sisa 8 skip semuanya sah: 4 kredensial (login + two-session) dan 4 lingkungan
+(sitemap/robots, karena origin deployment tidak menyajikan XML).
+
+### Prasyarat yang belum terpenuhi (kenapa 5 item belum PASS)
+
+Empat item tidak `PASS` bukan karena kodenya belum ada, melainkan karena
+bukti eksternal belum bisa diperoleh. Dicatat di sini supaya tidak dibaca
+sebagai kemalasan:
+
+| Item | Prasyarat | Diberikan oleh |
+|---|---|---|
+| 1 WhatsApp | `WHATSAPP_TEMPLATE_NAME` disetujui + `ERROR_ALERT_WHATSAPP` terisi | Keys + WhatsApp Manager |
+| 2 Two-session | `E2E_USER_EMAIL`, `E2E_USER_PASSWORD`, `STAFF_BOOTSTRAP_EMAILS` | Keys |
+| 11 Daily summary | bukti pengiriman nyata (`delivered >= 1`) | bergantung item 1 |
+
+Item 11 naik dari `BLOCKED` ke `IMPLEMENTED - EXTERNAL VERIFICATION PENDING`
+karena gap internalnya sudah ditutup (lihat catatan di bawah). Yang tersisa
+hanya bukti pengiriman nyata, dan itu bergantung item 1.
+| 14 E2E | kredensial di atas, supaya 4 skip kredensial jadi dieksekusi | Keys |
 
 ## Performa katalog (Fase 4)
 
@@ -486,6 +633,15 @@ Benchmark: `bun run perf:catalog [jumlahSampel]` (butuh Chromium Playwright). Ba
 | `#katalog` terpasang | 804 ms |
 | **catalog-ready** | **923 ms** (min 820, max 1018) |
 | perjalanan data Convex (kartu − shell) | **113 ms** |
+
+Dukur ulang Fase 6 (29 September 2026, 5 sampel, build produksi, Chromium)
+memberi: catalog-ready median **921 ms** (min 736, max 1045), FCP **396 ms**,
+first paint **208 ms**, domContentLoaded **313 ms**, JS **364.954 byte / 15
+permintaan**, 6 kartu. Rentang beririsan penuh dengan tabel di atas, jadi
+tidak ada regresi performa setelah Fase 5 dan 6.
+
+Angka-angka ini **selalu build lokal**, bukan latensi internet produksi. Jangan
+dibaca sebagai SLA.
 
 ### Dua koreksi penting atas catatan sebelumnya
 
@@ -524,14 +680,21 @@ perubahan dikembalikan. Berkas `vly-toolbar-readonly.tsx` tidak pernah diubah.
 
 | Vendor | ms | ms/vendor | Muatan |
 |---:|---:|---:|---:|
-| 6 | 1 | 0,167 | - |
-| 100 | 6 | 0,060 | - |
-| 300 | 10 | 0,033 | - |
-| 500 | 16 | 0,032 | 266 KB |
+| 6 | 2 | 0,333 | - |
+| 100 | 8 | 0,080 | - |
+| 300 | 13 | 0,043 | - |
+| 500 | 16 | 0,032 | 213.281 byte |
 
-Data tumbuh 83×, latensi hanya 16× - **sublinear, tanpa cliff**, dan biaya
+Data tumbuh 83,3×, latensi hanya 8× - **sublinear, tanpa cliff**, dan biaya
 per vendor justru turun. Di ambang 500 vendor, query memakan 16 ms. Keputusan
 menunda paginasi karena itu terbukti oleh ukuran, bukan tebakan.
+
+Angka tabel ini diukur ulang pada 29 September 2026. Kolom "Muatan" memakai
+fixture milik `catalog-scale.test.ts` sendiri, jadi angkanya **213.281 byte**,
+bukan angka fixture panjang milik `public-data-surface.test.ts` (245.781 byte)
+dan bukan lagi "266 KB" yang tertinggal dari masa sebelum proyeksi data publik.
+Rasio per-vendor sedikit naik di sizes kecil karena fixture-nya pendek, bukan
+karena query membesar - di 500 vendor justru tetap turun.
 
 ## Catatan SEO
 
@@ -545,10 +708,23 @@ JSON-LD `LocalBusiness`) ditulis di peramban lewat `useEffect` pada
   `og:description`, `og:type`, `og:site_name`, `twitter:card`), sehingga
   crawler tanpa JavaScript tidak lagi menerima `<head>` yang kosong sama
   sekali. Tag ini ditimpa per-listing setelah hidrasi.
-- Sitemap XML (`/sitemap.xml`) dan `/robots.txt` tersedia di router HTTP
-  Convex, jadi mesin pencari tetap punya peta URL yang benar, dan URL itu
-  sama dengan yang dirender peramban. Rute privat (`/admin`, `/dashboard`,
-  `/auth`, `/invite/*`) tidak pernah masuk sitemap.
+- Sitemap XML (`/sitemap.xml`) dan `/robots.txt` **terdaftar** di router HTTP
+  Convex (`src/convex/http.ts:413-414`), jadi mesin pencari punya peta URL yang
+  benar, dan URL itu sama dengan yang dirender peramban. Rute privat
+  (`/admin`, `/dashboard`, `/auth`, `/invite/*`) tidak pernah masuk sitemap.
+  Logika buildup sitemapnya terverifikasi di `src/lib/listing-metadata.test.ts`.
+
+  > **PENTING - status di deployment (Fase 6, 29 September 2026):**
+  > ketiga route HTTP tersebut **mengembalikan 404 di origin deployment yang
+  > diuji**, begitu juga `/webhook/whatsapp` dan `/admin-security-context` -
+  > 5 dari 5 route, sementara `/api/query` di host yang sama tetap sehat.
+  > Jadi "terdaftar" di atas berarti benar di level KODE, **belum berarti
+  > dapat diakses pengguna**. Status item ini `BLOCKED`, bukan `PASS`; lihat
+  > "Backlog 17 requirement" item 9 dan catatan di bawah. Akar penyebabnya
+  > belum diatribusikan (mode deployment, domain/origin, proxy, environment,
+  > atau konfigurasi platform) - yang terbukti hanya route HTTP tidak
+  > tersaji pada origin itu. Tidak ada perilaku aplikasi yang diubah untuk
+  > menutupi ini.
 
 ### Yang BELUM ada, dan kenapa ditunda
 

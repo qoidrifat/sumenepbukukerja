@@ -170,11 +170,35 @@ test.describe("Skenario C — gerbang passcode admin", () => {
   test("passcode salah ditolak dengan pesan yang jelas, tanpa membuka ruang admin", async ({ page }) => {
     await page.goto("/auth?returnTo=/admin");
     const passcodeField = page.locator('input[name="passcode"]');
-    test.skip((await passcodeField.count()) === 0, "Gerbang passcode tidak tampil (admin sudah masuk atau belum diaktifkan)");
+
+    // DULU test ini memakai `test.skip((await passcodeField.count()) === 0, ...)`.
+    // Itu keliru karena gerbang ini HANYA bergantung URL: `needsPasscode =
+    // adminGateRequired && passcodeGranted === null` (`Auth.tsx:78`), dan
+    // pengunjung yang belum masuk tidak punya tiket passcode. Jadi di
+    // konteks peramban yang bersih, form ini WAJIB muncul.
+    //
+    // Yang sebenarnya terjadi: `count()` dicek seketika setelah `goto`,
+    // padahal `AnimatedContent` (Framer Motion) belum sempat me-mount
+    // elemennya. Di Desktop kebetulan sudah ada, di Pixel 5 belum - jadi
+    // test yang sama PASS di satu perangkat dan SKIP di perangkat lain.
+    // Skip itu bukan pengecualian lingkungan yang sah: ia menghapus seluruh
+    // pemeriksaan gerbang admin di perangkat mobile tanpa ada yang gagal.
+    //
+    // Jadi sekarang test ini MENUNGGU gerbangnya. Kalau gerbang benar-benar
+    // tidak muncul, test gagal keras - bukan menghilang dari laporan.
+    await expect(passcodeField, "gerbang passcode harus muncul di /auth?returnTo=/admin").toBeVisible({
+      timeout: 15_000,
+    });
+    // Tombol masih berbunyi "Memeriksa..." selama gerbang mengecek ke server,
+    // lalu berubah jadi "Verifikasi passcode". Menunggu label yang benar
+    // juga menunggu gerbang selesai checking.
+    const verify = page.getByRole("button", { name: /Verifikasi passcode/i });
+    await expect(verify).toBeVisible({ timeout: 15_000 });
+
     await passcodeField.fill("0000-salah-pasti");
     // Label tombol di halaman auth bukan "Masuk ke Buku Kerja" — itu judul
     // kartu, bukan kendali. Nama yang benar ada di `Auth.tsx`.
-    await page.getByRole("button", { name: /Verifikasi passcode/i }).click();
+    await verify.click();
     // Pesan error harus muncul (role=alert), dan URL tetap di /auth.
     await expect(page.getByRole("alert").first()).toBeVisible();
     await expect(page).toHaveURL(/\/auth/);

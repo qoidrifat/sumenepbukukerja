@@ -123,16 +123,21 @@ crons.weekly(
 );
 
 /**
- * Ringkasan harian untuk admin via WhatsApp.
+ * Ringkasan harian untuk admin.
  *
  * Dipasang pukul 07:00 WIB (00:00 UTC) — batas hari operasional, sebelum admin
  * membuka meja kerja. Idempoten lewat `deliveryKey` beruffix tanggal WIB, jadi
- * cron yang jalan dua kali pada hari yang sama tidak mengirim dua pesan.
+ * cron yang jalan dua kali pada hari yang sama hanya menyiapkan satu baris.
+ *
+ * PERUBAHAN SEMANTIK: cron ini tidak lagi mengirim pesan WhatsApp dari server.
+ * Yang dipanggil hanya menghitung angka dan menyiapkan tautan `wa.me` untuk
+ * dibuka pengelola di panel admin. `wa.me` tidak punya kemampuan pengiriman
+ * otomatis — lihat `NOT REPLACED BY wa.me` di laporan Fase 8.
  */
 crons.daily(
   "ringkasan harian admin",
   { hourUTC: 0 },
-  internal.whatsapp.sendAdminDailySummary,
+  internal.whatsapp.prepareAdminDailySummary,
   {},
 );
 

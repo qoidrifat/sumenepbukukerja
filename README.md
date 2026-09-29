@@ -497,7 +497,7 @@ Status hanya boleh salah satu dari: `PASS`, `PARTIAL - DEFERRED BY DESIGN`,
 
 | # | Requirement | Sumber | Test | Produksi | Status |
 |---:|---|---|---|---|---|
-| 1 | WhatsApp | ya | ya | 0 terkirim / 9 gagal | `IMPLEMENTED - EXTERNAL VERIFICATION PENDING` |
+| 1 | WhatsApp | ya | ya | handoff verified; pengiriman server-side tidak ada lagi | `IMPLEMENTATION CHANGED - REQUIREMENT SEMANTICS REVIEW REQUIRED` |
 | 2 | Two-session / staff bootstrap | ya | ya | tidak dijalankan | `BLOCKED` |
 | 3 | Server-side IP context | ya | ya | ya | `PASS` |
 | 4 | SHA-256 dedup | ya | ya | ya | `PASS` |
@@ -507,7 +507,7 @@ Status hanya boleh salah satu dari: `PASS`, `PARTIAL - DEFERRED BY DESIGN`,
 | 8 | Bundle | ya | ya | ya | `PASS` |
 | 9 | SEO | sebagian | ya | sebagian | `PARTIAL - DEFERRED BY DESIGN` |
 | 10 | Reviews | ya | ya | ya | `PASS` |
-| 11 | Daily admin summary | ya | ya (15 test) | tidak dijalankan | `IMPLEMENTED - EXTERNAL VERIFICATION PENDING` |
+| 11 | Daily admin summary | ya | ya (15 test) | tautan handoff siap; tidak dikirim otomatis | `NOT REPLACED BY wa.me (bagian otomatis)` |
 | 12 | Notifications | ya | ya | terkirim belum terbukti | `PASS` |
 | 13 | Decomposition | sebagian | - | - | `DEFERRED BY DESIGN` |
 | 14 | Playwright E2E | ya | ya | 0 gagal / 8 skip | `IMPLEMENTED - EXTERNAL VERIFICATION PENDING` |
@@ -544,7 +544,8 @@ dicatat terpisah di sini.
 
 Sampai akhir Fase 6, `adminDailySummaryCounts` (`src/convex/whatsapp.ts:1050`),
 `sendAdminDailySummary` (`:1088`), dan registrasi cron-nya **tidak punya satu
-pun test**. Kegagalan di sana adalah keheningan: ringkasan bisa diam-diam
+pun test**. (Fungsi itu sudah diganti `prepareAdminDailySummary` di Fase 8.)
+Kegagalan di sana adalah keheningan: ringkasan bisa diam-diam
 mengirim angka nol, melewatkan admin, atau melaporkan "terkirim" padahal
 provider menolaknya.
 
@@ -554,17 +555,64 @@ apa pun. Yang dikunci:
 - angka `openErrorReports` / `newRequests` / `activeAdminSessions` dihitung
   dari tabelnya masing-masing, dengan hanya `status: "open"` yang dihitung;
 - jendela 24 jam untuk permintaan dan 15 menit untuk sesi admin aktif;
-- tanpa `ERROR_ALERT_WHATSAPP` → dilewati dengan alasan, **tanpa** membakar
-  baris `whatsappDeliveries`;
-- provider menolak → baris tercatat `failed` + `lastErrorCode`, dan
-  **tidak pernah** `sent`;
 - `deliveryKey` beruffix tanggal WIB membuat dua kali jalan pada hari yang
   sama tidak menghasilkan kiriman kedua;
-- cron terdaftar dan tidak diarahkan ke `api.*`;
-- `adminAlertBlockers` memperingatkan kode Meta 131008 sebelum tombol ditekan.
+- cron terdaftar dan tidak diarahkan ke `api.*`.
 
-Yang TIDAK dibuktikan berkas ini: pesan benar-benar sampai ke recipient. Itu
-masih bergantung bukti pengiriman nyata, jadi statusnya tidak naik ke `PASS`.
+Sejak **Fase 8** isi berkas ini ditulis ulang untuk semantik handoff: baris
+ditandai `handoff` (bukan `sent`/`delivered`), penghitung `handoff` terpisah
+dari empat angka pengiriman, dan tidak ada lagi `providerMessageId`. Kronya
+tetap sama: 07:00 WIB, idempoten per tanggal.
+
+Yang TIDAK dibuktikan berkas ini: pesan benar-benar sampai ke recipient.
+`wa.me` tidak punya mekanisme yang bisa membuktikannya, jadi statusnya tidak
+naik ke `PASS`.
+
+### Fase 8 - handoff WhatsApp admin lewat `wa.me`
+
+Komunikasi **admin** tidak lagi memakai WhatsApp Cloud API. Server tidak
+memanggil Meta, tidak punya token untuk jalur itu, dan tidak bisa mengklaim
+bukti pengiriman apa pun. Yang dilakukan adalah menyiapkan tautan click-to-chat:
+
+```
+https://wa.me/<nomor tujuan admin>?text=<pesan ter-encode>
+```
+
+Nomor tujuannya sengaja tidak ditulis di sini. Satu-satunya tempat yang memuatnya
+adalah `src/lib/admin-whatsapp.ts`; kalau README ikut memuat, cepat atau lambat
+nomor itu akan ikut tersalin ke komponen, tes, dan komentar - persis hal yang
+paling ingin dihindari.
+
+| | Sebelum (Fase 1-7) | Sesudah (Fase 8) |
+|---|---|---|
+| Transport | Cloud API / Twilio, dipanggil server | Tidak ada; `wa.me` |
+| Pemicu | cron + scheduler | cron + scheduler (tetap) |
+| Status baris | `sent` / `delivered` | `handoff` (status baru) |
+| Bukti | message ID dari provider | hanya URL + isi ter-encode |
+| Tujuan | env `ERROR_ALERT_WHATSAPP` | konstanta tunggal di `src/lib/admin-whatsapp.ts` |
+
+Batas yang tidak boleh dilanggar: kata `sent` dan `delivered` **tidak pernah**
+dipakai untuk jalur admin. `markWhatsappSent` dan `markWhatsappFailed` menolak
+baris berstatus `handoff`, jadi tidak ada jalan yang bisa menaikkan handoff
+menjadi "terkirim".
+
+Sumber kebenaran tunggal ada di `src/lib/admin-whatsapp.ts`:
+`ADMIN_WHATSAPP_NUMBER`, `buildAdminDailySummaryMessage`,
+`buildAdminHandoffMessage`, `buildAdminWhatsappLink`, dan
+`ADMIN_HANDOFF_EVIDENCE`. Nomor itu **bukan secret** - yang tidak boleh bocor
+adalah isi pesannya, bukan nomor tujuan.
+
+Notifikasi **warga** tidak berubah sama sekali: `WHATSAPP_ACCESS_TOKEN`,
+`WHATSAPP_TEMPLATE_NAME`, `WHATSAPP_PHONE_NUMBER_ID`, dan `TWILIO_*` tetap
+dipakai. `ERROR_ALERT_WHATSAPP` sekarang **obsolete** (tidak ada consumer-nya
+lagi) dan boleh dihapus dari Keys.
+
+Bukti yang tersedia sekarang:
+
+- `HANDOFF VERIFIED` - URL dibangun benar, penerima valid, isi ter-encode dan
+  pulih utuh, deterministik (`src/lib/admin-whatsapp.test.ts`, test A-E);
+- `EXTERNAL WHATSAPP DELIVERY NOT VERIFIED` - aplikasi WhatsApp tidak pernah
+  dibuka oleh environment pengujian, jadi tidak ada bukti pengiriman.
 
 ### Item 14 - nondeterminisme E2E yang ditutup di Fase 7
 
@@ -607,9 +655,10 @@ sebagai kemalasan:
 
 | Item | Prasyarat | Diberikan oleh |
 |---|---|---|
-| 1 WhatsApp | `WHATSAPP_TEMPLATE_NAME` disetujui + `ERROR_ALERT_WHATSAPP` terisi | Keys + WhatsApp Manager |
+| 1 WhatsApp (warga) | `WHATSAPP_TEMPLATE_NAME` disetujui | Keys + WhatsApp Manager |
 | 2 Two-session | `E2E_USER_EMAIL`, `E2E_USER_PASSWORD`, `STAFF_BOOTSTRAP_EMAILS` | Keys |
 | 11 Daily summary | bukti pengiriman nyata (`delivered >= 1`) | bergantung item 1 |
+| 1 Handoff admin | akun pengelola + passcode untuk membuka `/admin` | Keys |
 
 Item 11 naik dari `BLOCKED` ke `IMPLEMENTED - EXTERNAL VERIFICATION PENDING`
 karena gap internalnya sudah ditutup (lihat catatan di bawah). Yang tersisa

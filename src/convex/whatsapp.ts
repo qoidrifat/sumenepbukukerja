@@ -1,10 +1,21 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import type { GenericActionCtx, GenericMutationCtx } from "convex/server";
+import type { GenericActionCtx, GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { buildTemplatePayload, buildTextPayload } from "../lib/whatsapp-payload";
+import {
+  ADMIN_HANDOFF_EVIDENCE,
+  ADMIN_WHATSAPP_BASE_URL,
+  ADMIN_WHATSAPP_NUMBER,
+  buildAdminDailySummaryMessage,
+  buildAdminHandoffMessage,
+  buildAdminWhatsappLink,
+  isValidAdminNumber,
+  maskAdminNumber,
+} from "../lib/admin-whatsapp";
+import { requireManagementViewer } from "./access";
 import {
   ERROR_CODES,
   normalizeErrorReport,
@@ -400,22 +411,22 @@ export const notificationRecipients = internalQuery({
 });
 
 /**
- * Alasan alert admin tidak bisa dikirim saat ini.
+ * Alasan handoff admin tidak bisa dibuat saat ini.
  *
- * Dicek sebelum mencoba mengirim, supaya provider yang memang tidak bisa
- * mengirim tidak pernah membakar baris delivery dan tidak pernah memunculkan
- * error yang-balJadi laporan kedua. Dilaporkan sebagai daftar, bukan error,
- * karena ini kondisi yang diketahui -- bukan kegagalan yang baru terjadi.
+ * Tidak ada lagi pemeriksaan provider di sini: handoff `wa.me` tidak memakai
+ * kredensial apa pun, jadi template dan access token tidak menghalangi apa pun.
+ * Satu-satunya syarat adalah nomor tujuan admin punya bentuk internasional.
+ *
+ * Dilaporkan sebagai daftar, bukan error, karena ini kondisi yang diketahui --
+ * bukan kegagalan yang baru terjadi.
  */
-export const adminAlertBlockers = internalQuery({
+export const adminHandoffBlockers = internalQuery({
   args: {},
   handler: async () => {
     const blockers: string[] = [];
-    const issue = providerIssue();
-    if (issue) blockers.push(issue);
-    if (activeProvider() === "meta" && !metaConfig().templateName) {
+    if (!isValidAdminNumber(ADMIN_WHATSAPP_NUMBER)) {
       blockers.push(
-        "Template WhatsApp Utility belum disetujui, jadi Meta akan menolak pesan yang dikirim dari server (kode 131008).",
+        "Nomor tujuan admin tidak dalam format internasional yang sah, jadi tautan handoff tidak bisa dibuat.",
       );
     }
     return blockers;
@@ -477,7 +488,15 @@ const errorTextOf = (error: unknown) =>
     : undefined;
 
 export const DELIVERY_STATS_KEY = "global";
-export type DeliveryStatus = "queued" | "sent" | "delivered" | "failed";
+/**
+ * Status baris `whatsappDeliveries`.
+ *
+ * `handoff` BUKAN hasil pengiriman. Baris berstatus itu hanya menyatakan tautan
+ * `wa.me` sudah dibuat dan ditawakkan; tidak ada provider yang mengirim apa pun,
+ * sehingga tidak ada yang bisa mengonfirmasi apa pun. Empat status lain tetap
+ * milik provider dan tidak boleh dipakai untuk hal yang tidak dikirim server.
+ */
+export type DeliveryStatus = "queued" | "sent" | "delivered" | "failed" | "handoff";
 
 /**
  * Geser hitungan status pengiriman sebanyak `delta`.
@@ -502,6 +521,9 @@ export async function applyDeliveryDelta(
     sent: current?.sent ?? 0,
     delivered: current?.delivered ?? 0,
     failed: current?.failed ?? 0,
+    // Penghitung sendiri: "tautan dibuat" tidak boleh ikut masuk ke angka
+    // pengiriman, karena angkanya sudah dibaca dashboard sebagai hasil kiriman.
+    handoff: current?.handoff ?? 0,
   };
   for (const status of Object.keys(delta) as DeliveryStatus[]) {
     // `Math.max(0, ...)` menjaga agar pengurangan tidak pernah melewati nol
@@ -558,6 +580,7 @@ export const backfillWhatsappStats = internalMutation({
       sent: 0,
       delivered: 0,
       failed: 0,
+      handoff: 0,
     };
     for (const row of rows) counts[row.status] += 1;
 
@@ -609,19 +632,27 @@ export const queueWhatsappDelivery = internalMutation({
 });
 
 /**
- * Baris delivery untuk kiriman sistem (alert bug ke admin).
+ * Catat satu handoff WhatsApp untuk admin.
  *
- * Sengaja TIDAK memakai `queueWhatsappDelivery`: fungsi itu selalu punya
- * `userId`, sedangkan alert admin tidak milik warga mana pun. Karena
- * `userId`-nya kosong, baris ini otomatis tidak ikut menghitung kuota tiga
- * pesan per hari -- `notificationRecipients` hanya membaca lewat indeks
- * `byUser` milik penerima tertentu.
+ * Status barisnya `handoff`, bukan `queued`. Tidak ada kiriman yang menunggu
+ * provider, tidak ada yang perlu dicoba ulang, dan tidak ada provider yang bisa
+ * mengembalikan hasil apa pun. Yang disimpan adalah URL yang sempat
+ * ditawakkan, jadi jejak auditnya berbunyi "tautan ini pernah dibuat", bukan
+ * "pesan ini terkirim".
+ *
+ * Idempoten lewat `deliveryKey`: dijalankan dua kali pada hari yang sama tetap
+ * menghasilkan satu baris, jadi panel tidak pernah menampilkan duplikat.
+ *
+ * Baris ini tetap tanpa `userId`, sehingga tidak ikut menghitung kuota tiga
+ * pesan per hari milik warga mana pun -- `notificationRecipients` hanya membaca
+ * lewat indeks `byUser` milik penerima tertentu.
  */
-export const queueSystemDelivery = internalMutation({
+export const queueAdminHandoff = internalMutation({
   args: {
     deliveryKey: v.string(),
     title: v.string(),
     body: v.string(),
+    handoffUrl: v.string(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -629,21 +660,27 @@ export const queueSystemDelivery = internalMutation({
       .withIndex("byDeliveryKey", (q) => q.eq("deliveryKey", args.deliveryKey))
       .unique();
     if (existing) {
-      return { id: existing._id, shouldSend: false, status: existing.status };
+      return {
+        id: existing._id,
+        created: false,
+        status: existing.status,
+        handoffUrl: existing.handoffUrl,
+      };
     }
     const now = Date.now();
     const id = await ctx.db.insert("whatsappDeliveries", {
       deliveryKey: args.deliveryKey,
       audience: "system",
-      status: "queued",
+      status: "handoff",
       attempts: 0,
       title: args.title,
       body: args.body,
+      handoffUrl: args.handoffUrl,
       createdAt: now,
       updatedAt: now,
     });
-    await adjustDeliveryStats(ctx, null, "queued");
-    return { id, shouldSend: true, status: "queued" as const };
+    await adjustDeliveryStats(ctx, null, "handoff");
+    return { id, created: true, status: "handoff" as const, handoffUrl: args.handoffUrl };
   },
 });
 
@@ -652,6 +689,9 @@ export const markWhatsappSent = internalMutation({
   handler: async (ctx, args) => {
     const current = await ctx.db.get(args.id);
     if (!current || current.status === "delivered") return;
+    // Baris `handoff` tidak pernah dikirim provider. Menaikkannya ke `sent`
+    // persis menjadi klaim "terkirim" untuk pesan yang tidak pernah dikirim.
+    if (current.status === "handoff") return;
     const now = Date.now();
     await ctx.db.patch(args.id, {
       status: "sent",
@@ -697,6 +737,9 @@ export const markWhatsappFailed = internalMutation({
   handler: async (ctx, args) => {
     const current = await ctx.db.get(args.id);
     if (!current || current.status === "delivered") return;
+    // Baris `handoff` tidak pernah dikirim provider. Menaikkannya ke `sent`
+    // persis menjadi klaim "terkirim" untuk pesan yang tidak pernah dikirim.
+    if (current.status === "handoff") return;
     const attempts = current.attempts + 1;
     // Pesan uji tidak dijadwalkan ulang: file selalu dikirim manual oleh pemiliknya,
     // jadi retry hanya menambah derau dan menghabiskan kuota harian. Alert sistem
@@ -971,34 +1014,34 @@ async function deliver(
   if (providerIssue()) {
     return { configured: false, delivered: 0, skipped: recipients.length, failed: 0 };
   }
-    let delivered = 0;
-    let failed = 0;
-    for (const recipient of recipients) {
-      const queued = await ctx.runMutation(internal.whatsapp.queueWhatsappDelivery, {
-        userId: recipient.userId,
-        deliveryKey: recipient.deliveryKey,
+  let delivered = 0;
+  let failed = 0;
+  for (const recipient of recipients) {
+    const queued = await ctx.runMutation(internal.whatsapp.queueWhatsappDelivery, {
+      userId: recipient.userId,
+      deliveryKey: recipient.deliveryKey,
+      title: recipient.title,
+      body: recipient.body,
+    });
+    if (!queued.shouldSend) continue;
+    try {
+      const result = await sendWhatsappMessage({
+        phone: recipient.phone,
         title: recipient.title,
         body: recipient.body,
       });
-      if (!queued.shouldSend) continue;
-      try {
-        const result = await sendWhatsappMessage({
-          phone: recipient.phone,
-          title: recipient.title,
-          body: recipient.body,
-        });
-        if (result.skipped) continue;
-        await ctx.runMutation(internal.whatsapp.markWhatsappSent, {
-          id: queued.id,
-          providerMessageId: result.messageId,
-        });
-        delivered += 1;
-      } catch (error) {
-        failed += 1;
-        await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: queued.id, errorCode: errorCodeOf(error) });
-      }
+      if (result.skipped) continue;
+      await ctx.runMutation(internal.whatsapp.markWhatsappSent, {
+        id: queued.id,
+        providerMessageId: result.messageId,
+      });
+      delivered += 1;
+    } catch (error) {
+      failed += 1;
+      await ctx.runMutation(internal.whatsapp.markWhatsappFailed, { id: queued.id, errorCode: errorCodeOf(error) });
     }
-    return { configured: true, delivered, skipped: 0, failed };
+  }
+  return { configured: true, delivered, skipped: 0, failed };
 }
 
 export const sendRequestCreatedNotifications = internalAction({
@@ -1029,17 +1072,6 @@ export const sendVendorUpdatedNotifications = internalAction({
 });
 
 /**
- * Satu-satunya jalan keluar untuk pesan sistem (alert bug ke admin).
- *
- * Sengaja memakai `sendWhatsappMessage` yang sama dengan notifikasi warga:
- * satu klien WhatsApp di repo ini, satu daftar provider, satu format
- * payload, satu penanganan error. Tidak ada SDK atau jalur kedua.
- *
- * Tidak pernah memanggil pelapor error. Kegagalan pengiriman dikembalikan
- * sebagai nilai, bukan dilempar ke atas, supaya `deliverAdminAlert` bisa
- * menandainya `blocked` tanpa memicu laporan kedua.
- */
-/**
  * Ringkasan harian untuk admin.
  *
  * Tiga angka saja, dan ketiganya dibaca lewat indeks dengan batas atas —
@@ -1049,66 +1081,129 @@ export const sendVendorUpdatedNotifications = internalAction({
  */
 export const adminDailySummaryCounts = internalQuery({
   args: {},
+  handler: async (ctx) => await readDailyCounts(ctx),
+});
+
+/**
+ * Tiga angka ringkasan, dibaca dari tiga indeks dengan batas atas.
+ *
+ * Diekstrak supaya cron harian dan pratinjau panel tidak pernah bisa berbeda:
+ * kalau keduanya menghitung sendiri, angka di tombol bisa berbeda dari angka
+ * di pesan yang benar-benar disiapkan.
+ */
+const readDailyCounts = async (ctx: GenericQueryCtx<DataModel>) => {
+  const since = Date.now() - 24 * 60 * 60_000;
+  const [openErrors, newRequests, presence] = await Promise.all([
+    ctx.db
+      .query("errorReports")
+      .withIndex("byStatus", (q) => q.eq("status", "open"))
+      .take(1_000),
+    ctx.db
+      .query("serviceRequests")
+      .withIndex("byCreatedAt", (q) => q.gte("createdAt", since))
+      .take(1_000),
+    // Tabel `adminPresence` hanya berisi pengelola yang sedang masuk, jadi
+    // jumlahnya kecil; batas 200 tetap dipasang supaya tidak pernah berubah
+    // menjadi pemindaian penuh kalau strukturnya nanti bertambah.
+    ctx.db.query("adminPresence").take(200),
+  ]);
+  const activeSessions = presence.filter((row) => Date.now() - row.lastSeenAt < 15 * 60_000).length;
+  return {
+    openErrorReports: openErrors.length,
+    newRequests: newRequests.length,
+    activeAdminSessions: activeSessions,
+  };
+};
+
+/**
+ * Tanggal operasional WIB (UTC+7) sebagai `YYYY-MM-DD`.
+ *
+ * Zona waktu operasi, bukan zona server. Satu fungsi supaya `deliveryKey` cron
+ * dan pratinjau panel tidak pernah berbeda sehari.
+ */
+const wibDate = (now: number = Date.now()): string =>
+  new Date(now + 7 * 60 * 60_000).toISOString().slice(0, 10);
+
+/**
+ * Pratinjau tautan handoff untuk panel pengelola.
+ *
+ * Query INI yang membuat tombol "Buka WhatsApp admin" di panel, jadi isinya
+ * hanya boleh yang memang sudah diputuskan boleh dilihat pengelola:
+ *
+ *   - tiga angka ringkasan, identik dengan yang dipakai cron;
+ *   - pesan dan URL `wa.me` yang persis sama dengan yang akan dibuat cron;
+ *   - nomor tujuan dalam bentuk tersamar, bukan mentah;
+ *   - batas bukti, supaya panel tidak pernah menampilkan kata "terkirim".
+ *
+ * Yang TIDAK dikembalikan: `ownerId`, `businessId`, `subscriptionTier`,
+ * penghitung analitik, dan metadata internal lain. Query ini untuk pengelola
+ * saja -- `requireManagementViewer` melempar untuk akun biasa.
+ *
+ * Fungsi ini tidak menulis apa pun. Baris audit tetap dibuat oleh cron harian
+ * atau saat pengelola memakai tombol, bukan oleh sekadar membuka panel.
+ */
+export const adminHandoffPreview = query({
+  args: {},
   handler: async (ctx) => {
-    const since = Date.now() - 24 * 60 * 60_000;
-    const [openErrors, newRequests, presence] = await Promise.all([
-      ctx.db
-        .query("errorReports")
-        .withIndex("byStatus", (q) => q.eq("status", "open"))
-        .take(1_000),
-      ctx.db
-        .query("serviceRequests")
-        .withIndex("byCreatedAt", (q) => q.gte("createdAt", since))
-        .take(1_000),
-      // Tabel `adminPresence` hanya berisi pengelola yang sedang masuk, jadi
-      // jumlahnya kecil; batas 200 tetap dipasang supaya tidak pernah berubah
-      // menjadi pemindaian penuh kalau strukturnya nanti bertambah.
-      ctx.db.query("adminPresence").take(200),
-    ]);
-    const activeSessions = presence.filter((row) => Date.now() - row.lastSeenAt < 15 * 60_000).length;
+    await requireManagementViewer(ctx);
+    const date = wibDate();
+    const summary = await readDailyCounts(ctx);
+    const message = buildAdminDailySummaryMessage({ date, ...summary });
+    const stats = await ctx.db
+      .query("whatsappDeliveryStats")
+      .withIndex("byKey", (q) => q.eq("key", DELIVERY_STATS_KEY))
+      .unique();
     return {
-      openErrorReports: openErrors.length,
-      newRequests: newRequests.length,
-      activeAdminSessions: activeSessions,
+      date,
+      summary,
+      message,
+      url: buildAdminWhatsappLink(message),
+      // Bentuk tersamar: alasan nomor tidak dipamerkan sudah dijelaskan di
+      // `admin-whatsapp.ts`, jadi tidak ada gunanya menampilkannya utuh.
+      recipient: maskAdminNumber(ADMIN_WHATSAPP_NUMBER),
+      recipientVerified: isValidAdminNumber(ADMIN_WHATSAPP_NUMBER),
+      baseUrl: ADMIN_WHATSAPP_BASE_URL,
+      handoffCount: stats?.handoff ?? 0,
+      // Teks ini ditampilkan apa adanya di panel. Yang ia nyatakan hanyalah
+      // batas bukti: tautan dibuat dan isi ter-encode, TIDAK ada yang terkirim.
+      evidence: ADMIN_HANDOFF_EVIDENCE,
     };
   },
 });
 
 /**
- * Kirim ringkasan harian (dipanggil cron, dan bisa dipanggil manual).
+ * Siapkan ringkasan harian untuk dibuka lewat WhatsApp (dipanggil cron).
  *
- * Idempoten lewat `deliveryKey` yang memuat tanggal WIB: jalan dua kali pada
- * hari yang sama tidak menghasilkan dua pesan, dan bangun ulang cron setelah
- * kegagalan tidak mengirim ulang pesan yang sudah sampai.
+ * PERUBAHAN SEMANTIK. Versi lama memanggil WhatsApp Cloud API dan menandai
+ * barisnya `sent`. `wa.me` tidak punya kemampuan itu: tidak ada endpoint, tidak
+ * ada token, dan tidak ada balasan. Jadi yang dilakukan fungsi ini hanya
+ * menghitung angka, menyusun pesan, dan menyiapkan tautan yang akan dibuka
+ * pengelola. Tidak ada pesan yang dikirim server-side, dan tidak ada yang
+ * diklaim sebagai terkirim.
  *
- * Nomor tujuan memakai `ERROR_ALERT_WHATSAPP` yang sama dengan alert error.
- * Kalau kosong, pengiriman DILEWATI dengan alasan tercatat — bukan nomor
- * cadangan yang tertulis di source, dan bukan pesan yang diam-diam hilang.
+ * Automatisme harian yang dulu ada TIDAK tergantikan oleh handoff: lihat
+ * `NOT REPLACED BY wa.me` di laporan Fase 8. Yang tersisa adalah penanda
+ * tanggal WIB yang tetap dipakai sebagai `deliveryKey`, supaya baris audit
+ * tetap satu per hari operasional.
+ *
+ * Idempoten: jalan dua kali pada tanggal WIB yang sama menghasilkan satu baris.
  */
-export const sendAdminDailySummary = internalAction({
+export const prepareAdminDailySummary = internalAction({
   args: {},
   handler: async (
     ctx,
-  ): Promise<{ sent: boolean; reason?: string; summary?: { openErrorReports: number; newRequests: number; activeAdminSessions: number } }> => {
+  ): Promise<{
+    handoff: boolean;
+    url?: string;
+    created?: boolean;
+    reason?: string;
+    summary?: { openErrorReports: number; newRequests: number; activeAdminSessions: number };
+  }> => {
     const summary = await ctx.runQuery(internal.whatsapp.adminDailySummaryCounts, {});
-    // Tanggal WIB (UTC+7) — zona waktu operasi, bukan zona server.
-    const wib = new Date(Date.now() + 7 * 60 * 60_000).toISOString().slice(0, 10);
-    const phone = (process.env.ERROR_ALERT_WHATSAPP ?? "").trim();
-    if (!phone) {
-      return { sent: false as const, reason: "ERROR_ALERT_WHATSAPP belum diisi", summary };
-    }
-    const body = [
-      `Laporan Buku Kerja ${wib}`,
-      `Laporan error belum ditangani: ${summary.openErrorReports}`,
-      `Permintaan warga 24 jam: ${summary.newRequests}`,
-      `Sesi admin aktif: ${summary.activeAdminSessions}`,
-    ].join("\n");
-    // Logika pengiriman TIDAK diduplikasi: ringkasan ini memakai action alert
-    // yang sama dengan notifikasi error, lengkap dengan dedup `deliveryKey`,
-    // percobaan ulang, dan pencatatan status kiriman yang sama.
-    const result = await ctx.runAction(internal.whatsapp.sendAdminAlert, {
+    const wib = wibDate();
+    const body = buildAdminDailySummaryMessage({ date: wib, ...summary });
+    const result = await ctx.runAction(internal.whatsapp.createAdminHandoff, {
       deliveryKey: `admin-summary:${wib}`,
-      phone,
       title: "Ringkasan harian Buku Kerja",
       body,
     });
@@ -1116,62 +1211,48 @@ export const sendAdminDailySummary = internalAction({
   },
 });
 
-export const sendAdminAlert = internalAction({
+/**
+ * Buat satu tautan handoff dan catat jejaknya.
+ *
+ * Ini adalah pengganti `sendAdminAlert` yang lama. Fungsi lama memanggil
+ * provider lalu melaporkan `sent: true`; fungsi ini tidak memanggil siapa pun.
+ * Yang dikembalikan adalah `handoff: true` beserta URL-nya, dan itu saja -
+ * tidak ada message ID, karena memang tidak ada pesan yang dibuat.
+ *
+ * Isi pesan harus sudah disanitasi pemanggilnya (`buildAdminAlertMessage` di
+ * `error-reporting.ts` sudah melewati penyanitasi). Fungsi ini tidak menambah
+ * apa pun ke dalamnya.
+ */
+export const createAdminHandoff = internalAction({
   args: {
     deliveryKey: v.string(),
-    phone: v.string(),
     title: v.string(),
     body: v.string(),
   },
   handler: async (
     ctx,
     args,
-  ): Promise<{ sent: boolean; reason?: string; messageId?: string }> => {
-    const phone = normalizePhone(args.phone);
-    if (!phone) return { sent: false, reason: "nomor tujuan alert tidak valid" };
-    const queued = await ctx.runMutation(internal.whatsapp.queueSystemDelivery, {
+  ): Promise<{ handoff: boolean; url?: string; created?: boolean; reason?: string }> => {
+    let url: string;
+    try {
+      url = buildAdminWhatsappLink(buildAdminHandoffMessage(args));
+    } catch (error) {
+      // Tidak ada fallback ke nomor lain dan tidak ada pesan yang hilang
+      // diam-diam: handoff yang gagal dilaporkan sebagai gagal.
+      return {
+        handoff: false,
+        reason: error instanceof Error ? error.message : "tautan handoff tidak bisa dibuat",
+      };
+    }
+    const blockers = await ctx.runQuery(internal.whatsapp.adminHandoffBlockers, {});
+    if (blockers.length > 0) return { handoff: false, reason: blockers[0] };
+    const queued = await ctx.runMutation(internal.whatsapp.queueAdminHandoff, {
       deliveryKey: args.deliveryKey,
       title: args.title,
       body: args.body,
+      handoffUrl: url,
     });
-    if (!queued.shouldSend) {
-      // Percobaan sebelumnya gagal: buka lagi baris yang sama supaya jejak
-      // audit tetap satu dan nomor tidak terbih dua kali.
-      const reopened =
-        queued.status === "failed"
-          ? await ctx.runMutation(internal.whatsapp.reopenFailedDelivery, { id: queued.id })
-          : false;
-      if (!reopened) {
-        return { sent: queued.status === "sent" || queued.status === "delivered" };
-      }
-    }
-    try {
-      const result = await sendWhatsappMessage({
-        phone,
-        title: args.title,
-        body: args.body,
-      });
-      if (result.skipped) {
-        await ctx.runMutation(internal.whatsapp.markWhatsappFailed, {
-          id: queued.id,
-          errorCode: "not_configured",
-        });
-        return { sent: false, reason: "provider tidak dikonfigurasi" };
-      }
-      await ctx.runMutation(internal.whatsapp.markWhatsappSent, {
-        id: queued.id,
-        providerMessageId: result.messageId,
-      });
-      return { sent: true, messageId: result.messageId };
-    } catch (error) {
-      await ctx.runMutation(internal.whatsapp.markWhatsappFailed, {
-        id: queued.id,
-        errorCode: errorCodeOf(error),
-      });
-      // Baris delivery yang sama dibuka kembali pada percobaan berikutnya,
-      // bukan membuat baris baru: satu laporan, satu jejak audit.
-      return { sent: false, reason: errorCodeOf(error) };
-    }
+    return { handoff: true, url: queued.handoffUrl ?? url, created: queued.created };
   },
 });
 

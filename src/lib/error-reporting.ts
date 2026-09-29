@@ -27,14 +27,21 @@ export const ERROR_REPORT_STATUSES = [
 export type ErrorReportStatus = (typeof ERROR_REPORT_STATUSES)[number];
 
 /**
- * Status kiriman alert ke admin.
- * `blocked` berarti sistem tahu alert SHOULD dikirim, tapi provider tidak
- * bisa mengirimnya (template belum ada, kredensial kosong, atau nomor admin
- * belum diisi). Laporan errornya tetap tersimpan utuh.
+ * Status alert ke admin.
+ *
+ * `handoff` berarti tautan `wa.me` sudah disiapkan dan siap dibuka pengelola.
+ * Status ini BUKAN bukti pengiriman: `wa.me` tidak punya endpoint, tidak punya
+ * balasan, dan tidak punya webhook. `sent` dan `delivered` tidak lagi dipakai
+ * untuk jalur admin karena tidak ada yang bisa membuktikannya.
+ *
+ * `blocked` berarti sistem tahu alert layak disampaikan, tapi tautan handoff
+ * tidak bisa dibuat. Laporan errornya tetap tersimpan utuh dan tetap terlihat
+ * di panel pengelola.
  */
 export const ERROR_ALERT_STATUSES = [
   "skipped",
   "queued",
+  "handoff",
   "sent",
   "blocked",
   "failed",

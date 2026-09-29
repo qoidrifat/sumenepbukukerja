@@ -396,10 +396,24 @@ const schema = defineSchema(
       // `resident` = notifikasi warga, `system` = alert operasional ke admin.
       audience: v.optional(v.union(v.literal("resident"), v.literal("system"))),
       providerMessageId: v.optional(v.string()),
-      status: v.union(v.literal("queued"), v.literal("sent"), v.literal("delivered"), v.literal("failed")),
+      // `handoff` BUKAN hasil pengiriman. Baris berstatus ini hanya membuktikan
+      // bahwa tautan wa.me sudah dibuat dan ditampilkan; tidak ada yang dikirim
+      // server-side, jadi tidak ada provider yang mengonfirmasi apa pun. Status
+      // ini sengaja terpisah dari `sent`/`delivered` supaya tidak ada jalur
+      // kode yang bisa.report hasil kiriman yang tidak pernah terjadi.
+      status: v.union(
+        v.literal("queued"),
+        v.literal("sent"),
+        v.literal("delivered"),
+        v.literal("failed"),
+        v.literal("handoff"),
+      ),
       attempts: v.number(),
       title: v.string(),
       body: v.string(),
+      // URL click-to-chat yang sudah jadi, disimpan supaya jejak audit
+      // menyimpan persis apa yang sempat ditawakkan ke admin.
+      handoffUrl: v.optional(v.string()),
       lastErrorCode: v.optional(v.string()),
       nextAttemptAt: v.optional(v.number()),
       createdAt: v.number(),
@@ -431,6 +445,10 @@ const schema = defineSchema(
       sent: v.number(),
       delivered: v.number(),
       failed: v.number(),
+      // Penghitung terpisah untuk handoff. Sengaja TIDAK digabung ke empat
+      // angka di atas: mencampur "tautan dibuat" ke dalam "terkirim" akan
+      // mengubah makna angka yang sudah dibacadashboard.
+      handoff: v.optional(v.number()),
       updatedAt: v.number(),
     }).index("byKey", ["key"]),
 
@@ -752,6 +770,9 @@ const schema = defineSchema(
       alertStatus: v.union(
         v.literal("skipped"),
         v.literal("queued"),
+        // `handoff` berarti tautan wa.me sudah disiapkan untuk laporan ini dan
+        // menunggu admin menekan kirim. Ini bukan "terkirim".
+        v.literal("handoff"),
         v.literal("sent"),
         v.literal("blocked"),
         v.literal("failed"),

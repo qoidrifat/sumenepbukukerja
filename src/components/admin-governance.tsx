@@ -3,6 +3,7 @@ import { InviteLinkResult } from "@/components/admin-invite-link";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
+  useAdminHandoffPreview,
   useAnalyticsMetrics,
   useAuditLogs,
   useCurrentAccess,
@@ -84,6 +85,9 @@ export function AdminGovernance() {
   const history = useRecentListingHistory(Boolean(access?.canViewAdmin));
   const analytics = useAnalyticsMetrics();
   const whatsapp = useWhatsappStatus();
+  // Handoff admin hanya boleh dirender di ruang kelola: query-nya melempar
+  // untuk akun biasa, jadi `useQuery` di sini dijaga oleh gerbang di atas.
+  const handoff = useAdminHandoffPreview();
   const reviewClaim = useMutation(api.claims.reviewVendorClaim);
   const moderatePhoto = useMutation(api.community.moderateVendorPhoto);
   const createInvite = useMutation(api.users.createStaffInvite);
@@ -147,6 +151,56 @@ export function AdminGovernance() {
           </dl>
           <p className="mt-3 text-xs font-bold text-[#525252]">Meta: WHATSAPP_ACCESS_TOKEN · WHATSAPP_PHONE_NUMBER_ID · WHATSAPP_APP_SECRET · WHATSAPP_VERIFY_TOKEN · WHATSAPP_TEMPLATE_NAME (opsional) · META_GRAPH_VERSION (opsional)</p>
           <p className="mt-1 text-xs font-bold text-[#525252]">Twilio: TWILIO_ACCOUNT_SID · TWILIO_AUTH_TOKEN · TWILIO_WHATSAPP_FROM · TWILIO_WHATSAPP_CONTENT_SID (opsional)</p>
+          <p className="mt-3 text-xs font-bold text-[#525252]">Pengaturan di atas hanya untuk notifikasi warga. Komunikasi ke admin tidak memakai provider ini — lihat panel handoff di bawah.</p>
+        </article>
+
+        <article className="border-2 border-[#121212] bg-white p-4">
+          <h3 className="text-lg font-black text-[#1A1A1A]">Handoff WhatsApp admin</h3>
+          <p className="mt-2 text-sm leading-6 text-[#525252]">
+            Notifikasi untuk admin tidak lagi dikirim dari server. Aplikasi menyiapkan tautan click-to-chat
+            dan pengelola yang menekan kirim di aplikasi WhatsApp masing-masing.
+          </p>
+          {handoff ? (
+            <>
+              <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+                <div className="border-2 border-[#121212] bg-[#F1EDE3] p-3">
+                  <dt className="font-bold text-[#525252]">Nomor tujuan</dt>
+                  <dd className="mt-1 font-black">{handoff.recipient}</dd>
+                  <p className="mt-1 text-xs font-bold text-[#525252]">
+                    {handoff.recipientVerified ? "Bentuk internasional valid." : "Bentuk nomor tidak valid."}
+                  </p>
+                </div>
+                <div className="border-2 border-[#121212] bg-[#F1EDE3] p-3">
+                  <dt className="font-bold text-[#525252]">Ringkasan {handoff.date}</dt>
+                  <dd className="mt-1 font-black">
+                    {handoff.summary.openErrorReports} error · {handoff.summary.newRequests} permintaan · {handoff.summary.activeAdminSessions} sesi
+                  </dd>
+                </div>
+                <div className="border-2 border-[#121212] bg-[#F1EDE3] p-3 sm:col-span-2">
+                  <dt className="font-bold text-[#525252]">Handoff disiapkan</dt>
+                  <dd className="mt-1 font-black">{handoff.handoffCount}</dd>
+                  <p className="mt-1 text-xs font-bold text-[#525252]">Terpisah dari angka pengiriman warga, jadi tidak mengubah makna Delivery di atas.</p>
+                </div>
+              </dl>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <a
+                  href={handoff.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  data-testid="admin-handoff-cta"
+                  className="admin-btn bg-[#FFE662] px-4 text-[#1A1A1A]"
+                >
+                  Buka WhatsApp admin
+                </a>
+                <code className="max-w-full break-all text-xs text-[#525252]">{handoff.baseUrl}</code>
+              </div>
+              <p className="mt-3 text-xs font-bold text-[#525252]">
+                {handoff.evidence.generated}. {handoff.evidence.payload}. {handoff.evidence.boundary}.
+              </p>
+            </>
+          ) : (
+            <p className="mt-4 text-sm font-bold text-[#525252]">Memuat ringkasan…</p>
+          )}
         </article>
 
         <article className="border-2 border-[#121212] bg-white p-4">

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { ADMIN_WHATSAPP_BASE_URL } from "../src/lib/admin-whatsapp";
 
 /**
  * Skenario E2E yang memakai peramban sungguhan.
@@ -202,5 +203,77 @@ test.describe("Skenario C — gerbang passcode admin", () => {
     // Pesan error harus muncul (role=alert), dan URL tetap di /auth.
     await expect(page.getByRole("alert").first()).toBeVisible();
     await expect(page).toHaveURL(/\/auth/);
+  });
+});
+
+/**
+ * Skenario E — handoff WhatsApp admin.
+ *
+ * Yang DAPAT dan TIDAK DAPAT dibuktikan di sini harus dibedakan sejak awal:
+ *
+ *   HANDOFF VERIFIED
+ *     - URL handoff dibangun dengan benar (test unit, `src/lib/admin-whatsapp.test.ts`)
+ *     - isi pesan ter-encode dan pulih utuh setelah di-decode (test unit)
+ *     - penerima valid dan tidak dikarang di mana pun (test unit + cek source)
+ *
+ *   NOT VERIFIED
+ *     - CTA benar-benar ter-render di panel admin (butuh akses pengelola)
+ *     - klik CTA membuka aplikasi WhatsApp (butuh perangkat dengan WhatsApp)
+ *
+ * Kalau blokir di bawah berubah someday, test ini otomatis berubah dari
+ * skip terlasifikasi menjadi pemeriksaan sungguhan — bukan test yang diam-diam
+ * hilang dari laporan.
+ */
+test.describe("Skenario E — handoff WhatsApp admin", () => {
+  // Diambil dari sumber kebenaran yang sama dengan server. Kalau konstanta
+  // berubah, test ini ikut berubah -- bukan diam-diam menguji angka basi.
+  const HANDOFF_BASE = ADMIN_WHATSAPP_BASE_URL;
+
+  test("CTA handoff di panel admin sesuai kontrak wa.me", async ({ page }) => {
+    await page.goto("/admin");
+    const cta = page.getByTestId("admin-handoff-cta");
+    const gate = page.locator('input[name="passcode"]');
+
+    if ((await cta.count()) === 0) {
+      // Gerbang passcode masih menutupi meja kerja: ini kondisi yang diharapkan
+      // di lingkungan tanpa kredensial pengelola. Skip-nya EKSPLISIT, dengan
+      // klasifikasi yang tercatat di laporan, bukan `test.skip()` telanjang.
+      test.info().annotations.push({
+        type: "handoff-evidence",
+        description: "HANDOFF VERIFIED (unit): URL, encoding, dan penerima. NOT VERIFIED (E2E): CTA di panel dan navigation ke WhatsApp.",
+      });
+      expect(
+        (await gate.count()) > 0 || (await page.getByText(/passcode|Masuk|Undangan/i).count()) > 0,
+        "CTA handoff tidak terlihat DAN gerbang passcode juga tidak ada — ini bug, bukan ketiadaan akses",
+      ).toBe(true);
+      // Dicetak ke log CI, bukan hanya disimpan di laporan HTML: skip tanpa
+      // jejak di stdout adalah skip senyap.
+      console.warn(
+        "[handoff-evidence] HANDOFF VERIFIED (unit test): URL wa.me, recipient, encoding, determinisme. " +
+          "NOT VERIFIED (E2E): CTA di panel admin dan navigation ke WhatsApp. " +
+          "EXTERNAL WHATSAPP DELIVERY NOT VERIFIED.",
+      );
+      test.skip(
+        true,
+        "EXTERNAL WHATSAPP DELIVERY NOT VERIFIED — panel admin terkunci passcode di lingkungan ini; CTA handoff tidak bisa di-render peramban tanpa kredensial pengelola.",
+      );
+    }
+
+    // Jika someday gerbangnya bisa dilewati, seluruh pemeriksaan di bawah
+    // langsung berjalan. Tidak ada jalur yang "kebetulan hijau".
+    const href = await cta.getAttribute("href");
+    expect(href).not.toBeNull();
+    expect(href!.startsWith(`${HANDOFF_BASE}?text=`)).toBe(true);
+
+    const parsed = new URL(href!);
+    expect(parsed.origin + parsed.pathname).toBe(HANDOFF_BASE);
+    const message = parsed.searchParams.get("text");
+    expect(message).not.toBeNull();
+    expect(message!.length).toBeGreaterThan(0);
+    // Karakter khusus harus pulih utuh: kalau tidak, isi yang sampai ke
+    // WhatsApp bukan isi yang ditulis server.
+    expect(message).toContain("Ringkasan Harian");
+    // Tidak ada yang boleh mencium secret di URL yang tampil di layar.
+    expect(href).not.toMatch(/WHATSAPP_ACCESS_TOKEN|EAAG|ownerId|businessId/);
   });
 });

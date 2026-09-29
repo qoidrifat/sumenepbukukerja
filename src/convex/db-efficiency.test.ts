@@ -262,17 +262,22 @@ describe("notifikasi WhatsApp tidak lagi tergandakan", () => {
     expect(notifications).toHaveLength(1);
   });
 
-  test("alert sistem tidak membuat notifikasi milik siapa pun", async () => {
+  test("handoff admin tidak membuat notifikasi milik siapa pun", async () => {
     const t = convexTest(schema, modules);
-    const alert = await t.mutation(internal.whatsapp.queueSystemDelivery, {
+    const handoff = await t.mutation(internal.whatsapp.queueAdminHandoff, {
       deliveryKey: "alert:test:1",
       title: "Kesalahan server",
       body: "Ada laporan error baru",
+      handoffUrl: "https://wa.me/6280000000000?text=uji",
     });
+    // Baris handoff sudah berstatus `handoff` sejak dibuat. Menandainya
+    // `sent` di kemudian hari berarti ada yang mengarang bukti pengiriman.
     await t.mutation(internal.whatsapp.markWhatsappSent, {
-      id: alert.id,
+      id: handoff.id,
       providerMessageId: "SM-alert",
     });
+    const row = await t.query(internal.whatsapp.deliveryForRetry, { deliveryId: handoff.id });
+    expect(row?.status).toBe("handoff");
 
     const notifications = await t.run(async (ctx) => await ctx.db.query("notifications").collect());
     expect(notifications).toHaveLength(0);

@@ -412,7 +412,7 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     expect(new Set(stored.map((row) => row.fingerprint)).size).toBe(3);
   });
 
-  test("alert yang diblokir provider tidak menghapus laporan", async () => {
+  test("alert admin menyiapkan handoff dan TIDAK PERNAH menandai terkirim", async () => {
     const t = convexTest(schema, modules);
     const { owner, vendorId } = await createOwnerListing(t);
     await promoteToAdmin(t, vendorId);
@@ -425,17 +425,57 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     });
     expect(created.reported).toBe(true);
     const row = await t.run(async (ctx) => await ctx.db.query("errorReports").first());
-    // Provider belum dikonfigurasi di lingkungan uji, jadi alert harus ditandai
-    // diblokir -- bukan gagal diam-diam, dan bukan menghapus laporan.
-    const result = await t.action(internal.errorReports.deliverAdminAlert, { reportId: row!._id });
-    expect(result.sent).toBe(false);
+    // Jalur admin tidak lagi memanggil provider, jadi satu-satunya klaim yang
+    // boleh dibuat adalah "tautan handoff siap dibuka".
+    const result = await t.action(internal.errorReports.prepareAdminErrorAlert, { reportId: row!._id });
+    expect(result.handoff).toBe(true);
+    expect(result.url!.startsWith("https://wa.me/")).toBe(true);
     const after = await t.run(async (ctx) => await ctx.db.get(row!._id));
-    expect(after?.alertStatus).toBe("blocked");
-    expect(after?.alertReason).toBeTruthy();
+    // `handoff` bukan `sent`: tidak ada provider yang mengangguk, jadi tidak
+    // ada bukti pesan sampai.
+    expect(after?.alertStatus).toBe("handoff");
+    expect(after?.alertStatus).not.toBe("sent");
+    // Tidak ada message ID dari provider yang bisa dicatat.
+    expect(after?.alertCode ?? undefined).toBeUndefined();
     // Laporan utuh dan tetap terlihat.
     expect(after?.message).toContain("131008");
     // Tidak ada laporan baru yang muncul: reporter tidak melaporkan dirinya.
     expect(await t.run(async (ctx) => await ctx.db.query("errorReports").collect())).toHaveLength(1);
+  });
+
+  test("alertering kedua untuk masalah yang sama tidak menyiapkan tautan kedua", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, vendorId } = await createOwnerListing(t);
+    await promoteToAdmin(t, vendorId);
+    await owner.mutation(api.errorReports.reportError, {
+      kind: "integration",
+      severity: "critical",
+      code: "WHATSAPP_SEND_FAILED",
+      feature: "WhatsApp Notification Settings",
+      operation: "whatsapp.sendTestWhatsapp",
+      message: "Meta menolak pesan. Kode 131008",
+    });
+    const row = await t.run(async (ctx) => await ctx.db.query("errorReports").first());
+
+    const first = await t.action(internal.errorReports.prepareAdminErrorAlert, {
+      reportId: row!._id,
+    });
+    const second = await t.action(internal.errorReports.prepareAdminErrorAlert, {
+      reportId: row!._id,
+    });
+
+    expect(first.handoff).toBe(true);
+    // `handoff` dicatat sebagai waktu penyiapan, jadi cooldown policy tetap
+    // berlaku: tidak ada dua tautan untuk satu masalah yang sama.
+    expect(second.handoff).toBe(false);
+    expect(second.reason).toBe("dilewati policy");
+    const handoffs = await t.run(async (ctx) =>
+      (await ctx.db.query("whatsappDeliveries").collect()).filter((row) => row.audience === "system"),
+    );
+    expect(handoffs).toHaveLength(1);
+    // Baris laporan tetap utuh dan tetap terlihat di panel.
+    const after = await t.run(async (ctx) => await ctx.db.query("errorReports").first());
+    expect(after?.message).toContain("131008");
   });
 
   test("hanya pengelola yang boleh membaca riwayat laporan", async () => {
@@ -503,12 +543,13 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
       category: "Servis Teknik",
       landmark: "kalianget",
     });
-    // Baris alert sistem tidak punya userId, jadi ledger kuota (yang hanya
+    // Baris handoff admin tidak punya userId, jadi ledger kuota (yang hanya
     // membaca lewat indeks byUser) tidak pernah menghitungnya.
-    await t.mutation(internal.whatsapp.queueSystemDelivery, {
+    await t.mutation(internal.whatsapp.queueAdminHandoff, {
       deliveryKey: "system:error-alert:ERR-1",
       title: "ERROR WHATSAPP_SEND_FAILED",
       body: "Isi alert",
+      handoffUrl: "https://wa.me/6280000000000?text=uji",
     });
     const recipients = await t.query(internal.whatsapp.notificationRecipients, {
       kind: "request_created",
@@ -522,6 +563,9 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
     );
     expect(systemRows).toHaveLength(1);
     expect(systemRows[0]?.userId).toBeUndefined();
+    // Statusnya `handoff`, bukan `sent`/`delivered`: tidak ada provider yang
+    // pernah mengangguk untuk baris ini.
+    expect(systemRows[0]?.status).toBe("handoff");
     expect(
       await t.run(async (ctx) => await ctx.db.query("notifications").collect()),
     ).toHaveLength(0);

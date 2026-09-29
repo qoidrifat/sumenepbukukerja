@@ -674,6 +674,18 @@ export function useWhatsappStatus() {
   return useQuery(api.whatsapp.getWhatsappStatus, {});
 }
 
+/**
+ * Pratinjau tautan handoff WhatsApp untuk admin.
+ *
+ * Query melempar untuk akun biasa, jadi komponen yang memakainya hanya boleh
+ * dirender di dalam ruang admin. Yang dikembalikan adalah tautan `wa.me`,
+ * ringkasan harian, dan nomor tujuan dalam bentuk tersamar - bukan bukti
+ * pengiriman apa pun. Buka `src/lib/admin-whatsapp.ts` untuk batas buktinya.
+ */
+export function useAdminHandoffPreview() {
+  return useQuery(api.whatsapp.adminHandoffPreview, {});
+}
+
 export function useMyClaims() {
   return useQuery(api.claims.listMyClaims, {});
 }

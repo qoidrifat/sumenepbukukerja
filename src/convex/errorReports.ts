@@ -40,28 +40,21 @@ import {
 } from "../lib/error-reporting";
 
 /**
- * Nomor tujuan alert bug — HANYA dari environment.
+ * Tujuan alert bug.
  *
- * Versi lama memakai satu nomor telepon yang tertanam langsung di source
- * sebagai jaring pengaman. Angka itu dihapus karena dua alasan:
+ * Tidak ada nomor yang dibaca dari environment lagi. Tujuan alert admin
+ * sekarang satu konstanta di `src/lib/admin-whatsapp.ts` — satu sumber
+ * kebenaran untuk seluruh aplikasi, bukan satu per fitur.
  *
- * 1. **Jaring pengaman itu tidak pernah jatuh.** Cabang
- *    `if (!adminAlertPhone())` di bawah sudah dirancang untuk menangani
- *    "tujuan tidak diisi" — tetapi dengan fallback, nilainya tidak pernah
- *    kosong, jadi cabang tersebut jadi dead code yang terlihat hidup.
- *    Menghapus angka membuat jalur yang sudah dirancang benar-benar bekerja.
- * 2. **Nomor operator adalah data operasional, bukan default program.**
- *    Angka yang tertanam di source ikut ter-deploy dan bisa dibaca siapa pun
- *    yang punya akses kode. Env var menyimpannya di Keys; source tidak
- *    menyimpannya sama sekali.
+ * Env var nomor tujuan alert sudah tidak lagi punya consumer: jalur admin
+ * tidak pernah memanggil provider, jadi "ke mana alert dikirim" bukan lagi
+ * pertanyaan runtime. Tautannya dibentuk sebagai click-to-chat `wa.me` dan
+ * whoever membuka panel admin yang menekan kirim.
  *
- * Akibatnya: `alertStatus = "blocked"` dengan alasan "Nomor tujuan alert admin
- * belum diisi" — report tetap tercatat, alert tetap terlihat di panel
- * pengelola, dan tidak ada nomor yang dikarang.
+ * Konsekuensinya `alertStatus = "blocked"` dengan alasan "tujuan tidak bisa
+ * dibuat" tetap mungkin terjadi kalau bentuk nomornya tidak valid — tapi tidak
+ * ada lagi keadaan "nomor belum diisi", karena nomornya sudah tetap.
  */
-function adminAlertPhone(): string {
-  return process.env.ERROR_ALERT_WHATSAPP?.trim() ?? "";
-}
 
 /** Pengaman anti-spam kalau ada klien yang salah atau penyerang. */
 const MAX_NEW_REPORTS_PER_HOUR = 500;
@@ -164,7 +157,7 @@ const scheduleAlert = (
   ctx: GenericMutationCtx<DataModel>,
   reportId: DataModel["errorReports"]["document"]["_id"],
 ): void => {
-  void ctx.scheduler.runAfter(0, internal.errorReports.deliverAdminAlert, { reportId });
+  void ctx.scheduler.runAfter(0, internal.errorReports.prepareAdminErrorAlert, { reportId });
 };
 
 /**
@@ -302,18 +295,24 @@ export const recordServerError = internalMutation({
 /* ------------------------------------------------------------------ */
 
 /**
- * Kirim satu alert ke admin, atau tandai kenapa tidak bisa.
+ * Siapkan satu tautan handoff alert ke admin, atau tandai kenapa tidak bisa.
  *
- * Tiga aturan yang dipegang:
+ * PERUBAHAN SEMANTIK. Versi lama memanggil WhatsApp Cloud API lalu menandai
+ * barisnya `sent` beserta `messageId` dari provider. `wa.me` tidak punya
+ * kemampuan itu, jadi nama lama `deliverAdminAlert` tidak lagi jujur dan
+ * digantikan oleh `prepareAdminErrorAlert`. Yang dikembalikan hanya
+ * `handoff: true` dan URL-nya.
+ *
+ * Tiga aturan yang tetap dipegang:
  * 1. Kalau laporan sudah pernah dialertering dan masih dalam cooldown,
- *    berhenti -- tidak ada pesan kedua untuk masalah yang sama.
- * 2. Kalau provider memang tidak bisa mengirim (kredensial kosong atau
- *    template WhatsApp belum disetujui), tandai `blocked` lalu berhenti.
- *    Laporan tetap utuh dan tetap terlihat di panel pengelola.
- * 3. Kegagalan pengiriman hanya dicatat di baris laporan. Tidak pernah
- *    memanggil `recordServerError` -- itu yang mencegah rekursi tak berujung.
+ *    berhenti -- tidak ada tautan kedua untuk masalah yang sama.
+ * 2. Kalau tautan tidak bisa dibuat (bentuk nomor tidak valid), tandai
+ *    `blocked` lalu berhenti. Laporan tetap utuh dan tetap terlihat di panel
+ *    pengelola.
+ * 3. Kegagalan hanya dicatat di baris laporan. Tidak pernah memanggil
+ *    `recordServerError` -- itu yang mencegah rekursi tak berujung.
  */
-export const deliverAdminAlert = internalAction({
+export const prepareAdminErrorAlert = internalAction({
   args: { reportId: v.id("errorReports") },
   // Tipe ditulis eksplisit: tanpa ini TypeScript mengarang tipe dari isi
   // handler, sementara handler itu memanggil fungsi lain di berkas yang sama --
@@ -321,11 +320,11 @@ export const deliverAdminAlert = internalAction({
   handler: async (
     ctx,
     args,
-  ): Promise<{ sent: boolean; reason?: string; messageId?: string }> => {
+  ): Promise<{ handoff: boolean; reason?: string; url?: string }> => {
     const report = await ctx.runQuery(internal.errorReports.reportForAlert, {
       id: args.reportId,
     });
-    if (!report) return { sent: false as const, reason: "tidak ditemukan" };
+    if (!report) return { handoff: false as const, reason: "tidak ditemukan" };
 
     const now = Date.now();
     if (
@@ -336,30 +335,7 @@ export const deliverAdminAlert = internalAction({
         now,
       })
     ) {
-      return { sent: false as const, reason: "dilewati policy" };
-    }
-
-    const adminPhone = adminAlertPhone();
-    if (!adminPhone) {
-      await ctx.runMutation(internal.errorReports.markAlert, {
-        id: args.reportId,
-        alertStatus: "blocked",
-        reason: "Nomor tujuan alert admin belum diisi (isi ERROR_ALERT_WHATSAPP di tab Keys).",
-      });
-      return { sent: false as const, reason: "tanpa tujuan" };
-    }
-
-    // Dicek sebelum mengirim supaya provider yang memang tidak bisa kirim
-    // tidak pernah membakar baris delivery. `adminAlertBlockers` adalah satu
-    // sumber kebenaran untuk policy itu.
-    const blockers = await ctx.runQuery(internal.whatsapp.adminAlertBlockers, {});
-    if (blockers.length > 0) {
-      await ctx.runMutation(internal.errorReports.markAlert, {
-        id: args.reportId,
-        alertStatus: "blocked",
-        reason: blockers.join(" "),
-      });
-      return { sent: false as const, reason: blockers[0] };
+      return { handoff: false as const, reason: "dilewati policy" };
     }
 
     const body = buildAdminAlertMessage({
@@ -391,40 +367,40 @@ export const deliverAdminAlert = internalAction({
     });
 
     try {
-      const sent = await ctx.runAction(internal.whatsapp.sendAdminAlert, {
+      const result = await ctx.runAction(internal.whatsapp.createAdminHandoff, {
         deliveryKey: `system:error-alert:${report.reportId}`,
-        phone: adminPhone,
         title: `${report.severity.toUpperCase()} ${report.errorCode} ${report.reportId}`,
         body,
       });
-      if (!sent.sent) {
+      if (!result.handoff) {
         await ctx.runMutation(internal.errorReports.markAlert, {
           id: args.reportId,
           alertStatus: "blocked",
-          reason: sent.reason ?? "provider tidak dapat mengirim.",
+          reason: result.reason ?? "tautan handoff tidak bisa disiapkan.",
         });
-        return { sent: false as const, reason: sent.reason ?? "provider" };
+        return { handoff: false as const, reason: result.reason ?? "handoff" };
       }
       await ctx.runMutation(internal.errorReports.markAlert, {
         id: args.reportId,
-        alertStatus: "sent",
-        code: sent.messageId,
+        alertStatus: "handoff",
         at: Date.now(),
       });
-      return { sent: true as const };
+      // `url` dikembalikan untuk keperluan audit, bukan untuk ditampilkan
+      // sebagai bukti pengiriman. Membuka tautannya tetap urusan pengelola.
+      return { handoff: true as const, url: result.url };
     } catch (error) {
       // Batas rekursi. Error di sini tidak pernah dilaporkan lewat jalur yang
       // sama; ia hanya menjadi angka di panel pengelola.
       const code =
-        error && typeof error === "object" && "providerCode" in error
-          ? String((error as { providerCode?: unknown }).providerCode)
-          : "alert_failed";
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "handoff_failed";
       await ctx.runMutation(internal.errorReports.markAlert, {
         id: args.reportId,
         alertStatus: "failed",
         reason: code,
       });
-      return { sent: false as const, reason: code };
+      return { handoff: false as const, reason: code };
     }
   },
 });
@@ -444,6 +420,7 @@ export const markAlert = internalMutation({
     alertStatus: v.union(
       v.literal("skipped"),
       v.literal("queued"),
+      v.literal("handoff"),
       v.literal("sent"),
       v.literal("blocked"),
       v.literal("failed"),
@@ -460,7 +437,9 @@ export const markAlert = internalMutation({
       alertStatus: args.alertStatus,
       alertReason: args.reason ?? (args.alertStatus === "sent" ? undefined : current.alertReason),
       alertCode: args.code ?? current.alertCode,
-      alertAt: args.at ?? (args.alertStatus === "sent" ? now : current.alertAt),
+      // `alertAt` dicatat saat tautan handoff disiapkan. Itu waktu penyiapan,
+      // bukan waktu pesan sampai: `wa.me` tidak memberi bukti pengiriman.
+      alertAt: args.at ?? (args.alertStatus === "sent" || args.alertStatus === "handoff" ? now : current.alertAt),
       updatedAt: now,
     });
     return true;

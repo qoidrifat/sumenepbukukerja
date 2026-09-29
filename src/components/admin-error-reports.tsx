@@ -1,15 +1,19 @@
 // Riwayat laporan error untuk pengelola.
 //
 // Ini kotak masuk operasional, bukan lampiran: apa yang gagal, di mana, kapan,
-// berapa kali, dan apakah alert WhatsApp-nya benar-benar terkirim. Semua isi
-// sudah disanitasi saat pelaporan, jadi tidak ada yang perlu disembunyikan
+// berapa kali, dan apakah tautan handoff WhatsApp-nya sudah disiapkan. Semua
+// isi sudah disanitasi saat pelaporan, jadi tidak ada yang perlu disembunyikan
 // lagi di lapisan tampilan.
+//
+// Kolom alert sengaja tidak pernah menampilkan "Terkirim" untuk jalur admin.
+// Handoff admin sekarang click-to-chat `wa.me`: tautannya dibuat, isinya
+// ter-encode, dan pengelola yang menekan kirim.
 //
 // Query `listErrorReports` melempar untuk akun biasa, jadi komponen ini hanya
 // pernah dirender di dalam ruang admin yang sudah dijaga server.
 
 import { useState } from "react";
-import { AlertTriangle, Bug, CircleAlert, OctagonAlert, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Bug, CircleAlert, ExternalLink, OctagonAlert, ShieldCheck } from "lucide-react";
 import {
   useErrorReportActions,
   useErrorReportSummary,
@@ -48,6 +52,20 @@ function SeverityBadge({ severity }: { severity: string }) {
 }
 
 function AlertCell({ report }: { report: AdminErrorReport }) {
+  // `handoff` berarti tautan `wa.me` sudah disiapkan, BUKAN bahwa pesan
+  // terkirim. `wa.me` tidak punya endpoint, tidak punya balasan, dan tidak
+  // punya webhook, jadi tidak ada bukti apa pun yang bisa ditampilkan di sini.
+  if (report.alertStatus === "handoff") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-black text-[#1E3A8A]">
+        <ExternalLink className="size-3.5" aria-hidden="true" /> Siap dibuka
+        {report.alertAt ? <TimeStampLabel timestamp={report.alertAt} withSeconds /> : null}
+        <span className="block font-bold text-[#525252]">
+          Tautan handoff disiapkan. Pesan belum dikirim dari server.
+        </span>
+      </span>
+    );
+  }
   if (report.alertStatus === "sent") {
     return (
       <span className="inline-flex items-center gap-1 text-xs font-black text-[#24533A]">

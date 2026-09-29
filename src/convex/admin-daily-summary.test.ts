@@ -15,13 +15,17 @@ import schema from "./schema";
  * padahal provider menolaknya, dan tidak ada yang gagal.
  *
  * Berkas ini menutup gap itu TANPA kredensial apa pun. Yang diuji murni
- * keputusan dan pencatatan yang terjadi sebelum dan sesudah provider dipanggil:
+ * keputusan dan pencatatan yang terjadi sebelum dan sesudah tautan disiapkan:
  *
- *   sumber data -> angka -> ringkasan -> payload -> status pengiriman
+ *   sumber data -> angka -> ringkasan -> tautan handoff -> status handoff
+ *
+ * PERGESERAN SEMANTIK (Fase 8): ringkasan tidak lagi dikirim server-side.
+ * Yang diuji sekarang adalah tautan `wa.me` yang disiapkan untuk dibuka
+ * pengelola, dan terutama itu TIDAK PERNAH dicatat sebagai `sent`.
  *
  * Batasnya harus jujur: tidak ada test di sini yang membuktikan pesan sampai
- * ke recipient. Yang dibuktikan adalah bahwa setiap tahap reporting truthfully,
- * termasuk ketika gagal.
+ * ke recipient - `wa.me` tidak bisa membuktikannya. Yang dibuktikan adalah
+ * bahwa setiap tahap mencatat apa adanya, termasuk ketika gagal.
  */
 
 const modules = import.meta.glob("./**/*.ts");
@@ -34,7 +38,6 @@ const MINUTE = 60_000;
  * supaya test ini tidak mengubah environment test lain di file yang sama.
  */
 const MANAGED_ENV = [
-  "ERROR_ALERT_WHATSAPP",
   "WHATSAPP_PROVIDER",
   "WHATSAPP_ACCESS_TOKEN",
   "WHATSAPP_PHONE_NUMBER_ID",
@@ -66,7 +69,14 @@ afterEach(() => {
 type TestCtx = ReturnType<typeof convexTest>;
 type LooseDb = { insert: (table: string, doc: Record<string, unknown>) => Promise<string> };
 
-/** Nomor contoh yang jelas bukan nomor asli. Hanya untuk membentuk payload. */
+/**
+ * Nomor contoh yang jelas bukan nomor asli.
+ *
+ * Dipakai sebagai PENANDA: test ini tidak lagi membentuk nomor tujuan apa pun,
+ * karena tujuan handoff admin adalah konstanta tunggal di `admin-whatsapp.ts`.
+ * Yang dibuktikan di sini adalah kebalikan dari duplikasi: angka ini TIDAK
+ * boleh muncul di `whatsapp.ts` maupun `errorReports.ts`.
+ */
 const RECIPIENT = "6280000000000";
 
 /**
@@ -219,111 +229,132 @@ describe("angka ringkasan harian sesuai sumber data", () => {
   });
 });
 
-describe("tidak ada false-positive saat pengiriman gagal", () => {
-  test("tanpa nomor tujuan: dilewati dengan alasan, tanpa membakar baris delivery", async () => {
-    delete process.env.ERROR_ALERT_WHATSAPP;
-    const t = convexTest(schema, modules);
-    await seedUser(t);
-
-    const result = await t.action(internal.whatsapp.sendAdminDailySummary, {});
-
-    expect(result.sent).toBe(false);
-    expect(result.reason).toContain("ERROR_ALERT_WHATSAPP");
-    // Angka tetap dikembalikan walau tidak terkirim: admin bisa tetap
-    // memastikan ringkasan sudah dihitung.
-    expect(result.summary).toBeDefined();
-    // Tidak ada nomor yang dikarang, jadi tidak ada jejak pengiriman sama
-    // sekali. Baris `queued` di sini berarti sistem mencoba mengirim ke
-    // recipient yang tidak ada.
-    expect(await deliveries(t)).toEqual([]);
-  });
-
-  test("provider menolak: tercatat failed dengan kode, TIDAK pernah sent", async () => {
-    process.env.ERROR_ALERT_WHATSAPP = RECIPIENT;
-    // Token dan nomor telepon sengaja TIDAK diisi: itu keadaan sebenarnya di
-    // lingkungan uji, dan itulah yang harus dicatat dengan jujur.
+describe("tidak ada klaim palsu tentang pengiriman", () => {
+  test("handoff menyiapkan tautan dan MENYIMPAN status handoff, bukan sent", async () => {
     const t = convexTest(schema, modules);
     await seedUser(t);
     await seedErrorReport(t, "open");
 
-    const result = await t.action(internal.whatsapp.sendAdminDailySummary, {});
+    const result = await t.action(internal.whatsapp.prepareAdminDailySummary, {});
 
-    expect(result.sent).toBe(false);
+    // Yang diklaim hanya dua hal: tautannya dibuat, dan nomornya benar.
+    expect(result.handoff).toBe(true);
+    expect(result.url).toBeDefined();
+    expect(result.url!.startsWith("https://wa.me/")).toBe(true);
+
     const rows = await deliveries(t);
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
-    // INI adalah assertion terpenting di seluruh berkas ini. Baris yang GAGAL
-    // tidak boleh muncul sebagai `sent`, karena itulah yang membuat panel
-    // admin menampilkan "terkirim" untuk pesan yang sebenarnya hilang.
-    expect(row.status).toBe("failed");
+    // INI adalah assertion terpenting di seluruh berkas ini. Baris handoff
+    // TIDAK BOLEH muncul sebagai `sent` atau `delivered`: tidak ada provider
+    // yang mengangguk, jadi tidak ada bukti apa pun bahwa pesan sampai.
+    expect(row.status).toBe("handoff");
     expect(row.status).not.toBe("sent");
-    expect(row.lastErrorCode).toBe("not_configured");
+    expect(row.status).not.toBe("delivered");
+    expect(row.handoffUrl).toBe(result.url);
   });
 
-  test("percobaan kedua di hari yang sama memakai baris yang sama", async () => {
-    process.env.ERROR_ALERT_WHATSAPP = RECIPIENT;
+  test("tidak ada message ID dari provider, karena tidak ada provider", async () => {
     const t = convexTest(schema, modules);
     await seedUser(t);
 
-    await t.action(internal.whatsapp.sendAdminDailySummary, {});
-    await t.action(internal.whatsapp.sendAdminDailySummary, {});
+    await t.action(internal.whatsapp.prepareAdminDailySummary, {});
+
+    const row = (await deliveries(t))[0]!;
+    // `providerMessageId` adalah bukti balasan Cloud API. Handoff tidak punya
+    // itu, jadi kolomnya harus tetap kosong.
+    expect(row.providerMessageId).toBeUndefined();
+  });
+
+  test("percobaan kedua di hari yang sama memakai baris yang sama", async () => {
+    const t = convexTest(schema, modules);
+    await seedUser(t);
+
+    await t.action(internal.whatsapp.prepareAdminDailySummary, {});
+    await t.action(internal.whatsapp.prepareAdminDailySummary, {});
 
     // Idempoten lewat `deliveryKey` beruffix tanggal WIB: dua kali jalan pada
-    // hari yang sama tidak menghasilkan dua pesan, dan tidak menghasilkan dua
-    // baris jejak audit.
+    // hari yang sama tidak menghasilkan dua baris jejak audit.
     const rows = await deliveries(t);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.deliveryKey).toMatch(/^admin-summary:\d{4}-\d{2}-\d{2}$/);
   });
 
-  test("nomor tujuan dibaca dari environment, tidak pernah dikarang di source", () => {
-    // Buktinya dari source, bukan dari test: nomor hanya boleh datang
-    // dari environment. ("Tidak ada nomor cadangan" diuji di
-    // `alert-recipient-security.test.ts` - di sini cukup syarat positifnya.)
-    const source = readFileSync(new URL("./whatsapp.ts", import.meta.url), "utf8");
-    expect(source).toContain("process.env.ERROR_ALERT_WHATSAPP");
+  test("ringkasan tetap dihitung walau handoff ditolak", async () => {
+    const t = convexTest(schema, modules);
+    await seedUser(t);
+    await seedErrorReport(t, "open");
+    await seedRequest(t, HOUR);
+
+    const result = await t.action(internal.whatsapp.prepareAdminDailySummary, {});
+
+    // Angka selalu dikembalikan: pengelola harus bisa memastikan ringkasan
+    // sudah dihitung, terlepas dari apa pun yang terjadi pada tautannya.
+    expect(result.summary).toEqual({
+      openErrorReports: 1,
+      newRequests: 1,
+      activeAdminSessions: 0,
+    });
+  });
+
+  test("nomor tujuan hanya ada di satu berkas, tidak pernah dikarang di source", () => {
+    // Buktinya dari source, bukan dari test. Setelah migrasi ke `wa.me`,
+    // nomor tujuan admin tidak lagi datang dari environment: ia konstanta di
+    // `admin-whatsapp.ts`. Tidak boleh ada duplikatnya di server.
+    const whatsappSource = readFileSync(new URL("./whatsapp.ts", import.meta.url), "utf8");
+    const errorReportsSource = readFileSync(new URL("./errorReports.ts", import.meta.url), "utf8");
+    expect(whatsappSource).not.toContain(RECIPIENT);
+    expect(errorReportsSource).not.toContain(RECIPIENT);
+  });
+
+  test("jalur admin tidak pernah membaca env Cloud API", () => {
+    // Setelah migrasi, alert admin tidak butuh token, template, atau nomor
+    // dari environment. Kalau salah satu muncul lagi, berarti ada jalur
+    // server-side yang masih hidup di belakang layar.
+    const errorReportsSource = readFileSync(new URL("./errorReports.ts", import.meta.url), "utf8");
+    expect(errorReportsSource).not.toContain("ERROR_ALERT_WHATSAPP");
   });
 });
 
-describe("peringatan sebelum mencoba mengirim", () => {
-  test("provider meta tanpa template memberi blocker yang menyebut kode Meta", async () => {
-    process.env.WHATSAPP_ACCESS_TOKEN = "token-uji";
-    process.env.WHATSAPP_PHONE_NUMBER_ID = "1234567890";
-    // WHATSAPP_TEMPLATE_NAME sengaja dibiarkan kosong.
+describe("syarat handoff sebelum tautan dibuat", () => {
+  test("nomor tujuan valid: tidak ada blocker", async () => {
     const t = convexTest(schema, modules);
-
-    const blockers = await t.query(internal.whatsapp.adminAlertBlockers, {});
-
-    // Tanpa template, Meta menolak pesan di luar jendela layanan 24 jam dengan
-    // kode 131008. Operator harus tahu itu SEBELUM menekan tombol kirim.
-    expect(blockers.join(" ")).toContain("131008");
+    const blockers = await t.query(internal.whatsapp.adminHandoffBlockers, {});
+    expect(blockers).toEqual([]);
   });
 
-  test("tanpa provider sama sekali, blocker pertama menyebut env yang harus diisi", async () => {
+  test("penghitung handoff terpisah dari empat angka pengiriman", async () => {
     const t = convexTest(schema, modules);
-    const blockers = await t.query(internal.whatsapp.adminAlertBlockers, {});
-    expect(blockers.join(" ")).toMatch(/WHATSAPP_ACCESS_TOKEN/);
-  });
+    await seedUser(t);
 
-  test("template terisi: blocker template hilang", async () => {
-    process.env.WHATSAPP_ACCESS_TOKEN = "token-uji";
-    process.env.WHATSAPP_PHONE_NUMBER_ID = "1234567890";
-    process.env.WHATSAPP_TEMPLATE_NAME = "notifikasi_buku_kerja";
-    const t = convexTest(schema, modules);
+    await t.action(internal.whatsapp.prepareAdminDailySummary, {});
 
-    const blockers = await t.query(internal.whatsapp.adminAlertBlockers, {});
-
-    expect(blockers.join(" ")).not.toContain("131008");
+    const stats = await t.run(async (ctx) => {
+      return await ctx.db.query("whatsappDeliveryStats").first();
+    });
+    // `handoff` dihitung sendiri. Mencampurkannya ke `sent` akan mengubah
+    // arti angka yang sudah dibaca dashboard.
+    expect(stats!.handoff).toBe(1);
+    expect(stats!.sent).toBe(0);
+    expect(stats!.delivered).toBe(0);
+    expect(stats!.queued).toBe(0);
+    expect(stats!.failed).toBe(0);
   });
 });
 
 describe("cron ringkasan harian benar-benar terdaftar", () => {
   const readCrons = () => readFileSync(new URL("./crons.ts", import.meta.url), "utf8");
 
-  test("cron harian memanggil sendAdminDailySummary", () => {
+  test("cron harian memanggil prepareAdminDailySummary", () => {
     const crons = readCrons();
-    expect(crons).toContain("internal.whatsapp.sendAdminDailySummary");
+    expect(crons).toContain("internal.whatsapp.prepareAdminDailySummary");
     expect(crons).toMatch(/crons\.daily\(/);
+  });
+
+  test("cron harian tidak lagi menunjuk fungsi yang sudah dihapus", () => {
+    // Nama lama masih ada di git history; kalau masih dirujuk di crons, itu
+    // berarti migrasi tidak benar-benar selesai.
+    expect(readCrons()).not.toContain("sendAdminDailySummary");
   });
 
   test("cron tidak diarahkan ke api publik", () => {
@@ -335,7 +366,7 @@ describe("cron ringkasan harian benar-benar terdaftar", () => {
   test("action-nya internal, bukan publik", () => {
     const source = readFileSync(new URL("./whatsapp.ts", import.meta.url), "utf8");
     const declaration = source.match(
-      /export const sendAdminDailySummary = (\w+)\(/,
+      /export const prepareAdminDailySummary = (\w+)\(/,
     );
     expect(declaration?.[1]).toBe("internalAction");
   });

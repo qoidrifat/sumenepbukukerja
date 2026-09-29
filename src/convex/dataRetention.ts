@@ -303,7 +303,10 @@ export const pruneApplicationHistory = internalMutation({
     // akan menulis dokumen yang sama ratusan kali.
     const deletedDeliveries: Partial<Record<DeliveryStatus, number>> = {};
     for (const row of deliveries) {
-      const finished = row.status === "delivered" || row.status === "failed";
+      // `handoff` juga statuses akhir: baris itu sudah menyimpan tautan yang
+      // pernah ditawakkan dan tidak akan pernah berubah lagi.
+      const finished =
+        row.status === "delivered" || row.status === "failed" || row.status === "handoff";
       if (finished && row.createdAt < deliveryCutoff) {
         await ctx.db.delete(row._id);
         deletedDeliveries[row.status] = (deletedDeliveries[row.status] ?? 0) - 1;

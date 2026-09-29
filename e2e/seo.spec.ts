@@ -22,12 +22,22 @@ test.describe("SEO publik", () => {
   });
 
   test("halaman katalog tidak pernah membocorkan rute privat", async ({ request }) => {
-    const xml = await (await request.get("/sitemap.xml")).text();
-    expect(xml).not.toMatch(/\/admin(\/|<|$)/);
-    expect(xml).not.toMatch(/\/dashboard(\/|<|$)/);
-    expect(xml).not.toMatch(/\/auth(\/|<|$)/);
+    const res = await request.get("/sitemap.xml");
+    const body = await res.text();
+    // Sitemap adalah route HTTP Convex; `vite preview` menjawab fallback HTML.
+    // Exclusion rute privat diuji pada builder sitemap-nya sendiri di
+    // src/lib/listing-metadata.test.ts. Di sini hanya diperiksa bentuk
+    // respons ketika sitemap benar-benar disajikan.
+    test.skip(
+      !(res.headers()["content-type"] ?? "").includes("xml"),
+      "sitemap disajikan oleh origin Convex, bukan server statis",
+    );
+    expect(body).toContain("<urlset");
+    expect(body).not.toMatch(/\/admin(\/|<|$)/);
+    expect(body).not.toMatch(/\/dashboard(\/|<|$)/);
+    expect(body).not.toMatch(/\/auth(\/|<|$)/);
     // Tidak ada URL ber-token (undangan) yang bocor lewat sitemap.
-    expect(xml).not.toMatch(/\/invite\//);
+    expect(body).not.toMatch(/\/invite\//);
   });
 
   test("metadata per-listing menimpa metadata dasar setelah hidrasi", async ({ page }) => {

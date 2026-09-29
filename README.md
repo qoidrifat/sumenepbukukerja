@@ -430,6 +430,45 @@ scrollY CTA    : 0 -> 894 (sebelumnya tidak bergerak)
 Regresi dikunci di `src/pages/landing-shell.test.ts` (sumber) dan
 `e2e/main-flow.spec.ts` (perilaku di peramban sungguhan).
 
+## Batas data publik (Fase 5)
+
+Prinsipnya: **skema database bukan skema API publik.** Query publik memilih
+field per field di sisi server; tidak ada lagi `return { ...vendor }` pada
+endpoint yang bisa dibaca tanpa akun.
+
+`vendors:listActive` dan `vendors:getBySlug` memakai proyeksi eksplisit
+(`toPublicCatalogVendor` di `src/convex/vendors.ts`). Field yang TIDAK keluar:
+
+| Field | Alasan |
+|---|---|
+| `ownerId` | pengenal user internal |
+| `businessId` | pengenal bisnis Meta |
+| `subscriptionTier` | informasi komersial |
+| `whatsappClicks`, `shareClicks`, `searchImpressions` | metrik analitik internal |
+| `status` | metadata internal; katalog publik hanya berisi listing aktif |
+| `createdAt`, `updatedAt`, `_creationTime` | metadata internal |
+
+`photoId` sengaja tetap ada **hanya** di `getBySlug`, karena halaman profil
+memakainya untuk meminta URL gambar - dan gambar itu memang ditampilkan
+publik. Jadi itu pengenal, bukan rahasia; di katalog kartu tidak memakainya dan
+field-nya dihilangkan.
+
+Diukur pada 500 listing aktif: muatan JSON turun dari **447.952 ke 240.281
+byte (−46,3%)**, jumlah field per listing dari **37 ke 21**. Di 6 listing:
+5.345 ke 2.863 byte, gzip 403 byte.
+
+Pengunci: `src/convex/public-data-surface.test.ts` (7 test) - memastikan field
+internal tidak bocor, field publik tetap ada, katalog tetap bisa dibaca tanpa
+akun, dan pengguna terautentikasi tidak mendapat field tambahan.
+
+### Yang sengaja dibiarkan
+
+`community:listRequests` (publik) masih mengembalikan `requesterId`. Klien
+memang membutuhkannya untuk menampilkan "permintaan saya" di papan warga.
+Menghilangkan field itu berarti mengganti bentuk respons dan audit logika
+pemilik di klien - pekerjaan tersendiri, bukan perbaikan kecil. Dilaporkan,
+tidak diubah diam-diam.
+
 ## Performa katalog (Fase 4)
 
 Definisi **catalog-ready**: kartu listing pertama terlihat DAN kolom cari bisa diketik. Tidak menunggu gambar selesai atau seluruh halaman ter-hidrasi.

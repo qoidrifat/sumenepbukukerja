@@ -1,6 +1,16 @@
 import { expect, test } from "@playwright/test";
 
 /**
+ * Halaman publik menunggu query Convex sungguhan sebelum katalog muncul.
+ * Diukur: 6,3-7,0 detik untuk muat dingin saat empat halaman dibuka
+ * bersamaan. Bawaan `expect.timeout` 8 detik jadi rapuh di bawah beban,
+ * jadi PROCESS_TERSEDIA dipakai untuk Assertion "aplikasi sudah ter-render".
+ * Ini meny accommodating lingkungan, bukan menutupi bug: halamannya benar-
+ * benar muncul, hanya butuh waktu lebih lama di bawah beban.
+ */
+const APP_SIAP = 30_000;
+
+/**
  * Alur warga di halaman publik.
  *
  * Setiap assertion di sini dikunci ke perilaku yang benar-benar terverifikasi
@@ -21,7 +31,7 @@ test.describe("Sumenep Buku Kerja resident flow", () => {
   test("halaman katalog punya tepat satu #katalog dan anchor di dalamnya hidup", async ({ page }) => {
     await page.goto("/");
     const katalog = page.locator("#katalog");
-    await expect(katalog).toBeVisible();
+    await expect(katalog).toBeVisible({ timeout: APP_SIAP });
 
     // Regresi: halaman pernah merender DirectoryContent dua kali (shell
     // mobile + shell desktop). ID jadi ganda dan navigasi fragment selalu
@@ -45,7 +55,7 @@ test.describe("Sumenep Buku Kerja resident flow", () => {
 
   test("pencarian katalog memfilter, dan profil usaha bisa dibuka tanpa refresh", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("#katalog")).toBeVisible();
+    await expect(page.locator("#katalog")).toBeVisible({ timeout: APP_SIAP });
 
     const search = page.getByPlaceholder("Cari usaha atau jasa...");
     await expect(search).toBeVisible();
@@ -94,7 +104,7 @@ test.describe("Sumenep Buku Kerja resident flow", () => {
     await page.goto("/");
     // Tunggu aplikasi benar-benar ter-render sebelum menekan Tab, kalau tidak
     // belum ada elemen fokusibl yang bisa diterima.
-    await expect(page.locator("#katalog")).toBeAttached();
+    await expect(page.locator("#katalog")).toBeAttached({ timeout: APP_SIAP });
     await page.keyboard.press("Tab");
 
     const focused = await page.evaluate(() => {

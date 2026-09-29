@@ -70,7 +70,7 @@ test.describe("Skenario B — pelaporan error", () => {
    */
   test("error sungguhan membuka dialog, menyimpan laporan, dan bisa ditutup", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("#katalog")).toBeAttached();
+    await expect(page.locator("#katalog")).toBeAttached({ timeout: 30_000 });
 
     await page.evaluate(() => {
       setTimeout(() => {
@@ -89,7 +89,7 @@ test.describe("Skenario B — pelaporan error", () => {
 
   test("dialog pelaporan punya nama aksesibel dan bisa difokuskan", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("#katalog")).toBeAttached();
+    await expect(page.locator("#katalog")).toBeAttached({ timeout: 30_000 });
 
     await page.evaluate(() => {
       setTimeout(() => {

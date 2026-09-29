@@ -430,6 +430,70 @@ scrollY CTA    : 0 -> 894 (sebelumnya tidak bergerak)
 Regresi dikunci di `src/pages/landing-shell.test.ts` (sumber) dan
 `e2e/main-flow.spec.ts` (perilaku di peramban sungguhan).
 
+## Performa katalog (Fase 4)
+
+Definisi **catalog-ready**: kartu listing pertama terlihat DAN kolom cari bisa diketik. Tidak menunggu gambar selesai atau seluruh halaman ter-hidrasi.
+
+Benchmark: `bun run perf:catalog [jumlahSampel]` (butuh Chromium Playwright). Backup hasilnya: median, min, max, jumlah sampel, mode build, dan peramban.
+
+### Angka terukur (build produksi, 9 sampel, sequential)
+
+| Tahap | median |
+|---|---:|
+| responseEnd (HTML) | 4 ms |
+| first contentful paint | 400 ms |
+| domContentLoaded | 314 ms |
+| T_js (responseEnd → DCL) | 311 ms |
+| `#katalog` terpasang | 804 ms |
+| **catalog-ready** | **923 ms** (min 820, max 1018) |
+| perjalanan data Convex (kartu − shell) | **113 ms** |
+
+### Dua koreksi penting atas catatan sebelumnya
+
+1. **Angka "6,3–7,0 detik" dari Fase 3 adalah artefak kontensi, bukan latensi
+   satu pengguna.** Angka itu diukur dengan empat konteks dingin dibuka
+   BERSAMAAN. Diuji ulang:
+
+   | Kondisi | shell | kartu | perjalanan data |
+   |---|---:|---:|---:|
+   | 1 pengguna (sequential) | 1.087 ms | 1.202 ms | 113 ms |
+   | 4 bersamaan | 4.698 ms | 5.200 ms | 502 ms |
+
+   Keduanya membesar ~4,4×, jadi degradasinya adalah saturasi CPU/bandwidth
+   dan koneksi, bukan sesuatu yang khas pada katalog. Angka produksi yang
+   jujur untuk satu pengguna adalah **~0,9 detik**.
+
+2. **Database bukan bottleneck.** Perjalanan data (`listActive` sampai kartu
+   tampil) cuma 113 ms dari total 923 ms - sekitar 12%. Sisanya (~90%) adalah
+   unduh dan eksekusi JavaScript di peramban.
+
+### Optimasi yang diuji lalu DIKEMBALIKAN
+
+`html2canvas-pro.min.js` (56 kB, 15% dari seluruh JS) ikut terunduh di jalur
+kritis setiap halaman karena `@zumer/snapdom` yang diimpor toolbar pratinjau.
+Toolbar dimuat saat sibuk untuk mengeluarkannya dari bundel kritis.
+
+Hasilnya: bundel indeks turun 538 → 407 kB (gzip 169 → 127 kB), TAPI
+catalog-ready tidak bergerak (923 → 917 ms, rentang beririsan penuh) dan
+`load` justru naik 608 → 1.089 ms. Karena bukti tidak mendukungnya,
+perubahan dikembalikan. Berkas `vly-toolbar-readonly.tsx` tidak pernah diubah.
+
+### Skala katalog (bukti untuk keputusan paginasi ditunda)
+
+`src/convex/catalog-scale.test.ts` mengukur `vendors:listActive` di 6 / 100 /
+300 / 500 vendor aktif:
+
+| Vendor | ms | ms/vendor | Muatan |
+|---:|---:|---:|---:|
+| 6 | 1 | 0,167 | - |
+| 100 | 6 | 0,060 | - |
+| 300 | 10 | 0,033 | - |
+| 500 | 16 | 0,032 | 266 KB |
+
+Data tumbuh 83×, latensi hanya 16× - **sublinear, tanpa cliff**, dan biaya
+per vendor justru turun. Di ambang 500 vendor, query memakan 16 ms. Keputusan
+menunda paginasi karena itu terbukti oleh ukuran, bukan tebakan.
+
 ## Catatan SEO
 
 Metadata listing publik (`title`, `description`, Open Graph, canonical,

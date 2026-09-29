@@ -17,7 +17,7 @@ export default defineConfig({
   testDir: "./e2e",
   // Diukur: halaman publik butuh 6,3-7,0 detik untuk merender `#katalog`
   // pada muat dingin ketika empat halaman dibuka bersamaan (query Convex
-  // sungguhan + bundel 538 kB). Dengan dua worker, satu test yang Victim
+  // sungguhan + bundel 538 kB). Dengan dua worker, satu test yang melakukan
   // beberapa navigasi bisa melewati 30 detik hanya karena lambat, bukan
   // karena salah. Anggaran dinaikkan ke 60 detik; assertion-nya tetap
   // memakai tenggat sendiri yang jauh lebih ketat.

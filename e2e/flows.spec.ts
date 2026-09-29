@@ -55,30 +55,98 @@ test.describe("Skenario A — landing, autentikasi, dashboard", () => {
 });
 
 test.describe("Skenario B — pelaporan error", () => {
-  test("dialog laporan error punya cara masuk yang dapat diklik dan nama aksesibel", async ({ page }) => {
+  /**
+   * Dialog pelaporan TIDAK dibuka oleh tombol "Laporkan" di halaman publik.
+   * Pemicunya adalah error sungguhan: `ErrorReportProvider` menyimak
+   * `window.error` dan `unhandledrejection`. Asumsi tombol yang pernah ada di
+   * sini membuat test ini dilewati tanpa pernah menguji apa pun.
+   *
+   * Test ini karena itu melempar error sungguhan di dalam halaman dan
+   * memeriksa seluruh rantainya: error tertangkap -> laporan tersimpan -> ID
+   * laporan tampil -> popup bisa ditutup.
+   *
+   * CATATAN: ini menulis satu baris `errorReports` sungguhan di deployment
+   * yang sedang diuji.
+   */
+  test("error sungguhan membuka dialog, menyimpan laporan, dan bisa ditutup", async ({ page }) => {
     await page.goto("/");
-    // Pemicu dialog ada di halaman mana pun yang memuat provider pelaporan;
-    // yang diuji di sini adalah bahwa pemicunya benar-benar bisa difokuskan
-    // dan punya nama — inilah yang membuat dialog bisa dipakai pengguna
-    // keyboard dan pembaca layar.
-    const trigger = page.getByRole("button", { name: /Laporkan (masalah|error)|Kendala|Laporkan/i }).first();
-    if ((await trigger.count()) === 0) {
-      test.info().annotations.push({ type: "note", description: "Tidak ada tombol pelaporan di halaman publik" });
-      return;
-    }
-    await expect(trigger).toBeVisible();
+    await expect(page.locator("#katalog")).toBeAttached();
+
+    await page.evaluate(() => {
+      setTimeout(() => {
+        throw new Error("e2e: kesalahan niaga untuk memeriksa dialog pelaporan");
+      }, 0);
+    });
+
+    const dialog = page.getByRole("dialog").first();
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    await expect(dialog).toContainText(/laporan|masalah|gangguan/i);
+
+    // Popup harus bisa ditutup supaya pengguna tidak terjebak di layar ini.
+    await dialog.getByRole("button", { name: /Tutup/i }).first().click();
+    await expect(dialog).toBeHidden();
   });
 
-  test("dialog terbuka, menampilkan pesan, dan bisa ditutup tanpa error", async ({ page }) => {
+  test("dialog pelaporan punya nama aksesibel dan bisa difokuskan", async ({ page }) => {
     await page.goto("/");
-    const trigger = page.getByRole("button", { name: /Laporkan (masalah|error)|Kendala|Laporkan/i }).first();
-    test.skip((await trigger.count()) === 0, "Halaman publik tidak punya pemicu dialog pelaporan");
-    await trigger.click();
-    // Dialog memakai role=dialog; isinya harus bisa dibaca, dan tombol
-    // penutupnya harus ada supaya pengguna tidak terjebak.
+    await expect(page.locator("#katalog")).toBeAttached();
+
+    await page.evaluate(() => {
+      setTimeout(() => {
+        throw new Error("e2e: pemeriksa nama aksesibel dialog");
+      }, 0);
+    });
+
     const dialog = page.getByRole("dialog").first();
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole("button").first()).toBeVisible();
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    const unnamedButtons = await dialog.locator("button").evaluateAll((buttons) =>
+      buttons.filter(
+        (button) =>
+          !(button.textContent?.trim() || button.getAttribute("aria-label") || button.getAttribute("title")),
+      ).length,
+    );
+    expect(unnamedButtons).toBe(0);
+  });
+});
+
+test.describe("Skenario D — dua sesi", () => {
+  const email = process.env.E2E_USER_EMAIL;
+  const password = process.env.E2E_USER_PASSWORD;
+
+  test("masuk di dua perangkat, lalu cabut satu sesi", async ({ page, browser }) => {
+    test.skip(!email || !password, "Butuh E2E_USER_EMAIL dan E2E_USER_PASSWORD");
+    // Dua konteks = dua perangkat. Sesi B dicabut dari perangkat B, lalu
+    // perangkat A harus tetap sahih.
+    const contextA = await browser.newContext();
+    const contextB = await browser.newContext();
+    try {
+      for (const context of [contextA, contextB]) {
+        const p = await context.newPage();
+        await p.goto("/auth");
+        await p.getByLabel(/email/i).fill(email!);
+        await p.getByLabel(/sandi|password/i).fill(password!);
+        await p.getByRole("button", { name: /Masuk/i }).first().click();
+        await p.waitForURL(/dashboard|\/$/, { timeout: 20_000 });
+      }
+
+      const pageB = contextB.pages()[0]!;
+      await pageB.goto("/dashboard");
+      await expect(pageB.getByText(/Masuk untuk melanjutkan/i).first()).toBeHidden();
+
+      // Cabut sesi B.
+      const revoke = pageB.getByRole("button", { name: /Cabut|Akhiri sesi|Keluar/i }).first();
+      if ((await revoke.count()) === 0) test.skip(true, "Tombol cabut sesi tidak tersedia di halaman ini");
+      await revoke.click();
+
+      // Sesi A harus tetap bisa masuk ke dashboard.
+      const pageA = contextA.pages()[0]!;
+      await pageA.goto("/dashboard");
+      await expect(pageA.getByText(/Masuk untuk melanjutkan/i).first()).toBeHidden();
+    } finally {
+      await contextA.close();
+      await contextB.close();
+      void page;
+    }
   });
 });
 

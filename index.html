@@ -12,6 +12,25 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Buku Kerja" />
   <meta name="description" content="Direktori WhatsApp lokal Sumenep untuk menemukan jasa dan usaha kecil di sekitar rumah." />
+  <!--
+    Metadata dasar situs.
+
+    Halaman dirender di peramban, jadi tag per-listing (judul, OG, canonical,
+    JSON-LD) baru ada setelah React berjalan - lihat src/lib/use-listing-metadata.ts.
+    Tanpa tag di bawah ini, crawler yang TIDAK menjalankan JavaScript menerima
+    `<head>` yang sama sekali tidak punya canonical maupun Open Graph.
+
+    Semua nilainya bawaan situs dan ditimpa per-listing saat runtime
+    (`upsertMeta` memperbarui tag yang sudah ada, bukan membuat duplikat).
+    Canonical ditulis relatif supaya tidak perlu menebak domain produksi di
+    dalam repo.
+  -->
+  <link rel="canonical" href="/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Sumenep Buku Kerja" />
+  <meta property="og:title" content="Sumenep Buku Kerja — Katalog lokal untuk warga Sumenep" />
+  <meta property="og:description" content="Direktori WhatsApp lokal Sumenep untuk menemukan jasa dan usaha kecil di sekitar rumah." />
+  <meta name="twitter:card" content="summary" />
   <title>Sumenep Buku Kerja — Katalog lokal untuk warga Sumenep</title>
 </head>
 <body>

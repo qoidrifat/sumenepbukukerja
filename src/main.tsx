@@ -17,6 +17,19 @@ import { ERROR_CODES } from "@/lib/error-reporting";
 import "./index.css";
 
 // Lazy load route components for better code splitting
+
+/**
+ * Toolbar pratinjau dimuat SAAT SIBUK, bukan saat render awal.
+ *
+ * Alasannya diukur, bukan dugaan: berkasnya mengimpor `@zumer/snapdom`,
+ * yang menarik `html2canvas` (56 kB). Saat diimpor statis, kedua paket itu
+ * ikut terunduh di jalur kritis SETIAP halaman publik - termasuk landing yang
+ * katalognya harus tampil cepat. Alat ini untuk memeriksa desain, bukan
+ * bagian dari fungsi katalog, jadi menundanya tidak mengubah apa pun
+ * yang dilihat pengguna.
+ *
+ * Berkas `vly-toolbar-readonly.tsx` tidak diubah; hanya cara memuatnya.
+ */
 const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const InviteAcceptance = lazy(() => import("./pages/InviteAcceptance.tsx"));

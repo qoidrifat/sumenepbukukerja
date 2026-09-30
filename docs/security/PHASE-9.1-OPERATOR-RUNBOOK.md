@@ -74,7 +74,11 @@ ada satu pun akun yang bisa masuk.
 
 ---
 
-## F-08 — Pembersihan jalur pemulihan admin
+## F-08 — Pembersihan jalur pemulihan admin (SELESAI 2026-09-30)
+
+Status: **`CLOSED — OPERATOR VERIFIED`**. Bagian di bawah tetap disimpan sebagai
+catatan keputusan dan prosedur, karena kalau allowlist ini suatu saat perlu
+diaktifkan lagi, urutan yang benar sudah tertulis di sini.
 
 ### Kenapa ini boleh ditutup lewat konfigurasi, bukan lewat kode
 
@@ -132,6 +136,20 @@ Kalau baris pertama masih `{"available":true}`, variabelnya belum benar-benar
 hilang. Kalau `staff count` turun ke `0`, **kembalikan variabelnya sekarang**
 sebelum melanjutkan - itu berarti allowlist itu yang membuat tiga pengelola itu
 eksis.
+
+### Hasil yang benar-benar diukur
+
+Dijalankan 2026-09-30T19:16:22Z, sesudah operator menghapus variabelnya:
+
+```
+bootstrap available : {"available":false}
+staff count         : 3 | hasAnyStaff: true
+PROBE_EXIT=0
+```
+
+Dua syarat terpenuhi. Allowlist hilang, dan ketiga pengelola tidak ikut hilang.
+Pengeuwapan di atas tidak terpicu, jadi variabelnya tidak dikembalikan, dan
+`users.bootstrapAdministrator` beserta test pemulihannya tetap ada di kode.
 
 ### Mengapa ini prioritas P0
 
@@ -266,7 +284,7 @@ Prosedur bila ingin mengetatkan:
 | Temuan | Tindakan | Verifikasi | Bisa dikerjakan agent? |
 |---|---|---|---|
 | F-01 | Tidak ada rotasi; kunci adalah bawaan platform. Jaga env tetap terisi | OTP masuk di `/auth` | Tidak ada tindakan yang tersisa |
-| F-08 | Hapus `STAFF_BOOTSTRAP_EMAILS` | `bootstrapAdministratorAvailable.available = false` | Tidak |
+| F-08 | Hapus `STAFF_BOOTSTRAP_EMAILS` | Terukur 2026-09-30: `available = false`, `staffCount = 3` | Sudah (operator) |
 | F-09 | Tetapkan origin produksi, uji 6 route | Status per route di kedua origin | Sebagian (probe sudah ada) |
 | F-11a | Header keamanan di origin frontend | Header yang benar-benar terlihat di respons origin | Tidak |
 | F-11b | Header di route Convex | `vary` + `nosniff` di respons | Sudah (kode + test) |

@@ -40,7 +40,7 @@ Level bukti yang dipakai di dokumen ini:
 | F-05 Papan publik mengirim id akun | MEDIUM | MITIGATED | VERIFIED | n/a | `DECISION REQUIRED` |
 | F-06 Penghitung publik tanpa batas | MEDIUM | FIXED | VERIFIED | n/a | `MITIGATED` |
 | F-07 Error server bocor ke publik | MEDIUM | FIXED (sebagian) | TERBUKTI ADA DI DEV | n/a | `MITIGATED` |
-| F-08 Pemulihan admin aktif | MEDIUM | TIDAK DIUBAH (sengaja) | TERBUKTI AKTIF | BELUM | `OPEN — OPERATOR ACTION REQUIRED` |
+| F-08 Pemulihan admin aktif | MEDIUM | TIDAK DIUBAH (sengaja) | VERIFIED (ditutup) | SUDAH | `CLOSED — OPERATOR VERIFIED` |
 | F-09 Route HTTP 404 | MEDIUM | TIDAK DIUBAH (sengaja) | VERIFIED (salah ukur di Fase 9) | n/a | `CLOSED` |
 | F-10 Penaburan katalog anonim | LOW | TIDAK DIUBAH (sengaja) | n/a | n/a | `RISK ACCEPTED` |
 | F-11 Header keamanan & CORS | MEDIUM | DIBATASI (bagian route) | FRONTEND NOT VERIFIED | BELUM | `MITIGATED` |
@@ -178,21 +178,39 @@ Severity Fase 9 tidak diubah oleh Fase 9.1: 1 CRITICAL, 1 HIGH, 8 MEDIUM,
   produksi, dan `DEPLOYED — EKSPOSUR TERBUKTI MASIH ADA DI DEV` untuk yang
   terukur.
 
-## F-08 — Jalur pemulihan admin masih aktif
+## F-08 — Jalur pemulihan admin sudah dimatikan
 
 - **Kode sekarang:** SENGAJA TIDAK DIUBAH. `users.bootstrapAdministrator` dan
   test pemulihannya harus tetap ada; menghapusnya demi membuat status terlihat
-  bersih akan menghapus kemampuan pemulihan proyek.
-- **Bukti baru (DEPLOYMENT VERIFIED):** `tmp/qa-p91-closure-evidence.json` ->
+  bersih akan menghapus kemampuan pemulihan proyek. Yang dimatikan adalah
+  allowlist di environment, bukan kemampuannya.
+- **Bukti sebelum (DEPLOYMENT VERIFIED):** `tmp/qa-p91-closure-evidence.json` ->
   `bootstrap.available.body.value = {"available": true}` dan
   `bootstrap.setupStatus.body.value.staffCount = 3`,
-  `hasAnyStaff = true`. Jadi jalur pemulihan **masih aktif** pada deployment
-  yang diuji, dan pemulihannya juga tidak lagi dibutuhkan karena sudah ada tiga
-  pengelola.
+  `hasAnyStaff = true`. Jalur pemulihan aktif, dan tidak lagi dibutuhkan karena
+  sudah ada tiga pengelola.
 - **Tindakan:** hapus `STAFF_BOOTSTRAP_EMAILS` dari Keys. Prosedur lengkap di
-  `PHASE-9.1-OPERATOR-RUNBOOK.md` bagian F-08, termasuk pemeriksaan
-  `bootstrapAdministratorAvailable` yang harus menjawab `{"available": false}`.
-- **Status:** `OPEN — OPERATOR ACTION REQUIRED`.
+  `PHASE-9.1-OPERATOR-RUNBOOK.md` bagian F-08.
+- **Bukti sesudah (OPERATOR VERIFIED):** operator menghapus variabel tersebut,
+  lalu `node tmp/qa-p91-closure-probe.mjs` mengukur ulang pada 2026-09-30T19:16:22Z:
+
+  ```
+  bootstrap available : {"available":false}
+  staff count         : 3 | hasAnyStaff: true
+  PROBE_EXIT=0
+  ```
+
+  Dua hal dibuktikan sekaligus, dan keduanya penting. Allowlist benar-benar
+  hilang (`available: false`), dan tiga pengelola **tetap ada** (`staffCount: 3`)
+  - pengeuwapan di runbook tidak terpicu, jadi variabelnya tidak perlu
+  dikembalikan. Kalau `staffCount` turun ke 0, langkah itu akan berarti
+  allowlist itu yang membuat ketiga pengelola eksis, dan variabelnya harus
+  dikembalikan.
+- **Yang TIDAK berubah:** `users.bootstrapAdministrator` dan test
+  pemulihannya. `bun run test` tetap hijau, jadi kemampuan memulihkan akses
+  admin kalau semua pengelola hilang masih utuh.
+- **Status:** `CLOSED — OPERATOR VERIFIED` (termasuk hitungan `CLOSED` di
+  "Ringkasan Angka" pada `PHASE-9.1-SECURITY-CLOSURE-REPORT.md`).
 
 ## F-09 — Route HTTP tidak tersedia pada origin yang diuji
 

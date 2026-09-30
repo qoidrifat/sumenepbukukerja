@@ -11,7 +11,7 @@ Prosedur langkah demi langkah ada di `PHASE-9.1-OPERATOR-RUNBOOK.md`.
 | Temuan | Tindakan operator | Verifikasi | Status saat ini |
 |---|---|---|---|
 | F-01 | Tidak ada rotasi. Nilai `VLY_EMAIL_OTP_API_KEY` adalah kredensial **bawaan platform Freebuff**, bukan kunci privat proyek (dikonfirmasi tim Freebuff lewat kanal komunitas resmi). Jaga agar tetap terisi di Keys | OTP sign-in di `/auth` berhasil; `bun run test` tetap hijau | `RISK ACCEPTED - PLATFORM MANAGED` |
-| F-08 | Hapus `STAFF_BOOTSTRAP_EMAILS` dari Keys/API keys, lalu deploy ulang | `users:bootstrapAdministratorAvailable` menjawab `{"available": false}`; 3 pengelola tetap bisa masuk dan memoderasi | `OPEN — OPERATOR ACTION REQUIRED` |
+| F-08 | Hapus `STAFF_BOOTSTRAP_EMAILS` dari Keys/API keys, lalu deploy ulang | `users:bootstrapAdministratorAvailable` menjawab `{"available": false}`; 3 pengelola tetap bisa masuk dan memoderasi | `CLOSED — OPERATOR VERIFIED` |
 | F-09 | Tetapkan origin produksi (frontend + Convex) dan uji keenam route di kedua origin | Status per route di kedua origin cocok dengan `tmp/qa-p91-closure-evidence.json` untuk `.convex.site` | `PARTLY DONE` - dev terukur, produksi belum |
 | F-11a | Pasang header keamanan (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors) di lapisan penyajian origin frontend | Header terlihat nyata di respons origin frontend; `bun run test:e2e` tetap lulus di origin itu | `BLOCKED — NO AUTHORITATIVE PRODUCTION FRONTEND ORIGIN` |
 | F-11c | Opsional: isi `ADMIN_CONTEXT_ALLOWED_ORIGINS` dengan origin frontend produksi | `tmp/qa-p91-cors-allowlist-probe.mjs` (sesuaikan konstanta) menunjukkan hanya origin itu yang diizinkan; Security Desk tetap menampilkan IP sumber | `MITIGATED` (satu label, sama dengan `SECURITY-CLOSURE.md`) - wildcard tanpa credentials sudah aman dan tidak merusak apa pun |
@@ -24,16 +24,41 @@ Prosedur langkah demi langkah ada di `PHASE-9.1-OPERATOR-RUNBOOK.md`.
 
 | Kategori | Jumlah |
 |---|---|
-| Tindakan operator terbuka | 2 (F-08, F-17) |
+| Tindakan operator terbuka | 1 (F-17) |
 | Tindakan operator terblokir (butuh pihak ketiga) | 1 (F-11a) |
 | Tindakan opsional | 1 (F-11c) |
 | Keputusan produk yang menunggu | 1 grup (F-05, dengan 4 entri register) |
 | Tindakan yang selesai di sisi kode, tinggal diverifikasi | 2 (F-09 dev, F-11 route) |
-| Total baris actionable | 7 |
+| Total baris actionable | 6 |
 
-Perubahan dari versi sebelumnya: F-01 tidak lagi `OPEN` (tidak ada rotasi
-yang bisa dilakukan), F-11c tidak lagi dihitung dua kali, dan F-11a tidak lagi
-dihitung sebagai "selesai di sisi kode" sekaligus "terblokir".
+Perubahan dari versi sebelumnya: F-08 ditutup (operator sudah menghapus
+`STAFF_BOOTSTRAP_EMAILS` dan hasil probe sudah diukur ulang), F-01 tidak lagi
+`OPEN` (tidak ada rotasi yang bisa dilakukan), F-11c tidak lagi dihitung dua
+kali, dan F-11a tidak lagi dihitung sebagai "selesai di sisi kode" sekaligus
+"terblokir".
+
+## Bukti operator F-08 (literal, tidak diringkas)
+
+Dikeluarkan oleh `node tmp/qa-p91-closure-probe.mjs` pada 2026-09-30T19:16:22Z.
+Probe ini read-only: hanya memanggil query publik dan route HTTP.
+
+```
+checked at          : 2026-09-30T19:16:22.698Z
+bootstrap available : {"available":false}
+staff count         : 3 | hasAnyStaff: true
+errorData safe      : true
+err mentions path   : true
+err mentions stack  : true
+catalog leaked      : []
+requesterId exposed : false
+PROBE_EXIT=0
+```
+
+Bacaan: allowlist benar-benar hilang, dan ketiga pengelola tetap ada. Kalau
+`staff count` turun ke `0`, allowlist itu yang membuat mereka eksis dan
+variabelnya harus dikembalikan - itu tidak terjadi. Dua baris `err mentions
+path` / `err mentions stack` yang `true` adalah F-07, yang statusnya tetap
+`MITIGATED`, bukan ikut tertutup oleh tindakan ini.
 
 ## Yang TIDAK perlu tindakan operator
 

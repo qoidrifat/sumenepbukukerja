@@ -23,8 +23,9 @@ Yang tidak boleh hilang dari ringkasan ini:
   statusnya `RISK ACCEPTED - PLATFORM MANAGED`, bukan P0 terbuka. Jalur yang
   sebenarnya berbahaya - `JSON.stringify(error)` yang menyalin header
   `x-api-key` ke respons pemanggil anonim - sudah tertutup dan dikunci test.
-- **F-08 masih aktif di deployment yang diuji.** `STAFF_BOOTSTRAP_EMAILS` masih
-  terisi, padahal tiga pengelola sudah ada. Perlu satu langkah operator.
+- **F-08 sudah ditutup oleh operator.** `STAFF_BOOTSTRAP_EMAILS` dihapus dari
+  Keys, lalu probe mengukur ulang: `available: false` dengan tiga pengelola
+  tetap utuh. Tidak ada langkah F-08 yang tersisa.
 - **Tidak ada origin frontend produksi yang otoritatif** di repositori, jadi
   header keamanan frontend (F-11a) berstatus `NOT VERIFIED`, bukan `PASS`.
 - **Satu kesimpulan Fase 9 turns out salah:** route HTTP tidak hilang. Fase 9
@@ -133,13 +134,28 @@ disalin ke mana pun.
 ## E. Closure F-08 — Pemulihan admin
 
 - Kode pemulihan **sengaja tidak dihapus**, dan test pemulihannya tetap ada dan
-  lulus.
-- Pengukuran deployment: `bootstrapAdministratorAvailable` menjawab
+  lulus. Yang dimatikan adalah allowlist di environment.
+- Pengukuran sebelum: `bootstrapAdministratorAvailable` menjawab
   `{"available": true}`, `staffCount = 3`, `hasAnyStaff = true`. Jadi jalur
   pemulihan aktif, dan tidak dibutuhkan lagi.
 - Tindakan: hapus `STAFF_BOOTSTRAP_EMAILS` dari Keys, deploy ulang, verifikasi
   `{"available": false}`.
-- Status: `OPEN — OPERATOR ACTION REQUIRED`.
+- Pengukuran sesudah (OPERATOR VERIFIED, 2026-09-30T19:16:22Z,
+  `node tmp/qa-p91-closure-probe.mjs`):
+
+  ```
+  bootstrap available : {"available":false}
+  staff count         : 3 | hasAnyStaff: true
+  PROBE_EXIT=0
+  ```
+
+  Dua syarat terpenuhi sekaligus: allowlist hilang, dan ketiga pengelola tidak
+  ikut hilang. Runbook sudah memperingatkan bahwa kalau `staffCount` turun ke
+  0, variabelnya harus dikembalikan - itu tidak terjadi, jadi tidak ada
+  pengembalian.
+- Yang tidak berubah: `users.bootstrapAdministrator` masih ada, jadi kemampuan
+  memulihkan akses admin kalau semua pengelola hilang tetap utuh.
+- Status: `CLOSED — OPERATOR VERIFIED`.
 
 ---
 
@@ -310,7 +326,7 @@ Tidak ada regresi Fase 1-8. Fase 8 hanya dibaca, tidak ditulis ulang.
 |---|---|---|
 | Push + typecheck | `bunx convex dev --once` | PASS |
 | Typecheck | `bunx tsc -b --noEmit` | PASS, 0 error |
-| Unit test | `bun run test` | **56 berkas, 789 test, 789 lulus, 0 gagal, 0 dilewati** |
+| Unit test | `bun run test` | **58 berkas, 816 test, 816 lulus, 0 gagal, 0 dilewati** |
 | E2E | `bun run test:e2e` | **32 lulus, 0 gagal, 10 dilewati** |
 | Build | `bun run build` | PASS |
 | Lint | `bun run lint` | 0 error, 26 warning (sudah ada sebelumnya) |
@@ -323,19 +339,21 @@ Test keamanan yang dijalankan terpisah:
 |---|---|
 | `security-surface.test.ts` | 27 |
 | `http-cors-security.test.ts` | 9 |
-| `otp-provider-security.test.ts` | (bagian dari 6 berkas keamanan, 139 test total) |
-| `public-data-surface.test.ts` | (sama) |
-| `alert-recipient-security.test.ts` | (sama) |
-| `realtime.test.ts` | (sama) |
-| **Total 6 berkas keamanan** | **139 lulus, 0 gagal** |
+| `otp-provider-security.test.ts` | 3 |
+| `public-data-surface.test.ts` | 7 |
+| `alert-recipient-security.test.ts` | 10 |
+| `realtime.test.ts` | 83 |
+| `display-name-security.test.ts` | 12 |
+| **Total 7 berkas keamanan** | **151 lulus, 0 gagal** |
 
-Fase 9.1 menambah isi dua berkas yang disentuh: `security-surface.test.ts`
-(27 test) dan `http-cors-security.test.ts` (9 test) = 36 test di kedua berkas
-itu. Angka itu adalah isi berkas, bukan penambahan bersih terhadap total.
+Fase 9.2 menambah satu berkas baru, `display-name-security.test.ts` (12 test),
+yang mengunci F-05: nama yang tampil di papan permintaan tidak boleh bisa
+ditelusuri balik ke email, dan kolom koreksi hanya sekali.
 
-Perbandingan dengan baseline Fase 9: 749 menjadi 789 unit test. Kenaikan 40
-test, dan seluruhnya test baru - tidak ada test lama yang dihapus, dilewati,
-atau dilonggarkan.
+Perbandingan dengan baseline Fase 9: 749 menjadi 816 unit test, kenaikan 67
+test. Seluruhnya test baru - tidak ada test lama yang dihapus, dilewati, atau
+dilonggarkan. `recharts` dan `chart.tsx` dihapus, tapi tidak ada satu pun test
+yang hilang bersamanya.
 Tidak ada test yang dihapus, dilewati, atau dilonggarkan.
 
 ---
@@ -347,11 +365,11 @@ Dipisahkan sesuai aturan bukti, dan tidak dicampur.
 | Level | Status | Bukti |
 |---|---|---|
 | SOURCE VERIFIED |UNTUK | Kode dibaca langsung; 105 fungsi publik terinventarisasi, 11 tanpa guard, masing-masing dengan alasan. |
-| TEST VERIFIED | UNTUK | 789 unit test dan 6 berkas keamanan lulus. |
+| TEST VERIFIED | UNTUK | 816 unit test dan 7 berkas keamanan lulus. |
 | DEPLOYMENT VERIFIED (dev) | UNTUK | `tmp/qa-p91-closure-evidence.json` dan `tmp/qa-p91-cors-allowlist-evidence.json`. |
 | DEPLOYMENT VERIFIED (produksi) | **TIDAK ADA** | Tidak ada konfigurasi deploy produksi di repositori. |
 | EXTERNAL VERIFIED |UNTUK | Webhook gagal tertutup dan 404 di origin yang salah terukur, keduanya diukur langsung. Verifikasi akun Meta/Twilio di sisi penyedia tidak dilakukan. |
-| OPERATOR VERIFIED | **BELUM** | Hanya pembersihan F-08 (`STAFF_BOOTSTRAP_EMAILS`) yang menunggu bukti operator. F-01 tidak lagi punya tindakan operator yang tersisa. |
+| OPERATOR VERIFIED | UNTUK (1 dari 1) | Pembersihan F-08: operator menghapus `STAFF_BOOTSTRAP_EMAILS`, hasil probe 2026-09-30T19:16:22Z = `available: false` dengan `staffCount: 3`. F-01 tidak punya tindakan operator yang tersisa, jadi tidak ada tindakan operator terbuka yang lain. |
 
 Catatan kejujuran: deployment yang diuji adalah **development**. Tidak ada
 kalimat "production secure" di dokumen ini, karena tidak ada bukti yang
@@ -367,8 +385,8 @@ Tidak disembunyikan.
    Nilai tersebut adalah kredensial bawaan platform Freebuff, bukan milik
    proyek, jadi tidak ada rotasi yang bisa dilakukan. Yang tersisa hanya
    penyalahgunaan kuota penyedia milik platform, dan itu bukan P0.
-2. **Allowlist pemulihan admin masih aktif di deployment** (P0, satu langkah
-   operator).
+2. ~~**Allowlist pemulihan admin masih aktif di deployment**~~ - DIHAPUS pada
+   Fase 9.2. Terukur `{"available": false}` dengan tiga pengelola tetap ada.
 3. **Header keamanan frontend belum ada** dan tidak bisa diverifikasi.
 4. **Nilai OTP masih terbaca lewat Git** (residu, bukan P0). Nilainya adalah
    bawaan platform yang dipakai bersama, bukan rahasia proyek, dan sudah tidak
@@ -415,10 +433,9 @@ Tidak ada. Rinciannya:
 Alasannya, dan hanya alasannya:
 
 - Semua temuan CRITICAL dan HIGH sudah diperbaiki di kode dan dikunci test.
-- Sisa yang terbuka genuinely di luar kendali coding agent, dan hanya dua:
-  penghapusan `STAFF_BOOTSTRAP_EMAILS` dari Keys, dan header origin frontend
-  (butuh konfigurasi penyajian). Plus satu keputusan produk (F-05) dan satu
-  gap infrastruktur test (F-17).
+- Sisa yang terbuka genuinely di luar kendali coding agent, dan hanya satu:
+  header origin frontend (butuh konfigurasi penyajian). Plus satu keputusan
+  produk (F-05) dan satu gap infrastruktur test (F-17).
 - Tidak ada bypass otorisasi di produksi yang terukur, tidak ada eksposur
   storage privat yang terukur, tidak ada kebocoran PII privat yang terukur, dan
   tidak ada pemalsukan webhook yang berhasil.
@@ -444,10 +461,10 @@ Angka di bawah dihitung ulang untuk Fase 9.1, bukan disalin dari Fase 9.
 | LOW | 4 |
 | INFO | 3 |
 | CRITICAL/HIGH tersisa belum diperbaiki di kode | 0 |
-| Status `CLOSED` | 7 |
+| Status `CLOSED` | 8 (F-08 masuk dengan label `CLOSED — OPERATOR VERIFIED`) |
 | Status `MITIGATED` | 3 |
 | Status `RISK ACCEPTED` | 4 |
-| Status `OPEN` | 2 |
+| Status `OPEN` | 1 (F-17) |
 | Status `DECISION REQUIRED` | 1 |
 | Status `BLOCKED` | 0 |
 
@@ -491,15 +508,15 @@ dirotasi.
 
 | Metrik | Nilai |
 |---|---|
-| Unit test berkas | 56 |
-| Unit test total | 789 |
-| Unit test lulus | 789 |
+| Unit test berkas | 58 |
+| Unit test total | 816 |
+| Unit test lulus | 816 |
 | Unit test gagal | 0 |
 | Unit test dilewati | 0 |
 | E2E lulus | 32 |
 | E2E gagal | 0 |
 | E2E dilewati | 10 |
-| Test keamanan (6 berkas) | 139 |
+| Test keamanan (7 berkas) | 151 |
 | Typecheck | 0 error |
 | Build | PASS |
 | Lint | 0 error, 26 warning |

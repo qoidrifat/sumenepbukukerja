@@ -11,6 +11,12 @@ pembacaan blob storage tanpa otorisasi (HIGH) ditemukan, diperbaiki, dan
 dikunci dengan test; sisanya terdokumentasi apa adanya, termasuk satu risiko
 konfigurasi yang hanya bisa ditutup oleh operator.**
 
+> Dokumen ini adalah catatan audit Fase 9 pada tanggal di atas, bukan status
+> saat ini. Sumber status yang berlaku ada di `PHASE-9.1-SECURITY-CLOSURE.md`.
+> Contoh perubahan sejak itu: F-08 sudah `CLOSED` (operator menghapus
+> `STAFF_BOOTSTRAP_EMAILS` pada 2026-09-30) dan F-01 menjadi
+> `RISK ACCEPTED - PLATFORM MANAGED`, bukan P0 terbuka.
+
 ---
 
 ## 1. Executive summary
@@ -286,6 +292,10 @@ kemungkinan, severity, root cause, fix, regression test, verifikasi, status.
   produksi masih perlu deployment produksi.
 
 ### F-08 — Jalur pemulihan admin masih aktif di deployment
+> **Status saat ini: `CLOSED — OPERATOR VERIFIED`.** Allowlist
+> `STAFF_BOOTSTRAP_EMAILS` dihapus 2026-09-30; probe mengukur ulang
+> `{"available": false}` dengan `staffCount: 3`. Bagian di bawah menyimpan
+> kondisi saat audit.
 - **Aset:** peran `admin`.
 - **Bukti (probe, tanpa sesi):** `users:bootstrapAdministratorAvailable` →
   `{"available": true}`; `users:adminSetupStatus` → `staffCount: 3`.

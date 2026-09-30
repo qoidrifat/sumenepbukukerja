@@ -198,15 +198,34 @@ new ConvexReactClient("https://hidden-starfish-79.convex.cloud")
 setiap fungsinya menjawab `Server Error`. Perbaikannya ada di **Vercel**, bukan
 di Keys:
 
-1. Di Vercel, set `VITE_CONVEX_URL` = `https://focused-lemur-389.convex.cloud`
-   untuk environment Production (dan `https://qualified-chameleon-491.convex.cloud`
-   untuk Preview). `VITE_*` dibaca Vite **saat build**, jadi ini wajib
-   redeploy, bukan restart.
+1. **Pilih jalur publish dulu.** Ada dua, dan keduanya **tidak bisa dipakai
+   bersamaan**:
+
+   - **Jalur A - tetap publish dari Freebuff.** Build dan deploy dilakukan
+     Freebuff, di project Vercel milik Freebuff. `VITE_CONVEX_URL` disuntik
+     Freebuff saat build, jadi **tidak bisa diubah dari akun Vercel Anda
+     sendiri** - project itu bukan milik Anda. Yang bisa dilakukan: cari
+     `VITE_CONVEX_URL` di tab Keys/API keys Freebuff; kalau ada dan bisa
+     diedit, isi dengan `https://focused-lemur-389.convex.cloud`, lalu
+     publish ulang. Kalau tidak ada atau ditimpa, hanya Freebuff yang bisa
+     mengarahkan project ini ke Convex Anda.
+     **Konsekuensi besar:** header keamanan (F-11a) juga mustahil di jalur ini,
+     karena CSP/HSTS datang dari lapisan penyajian dan itu milik Freebuff.
+     `vercel.json` di repo ini tidak akan dibaca.
+   - **Jalur B - deploy ke Vercel milik Anda sendiri.** Anda memegang build-nya,
+     jadi `VITE_CONVEX_URL` dan header keamanan keduanya bisa Anda atur.
+     Inilah satu-satunya jalur yang sekaligus membuka F-11a.
+
 2. Deploy kode ke `focused-lemur-389` lebih dulu. Selama deployment itu belum
-   ada, frontend produksi akan menolak semua panggilan.
-3. Deploy ulang Vercel (Preview dulu, baru Production).
+   ada, frontend produksi akan menolak semua panggilan. Perintah:
+   `bunx convex deploy --prod`.
+3. Publish ulang (Preview dulu, baru Production). Perhatikan `age: 674` pada
+   respons origin - halamannya di-cache CDN Vercel, jadi tunggu sekitar satu
+   menit lalu hard refresh sebelum menyimpang.
 4. Verifikasi: `node tmp/qa-origin-probe.mjs`. Baris `instantiated client` harus
-   menunjuk `focused-lemur-389`, bukan `hidden-starfish-79`.
+   menunjuk `focused-lemur-389`, bukan `hidden-starfish-79`. Satu baris ini
+   adalah satu-satunya bukti yang perlu; kalau masih `hidden-starfish-79`,
+   langkah 1 belum berhasil.
 5. Setelah itu, F-08 di produksi harus dinilai ulang: buat satu pengelola,
    pastikan `staffCount >= 1`, baru kunci `STAFF_BOOTSTRAP_EMAILS`.
 
@@ -214,7 +233,7 @@ Jangan tertukar dua kelompok env var ini:
 
 | Env var | Ditaruh di | Dipakai untuk |
 |---|---|---|
-| `VITE_CONVEX_URL` | **Vercel** | backend yang dipanggil frontend, bake saat build |
+| `VITE_CONVEX_URL` | tempat build berjalan | backend yang dipanggil frontend, bake saat build. Kalau publish dari Freebuff, ini milik Freebuff dan tidak bisa diubah dari akun Vercel sendiri. |
 | `VLY_EMAIL_OTP_API_KEY` | Convex | pengiriman OTP |
 | `STAFF_BOOTSTRAP_EMAILS` | Convex | allowlist pemulihan admin |
 | `SITE_URL` | Convex | host untuk sitemap dan robots |

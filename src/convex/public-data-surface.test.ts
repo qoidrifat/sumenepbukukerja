@@ -254,7 +254,7 @@ describe("regresi muatan katalog publik", () => {
       );
 
       // Muatan harus tetap wajar, dan data internal tidak boleh
-      // munculxwCyt仅仅 pada ukuran kecil maupun di ambang 500 vendor.
+      // muncul, baik pada ukuran kecil maupun di ambang 500 vendor.
       expect(json).not.toContain(RAHASIA.businessId);
       expect(json).not.toContain(RAHASIA.storageId);
       expect(Object.keys(rows[0] ?? {}).length).toBeLessThanOrEqual(25);

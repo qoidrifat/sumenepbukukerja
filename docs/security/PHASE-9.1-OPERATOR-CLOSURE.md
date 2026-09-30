@@ -17,19 +17,20 @@ Prosedur langkah demi langkah ada di `PHASE-9.1-OPERATOR-RUNBOOK.md`.
 | F-11c | Opsional: isi `ADMIN_CONTEXT_ALLOWED_ORIGINS` dengan origin frontend produksi | `tmp/qa-p91-cors-allowlist-probe.mjs` (sesuaikan konstanta) menunjukkan hanya origin itu yang diizinkan; Security Desk tetap menampilkan IP sumber | `MITIGATED` (satu label, sama dengan `SECURITY-CLOSURE.md`) - wildcard tanpa credentials sudah aman dan tidak merusak apa pun |
 | F-05 | Putuskan apakah `requesterName` dan koordinat listing tetap publik | `docs/security/PII-DECISION-REGISTER.md` R-1 dan R-2 terisi keputusan dan tanggal | `DECISION REQUIRED` |
 | F-13 | Putuskan masa simpan metadata klaim bila ingin dipersingkat | Register keputusan terisi; kalau berubah, `data-retention.test.ts` diperbarui | `RISK ACCEPTED` |
-| F-17 | Sediakan mailbox uji atau penyedia OTP khusus test untuk E2E dua sesi | `e2e/flows.spec.ts` Skenario dua sesi berjalan tanpa `skip` | `OPEN — TEST INFRASTRUCTURE GAP` |
+| F-17 | Sediakan mailbox uji atau penyedia OTP khusus test untuk E2E dua sesi | `e2e/flows.spec.ts` Skenario dua sesi berjalan tanpa `skip` | `OPEN — TEST INFRASTRUCTURE GAP`. PenghalangNYA sudah bergeser: jalur email+sandi Firebase (lihat F-17a) tidak butuh mailbox uji, jadi yang dibutuhkan sekarang adalah satu akun uji Firebase dan test yang ditulis ulang. |
 | F-16 | Risiko diterima. Mitigasi utama token di `localStorage` adalah CSP, jadi bagian yang tersisa ikut F-11a | CSP aktif di origin frontend dan XSS tetap mustahil | `RISK ACCEPTED` (sama dengan `SECURITY-CLOSURE.md`); bagian CSP-nya `BLOCKED` - ikut F-11a |
+| F-17a | Isi `FIREBASE_PROJECT_ID` di Convex (kedua deployment), dan `VITE_FIREBASE_API_KEY` / `VITE_FIREBASE_AUTH_DOMAIN` / `VITE_FIREBASE_PROJECT_ID` di lingkungan build | `/auth` menampilkan tombol Google; `users:adminSetupStatus` tidak menaikkan `staffCount` karena akun Google tertaut ke akun lama | `CLOSED IN CODE — NOT CONFIGURED`. Provider ada di `src/convex/auth/firebase.ts`, 13 test lulus, tapi env var belum diisi. |
 
 ## Ringkasan jumlah
 
 | Kategori | Jumlah |
 |---|---|
-| Tindakan operator terbuka | 1 (F-17), ditambah 1 blokir baru (deploy produksi, lihat bawah) |
+| Tindakan operator terbuka | 2 (F-17, F-17a), ditambah 1 blokir baru (deploy produksi, lihat bawah) |
 | Tindakan operator terblokir (butuh pihak ketiga) | 1 (F-11a) |
 | Tindakan opsional | 1 (F-11c) |
 | Keputusan produk yang menunggu | 1 grup (F-05, dengan 4 entri register) |
 | Tindakan yang selesai di sisi kode, tinggal diverifikasi | 2 (F-09 dev, F-11 route) |
-| Total baris actionable | 8 |Perubahan dari versi sebelumnya: F-08 **tidak lagi terbuka** - allowlist
+| Total baris actionable | 9 |Perubahan dari versi sebelumnya: F-08 **tidak lagi terbuka** - allowlist
 ditutup di deployment dev yang sekarang hidup. F-01 tidak lagi `OPEN` (tidak
 ada rotasi yang bisa dilakukan), F-11c tidak lagi dihitung dua kali, dan F-11a
 tidak lagi dihitung sebagai "selesai di sisi kode" sekaligus "terblokir".

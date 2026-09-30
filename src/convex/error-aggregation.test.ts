@@ -78,7 +78,7 @@ describe("agregasi laporan per fingerprint", () => {
     expect(group.provider).toBeTruthy();
     expect(group.providerCode).toBe("131008");
     expect(group.retryable).toBeDefined();
-    // Sumber短期: tidak ada data pengguna yang bocor ke panel.
+    // Sumber singkat: tidak ada data pengguna yang bocor ke panel.
     expect(JSON.stringify(group)).not.toMatch(/EAAG[A-Za-z0-9]/);
   });
 

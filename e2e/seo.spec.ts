@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
  * SEO nyata: apa yang benar-benar ada di HTML awal, dan apa yang ditimpa
  * runtime setelah hidrasi.
  *
- *这两个 Dua hal sengaja dipisah supaya tidak ada klaim yang Samar:
+ * Dua hal sengaja dipisah supaya tidak ada klaim yang Samar:
  * - HTML awal hanya boleh berisi metadata dasar SITUS.
  * - Metadata per-listing hanya boleh muncul setelah React berjalan, dan
  *   hanya berisi data publik.

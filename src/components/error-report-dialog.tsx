@@ -33,7 +33,7 @@ const focusRing =
  * error global.
  *
  * Satu provider untuk satu aplikasi: begini cara memastikan tidak ada
- * طلب yang lolos tanpa pelaporan, dan tidak ada dua salinan popup yang
+ * laporan yang lolos tanpa sengaja, dan tidak ada dua salinan popup yang
  * berebut layar.
  */
 export function ErrorReportProvider({ children }: { children: React.ReactNode }) {

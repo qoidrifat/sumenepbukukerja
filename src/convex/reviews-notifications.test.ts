@@ -16,7 +16,7 @@ const modules = import.meta.glob("./**/*.ts");
  *    "kenapa saya tidak diberi tahu", lalu fitur dianggap tidak ada.
  *
  * Perhatikan cara listing aktif dibuat di bawah: pemilik harus berperan. Itu
- * aturan produk yang sudah ada, bukan التقنية test.
+ * aturan produk yang sudah ada, bukan sekadar teknikalitas test.
  */
 
 const listingPayload = {

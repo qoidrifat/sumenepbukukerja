@@ -25,7 +25,7 @@ mkdirSync(TMP, { recursive: true });
 const WIDTHS = [360, 390, 430, 600, 768, 1024, 1100, 1280, 1440];
 
 /**
- * Permukaan §8b sebagai hex sRGB. Browser часто men-serialize warna
+ * Permukaan §8b sebagai hex sRGB. Browser sering meng-serialize warna
  * Tailwind v4 sebagai `oklch()`, jadi nilainya dinormalkan lewat canvas
  * dulu supaya yang dibandingkan benar-benar piksel yang benar-benar
  * dirender, bukan bentuk serialisasi dari browser.

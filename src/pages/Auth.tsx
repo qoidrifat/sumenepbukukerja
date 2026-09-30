@@ -21,6 +21,39 @@ const BRAND_LOGO = "/brand/logo-mark.svg";
 import { useAuth } from "@/hooks/use-auth";
 import { AnimatedContent, GlassSurface, ScrollReveal, ShinyText } from "@/components/react-bits";
 import { useAdminPasscodeGate } from "@/lib/admin-gate-client";
+import {
+  createEmailAccount,
+  currentFirebaseEmail,
+  firebaseAvailable,
+  firebaseErrorMessage,
+  signInWithEmail,
+  signInWithGoogle,
+  signOutOfFirebase,
+} from "@/lib/firebase-client";
+
+/** Logo Google. Inline supaya tidak menambah permintaan jaringan. */
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="size-5">
+      <path
+        fill="#4285F4"
+        d="M23.5 12.27c0-.79-.07-1.54-.2-2.27H12v4.51h6.47a5.54 5.54 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.55-5.17 3.55-8.87Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.96-1.08 7.95-2.91l-3.88-3.01c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.11A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.27 14.28a7.2 7.2 0 0 1 0-4.56V6.61H1.29a12 12 0 0 0 0 10.78l3.98-3.11Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.23 0 12 0A12 12 0 0 0 1.29 6.61l3.98 3.11C6.22 6.86 8.87 4.75 12 4.75Z"
+      />
+    </svg>
+  );
+}
 
 interface AuthProps {
   redirectAfterAuth?: string;
@@ -64,7 +97,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   });
   const [passcode, setPasscode] = useState("");
   const [showPasscode, setShowPasscode] = useState(false);
-  const [step, setStep] = useState<"signIn" | { email: string }>("signIn");
+  const [step, setStep] = useState<"signIn" | "password" | { email: string }>("signIn");
   // Bendera ini datang dari `SessionRevokedGuard`: perangkat ini baru saja
   // dicabut dari Security Desk, jadi orangnya perlu tahu kenapa ia mendarat
   // lagi di halaman masuk. Bukan error — ini konsekuensi yang dia minta sendiri
@@ -73,6 +106,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [otp, setOtp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // FASE 9.2 - jalur masuk tanpa `VLY_EMAIL_OTP_API_KEY`. OTP tetap ada di
+  // bawah; ini jalur tambahan, bukan pengganti, supaya tidak ada yang kehilangan
+  // akses kalau salah satu kredensial bermasalah.
+  const [firebaseEnabled] = useState(() => firebaseAvailable());
+  const [passwordMode, setPasswordMode] = useState<"signIn" | "signUp">("signIn");
+  const [notice, setNotice] = useState<string | null>(null);
 
   const passcodeGranted = gate.state.kind === "granted" ? gate.state : null;
   const needsPasscode = adminGateRequired && passcodeGranted === null;
@@ -142,6 +181,77 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   };
 
+  /**
+   * Tukar tiket passcode dengan email milik akun yang BARU SAJA masuk di
+   * Firebase, sebelum token-nya dikirim ke Convex.
+   *
+   * Urutan ini bukan gaya penulisan. Tiket passcode mengikat akses admin ke satu
+   * email; kalau ditukar setelah sesi Convex terbentuk, passcode itu sempat
+   * berlaku untuk sesi yang tidak diautentikasi. Kalau penukarannya gagal,
+   * sesi Firebase dicabut supaya tidak ada Half-login yang tertinggal.
+   */
+  const redeemPasscodeForFirebase = async (): Promise<boolean> => {
+    if (!passcodeGranted) return true;
+    const email = currentFirebaseEmail();
+    if (!email) {
+      await signOutOfFirebase();
+      setError("Akun ini tidak punya email yang bisa diverifikasi.");
+      return false;
+    }
+    const ok = await gate.redeem(passcodeGranted.ticket, email);
+    if (!ok) {
+      await signOutOfFirebase();
+      setError("Sesi passcode sudah tidak berlaku. Muat ulang halaman dan coba lagi.");
+      gate.reset();
+      return false;
+    }
+    return true;
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const token = await signInWithGoogle();
+      if (!(await redeemPasscodeForFirebase())) return;
+      await signIn("firebase", { token });
+      navigate(redirect);
+    } catch (caught) {
+      setError(firebaseErrorMessage(caught));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePasswordSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsLoading(true);
+    setError(null);
+    setNotice(null);
+    const formData = new FormData(event.currentTarget);
+    const email = String(formData.get("firebaseEmail") ?? "").trim();
+    const password = String(formData.get("firebasePassword") ?? "");
+    try {
+      const token =
+        passwordMode === "signUp"
+          ? await createEmailAccount(email, password)
+          : await signInWithEmail(email, password);
+      if (!(await redeemPasscodeForFirebase())) return;
+      await signIn("firebase", { token });
+      navigate(redirect);
+    } catch (caught) {
+      if (passwordMode === "signUp" && firebaseErrorMessage(caught).includes("verifikasi")) {
+        setNotice(
+          "Akun dibuat. Buka email Anda dan klik tautan verifikasi, lalu masuk dengan sandi yang sama.",
+        );
+      }
+      setError(firebaseErrorMessage(caught));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <main className="notebook-paper flex min-h-dvh min-h-[100svh] flex-col px-4 py-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
       <div className={`${shellWidth} flex items-center justify-between gap-4`}>
@@ -166,7 +276,17 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         <ScrollReveal className={shellWidth}>
           <GlassSurface tint="light" className="w-full rounded-2xl p-0 shadow-lg">
           <Card className="w-full border-slate-200 bg-white/95 p-0 shadow-lg sm:p-2">
-            <AnimatedContent animationKey={needsPasscode ? "passcode" : step === "signIn" ? "email" : step.email}>
+            <AnimatedContent
+              animationKey={
+                needsPasscode
+                  ? "passcode"
+                  : step === "signIn"
+                    ? "email"
+                    : step === "password"
+                      ? "password"
+                      : step.email
+              }
+            >
           {needsPasscode ? (
             <>
               <CardHeader className="text-center">
@@ -180,8 +300,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   Passcode pengelola
                 </CardTitle>
                 <CardDescription className="text-base leading-7">
-                  Ruang /admin dikunci. Masukkan passcode 먼저, baru lanjut ke
-                  verifikasi email.
+                  Ruang /admin dikunci. Masukkan passcode terlebih dahulu, lalu
+                  lanjut ke verifikasi email.
                 </CardDescription>
               </CardHeader>
               {wasRevoked ? (
@@ -313,7 +433,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 </CardFooter>
               </form>
             </>
-          ) : step === "signIn" ? (
+          ) : step === "signIn" || step === "password" ? (
             <>
               <CardHeader className="text-center">
                 <button
@@ -330,9 +450,94 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 <CardDescription className="text-base leading-7">
                   {passcodeGranted
                     ? "Passcode lolos. Sekarang verifikasi email untuk membuka ruang Anda."
-                    : "Simpan listing favorit dan sinkronkan dari perangkat mana pun."}
+                    : step === "password"
+                      ? "Masuk dengan email dan sandi yang tersimpan di perangkat ini."
+                      : "Simpan listing favorit dan sinkronkan dari perangkat mana pun."}
                 </CardDescription>
               </CardHeader>
+              {step === "password" ? (
+                <form onSubmit={handlePasswordSubmit}>
+                  <CardContent>
+                    <label className="flex flex-col gap-2">
+                      <span className="text-sm font-extrabold text-slate-800">Email</span>
+                      <span className="relative">
+                        <Mail className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-blue-600" />
+                        <Input
+                          name="firebaseEmail"
+                          placeholder="nama@email.com"
+                          type="email"
+                          autoComplete="email"
+                          className="min-h-12 pl-11 text-base"
+                          disabled={isLoading}
+                          required
+                        />
+                      </span>
+                    </label>
+                    <label className="mt-4 flex flex-col gap-2">
+                      <span className="text-sm font-extrabold text-slate-800">Sandi</span>
+                      <span className="relative">
+                        <Lock className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-blue-600" />
+                        <Input
+                          name="firebasePassword"
+                          type="password"
+                          autoComplete={
+                            passwordMode === "signUp" ? "new-password" : "current-password"
+                          }
+                          minLength={6}
+                          placeholder="Minimal 6 karakter"
+                          className="min-h-12 pl-11 text-base"
+                          disabled={isLoading}
+                          required
+                        />
+                      </span>
+                    </label>
+                    {error ? <p className="mt-3 text-sm font-bold text-red-700">{error}</p> : null}
+                    {notice ? (
+                      <p className="mt-3 text-sm font-bold text-emerald-700">{notice}</p>
+                    ) : null}
+                    <Button
+                      type="submit"
+                      className="mt-5 min-h-12 w-full text-base"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <Loader2 className="size-5 animate-spin" />
+                      ) : (
+                        <ArrowRight className="size-5" />
+                      )}
+                      {passwordMode === "signUp" ? "Daftar" : "Masuk"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="mt-2 min-h-11 w-full text-sm"
+                      onClick={() => {
+                        setPasswordMode((mode) => (mode === "signIn" ? "signUp" : "signIn"));
+                        setError(null);
+                        setNotice(null);
+                      }}
+                      disabled={isLoading}
+                    >
+                      {passwordMode === "signIn"
+                        ? "Belum punya akun? Daftar saja"
+                        : "Sudah punya akun? Masuk saja"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="mt-1 min-h-11 w-full text-sm"
+                      onClick={() => {
+                        setError(null);
+                        setNotice(null);
+                        setStep("signIn");
+                      }}
+                      disabled={isLoading}
+                    >
+                      Kembali ke kode email
+                    </Button>
+                  </CardContent>
+                </form>
+              ) : (
               <form onSubmit={handleEmailSubmit}>
                 <CardContent>
                   <label className="flex flex-col gap-2">
@@ -351,10 +556,51 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     </span>
                   </label>
                   {error ? <p className="mt-3 text-sm font-bold text-red-700">{error}</p> : null}
+                  {notice ? (
+                    <p className="mt-3 text-sm font-bold text-emerald-700">{notice}</p>
+                  ) : null}
                   <Button type="submit" className="mt-5 min-h-12 w-full text-base" disabled={isLoading}>
                     {isLoading ? <Loader2 className="size-5 animate-spin" /> : <ArrowRight className="size-5" />}
                     Kirim kode masuk
                   </Button>
+                  {firebaseEnabled ? (
+                    <>
+                      <div className="my-5 flex items-center gap-3">
+                        <span className="h-px flex-1 bg-slate-200" />
+                        <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-400">
+                          atau
+                        </span>
+                        <span className="h-px flex-1 bg-slate-200" />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-12 w-full text-base"
+                        onClick={handleGoogleSignIn}
+                        disabled={isLoading}
+                      >
+                        {isLoading ? (
+                          <Loader2 className="size-5 animate-spin" />
+                        ) : (
+                          <GoogleMark />
+                        )}
+                        Masuk dengan Google
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="mt-2 min-h-11 w-full text-sm"
+                        onClick={() => {
+                          setError(null);
+                          setNotice(null);
+                          setStep("password");
+                        }}
+                        disabled={isLoading}
+                      >
+                        Gunakan email dan sandi
+                      </Button>
+                    </>
+                  ) : null}
                   {/* Tidak ada "Masuk sebagai tamu" di halaman ini, dan
                       sengaja tidak akan ditambah lagi. Akun anonim tidak punya
                       email, jadi begitu peran pengelola diberikan padanya,
@@ -363,6 +609,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       orang, satu email nyata, satu akun yang bisa dipulihkan. */}
                 </CardContent>
               </form>
+              )}
             </>
           ) : (
             <>                <CardHeader className="text-center">

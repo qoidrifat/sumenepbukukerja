@@ -115,23 +115,30 @@ test.describe("Skenario D — dua sesi", () => {
   const password = process.env.E2E_USER_PASSWORD;
 
   test("masuk di dua perangkat, lalu cabut satu sesi", async ({ page, browser }) => {
-    // CATATAN FASE 9.2. `E2E_USER_PASSWORD` tidak punya padanan di proyek ini.
-    // Autentikasi yang ada hanya `emailOtp` dan `anonymous` (lihat
-    // `src/convex/auth.ts`), jadi tidak ada layar "sandi" untuk diisi dan
-    // `getByLabel(/sandi|password/i)` di bawah tidak akan pernah menemukan
-    // apa pun. Dokumen sebelumnya menyebut test ini butuh "akun uji nyata" -
-    // itu tidak akurat: yang hilang bukan kredensialnya, arsitekturnya.
+    // CATATAN FASE 9.2 (DIPERBARUI).
     //
-    // Yang dibutuhkan adalah mailbox uji yang menangkap OTP, atau penyedia OTP
-    // khusus test. Keduanya butuh kredensial dan environment yang tidak
-    // dimiliki coding agent, jadi statusnya tetap
-    // `OPEN - TEST INFRASTRUCTURE GAP` (F-17).
+    // Keterangan yang lebih lama di sini sudah tidak berlaku. Dulu diklaim
+    // proyek ini tidak punya autentikasi sandi sama sekali, sehingga test ini
+    // tidak mungkin hijau. Itu benar waktu itu: yang ada hanya `emailOtp` dan
+    // `anonymous`.
     //
-    // Menambahkan autentikasi sandi demi mengijaukan test ini dilarang: itu
-    // mengubah arsitektur auth demi test, bukan memperbaiki test.
+    // Sekarang provider `firebase` (lihat `src/convex/auth/firebase.ts`)
+    // memberi jalur email + sandi yang TIDAK butuh mailbox uji - syarat yang
+    // tadinya jadi penghalang F-17. Jadi penghalangnya bergeser, bukan hilang:
+    // yang dibutuhkan sekarang adalah satu akun uji di Firebase, plus
+    // `E2E_USER_EMAIL` dan `E2E_USER_PASSWORD` yang menunjuk akun itu, dan
+    // test di bawah harus diisi lewat form sandi Firebase - bukan
+    // `getByLabel(/sandi|password/i)` yang sekarang menunjuk form yang tidak
+    // ada di layar OTP.
+    //
+    // Test ini sengaja TIDAK diubah sekarang. Menghijaukan test dengan
+    // menebak-nebak alur login baru akan menghasilkan test yang lulus tanpa
+    // pernah menguji apa yang seharusnya diuji. Statusnya tetap
+    // `OPEN - TEST INFRASTRUCTURE GAP` (F-17), tapi penghalangnya sekarang
+    // credential uji, bukan arsitektur.
     test.skip(
       !email || !password,
-      "Butuh mailbox uji OTP (tidak ada autentikasi sandi di proyek ini)",
+      "Butuh akun uji Firebase (email + sandi) untuk dua sesi; alur test belum ditulis ulang",
     );
     // Dua konteks = dua perangkat. Sesi B dicabut dari perangkat B, lalu
     // perangkat A harus tetap sahih.

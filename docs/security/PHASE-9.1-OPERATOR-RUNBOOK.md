@@ -17,6 +17,73 @@ ada di `PHASE-9.1-SECURITY-CLOSURE-REPORT.md`.
 
 ---
 
+## F-17a — Mengaktifkan Firebase Authentication (P0, untuk akun produksi)
+
+Bagian ini ditambahkan 2026-09-30. Provider `firebase` sudah ada di kode
+(`src/convex/auth/firebase.ts`) dan sudah terverifikasi lewat 13 test
+(`src/convex/firebase-auth-security.test.ts`), tapi **tidak akan aktif sampai
+env var di bawah diisi**. Tanpa itu, halaman `/auth` hanya menampilkan alur OTP
+dan tombol Google sengaja disembunyikan.
+
+### Kenapa ini perlu
+
+`VLY_EMAIL_OTP_API_KEY` adalah kredensial milik platform Freebuff. Setelah proyek
+pindah ke akun Convex milik pemilik, kuncinya tidak ikut, jadi `auth:signIn`
+gagal tertutup. Provider Firebase menutup jalur masuk itu tanpa kredensial
+berbayar dan tanpa domain pengirim milik sendiri.
+
+### Env var yang wajib diisi
+
+Di **Convex** (backend), per deployment - `focused-lemur-389` dan
+`qualified-chameleon-491`:
+
+| Nama | Isi | Mandatory |
+|---|---|---|
+| `FIREBASE_PROJECT_ID` | Project ID dari Firebase Console, misal `sumenep-buku-kerja` | Ya |
+
+Di **lingkungan build** (bukan Convex) - ini dibaca Vite saat build, jadi nilainya
+masuk ke bundel peramban:
+
+| Nama | Isi | Mandatory |
+|---|---|---|
+| `VITE_FIREBASE_API_KEY` | Web API key di Firebase Console > Project settings > General | Ya |
+| `VITE_FIREBASE_AUTH_DOMAIN` | `NAMAPROJECT.firebaseapp.com` | Ya |
+| `VITE_FIREBASE_PROJECT_ID` | Sama dengan `FIREBASE_PROJECT_ID` di atas | Ya |
+
+Nilai `VITE_FIREBASE_API_KEY` **bukan rahasia** dan memang wajib ada di sisi
+klien - itu aturan Firebase. Yang tidak boleh pernah ada di repo maupun bundel:
+service account JSON, private key, dan admin credential.
+
+### Di Firebase Console
+
+1. Authentication > Sign-in method > aktifkan **Google**.
+2. Authentication > Sign-in method > aktifkan **Email/Password**.
+3. Authentication > Settings > Authorized domains: tambahkan
+   `sumenepbukukerja.freebuff.app` (dan domain preview kalau ada). Tanpa ini,
+   masuk Google gagal dengan `auth/unauthorized-domain`.
+4. Settings > General > Project ID: cocokkan dengan `FIREBASE_PROJECT_ID`.
+
+### Verifikasi
+
+1. Isi env var di kedua deployment, lalu deploy ulang.
+2. Buka `/auth`. Tombol **Masuk dengan Google** dan **Gunakan email dan sandi**
+   harus muncul. Kalau tidak, `VITE_FIREBASE_*` belum terbaca saat build.
+3. Masuk dengan Google, lalu buka `/dashboard`. Kalau muncul "Masuk untuk
+   menggunakan fitur Buku Kerja", berarti sesi tidak terbentuk - cek Logs di
+   dashboard Convex.
+4. Cek `users:adminSetupStatus` di deployment itu. Akun Google dengan email
+   yang sama harus TERHUBUNG ke akun lama: `staffCount` tidak boleh naik,
+   karena `shouldLinkViaEmail` menyatukannya, bukan membuat akun baru.
+5. `bun run test` harus tetap 829/829.
+
+### Yang sengaja tidak diubah
+
+Provider `emailOtp` tetap terdaftar. Jangan dihapus hanya karena kuncinya
+belum ada - kalau kuncinya suatu saat tersedia lagi, alur itu harus langsung
+hidup tanpa perubahan kode.
+
+---
+
 ## F-01 — Kredensial OTP bawaan platform (TIDAK bisa dirotasi)
 
 ### Kenapa bagian ini berubah

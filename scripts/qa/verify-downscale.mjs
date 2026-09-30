@@ -122,7 +122,7 @@ async function runCase(label, width, height, expectResize) {
     `        keluar : ${result.outWidth}x${result.outHeight}, ${(result.afterBytes / 1000).toFixed(0)} KB (${result.outType}, ${result.outName})`,
   );
   console.log(
-    `        hemat  : ${(100 - (result.afterBytes / result.beforeBytes) * 100).toFixed(1)}% · rasio 유지: ${ratioOk ? "ya" : "TIDAK"} · diperkecil: ${result.resized ? "ya" : "tidak"}`,
+    `        hemat  : ${(100 - (result.afterBytes / result.beforeBytes) * 100).toFixed(1)}% · rasio terjaga: ${ratioOk ? "ya" : "TIDAK"} · diperkecil: ${result.resized ? "ya" : "tidak"}`,
   );
   console.log(
     `        batas  : ${(result.afterBytes / 1000).toFixed(0)} KB <= ${(result.limit / 1000).toFixed(0)} KB → ${result.rejection ?? "lolos"}`,

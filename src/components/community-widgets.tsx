@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router";
 import {
   AlertTriangle,
   ArrowRight,
-  Bell,
   Clock3,
   Cloud,
   Download,
@@ -26,24 +25,20 @@ import {
   useCatalogVendors,
   useOwnerVendors,
   useMyInteractions,
-  useNotificationPreferences,
   useOwnerRequests,
-  useNotifications,
-  useMyClaims,
-  useWhatsappStatus,
   useServiceRequests,
   useVendorPackages,
   useVendorPhotos,
   useVendorClaims,
   useListingHistory,
-  type NotificationPreferences,
   type ServiceRequest,
 } from "@/lib/catalog-store";
 import { useAuth } from "@/hooks/use-auth";
-import { formatConvexError, generateWhatsAppLink } from "@/lib/whatsapp";
+import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { AnimatedContent, ScrollReveal } from "@/components/react-bits";
 import { PublicRequestMascot } from "@/components/public-request-mascot";
 import { ThemedSelect } from "@/components/ui/themed-select";
+import { CheckField, FormField, OptionalNote, TextField } from "@/components/form-field";
 import {
   areaSelectOptions,
   categorySelectOptions,
@@ -53,22 +48,8 @@ import {
 import { useOfflineQueue } from "@/lib/offline-queue";
 
 import { focusRing } from "@/components/display-controls";
-
-/** Label status pengiriman. Status comes straight from the provider webhook. */
-const deliveryStatusLabel: Record<string, string> = {
-  queued: "Menunggu",
-  sent: "Terkirim",
-  delivered: "Diterima",
-  failed: "Gagal",
-};
-
-const deliveryStatusClass: Record<string, string> = {
-  queued: "text-amber-700",
-  sent: "text-blue-700",
-  delivered: "text-emerald-700",
-  failed: "text-red-700",
-};
-const inputClass = "min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base text-slate-900 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+import { MAX_IMAGE_LABEL } from "@/lib/image-upload";
+import { publicInputClass as inputClass } from "@/lib/public-field-classes";
 
 function formatRequestDate(timestamp: number) {
   return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(new Date(timestamp));
@@ -162,7 +143,6 @@ function RequestForm({ onCreated }: { onCreated: () => void }) {
   const [landmark, setLandmark] = useState("all");
   const [budget, setBudget] = useState("");
   const [neededAt, setNeededAt] = useState("");
-  const neededAtHintId = useId();
   const [useLocation, setUseLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -219,49 +199,43 @@ function RequestForm({ onCreated }: { onCreated: () => void }) {
       </div>
       <p className="mt-2 text-sm leading-6 text-slate-600">Tulis kebutuhan sekali, lalu biarkan usaha yang cocok segera menawarinya via WhatsApp.</p>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="flex flex-col gap-2 sm:col-span-2">
-          <span className="text-sm font-extrabold text-slate-800">Judul kebutuhan</span>
-          <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Contoh: Butuh tukang listrik dekat Kalianget" className={inputClass} required minLength={5} maxLength={100} />
-        </label>
-        <label className="flex flex-col gap-2" htmlFor={categoryFieldId}>
-          <span className="text-sm font-extrabold text-slate-800">Kategori</span>
-          <ThemedSelect id={categoryFieldId} value={category} onValueChange={(value) => setCategory(value as Category)} options={categorySelectOptions} />
-        </label>
-        <label className="flex flex-col gap-2" htmlFor={areaFieldId}>
-          <span className="text-sm font-extrabold text-slate-800">Area</span>
-          <ThemedSelect id={areaFieldId} value={landmark} onValueChange={setLandmark} options={areaSelectOptions} />
-        </label>
-        <label className="flex flex-col gap-2">
-          <span className="text-sm font-extrabold text-slate-800">Anggaran singkat <span className="font-medium text-slate-500">(opsional)</span></span>
-          <input value={budget} onChange={(event) => setBudget(event.target.value)} placeholder="Contoh: Rp100.000-an" className={inputClass} />
-        </label>
-        <label className="flex flex-col gap-2">
-          <span className="text-sm font-extrabold text-slate-800">Dibutuhkan kapan <span className="font-medium text-slate-500">(opsional)</span></span>
-          <input
-            type="date"
-            value={neededAt}
-            // Tanpa batas bawah, tanggal lampau bisa dipilih untuk "dibutuhkan
-            // kapan" — permintaan yang mustahil dipenuhi dan hanya menambah
-            // pekerjaan untuk mitra yang membacanya.
-            min={todayISODate()}
-            onChange={(event) => setNeededAt(event.target.value)}
-            aria-describedby={neededAtHintId}
-            className={`${inputClass} field-date field-date--public`}
-          />
-          <span id={neededAtHintId} className="text-xs font-medium text-slate-500">
-            {neededAt
-              ? `Dipilih: ${formatNeededAt(neededAt)}`
-              : "Format mengikuti kalender perangkat Anda."}
-          </span>
-        </label>
-        <label className="flex min-h-12 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-700 sm:col-span-2">
-          <input type="checkbox" checked={useLocation} onChange={(event) => setUseLocation(event.target.checked)} className="size-4 accent-blue-600" />
-          Gunakan lokasi saya untuk pencocokan jarak (opsional)
-        </label>
-        <label className="flex flex-col gap-2 sm:col-span-2">
-          <span className="text-sm font-extrabold text-slate-800">Ceritakan kebutuhan</span>
-          <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Contoh: RC turun malam ini, mohon diberi tahu harga dan estimasi datang." rows={3} className="min-h-28 rounded-lg border border-slate-300 bg-white px-3 py-3 text-base leading-6 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required minLength={10} maxLength={1000} />
-        </label>
+        <TextField label="Judul kebutuhan" value={title} onValueChange={setTitle} controlClassName={inputClass} placeholder="Contoh: Butuh tukang listrik dekat Kalianget" className="sm:col-span-2" required minLength={5} maxLength={100} />
+        <FormField label="Kategori" control={() => <ThemedSelect id={categoryFieldId} value={category} onValueChange={(value) => setCategory(value as Category)} options={categorySelectOptions} />} />
+        <FormField label="Area" control={() => <ThemedSelect id={areaFieldId} value={landmark} onValueChange={setLandmark} options={areaSelectOptions} />} />
+        <TextField label={<>Anggaran singkat <OptionalNote /></>} value={budget} onValueChange={setBudget} controlClassName={inputClass} placeholder="Contoh: Rp100.000-an" />
+        <TextField
+          type="date"
+          label={<>Dibutuhkan kapan <OptionalNote /></>}
+          value={neededAt}
+          onValueChange={setNeededAt}
+          controlClassName={inputClass}
+          controlClassNameExtra="field-date field-date--public"
+          // Tanpa batas bawah, tanggal lampau bisa dipilih untuk "dibutuhkan
+          // kapan": permintaan yang mustahil dipenuhi dan hanya menambah
+          // pekerjaan untuk mitra yang membacanya.
+          min={todayISODate()}
+          hint={neededAt ? `Dipilih: ${formatNeededAt(neededAt)}` : "Format mengikuti kalender perangkat Anda."}
+        />
+        <CheckField
+          label="Gunakan lokasi saya untuk pencocokan jarak (opsional)"
+          checked={useLocation}
+          onCheckedChange={setUseLocation}
+          span
+        />
+        <TextField
+          as="textarea"
+          rows={3}
+          label="Ceritakan kebutuhan"
+          value={description}
+          onValueChange={setDescription}
+          controlClassName={inputClass}
+          controlClassNameExtra="min-h-28 py-3 leading-6"
+          className="sm:col-span-2"
+          required
+          minLength={10}
+          maxLength={1000}
+          placeholder="Contoh: RC turun malam ini, mohon diberi tahu harga dan estimasi datang."
+        />
       </div>
       {error ? <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p> : null}
       {success ? <p role="status" className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">{success}</p> : null}
@@ -480,324 +454,6 @@ export function InteractionHistory() {
   );
 }
 
-export function NotificationCenter() {
-  const notifications = useNotifications();
-  const preferences = useNotificationPreferences();
-  const whatsappStatus = useWhatsappStatus();
-  const claims = useMyClaims();
-  const {
-    markNotificationsRead,
-    setNotificationPreferences,
-    sendTestWhatsapp,
-    markWhatsappThreadRead,
-  } = useCatalogActions();
-  const [preferenceError, setPreferenceError] = useState("");
-  const [whatsappPhoneDraft, setWhatsappPhoneDraft] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [testNotice, setTestNotice] = useState("");
-  const [testFailed, setTestFailed] = useState(false);
-  const unread = notifications?.filter((item) => !item.read).length ?? 0;
-  const prefs: NotificationPreferences = preferences
-    ? {
-        whatsappUpdates: preferences.whatsappUpdates ?? false,
-        areaUpdates: preferences.areaUpdates ?? false,
-        requestUpdates: preferences.requestUpdates ?? false,
-      }
-    : { whatsappUpdates: false, areaUpdates: false, requestUpdates: false };
-
-  const whatsappPhone =
-    whatsappPhoneDraft ?? preferences?.whatsappPhone ?? "";
-
-  const toggle = async (
-    key: "whatsappUpdates" | "areaUpdates" | "requestUpdates",
-  ) => {
-    setPreferenceError("");
-    setSaving(true);
-    try {
-      if (key === "whatsappUpdates") {
-        await setNotificationPreferences({
-          whatsappUpdates: !prefs.whatsappUpdates,
-          whatsappPhone,
-        });
-      } else {
-        await setNotificationPreferences({ [key]: !prefs[key] });
-      }
-    } catch (caught) {
-      setPreferenceError(
-        caught instanceof Error
-          ? caught.message
-          : "Preferensi belum dapat disimpan.",
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const sendTest = async () => {
-    setPreferenceError("");
-    setTestNotice("");
-    setTestFailed(false);
-    setSaving(true);
-    try {
-      await sendTestWhatsapp({});
-      setTestNotice("Pesan uji berhasil dikirim ke nomor WhatsApp.");
-    } catch (caught) {
-      setTestFailed(true);
-      setTestNotice(
-        formatConvexError(caught, "Pesan uji belum dapat dikirim."),
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const markThreadRead = async () => {
-    setSaving(true);
-    try {
-      await markWhatsappThreadRead({});
-    } catch (caught) {
-      setPreferenceError(
-        formatConvexError(caught, "Pesan masuk belum dapat ditandai dibaca."),
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const verifiedClaims = (claims ?? []).filter((claim) => claim.status === "verified");
-  const pendingClaims = (claims ?? []).filter((claim) => claim.status === "pending");
-
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="relative flex size-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
-            <Bell className="size-5" />
-            {unread > 0 ? (
-              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-black text-white">
-                {unread > 9 ? "9+" : unread}
-              </span>
-            ) : null}
-          </span>
-          <div>
-            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
-              Pemberitahuan
-            </p>
-            <h2 className="mt-1 text-xl font-black text-slate-950">
-              Yang perlu Anda tahu
-            </h2>
-          </div>
-        </div>
-        {unread > 0 ? (
-          <button
-            type="button"
-            onClick={() => void markNotificationsRead({})}
-            className={`min-h-12 rounded-lg px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-50 ${focusRing}`}
-          >
-            Tandai dibaca
-          </button>
-        ) : null}
-      </div>
-
-      <p className="mt-3 text-sm leading-6 text-slate-600">
-        Notifikasi bersifat opt-in dan dibatasi maksimal tiga pesan WhatsApp per
-        hari.{" "}
-        {whatsappStatus === undefined
-          ? "Status pengiriman sedang dimuat."
-          : whatsappStatus.configured
-            ? `Pengiriman memakai ${whatsappStatus.provider === "meta" ? "Meta Cloud API" : "Twilio"}, dan status percakapan masuk dibaca otomatis lewat webhook.`
-            : "WhatsApp Business API belum dikonfigurasi; preferensi tetap dapat disimpan."}
-      </p>
-
-      {whatsappStatus?.providerIssue ? (
-        <p
-          className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-900"
-          role="status"
-        >
-          {whatsappStatus.providerIssue}
-        </p>
-      ) : null}
-      {whatsappStatus?.templateWarning ? (
-        <p
-          className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-900"
-          role="status"
-        >
-          {whatsappStatus.templateWarning}
-        </p>
-      ) : null}
-
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
-        {(
-          [
-            ["whatsappUpdates", "WhatsApp"],
-            ["areaUpdates", "Info area (dalam aplikasi)"],
-            ["requestUpdates", "Permintaan baru (dalam aplikasi)"],
-          ] as const
-        ).map(([key, label]) => (
-          <label
-            key={key}
-            className="flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-700"
-          >
-            <input
-              type="checkbox"
-              checked={prefs[key]}
-              disabled={saving}
-              onChange={() => void toggle(key)}
-              className="size-4 accent-blue-600"
-            />
-            {label}
-          </label>
-        ))}
-      </div>
-
-      <label className="mt-3 flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <span className="text-sm font-extrabold text-slate-800">
-          Nomor WhatsApp untuk notifikasi
-        </span>
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-          <input
-            type="tel"
-            inputMode="tel"
-            value={whatsappPhone}
-            onChange={(event) => setWhatsappPhoneDraft(event.target.value)}
-            placeholder="08xxxxxxxxxx atau 62xxxxxxxxxx"
-            className={inputClass}
-            autoComplete="tel"
-          />
-          <button
-            type="button"
-            disabled={saving || !prefs.whatsappUpdates || !whatsappStatus?.configured}
-            onClick={() => void sendTest()}
-            className={`min-h-12 rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-          >
-            {saving ? "Memproses..." : "Kirim pesan uji"}
-          </button>
-        </div>
-      </label>
-
-      {whatsappStatus?.recent?.length ? (
-        <div className="mt-3">
-          <p className="text-sm font-extrabold text-slate-800">
-            Status pengiriman terakhir
-          </p>
-          <ul className="mt-2 space-y-1.5">
-            {whatsappStatus.recent.map((item) => (
-              <li
-                key={item.deliveryKey}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
-              >
-                <span className="min-w-0 truncate text-sm font-bold text-slate-800">
-                  {item.title}
-                </span>
-                <span className="flex items-center gap-2 text-xs font-extrabold">
-                  {item.lastErrorCode ? (
-                    <span className="font-mono text-red-700">
-                      {item.lastErrorCode}
-                    </span>
-                  ) : null}
-                  <span className={deliveryStatusClass[item.status]}>
-                    {deliveryStatusLabel[item.status]}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {whatsappStatus?.thread ? (
-        <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-extrabold text-slate-900">
-              Balasan WhatsApp terakhir
-            </p>
-            {whatsappStatus.thread.unread ? (
-              <button
-                type="button"
-                onClick={() => void markThreadRead()}
-                className={`min-h-10 rounded-lg border border-blue-200 bg-white px-3 text-xs font-extrabold text-blue-700 hover:bg-blue-100 ${focusRing}`}
-              >
-                Tandai dibaca
-              </button>
-            ) : null}
-          </div>
-          <p className="mt-1 text-sm leading-6 text-slate-700">
-            {whatsappStatus.thread.lastInboundBody ||
-              "Pesan masuk tanpa teks."}
-          </p>
-        </div>
-      ) : null}
-
-      {verifiedClaims.length > 0 ? (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <span>
-            Identitas terverifikasi untuk {verifiedClaims.map((claim) => claim.vendorName).join(", ")}.
-            Anda boleh mengubah, mengarsipkan, dan mengelola listing.
-          </span>
-        </div>
-      ) : pendingClaims.length > 0 ? (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
-          <p>
-            Klaim {pendingClaims.map((claim) => claim.vendorName).join(", ")} sedang
-            diperiksa pengelola. Anda boleh menyunting draft, tapi belum bisa
-            mengubah listing yang sudah tayang sampai klaim disetujui.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm font-extrabold text-amber-900">
-            Verifikasi identitas usaha
-          </p>
-          <p className="mt-1 text-sm leading-6 text-amber-800">
-            Untuk mengelola listing yang sudah tayang, ajukan klaim di section
-            &ldquo;Kelola listing Anda&rdquo; dengan nomor WhatsApp, email, alamat
-            usaha, dan foto bukti. Pengelola akan memeriksa sebelum Anda bisa
-            mengubah, mengarsipkan, atau menambahkan paket.
-          </p>
-          <a
-            href="/dashboard#listing-saya"
-            className={`mt-3 inline-flex min-h-12 items-center rounded-lg bg-amber-600 px-4 text-sm font-extrabold text-white hover:bg-amber-700 ${focusRing}`}
-          >
-            Buka kelola listing
-          </a>
-        </div>
-      )}
-
-      {preferenceError ? (
-        <p className="mt-2 text-sm font-bold text-red-700" role="alert">
-          {preferenceError}
-        </p>
-      ) : null}
-      {testNotice ? (
-        <p
-          className={`mt-2 rounded-lg p-3 text-sm font-bold leading-6 ${testFailed ? "border border-red-200 bg-red-50 text-red-800" : "text-blue-700"}`}
-          role={testFailed ? "alert" : "status"}
-        >
-          {testNotice}
-        </p>
-      ) : null}
-
-      {notifications && notifications.length > 0 ? (
-        <div className="mt-4 space-y-2">
-          {notifications.slice(0, 5).map((item) => (
-            <div
-              key={item._id}
-              className={`rounded-lg border p-3 ${item.read ? "border-slate-200 bg-white" : "border-blue-200 bg-blue-50"}`}
-            >
-              <p className="text-sm font-extrabold text-slate-900">{item.title}</p>
-              <p className="mt-1 text-sm leading-5 text-slate-600">{item.body}</p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-4 text-sm leading-6 text-slate-600">
-          Belum ada notifikasi. Pilihan di atas bisa diubah kapan saja.
-        </p>
-      )}
-    </section>
-  );
-}
 
 export function ClaimListingPanel({ vendorId, vendorName, phone, address, ownedByMe = false, returnTo }: { vendorId: string; vendorName: string; phone: string; address: string; ownedByMe?: boolean; returnTo?: string }) {
   const { isAuthenticated } = useAuth();
@@ -851,7 +507,7 @@ export function ClaimListingPanel({ vendorId, vendorName, phone, address, ownedB
     return <p className="mt-6 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">Klaim sebelumnya ditolak. Periksa bukti dan hubungi pengelola bila perlu.</p>;
   }
   if (!open) return <button type="button" onClick={() => setOpen(true)} className={`mt-6 min-h-12 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-extrabold text-blue-700 ${focusRing}`}>{ownedByMe ? "Verifikasikan usaha ini" : "Ini usaha saya — klaim listing"}</button>;
-  return <form onSubmit={submit} className="mt-6 rounded-xl border border-blue-200 bg-blue-50/70 p-4"><p className="font-extrabold text-slate-950">Klaim {vendorName}</p><p className="mt-1 text-sm leading-6 text-slate-600">Masukkan data yang bisa diverifikasi. Pemilik baru ditetapkan setelah admin menyetujui.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800 sm:col-span-2">Email terverifikasi<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} required /></label><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800">Nomor WhatsApp<input type="tel" value={whatsappPhone} onChange={(event) => setWhatsappPhone(event.target.value)} className={inputClass} required /></label><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800">Alamat usaha<input value={businessAddress} onChange={(event) => setBusinessAddress(event.target.value)} className={inputClass} required /></label><label className="flex flex-col gap-1.5 text-sm font-bold text-slate-800 sm:col-span-2">Foto bukti (opsional)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setEvidence(event.target.files?.[0] ?? null)} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label></div>{message ? <p className="mt-3 text-sm font-bold text-red-700" role="alert">{message}</p> : null}<div className="mt-3 flex gap-2"><button type="submit" disabled={busy} className={`min-h-11 rounded-lg bg-blue-600 px-3 text-sm font-extrabold text-white disabled:opacity-50 ${focusRing}`}>{busy ? "Mengirim..." : "Kirim klaim"}</button><button type="button" onClick={() => setOpen(false)} className={`min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Batal</button></div></form>;
+  return <form onSubmit={submit} className="mt-6 rounded-xl border border-blue-200 bg-blue-50/70 p-4"><p className="font-extrabold text-slate-950">Klaim {vendorName}</p><p className="mt-1 text-sm leading-6 text-slate-600">Masukkan data yang bisa diverifikasi. Pemilik baru ditetapkan setelah admin menyetujui.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><TextField label="Email terverifikasi" type="email" value={email} onValueChange={setEmail} controlClassName={inputClass} className="sm:col-span-2" required /><TextField label="Nomor WhatsApp" type="tel" value={whatsappPhone} onValueChange={setWhatsappPhone} controlClassName={inputClass} required /><TextField label="Alamat usaha" value={businessAddress} onValueChange={setBusinessAddress} controlClassName={inputClass} required /><FormField label={<>Foto bukti <OptionalNote /></>} className="sm:col-span-2" control={({ id }) => <input id={id} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setEvidence(event.target.files?.[0] ?? null)} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />} /></div>{message ? <p className="mt-3 text-sm font-bold text-red-700" role="alert">{message}</p> : null}<div className="mt-3 flex gap-2"><button type="submit" disabled={busy} className={`min-h-11 rounded-lg bg-blue-600 px-3 text-sm font-extrabold text-white disabled:opacity-50 ${focusRing}`}>{busy ? "Mengirim..." : "Kirim klaim"}</button><button type="button" onClick={() => setOpen(false)} className={`min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Batal</button></div></form>;
 }
 
 export function OwnerGalleryManager({ vendorId, vendorName }: { vendorId: string; vendorName: string }) {
@@ -914,7 +570,7 @@ export function OwnerGalleryManager({ vendorId, vendorName }: { vendorId: string
         </div>
         <label className="flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-blue-300 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-600">
           <ImagePlus className="size-5" aria-hidden="true" />
-          {busy ? "Mengunggah..." : "Pilih beberapa foto (maks. 1 MBeach)"}
+          {busy ? "Mengunggah..." : `Pilih beberapa foto (maks. ${MAX_IMAGE_LABEL} masing-masing)`}
           <input type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" disabled={busy} onChange={(event) => void upload(event.target.files)} />
         </label>
         {message ? <p className="text-sm font-bold text-blue-700" role="status">{message}</p> : null}
@@ -1070,7 +726,7 @@ export function ReportListingButton({ vendorId }: { vendorId?: string }) {
     }
   };
   if (!open) return <button type="button" onClick={() => setOpen(true)} className={`inline-flex min-h-12 items-center gap-2 rounded-lg px-3 text-sm font-extrabold text-slate-600 hover:bg-slate-100 hover:text-red-700 ${focusRing}`}><AlertTriangle className="size-4" />Laporkan listing</button>;
-  return <form onSubmit={submit} className="rounded-xl border border-red-200 bg-red-50 p-3"><p className="font-extrabold text-red-900">Ada informasi yang kurang tepat?</p><ThemedSelect aria-label="Alasan laporan" className="mt-3" value={reason} onValueChange={setReason} options={reportReasonSelectOptions} /><textarea aria-label="Detail laporan" value={details} onChange={(event) => setDetails(event.target.value)} placeholder="Ceritakan detailnya" rows={3} className={`mt-2 ${inputClass}`} required minLength={5} /><div className="mt-2 flex gap-2"><button type="submit" className={`min-h-12 rounded-lg bg-red-700 px-3 text-sm font-extrabold text-white ${focusRing}`}>Kirim</button><button type="button" onClick={() => setOpen(false)} className={`min-h-12 rounded-lg px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Batal</button></div>{status ? <p className="mt-2 text-sm font-bold text-red-800" role="status">{status}</p> : null}</form>;
+  return <form onSubmit={submit} className="rounded-xl border border-red-200 bg-red-50 p-3"><p className="font-extrabold text-red-900">Ada informasi yang kurang tepat?</p><FormField label="Alasan laporan" className="mt-3" control={() => <ThemedSelect aria-label="Alasan laporan" value={reason} onValueChange={setReason} options={reportReasonSelectOptions} />} /><TextField as="textarea" rows={3} label="Detail laporan" value={details} onValueChange={setDetails} controlClassName={inputClass} className="mt-2" placeholder="Ceritakan detailnya" required minLength={5} /><div className="mt-2 flex gap-2"><button type="submit" className={`min-h-12 rounded-lg bg-red-700 px-3 text-sm font-extrabold text-white ${focusRing}`}>Kirim</button><button type="button" onClick={() => setOpen(false)} className={`min-h-12 rounded-lg px-3 text-sm font-extrabold text-slate-700 ${focusRing}`}>Batal</button></div>{status ? <p className="mt-2 text-sm font-bold text-red-800" role="status">{status}</p> : null}</form>;
 }
 
 export function PackageManager({ vendorId, vendorName }: { vendorId: string; vendorName: string }) {
@@ -1093,7 +749,7 @@ export function PackageManager({ vendorId, vendorName }: { vendorId: string; ven
       setMessage(caught instanceof Error ? caught.message : "Paket belum dapat ditambahkan.");
     }
   };
-  return <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3"><summary className={`min-h-12 cursor-pointer py-3 text-sm font-extrabold text-slate-800 ${focusRing}`}>Kelola paket {vendorName}</summary><div className="mt-3 space-y-3">{packages?.map((item) => <div key={item._id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3"><div><p className="font-extrabold text-slate-900">{item.name} · {item.price}</p><p className="mt-1 text-sm text-slate-600">{item.description}</p></div><button type="button" onClick={() => void removePackage({ id: item._id as never })} className={`flex min-h-10 items-center rounded-lg px-2 text-sm font-extrabold text-red-700 hover:bg-red-50 ${focusRing}`} aria-label={`Hapus paket ${item.name}`}><X className="size-4" /></button></div>)}<form onSubmit={submit} className="grid gap-2 sm:grid-cols-2"><input aria-label="Nama paket" value={name} onChange={(event) => setName(event.target.value)} placeholder="Nama paket" className={inputClass} required /><input aria-label="Harga paket" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Harga" className={inputClass} required /><textarea aria-label="Deskripsi paket" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Deskripsi paket" rows={2} className={`${inputClass} sm:col-span-2`} required /><input aria-label="Estimasi durasi paket" value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="Estimasi durasi" className={inputClass} /><input aria-label="Area layanan paket" value={area} onChange={(event) => setArea(event.target.value)} placeholder="Area layanan" className={inputClass} /><button type="submit" className={`min-h-12 rounded-lg bg-blue-600 px-3 text-sm font-extrabold text-white sm:col-span-2 ${focusRing}`}>Simpan paket</button></form>{message ? <p className="text-sm font-bold text-blue-700" role="status">{message}</p> : null}</div></details>;
+  return <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3"><summary className={`min-h-12 cursor-pointer py-3 text-sm font-extrabold text-slate-800 ${focusRing}`}>Kelola paket {vendorName}</summary><div className="mt-3 space-y-3">{packages?.map((item) => <div key={item._id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3"><div><p className="font-extrabold text-slate-900">{item.name} · {item.price}</p><p className="mt-1 text-sm text-slate-600">{item.description}</p></div><button type="button" onClick={() => void removePackage({ id: item._id as never })} className={`flex min-h-10 items-center rounded-lg px-2 text-sm font-extrabold text-red-700 hover:bg-red-50 ${focusRing}`} aria-label={`Hapus paket ${item.name}`}><X className="size-4" /></button></div>)}<form onSubmit={submit} className="grid gap-2 sm:grid-cols-2"><TextField label="Nama paket" value={name} onValueChange={setName} controlClassName={inputClass} placeholder="Nama paket" required /><TextField label="Harga paket" value={price} onValueChange={setPrice} controlClassName={inputClass} placeholder="Harga" required /><TextField as="textarea" rows={2} label="Deskripsi paket" value={description} onValueChange={setDescription} controlClassName={inputClass} className="sm:col-span-2" required /><TextField label="Estimasi durasi paket" value={duration} onValueChange={setDuration} controlClassName={inputClass} placeholder="Estimasi durasi" /><TextField label="Area layanan paket" value={area} onValueChange={setArea} controlClassName={inputClass} placeholder="Area layanan" /><button type="submit" className={`min-h-12 rounded-lg bg-blue-600 px-3 text-sm font-extrabold text-white sm:col-span-2 ${focusRing}`}>Simpan paket</button></form>{message ? <p className="text-sm font-bold text-blue-700" role="status">{message}</p> : null}</div></details>;
 }
 
 export function CompareTray({ vendors, selected, onRemove, onClear }: { vendors: Vendor[]; selected: string[]; onRemove: (slug: string) => void; onClear: () => void }) {

@@ -265,3 +265,71 @@ bun run mascot:validate
 
 Urutan ini sengaja menaruh penambahan dependensi paling besar di akhir, supaya
 kalau nanti dibatalkan, tidak ada yang harus dibongkar.
+
+---
+
+## 5. Status eksekusi (Fase 9.1, diperbarui 2026-09-30)
+
+Brief ini awalnya hanya rencana. Bagian ini mencatat apa yang benar-benar
+dieksekusi, apa yang hasilnya, dan apa yang sengaja tidak dikerjakan.
+
+### 5.1 Selesai
+
+| # | Pekerjaan | Hasil |
+|---|---|---|
+| 1 | Audit token dark, lalu tulis keputusannya | Aplikasi tetap terang. `dark:` ternyata nol di kode aplikasi sendiri (cuma berkas shadcn bawaan + 2 objek warna framer-motion). Tidak ada blok token `.dark`, tidak ada yang memasang kelas itu. Keputusan ini dikunci di `src/components/display-mode-decision.test.ts`. |
+| 2 | Kontrol aksesibilitas diekstrak | `AccessibilityControls` pindah ke `src/components/display-controls.tsx` dan sekarang juga tampil di `VendorProfile.tsx`. Key localStorage tidak berubah. |
+| 3 | Trust signal di kartu katalog | "Terverifikasi" / "Belum diverifikasi" dengan ikon + teks, bukan warna saja. Nol perubahan backend. |
+| 4 | Skema form bersama | `src/components/form-field.tsx`. 4 form, 27 isian, 1 komponen. Label terhubung lewat `htmlFor` + `id`; `aria-describedby` jadi otomatis. |
+| 5 | Padatkan admin | Tabel log keamanan ke `ui/table.tsx`, loading ke `AdminLoadingSkeleton`. |
+| 6 | Pecah file besar | 4 file dipecah menjadi 7 modul. `Admin.tsx` tidak dipecah, alasannya di 5.3. |
+
+### 5.2 Dua bug nyata yang ditemukan sambil menyederhanakan
+
+- `community-widgets.tsx` menulis "maks. 1 MBeach" - dua string salah disambung
+  JSX, jadi angkanya tampil salah DAN berasal dari konstanta yang ditulis ulang
+  manual. Sekarang `MAX_IMAGE_LABEL` dari `@/lib/image-upload`.
+- Field nomor WhatsApp untuk notifikasi membungkus `<button "Kirim pesan uji">`
+  di dalam `<label>`. Menekan tombol itu ikut memfokus kolom yang tidak
+  disentuh pengguna. Sekarang label hanya melabeli, kontrol punya `id` sendiri.
+
+### 5.3 `Admin.tsx` sengaja tidak dipecah
+
+1.540 baris, tapi 1.330 barisnya satu fungsi `AdminWorkspace()`: satu
+state machine dengan ~30 state dan handler yang saling bergantung. Memecah
+section `#admin-editor` (332 baris) dan `#admin-triage` (480 baris) berarti
+mengoperasikan semua closure itu lewat props - refactor dengan risiko regresi
+nyata dan tanpa satu pun manfaat yang dilihat pengguna. Itu bukan pemecahan
+file, itu pemindahan risiko ke tempat yang tidak bisa diuji. `AdminGate` juga
+tidak bisa dipisah karena ia merender `AdminWorkspace`.
+
+Yang sudah dilakukan pada file itu: tidak ada. Kalau nanti dipecah, pemecahan
+yang benar adalah memindahkan state ke custom hook lebih dulu, baru memindahkan
+JSX - dan itu pekerjaan tersendiri, bukan pemotongan file.
+
+### 5.4 Angka gerbang
+
+| Gerbang | Sebelum | Sesudah |
+|---|---|---|
+| `bunx tsc -b --noEmit` | 0 error | 0 error |
+| `bun run test` | 51 berkas / 731 test | 56 berkas / 789 test |
+| `bun run test:e2e` | 32 lulus / 10 skip | 32 lulus / 10 skip / 0 gagal |
+| `bun run build` | 538.10 kB | 538.10 kB (tidak berubah) |
+| `bun run lint` | 0 error / 26 warning | 0 error / 26 warning (tidak berubah) |
+| `brand:check` / `mascot:validate` | PASS / PASS | PASS / PASS |
+| Dependensi baru | - | nol |
+
+### 5.5 Yang belum dikerjakan, dan kenapa
+
+- **Tahap 1 sisanya**: 16 komponen shadcn masih menganggur. Yang paling
+  bernilai berikutnya adalah `ui/table.tsx` di `admin-workspace.tsx` (kartu
+  antrean) dan `ui/pagination.tsx` di daftar permintaan.
+- **Tahap 2 sisanya**: skeleton dan empty state untuk area warga, bukan hanya
+  admin. `ui/empty.tsx` masih menganggur.
+- **Tahap 3 (command menu)**: bernilai tinggi, tapi menyentuh alur pencarian
+  yang sudah punya E2E. Lakukan setelah 5.1 dan 5.5 baris pertama hijau.
+- **Tahap 5 (kode mati)**: `src/components/ui/chart.tsx` masih terpasang dan
+  itu satu-satunya `dangerouslySetInnerHTML` di repo (F-15 dari Fase 9).
+  Belum disentuh karena `mascot:validate` dan beberapa test masih menyentuhnya.
+- **Tahap 6 (motion)**: belum ada perubahan. `react-bits.tsx` masih lapisan
+  motion lokal dan itu keputusan yang bisa diterima.

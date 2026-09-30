@@ -27,6 +27,7 @@ import {
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { staffRoleSelectOptions } from "@/lib/select-options";
 import { OWNER_ACCOUNT_TITLE } from "@/lib/owner-account";
+import { AdminLoadingSkeleton } from "@/components/admin-loading-skeleton";
 
 /**
  * Status visual untuk satu kartu antrean admin: `loading` saat query masih
@@ -199,7 +200,7 @@ export function AdminGovernance() {
               </p>
             </>
           ) : (
-            <p className="mt-4 text-sm font-bold text-[#525252]">Memuat ringkasan…</p>
+            <AdminLoadingSkeleton label="Memuat ringkasan…" rows={3} />
           )}
         </article>
 

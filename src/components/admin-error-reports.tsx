@@ -22,6 +22,7 @@ import {
 } from "@/lib/catalog-store";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { SectionHeading, TimeStampLabel } from "./admin-workspace";
+import { AdminLoadingSkeleton } from "@/components/admin-loading-skeleton";
 import { errorReportStatusSelectOptions } from "@/lib/select-options";
 
 const SEVERITY_STYLE: Record<string, { label: string; className: string; icon: typeof Bug }> = {
@@ -131,7 +132,7 @@ export function AdminErrorReports() {
       />
 
       {reports === undefined ? (
-        <p className="mt-4 text-sm text-[#525252]">Memuat laporan error...</p>
+        <AdminLoadingSkeleton label="Memuat laporan error..." />
       ) : rows.length === 0 ? (
         <p className="mt-4 text-sm leading-6 text-[#525252]">
           Belum ada laporan error. Kalau ada kegagalan yang tercatat, grup dan

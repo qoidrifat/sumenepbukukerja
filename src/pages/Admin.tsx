@@ -64,9 +64,6 @@ import { useAdminPresence } from "@/lib/admin-presence";
 // sudah ada, jadi urutan tombol, disabled state, dan logika tetap satu sumber.
 import {
   AdminHeader,
-  AdminMetricsBoard,
-  AdminPackageManager,
-  AdminReportReview,
   Field,
   SectionHeading,
   TimeStampLabel,
@@ -85,6 +82,12 @@ import {
   type QueueFilter,
 } from "@/components/admin-workspace";
 import { AdminNotice, AdminWorkspaceHero } from "@/components/admin-workspace-hero";
+// Tiga panel sudah dipisah ke berkasnya sendiri pada Fase 9.1 Pekerjaan 6.
+// Diimpor langsung, bukan lewat barrel `admin-workspace`, supaya file itu
+// tidak ikut exporting komponen yang tidak dimilikinya.
+import { AdminMetricsBoard } from "@/components/admin-metrics-board";
+import { AdminPackageManager } from "@/components/admin-package-manager";
+import { AdminReportReview } from "@/components/admin-report-review";
 
 const EMPTY_ITEMS: VendorRecord[] = [];
 

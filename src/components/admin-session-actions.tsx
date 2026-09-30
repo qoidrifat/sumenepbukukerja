@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { inputClass } from "@/components/admin-workspace";
+import { AdminLoadingSkeleton } from "@/components/admin-loading-skeleton";
 import { OWNER_ACCOUNT_TITLE } from "@/lib/owner-account";
 
 /**
@@ -404,7 +405,7 @@ export function AdminSessionActions() {
           <Row label="Request ID">{shown(session.requestId)}</Row>
         </dl>
       ) : (
-        <p className="mt-3 text-sm text-[#525252]">Memuat konteks sesi...</p>
+        <AdminLoadingSkeleton label="Memuat konteks sesi..." variant="detail" />
       )}
 
       <div className="mt-4 border-t-2 border-[#121212] pt-3">

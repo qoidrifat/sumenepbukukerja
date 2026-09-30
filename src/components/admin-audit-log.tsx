@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ArrowRight, MonitorSmartphone, UserRound } from "lucide-react";
 import { TimeStampLabel } from "@/components/admin-workspace";
 import { OWNER_AUDIT_ROLE_LABEL } from "@/lib/owner-account";
+import { AdminLoadingSkeleton } from "@/components/admin-loading-skeleton";
 import {
   auditActionChipClass,
   auditActionLabel,
@@ -86,7 +87,7 @@ export function AdminAuditLog({
     return <p className="mt-3 text-sm text-[#525252]">{emptyHint}</p>;
   }
   if (!entries) {
-    return <p className="mt-3 text-sm text-[#525252]">Memuat audit log...</p>;
+    return <AdminLoadingSkeleton label="Memuat audit log..." />;
   }
 
   return (

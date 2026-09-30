@@ -127,6 +127,10 @@ const INTEGRATED: Surface[] = [
  */
 const EXCLUDED: { file: string; reason: string }[] = [
   { file: "src/components/community-widgets.tsx", reason: "Sudah pakai PublicRequestMascot" },
+  {
+    file: "src/components/community-notification-center.tsx",
+    reason: "Panel operasional padat, bukan state kosong: maskot hanya menambah tinggi baris",
+  },
   { file: "src/components/admin-governance.tsx", reason: "Sudah punya AdminEmptyMascot sendiri" },
   { file: "src/components/admin-empty-mascot.tsx", reason: "Karakter admin yang terpisah" },
   { file: "src/components/category-mascot.tsx", reason: "Sistem maskot Phase 1, tidak disentuh" },

@@ -51,6 +51,7 @@ describe("Fase 9.1: keputusan mode tampilan", () => {
     for (const file of [
       "./display-controls.tsx",
       "./community-widgets.tsx",
+      "./community-notification-center.tsx",
       "../pages/Landing.tsx",
       "../pages/Dashboard.tsx",
       "../pages/VendorProfile.tsx",
@@ -69,6 +70,7 @@ describe("Fase 9.1: keputusan mode tampilan", () => {
     for (const file of [
       "./display-controls.tsx",
       "./community-widgets.tsx",
+      "./community-notification-center.tsx",
       "./admin-workspace.tsx",
       "../pages/Landing.tsx",
       "../pages/Dashboard.tsx",

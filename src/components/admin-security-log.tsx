@@ -33,6 +33,15 @@ import {
   type SecuritySignal,
 } from "@/lib/security-context";
 import { formatRelativeTime } from "@/lib/datetime";
+import { AdminLoadingSkeleton } from "@/components/admin-loading-skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 type SecurityEvent = NonNullable<ReturnType<typeof useAdminSecurityEvents>>["events"][number];
 type IpActivity = NonNullable<ReturnType<typeof useAdminIpActivity>>[number];
@@ -387,7 +396,7 @@ export function AdminSecurityLog() {
       </div>
 
       {!page ? (
-        <p className="mt-3 text-sm text-[#525252]">Memuat jejak percobaan...</p>
+        <AdminLoadingSkeleton label="Memuat jejak percobaan..." variant="detail" />
       ) : visible.length === 0 ? (
         <div className="mt-3 flex flex-col items-start gap-1.5 border-2 border-dashed border-[#121212] bg-[#F5F0E5] p-4 sm:flex-row sm:items-center sm:gap-3">
           <span className="inline-flex size-9 shrink-0 items-center justify-center border-2 border-[#121212] bg-white">
@@ -693,34 +702,47 @@ export function AdminSecurityLog() {
             Aktivitas berdasarkan IP
           </h4>
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[34rem] border-collapse text-sm">
-              <thead>
-                <tr className="border-b-2 border-[#121212] text-left text-[0.7rem] uppercase tracking-[0.08em] text-[#525252]">
-                  <th scope="col" className="py-1.5 pr-2">IP</th>
-                  <th scope="col" className="py-1.5 pr-2">Percobaan</th>
-                  <th scope="col" className="py-1.5 pr-2">Berhasil / Gagal</th>
-                  <th scope="col" className="py-1.5 pr-2">Terakhir terlihat</th>
-                  <th scope="col" className="py-1.5">Status</th>
-                </tr>
-              </thead>
-              <tbody>
+            {/*
+              FASE 9.1 - PEKERJAAN 5: tabel IP memakai primitive shadcn.
+
+              Markup `<table>` ditulis manual sejak awal. Menggantinya bukan
+              karena `ui/table.tsx` lebih cantik: `w-full` + `border-collapse`
+              bertabrakan dengan kelas bawaan primitive, jadi hasil render bisa
+              berbeda tipis antar browser kalau tidak diseragamkan.
+
+              Yang DIJAGA PERSAIS: urutan lima kolom, teks kepala, dan isi sel.
+              Test `admin-security-log.test.ts` memeriksa string hasil render,
+              jadi urutan atau teks yang bergeser akan muncul sebagai kegagalan,
+              bukan lolos diam-diam.
+            */}
+            <Table className="min-w-[34rem] text-sm">
+              <TableHeader>
+                <TableRow className="border-b-2 border-[#121212] text-left text-[0.7rem] uppercase tracking-[0.08em] text-[#525252] hover:bg-transparent">
+                  <TableHead scope="col" className="py-1.5 pr-2">IP</TableHead>
+                  <TableHead scope="col" className="py-1.5 pr-2">Percobaan</TableHead>
+                  <TableHead scope="col" className="py-1.5 pr-2">Berhasil / Gagal</TableHead>
+                  <TableHead scope="col" className="py-1.5 pr-2">Terakhir terlihat</TableHead>
+                  <TableHead scope="col" className="py-1.5">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {ipActivity.map((row: IpActivity) => (
-                  <tr key={row.ipHash} className="border-b border-[#EDEAE0] align-top">
-                    <td className="py-1.5 pr-2">
+                  <TableRow key={row.ipHash} className="border-b border-[#EDEAE0] align-top hover:bg-transparent">
+                    <TableCell className="py-1.5 pr-2">
                       <span className="font-black text-[#1A1A1A]">{row.ipMasked ?? UNKNOWN_LABEL}</span>
                       <span className="ml-1 text-xs text-[#525252]">
                         {row.ipFamily ? `· ${row.ipFamily}` : ""}
                         {row.proxyDetected ? " · via proxy/CDN" : ""}
                       </span>
-                    </td>
-                    <td className="py-1.5 pr-2 font-bold">{row.attempts}</td>
-                    <td className="py-1.5 pr-2 font-bold">
+                    </TableCell>
+                    <TableCell className="py-1.5 pr-2 font-bold">{row.attempts}</TableCell>
+                    <TableCell className="py-1.5 pr-2 font-bold">
                       {row.success} / {row.failed}
-                    </td>
-                    <td className="py-1.5 pr-2 text-xs text-[#525252]">
+                    </TableCell>
+                    <TableCell className="py-1.5 pr-2 text-xs text-[#525252]">
                       <TimeStampLabel timestamp={row.lastSeenAt} withSeconds />
-                    </td>
-                    <td className="py-1.5">
+                    </TableCell>
+                    <TableCell className="py-1.5">
                       {row.isNew ? (
                         <span className="border-2 border-[#121212] bg-[#FFE662] px-1.5 py-0.5 text-[0.7rem] font-black">
                           IP baru
@@ -728,11 +750,11 @@ export function AdminSecurityLog() {
                       ) : (
                         <span className="text-xs font-bold text-[#525252]">Sudah pernah</span>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </section>
       ) : null}

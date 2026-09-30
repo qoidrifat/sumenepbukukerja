@@ -17,7 +17,10 @@ vi.mock("@/lib/catalog-store", () => ({
   useVendorPackages: () => [],
 }));
 
-const { AdminMetricsBoard, VendorActionArea } = await import("./admin-workspace");
+// `AdminMetricsBoard` pindah ke berkasnya sendiri pada Fase 9.1 Pekerjaan 6.
+// Yang diuji tetap sama: render papan metrik dan breakdown per area.
+const { VendorActionArea } = await import("./admin-workspace");
+const { AdminMetricsBoard } = await import("./admin-metrics-board");
 
 const item = {
   _id: "v1",

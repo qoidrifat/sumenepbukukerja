@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FormField, TextField } from "@/components/form-field";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   landmarkLabel,
@@ -51,7 +52,8 @@ import {
   categorySelectOptions,
   type ThemedSelectOption,
 } from "@/lib/select-options";
-import { ClaimListingPanel, InteractionHistory, MyRequestHistory, NotificationCenter, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
+import { ClaimListingPanel, InteractionHistory, MyRequestHistory, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
+import { NotificationCenter } from "@/components/community-notification-center";
 import { AccessibilityControls } from "@/components/display-controls";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
 
@@ -261,11 +263,11 @@ function OwnerPackageEditor({ vendorId }: { vendorId: string }) {
         <p className="mt-3 text-sm leading-6 text-slate-600">Belum ada paket. Tambahkan harga dan cakupan agar warga lebih mudah memilih.</p>
       )}
       <form onSubmit={submit} className="mt-4 grid gap-2 sm:grid-cols-2">
-        <input aria-label="Nama paket" value={name} onChange={(event) => setName(event.target.value)} placeholder="Nama paket" className={ownerInputClass} required />
-        <input aria-label="Harga paket" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Harga awal" className={ownerInputClass} required />
-        <textarea aria-label="Deskripsi paket" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Deskripsi paket" rows={2} className={`${ownerInputClass} sm:col-span-2`} required minLength={5} />
-        <input aria-label="Estimasi durasi paket" value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="Estimasi durasi" className={ownerInputClass} />
-        <input aria-label="Cakupan area paket" value={area} onChange={(event) => setArea(event.target.value)} placeholder="Cakupan area" className={ownerInputClass} />
+        <TextField label="Nama paket" value={name} onValueChange={setName} controlClassName={ownerInputClass} placeholder="Nama paket" required />
+        <TextField label="Harga paket" value={price} onValueChange={setPrice} controlClassName={ownerInputClass} placeholder="Harga awal" required />
+        <TextField as="textarea" rows={2} label="Deskripsi paket" value={description} onValueChange={setDescription} controlClassName={ownerInputClass} className="sm:col-span-2" required minLength={5} />
+        <TextField label="Estimasi durasi paket" value={duration} onValueChange={setDuration} controlClassName={ownerInputClass} placeholder="Estimasi durasi" />
+        <TextField label="Cakupan area paket" value={area} onValueChange={setArea} controlClassName={ownerInputClass} placeholder="Cakupan area" />
         <button type="submit" disabled={saving} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white hover:bg-blue-700 disabled:opacity-50 sm:col-span-2">
           <Plus className="size-4" />{saving ? "Menyimpan..." : "Tambah paket"}
         </button>
@@ -522,22 +524,36 @@ function OwnerListingManager() {
             <button type="button" onClick={resetDraft} className="flex size-10 items-center justify-center rounded-lg text-slate-600 hover:bg-white" aria-label="Batal edit listing"><X className="size-5" /></button>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-sm font-extrabold text-slate-800">Nama usaha *</span><input value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} className={ownerInputClass} required /></label>
-            <label className="flex flex-col gap-1.5" htmlFor={categoryFieldId}><span className="text-sm font-extrabold text-slate-800">Kategori</span><ThemedSelect id={categoryFieldId} value={draft.category} onValueChange={(value) => updateDraft({ category: value as Category })} options={categorySelectOptions} /></label>
-            <label className="flex flex-col gap-1.5" htmlFor={areaFieldId}><span className="text-sm font-extrabold text-slate-800">Area</span><ThemedSelect id={areaFieldId} value={draft.landmark} onValueChange={(value) => updateDraft({ landmark: value })} options={areaSelectOptions} /></label>
-            <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-sm font-extrabold text-slate-800">Alamat *</span><input value={draft.address} onChange={(event) => updateDraft({ address: event.target.value })} className={ownerInputClass} placeholder="Alamat usaha" required /></label>
-            <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-sm font-extrabold text-slate-800">Deskripsi *</span><textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} className={`${ownerInputClass} min-h-28 py-3`} rows={3} required minLength={10} /></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Harga awal</span><input value={draft.price} onChange={(event) => updateDraft({ price: event.target.value })} className={ownerInputClass} placeholder="Mulai Rp..." /></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Nomor WhatsApp *</span><input value={draft.phone} onChange={(event) => updateDraft({ phone: event.target.value })} className={ownerInputClass} inputMode="tel" placeholder="08xxxxxxxxxx" required /></label>
-            <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-sm font-extrabold text-slate-800">Jam kerja</span><input value={draft.hours} onChange={(event) => updateDraft({ hours: event.target.value })} className={ownerInputClass} placeholder="Setiap hari · 07.00–17.00" /></label>
-            <label className="flex flex-col gap-1.5" htmlFor={statusFieldId}><span className="text-sm font-extrabold text-slate-800">Status listing</span><ThemedSelect id={statusFieldId} value={draft.status} onValueChange={(value) => updateDraft({ status: value as OwnerDraft["status"] })} options={ownerStatusSelectOptions} /></label>
-            <label className="flex flex-col gap-1.5" htmlFor={availabilityFieldId}><span className="text-sm font-extrabold text-slate-800">Ketersediaan</span><ThemedSelect id={availabilityFieldId} value={draft.availability} onValueChange={(value) => updateDraft({ availability: value as OwnerAvailability })} options={availabilitySelectOptions} /></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Perkiraan tersedia lagi</span><input type="datetime-local" value={draft.nextAvailableAt} min={minAvailableAtLocal()} onChange={(event) => updateDraft({ nextAvailableAt: event.target.value })} aria-describedby="next-available-hint" className={`${ownerInputClass} field-datetime field-datetime--public`} /><span id="next-available-hint" className="text-xs font-medium text-slate-500">{draft.nextAvailableAt ? `Tersimpan: ${formatDraftAvailability(draft.nextAvailableAt)}` : "Format mengikuti kalender perangkat Anda."}</span></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Rata-rata balas (menit)</span><input type="number" min="1" value={draft.responseMinutes} onChange={(event) => updateDraft({ responseMinutes: event.target.value })} className={ownerInputClass} /></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Radius layanan (km)</span><input type="number" min="1" value={draft.serviceRadiusKm} onChange={(event) => updateDraft({ serviceRadiusKm: event.target.value })} className={ownerInputClass} /></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Tag pencarian</span><input value={draft.tagsText} onChange={(event) => updateDraft({ tagsText: event.target.value })} className={ownerInputClass} placeholder="Tukang, cat, perbaikan" /></label>
-            <label className="flex flex-col gap-1.5"><span className="text-sm font-extrabold text-slate-800">Catatan ketersediaan</span><input value={draft.availabilityNote} onChange={(event) => updateDraft({ availabilityNote: event.target.value })} className={ownerInputClass} placeholder="Contoh: sedang banyak pesanan" /></label>
-            <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-sm font-extrabold text-slate-800">Foto listing</span><span className="flex min-h-12 items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 text-sm font-semibold text-slate-600"><ImagePlus className="size-5 text-blue-600" /><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} className="min-w-0 flex-1 text-sm" /></span></label>
+            <TextField label="Nama usaha *" value={draft.name} onValueChange={(name) => updateDraft({ name })} controlClassName={ownerInputClass} span required />
+            <FormField label="Kategori" control={() => <ThemedSelect id={categoryFieldId} value={draft.category} onValueChange={(value) => updateDraft({ category: value as Category })} options={categorySelectOptions} />} />
+            <FormField label="Area" control={() => <ThemedSelect id={areaFieldId} value={draft.landmark} onValueChange={(value) => updateDraft({ landmark: value })} options={areaSelectOptions} />} />
+            <TextField label="Alamat *" value={draft.address} onValueChange={(address) => updateDraft({ address })} controlClassName={ownerInputClass} placeholder="Alamat usaha" span required />
+            <TextField as="textarea" rows={3} label="Deskripsi *" value={draft.description} onValueChange={(description) => updateDraft({ description })} controlClassName={ownerInputClass} controlClassNameExtra="min-h-28 py-3" span required minLength={10} />
+            <TextField label="Harga awal" value={draft.price} onValueChange={(price) => updateDraft({ price })} controlClassName={ownerInputClass} placeholder="Mulai Rp..." />
+            <TextField label="Nomor WhatsApp *" value={draft.phone} onValueChange={(phone) => updateDraft({ phone })} controlClassName={ownerInputClass} inputMode="tel" placeholder="08xxxxxxxxxx" required />
+            <TextField label="Jam kerja" value={draft.hours} onValueChange={(hours) => updateDraft({ hours })} controlClassName={ownerInputClass} placeholder="Setiap hari · 07.00–17.00" span />
+            <FormField label="Status listing" control={() => <ThemedSelect id={statusFieldId} value={draft.status} onValueChange={(value) => updateDraft({ status: value as OwnerDraft["status"] })} options={ownerStatusSelectOptions} />} />
+            <FormField label="Ketersediaan" control={() => <ThemedSelect id={availabilityFieldId} value={draft.availability} onValueChange={(value) => updateDraft({ availability: value as OwnerAvailability })} options={availabilitySelectOptions} />} />
+            <TextField
+              type="datetime-local"
+              label="Perkiraan tersedia lagi"
+              value={draft.nextAvailableAt}
+              onValueChange={(nextAvailableAt) => updateDraft({ nextAvailableAt })}
+              controlClassName={ownerInputClass}
+              controlClassNameExtra="field-datetime field-datetime--public"
+              min={minAvailableAtLocal()}
+              hint={draft.nextAvailableAt ? `Tersimpan: ${formatDraftAvailability(draft.nextAvailableAt)}` : "Format mengikuti kalender perangkat Anda."}
+            />
+            <TextField type="number" min="1" label="Rata-rata balas (menit)" value={draft.responseMinutes} onValueChange={(responseMinutes) => updateDraft({ responseMinutes })} controlClassName={ownerInputClass} />
+            <TextField type="number" min="1" label="Radius layanan (km)" value={draft.serviceRadiusKm} onValueChange={(serviceRadiusKm) => updateDraft({ serviceRadiusKm })} controlClassName={ownerInputClass} />
+            <TextField label="Tag pencarian" value={draft.tagsText} onValueChange={(tagsText) => updateDraft({ tagsText })} controlClassName={ownerInputClass} placeholder="Tukang, cat, perbaikan" />
+            <TextField label="Catatan ketersediaan" value={draft.availabilityNote} onValueChange={(availabilityNote) => updateDraft({ availabilityNote })} controlClassName={ownerInputClass} placeholder="Contoh: sedang banyak pesanan" />
+            <FormField label="Foto listing" span control={({ id }) => (
+              <span className="flex min-h-12 items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 text-sm font-semibold text-slate-600">
+                <ImagePlus className="size-5 text-blue-600" />
+                <input id={id} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} className="min-w-0 flex-1 text-sm" />
+              </span>
+            )} />
           </div>
           <div className="mt-5 flex flex-wrap gap-2">
             <button type="submit" disabled={saving} className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white hover:bg-blue-700 disabled:opacity-50"><Save className="size-4" />{saving ? "Menyimpan..." : "Simpan listing"}</button>

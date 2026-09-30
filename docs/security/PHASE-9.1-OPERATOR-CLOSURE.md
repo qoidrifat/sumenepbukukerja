@@ -11,7 +11,7 @@ Prosedur langkah demi langkah ada di `PHASE-9.1-OPERATOR-RUNBOOK.md`.
 | Temuan | Tindakan operator | Verifikasi | Status saat ini |
 |---|---|---|---|
 | F-01 | Tidak ada rotasi. Nilai `VLY_EMAIL_OTP_API_KEY` adalah kredensial **bawaan platform Freebuff**, bukan kunci privat proyek (dikonfirmasi tim Freebuff lewat kanal komunitas resmi). Jaga agar tetap terisi di Keys | OTP sign-in di `/auth` berhasil; `bun run test` tetap hijau | `RISK ACCEPTED - PLATFORM MANAGED` |
-| F-08 | Hapus `STAFF_BOOTSTRAP_EMAILS` dari Keys/API keys, lalu deploy ulang | `users:bootstrapAdministratorAvailable` menjawab `{"available": false}`; 3 pengelola tetap bisa masuk dan memoderasi | `CLOSED — OPERATOR VERIFIED` |
+| F-08 | Hapus `STAFF_BOOTSTRAP_EMAILS` **pada deployment produksi**, setelah memastikan ada pengelola di sana | `users:adminSetupStatus` di produksi menjawab `staffCount >= 1` dan `bootstrapAvailable = false` | `OPEN — PRODUCTION EXPOSURE` (dev sudah `CLOSED`, produksi `bootstrapAvailable: true` dengan `staffCount: 0`) |
 | F-09 | Tetapkan origin produksi (frontend + Convex) dan uji keenam route di kedua origin | Status per route di kedua origin cocok dengan `tmp/qa-p91-closure-evidence.json` untuk `.convex.site` | `PARTLY DONE` - dev terukur, produksi belum |
 | F-11a | Pasang header keamanan (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors) di lapisan penyajian origin frontend | Header terlihat nyata di respons origin frontend; `bun run test:e2e` tetap lulus di origin itu | `BLOCKED — NO AUTHORITATIVE PRODUCTION FRONTEND ORIGIN` |
 | F-11c | Opsional: isi `ADMIN_CONTEXT_ALLOWED_ORIGINS` dengan origin frontend produksi | `tmp/qa-p91-cors-allowlist-probe.mjs` (sesuaikan konstanta) menunjukkan hanya origin itu yang diizinkan; Security Desk tetap menampilkan IP sumber | `MITIGATED` (satu label, sama dengan `SECURITY-CLOSURE.md`) - wildcard tanpa credentials sudah aman dan tidak merusak apa pun |
@@ -24,18 +24,46 @@ Prosedur langkah demi langkah ada di `PHASE-9.1-OPERATOR-RUNBOOK.md`.
 
 | Kategori | Jumlah |
 |---|---|
-| Tindakan operator terbuka | 1 (F-17) |
+| Tindakan operator terbuka | 2 (F-08 produksi, F-17) |
 | Tindakan operator terblokir (butuh pihak ketiga) | 1 (F-11a) |
 | Tindakan opsional | 1 (F-11c) |
 | Keputusan produk yang menunggu | 1 grup (F-05, dengan 4 entri register) |
 | Tindakan yang selesai di sisi kode, tinggal diverifikasi | 2 (F-09 dev, F-11 route) |
-| Total baris actionable | 6 |
+| Total baris actionable | 7 |
 
-Perubahan dari versi sebelumnya: F-08 ditutup (operator sudah menghapus
-`STAFF_BOOTSTRAP_EMAILS` dan hasil probe sudah diukur ulang), F-01 tidak lagi
-`OPEN` (tidak ada rotasi yang bisa dilakukan), F-11c tidak lagi dihitung dua
-kali, dan F-11a tidak lagi dihitung sebagai "selesai di sisi kode" sekaligus
-"terblokir".
+Perubahan dari versi sebelumnya: F-08 **dikembalikan ke `OPEN`** setelah probe di
+deployment produksi (lihat di bawah); allowlist hanya dihapus dari dev. F-01
+tidak lagi `OPEN` (tidak ada rotasi yang bisa dilakukan), F-11c tidak lagi
+dihitung dua kali, dan F-11a tidak lagi dihitung sebagai "selesai di sisi kode"
+sekaligus "terblokir".
+
+## Bukti origin produksi (pertama kali terukur, 2026-09-30)
+
+Sebelum ini repo tidak punya satu pun konfigurasi penyajian frontend. Sekarang
+diketahui, semua diukur langsung:
+
+| Fakta | Nilai | Bukti |
+|---|---|---|
+| Origin frontend produksi | `https://sumenepbukukerja.freebuff.app/` | `tmp/qa-origin-probe.mjs` |
+| Lapisan penyajian | Vercel (`server: Vercel`) | header respons |
+| Origin Convex produksi | `https://hidden-starfish-79.convex.cloud` dan `.convex.site` | `new ConvexReactClient("https://hidden-starfish-79.convex.cloud")` di bundel produksi |
+| Convex yang dipakai runtime | `hidden-starfish-79` (produksi), bukan `rare-scorpion-625` (dev) | argumen client di `assets/index-*.js` |
+| Header yang SUDAH ada | HSTS `max-age=63072000`, `nosniff`, `Referrer-Policy` | respons origin frontend |
+| Header yang BELUM ada | `Content-Security-Policy`, `Permissions-Policy`, `X-Frame-Options` | respons origin frontend |
+| Route HTTP di produksi | `.convex.cloud` 404 semua, `.convex.site` 200/405/403 - identik dengan dev | `tmp/qa-prod-drift-probe.mjs` |
+
+Tiga temuan yang lahir dari pengukuran ini:
+
+1. **Build produksi tertinggal di belakang Fase 9.1/9.2.** Bundel produksi masih
+   memuat chunk `charts-*.js` (recharts sudah dihapus di Tier 4), dan preflight
+   CORS produksi tidak punya `vary: Origin` maupun `x-content-type-options` -
+   dua perbaikan yang sudah ada di dev. Jadi produksi berjalan di kode lama.
+2. **`SITE_URL` masih menunjuk origin dev.** `robots.txt` dan `sitemap.xml`
+   produksi mengiklankan `https://rare-scorpion-625.convex.site/sitemap.xml`
+   sebagai sitemap, yaitu origin dev.   Ini alamat yang salah di produksi.
+   Pengaman di `src/convex/http.ts:296` yang melarang `SITE_URL` dipakai
+   sebagai allowlist CORS justru mencegah masalah yang lebih besar.
+3. **F-08 masih terbuka di produksi** - lihat di bawah.
 
 ## Bukti operator F-08 (literal, tidak diringkas)
 
@@ -54,11 +82,21 @@ requesterId exposed : false
 PROBE_EXIT=0
 ```
 
-Bacaan: allowlist benar-benar hilang, dan ketiga pengelola tetap ada. Kalau
-`staff count` turun ke `0`, allowlist itu yang membuat mereka eksis dan
-variabelnya harus dikembalikan - itu tidak terjadi. Dua baris `err mentions
-path` / `err mentions stack` yang `true` adalah F-07, yang statusnya tetap
-`MITIGATED`, bukan ikut tertutup oleh tindakan ini.
+Bacaan: allowlist hilang **di development**, dan ketiga pengelola tetap ada.
+Probe kedua di deployment produksi pada hari yang sama:
+
+```
+dev  adminSetupStatus : {"bootstrapAvailable":false,"staffCount":3.0,
+                         "hasAnyStaff":true}
+prod adminSetupStatus : {"bootstrapAvailable":true,"staffCount":0.0,
+                         "hasAnyStaff":false}
+prod bootstrap probe  : {"status":"success","value":{"available":true}}
+```
+
+Jadi allowlist produksi **masih terisi** dan produksi **tidak punya satu pun
+pengelola**. Dua baris `err mentions path` / `err mentions stack` yang `true`
+adalah F-07, yang statusnya tetap `MITIGATED`, bukan ikut tertutup oleh tindakan
+ini.
 
 ## Yang TIDAK perlu tindakan operator
 

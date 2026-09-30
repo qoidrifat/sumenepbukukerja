@@ -23,9 +23,12 @@ Yang tidak boleh hilang dari ringkasan ini:
   statusnya `RISK ACCEPTED - PLATFORM MANAGED`, bukan P0 terbuka. Jalur yang
   sebenarnya berbahaya - `JSON.stringify(error)` yang menyalin header
   `x-api-key` ke respons pemanggil anonim - sudah tertutup dan dikunci test.
-- **F-08 sudah ditutup oleh operator.** `STAFF_BOOTSTRAP_EMAILS` dihapus dari
-  Keys, lalu probe mengukur ulang: `available: false` dengan tiga pengelola
-  tetap utuh. Tidak ada langkah F-08 yang tersisa.
+- **F-08 sudah ditutup di development, dan masih terbuka di produksi.**
+  `STAFF_BOOTSTRAP_EMAILS` dihapus dari deployment dev, dan probe mengukur
+  ulang: `available: false` dengan tiga pengelola tetap utuh. Tapi probe di
+  deployment produksi menjawab `bootstrapAvailable: true` dengan
+  `staffCount: 0`. Di situs yang sedang dipakai pengguna, jalur give-it-yourself
+  admin justru masih terbuka dan belum ada satu pun pengelola.
 - **Tidak ada origin frontend produksi yang otoritatif** di repositori, jadi
   header keamanan frontend (F-11a) berstatus `NOT VERIFIED`, bukan `PASS`.
 - **Satu kesimpulan Fase 9 turns out salah:** route HTTP tidak hilang. Fase 9
@@ -155,7 +158,7 @@ disalin ke mana pun.
   pengembalian.
 - Yang tidak berubah: `users.bootstrapAdministrator` masih ada, jadi kemampuan
   memulihkan akses admin kalau semua pengelola hilang tetap utuh.
-- Status: `CLOSED — OPERATOR VERIFIED`.
+- Status: `OPEN — PRODUCTION EXPOSURE`. Yang tertutup cuma development.
 
 ---
 
@@ -369,7 +372,7 @@ Dipisahkan sesuai aturan bukti, dan tidak dicampur.
 | DEPLOYMENT VERIFIED (dev) | UNTUK | `tmp/qa-p91-closure-evidence.json` dan `tmp/qa-p91-cors-allowlist-evidence.json`. |
 | DEPLOYMENT VERIFIED (produksi) | **TIDAK ADA** | Tidak ada konfigurasi deploy produksi di repositori. |
 | EXTERNAL VERIFIED |UNTUK | Webhook gagal tertutup dan 404 di origin yang salah terukur, keduanya diukur langsung. Verifikasi akun Meta/Twilio di sisi penyedia tidak dilakukan. |
-| OPERATOR VERIFIED | UNTUK (1 dari 1) | Pembersihan F-08: operator menghapus `STAFF_BOOTSTRAP_EMAILS`, hasil probe 2026-09-30T19:16:22Z = `available: false` dengan `staffCount: 3`. F-01 tidak punya tindakan operator yang tersisa, jadi tidak ada tindakan operator terbuka yang lain. |
+| OPERATOR VERIFIED | SEBAGIAN | Pembersihan F-08 terbukti di **dev** saja (`available: false`, `staffCount: 3`). Di **produksi** hasilnya kebalikan: `bootstrapAvailable: true`, `staffCount: 0`, jadi tindakan operator untuk F-08 belum selesai. F-01 tidak punya tindakan operator tersisa. |
 
 Catatan kejujuran: deployment yang diuji adalah **development**. Tidak ada
 kalimat "production secure" di dokumen ini, karena tidak ada bukti yang
@@ -385,8 +388,9 @@ Tidak disembunyikan.
    Nilai tersebut adalah kredensial bawaan platform Freebuff, bukan milik
    proyek, jadi tidak ada rotasi yang bisa dilakukan. Yang tersisa hanya
    penyalahgunaan kuota penyedia milik platform, dan itu bukan P0.
-2. ~~**Allowlist pemulihan admin masih aktif di deployment**~~ - DIHAPUS pada
-   Fase 9.2. Terukur `{"available": false}` dengan tiga pengelola tetap ada.
+2. **Allowlist pemulihan admin masih aktif di deployment produksi** (P0).
+   Dev sudah bersih, produksi menjawab `bootstrapAvailable: true` dengan
+   `staffCount: 0`.
 3. **Header keamanan frontend belum ada** dan tidak bisa diverifikasi.
 4. **Nilai OTP masih terbaca lewat Git** (residu, bukan P0). Nilainya adalah
    bawaan platform yang dipakai bersama, bukan rahasia proyek, dan sudah tidak
@@ -433,9 +437,10 @@ Tidak ada. Rinciannya:
 Alasannya, dan hanya alasannya:
 
 - Semua temuan CRITICAL dan HIGH sudah diperbaiki di kode dan dikunci test.
-- Sisa yang terbuka genuinely di luar kendali coding agent, dan hanya satu:
-  header origin frontend (butuh konfigurasi penyajian). Plus satu keputusan
-  produk (F-05) dan satu gap infrastruktur test (F-17).
+- Sisa yang terbuka genuinely di luar kendali coding agent, dan hanya dua:
+  allowlist pemulihan admin di deployment produksi, dan header origin frontend
+  (butuh konfigurasi penyajian). Plus satu keputusan produk (F-05) dan satu
+  gap infrastruktur test (F-17).
 - Tidak ada bypass otorisasi di produksi yang terukur, tidak ada eksposur
   storage privat yang terukur, tidak ada kebocoran PII privat yang terukur, dan
   tidak ada pemalsukan webhook yang berhasil.
@@ -461,10 +466,10 @@ Angka di bawah dihitung ulang untuk Fase 9.1, bukan disalin dari Fase 9.
 | LOW | 4 |
 | INFO | 3 |
 | CRITICAL/HIGH tersisa belum diperbaiki di kode | 0 |
-| Status `CLOSED` | 8 (F-08 masuk dengan label `CLOSED — OPERATOR VERIFIED`) |
+| Status `CLOSED` | 7 |
 | Status `MITIGATED` | 3 |
 | Status `RISK ACCEPTED` | 4 |
-| Status `OPEN` | 1 (F-17) |
+| Status `OPEN` | 2 (F-08 produksi, F-17) |
 | Status `DECISION REQUIRED` | 1 |
 | Status `BLOCKED` | 0 |
 

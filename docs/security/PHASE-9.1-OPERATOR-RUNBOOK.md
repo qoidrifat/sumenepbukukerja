@@ -17,61 +17,60 @@ ada di `PHASE-9.1-SECURITY-CLOSURE-REPORT.md`.
 
 ---
 
-## F-01 — Rotasi kredensial penyedia OTP
+## F-01 — Kredensial OTP bawaan platform (TIDAK bisa dirotasi)
 
-### Kenapa ini wajib dilakukan
+### Kenapa bagian ini berubah
 
-Kunci API penyedia OTP pernah ditulis literal di
-`src/convex/auth/emailOtp.ts` dan bocor lewat pesan error ke pemanggil anonim.
-Kodenya sudah diperbaiki: kuncinya sekarang hanya dibaca dari
-`VLY_EMAIL_OTP_API_KEY` dan objek error dari penyedia tidak lagi ikut ke pesan
-(lihat `src/convex/otp-provider-security.test.ts`).
+Versi runbook sebelumnya memuat prosedur rotasi 10 langkah dan menandainya
+sebagai P0. **Prosedur itu tidak berlaku untuk proyek ini**, dan menjalankannya
+justru berbahaya: langkah "cabut kredensial lama" tidak bisa dieksekusi karena
+tidak ada dasbor penyedia yang dimiliki operator, dan meletakkannya di awal
+urutan membuat seluruh proyek terkunci bila proses dihentikan di tengah jalan.
 
-**Perbaikan kode tidak mencabut kredensial yang sudah bocor.** Nilai lama masih
-pernah: (1) masuk ke Git, (2) bisa dibaca siapa pun yang tahu nama
-repository, (3) pernah keluar lewat respons error ke pemanggil tanpa sesi.
-Selama kredensial itu tidak dicabut di sisi penyedia, kebocorannya masih
-berlaku meskipun kodenya bersih. Karena itu F-01 **belum ditutup** dan
-termasuk P0.
+Fakta yang dipakai: nilai `VLY_EMAIL_OTP_API_KEY` adalah kredensial **bawaan
+platform Freebuff**, bukan kunci privat proyek ini. Dikonfirmasi oleh tim
+Freebuff lewat kanal komunitas resmi atas nama deployer platform.
 
-### Prosedur
+### Kenapa ini boleh ditutup tanpa rotasi
 
-1. **Catat waktu mulai.** Catat tanggal dan jam (WIB) sebelum menyentuh apa pun,
-   supaya jejak rotasi jelas.
-2. **Cabut kredensial lama** di dasbor penyedia OTP:
-   hapus/revoke API key lama, atau nonaktifkan sementara. Jangan hanya
-   membuat key baru dan meninggalkan yang lama hidup.
-3. **Buat kredensial pengganti** dengan lingkup paling kecil yang masih
-   berfungsi (hanya "kirim OTP", tanpa izin lain bila tersedia).
-4. **Tempelkan nilai baru** ke environment `VLY_EMAIL_OTP_API_KEY` melalui tab
-   **Keys/API keys** di platform. Agent tidak bisa menulis file `.env`, dan
-   memang tidak seharusnya.
-5. **Deploy ulang** agar perubahan environment berlaku
-   (`bunx convex dev --once` untuk development, deploy production untuk
-   environment produksi).
-6. **Verifikasi OTP sign-in berfungsi:** masuk dengan akun uji, minta kode,
-   pastikan kode diterima dan sesi terbentuk.
-7. **Verifikasi kegagalan tetap tersanitasi:** panggil `auth:signIn` dengan
-   email yang tidakDeliverable. Pesan yang sampai ke klien harus tetap
-   berbentuk kalimat umum (lihat `src/convex/auth/emailOtp.ts`), tidak boleh
-   memuat `x-api-key`, nama host penyedia, atau objek error mentah.
-8. **Verifikasi kredensial lama tidak lagi berlaku.** Ini hanya bisa dilakukan
-   oleh operator: coba pakai kunci lama pada satu percobaan. Hasil yang
-   diharapkan: penolakan dari penyedia. **Jangan** melakukan brute force, dan
-   jangan lebih dari satu percobaan.
-9. **Catat hasil dan waktu** di tabel status (`PHASE-9.1-OPERATOR-CLOSURE.md`),
-   termasuk nomor permintaan/inciden dari penyedia bila ada.
-10. ** Bersihkan jejak lama** kalau kebijakan organisasi mengizinkan: riwayat
-    commit yang memuat kunci lama tidak dapat dihapus dari Git tanpa rewrite
-    sejarah, dan rewrite sejarah untuk satu kredensial biasanya lebih berisiko
-    daripada nilai kuncinya sendiri. Putuskan dengan pemilik repository.
+Temuan asli F-01 punya dua bagian, dan hanya satu yang berakar pada nilai:
 
-### Kalau rotasi belum bisa dilakukan sekarang
+| Bagian temuan | Status | Alasan |
+|---|---|---|
+| Nilai literal ada di berkas | Sudah diperbaiki | Kode membaca dari env. Repository tidak memuat nilai. |
+| `JSON.stringify(error)` menyalin header `x-api-key` ke respons pemanggil anonim | Sudah diperbaiki | Objek error penyedia tidak lagi ikut ke pesan. Dikunci `src/convex/otp-provider-security.test.ts`. |
+| Rotasi nilai | **Tidak berlaku** | Nilai milik platform, tidak bisa dicabut dari sisi proyek. |
 
-Tidak ada langkah yang bisa dilakukan agent, dan tidak boleh di(status)kan PASS.
-Status yang benar: `OPEN — OPERATOR ACTION REQUIRED`. Selama status itu
-berlaku, satu-satunya pengurangan risiko yang sudah terjadi adalah kebocoran
-melalui jalur error sudah tertutup; jalur Git tidak.
+Bagian kedua inilah yang sebenarnya berbahaya, dan bagian itulah yang sudah
+tertutup. Risiko yang tersisa adalah penyalahgunaan kuota penyedia milik
+platform - bukan takeover akun, bukan kebocoran data warga.
+
+### Prosedur yang tersisa (bukan rotasi)
+
+Tidak ada langkah rotasi. Yang perlu dilakukan operator:
+
+1. **Jangan** menuliskan nilai kredensial ke mana pun - dokumen, issue, chat,
+   atau log.
+2. Pastikan `VLY_EMAIL_OTP_API_KEY` tetap terisi di Keys, karena kode gagal
+   dengan pesan jelas bila env kosong.
+3. Bila Freebuff suatu saat mengganti nilai bawaannya, tidak ada tindakan yang
+   perlu diambil: proyek mengambil nilai baru dari env tanpa perubahan kode.
+4. Catat keputusan ini beserta sumber konfirmasinya (tim Freebuff, kanal
+   komunitas resmi, tanggal) di `PHASE-9.1-SECURITY-CLOSURE.md` bagian F-01.
+
+### Histori Git
+
+Nilai lama masih dapat dibaca siapa pun yang punya akses repository. Rewrite
+sejarah **tidak direkomendasikan**: risikonya lebih besar dari nilai kuncinya
+sendiri, dan nilai itu bukan rahasia proyek. Putusan ini sudah dicatat.
+
+### Kalau suatu saat platform mengaktifkan rotasi
+
+Bila Freebuff menyediakan mekanisme rotasi per-deploy, prosedur sebenarnya
+adalah: buat nilai baru di platform, pasang ke `VLY_EMAIL_OTP_API_KEY`, deploy,
+verifikasi OTP sign-in di `/auth`, **lalu** cabut yang lama di platform.
+Urutan "cabut dulu, baru buat" tidak boleh dipakai - di antara keduanya tidak
+ada satu pun akun yang bisa masuk.
 
 ---
 
@@ -112,6 +111,37 @@ Kode pemulihan dan test-nya tidak boleh diperlemah. Yang berubah hanya nilai
 Biarkan variabelnya. Statusnya `OPEN` dengan alasan, dan catat siapa yang
 memerlukannya untuk apa.
 
+### Langkah siap salin
+
+```
+1. Buka tab Keys/API keys di platform
+2. HAPUS variabel bernama STAFF_BOOTSTRAP_EMAILS
+   (hapus variabelnya, jangan hanya dikosongkan)
+3. Deploy ulang / restart deployment
+4. node tmp/qa-p91-closure-probe.mjs
+```
+
+Hasil yang diharapkan pada langkah 4:
+
+```
+bootstrap available : {"available":false}
+staff count         : 3 | hasAnyStaff: true
+```
+
+Kalau baris pertama masih `{"available":true}`, variabelnya belum benar-benar
+hilang. Kalau `staff count` turun ke `0`, **kembalikan variabelnya sekarang**
+sebelum melanjutkan - itu berarti allowlist itu yang membuat tiga pengelola itu
+eksis.
+
+### Mengapa ini prioritas P0
+
+Di deployment yang diuji, `bootstrapAdministratorAvailable` menjawab
+`{"available": true}` sementara tiga pengelola sudah ada. Selama allowlist itu
+terisi, siapa pun yang email-nya ada di sana bisa menjalankan
+`users:bootstrapAdministrator` dan memberi dirinya sendiri peran admin, tanpa persetujuan siapa
+pun. Menutupnya butuh menghapus satu variabel - tidak perlu akses ke dasbor
+penyedia mana pun, tidak perlu rewrite kode, dan tidak bisa gagal di tengah jalan.
+
 ---
 
 ## F-09 / F-11 — Origin, route, dan header keamanan
@@ -128,7 +158,7 @@ itu **DEVELOPMENT**, bukan produksi.
 | Route HTTP (`/sitemap.xml`, `/robots.txt`, `/admin-gate/context`, `/webhook/whatsapp`, `/twilio/status`) | `https://rare-scorpion-625.convex.site` | probe yang sama |
 | Frontend (HTML aplikasi) | **belum diketahui** | tidak ada konfigurasi deploy di repositori |
 
-Ketohorisan yang dipakai: `fetch` ke `.convex.cloud` untuk route HTTP membalas
+Kriteria pembeda yang dipakai: `fetch` ke `.convex.cloud` untuk route HTTP membalas
 `404`, sedangkan `.convex.site` menjawab `200`/`405` sesuai daemonnya. Berarti
 route HTTP hidup di `.convex.site`. Ini juga yang dicatat di
 `src/lib/admin-gate-client.ts` (`convexSiteUrl`).
@@ -235,11 +265,11 @@ Prosedur bila ingin mengetatkan:
 
 | Temuan | Tindakan | Verifikasi | Bisa dikerjakan agent? |
 |---|---|---|---|
-| F-01 | Cabut + ganti kredensial OTP | OTP masuk, kunci lama ditolak | Tidak |
+| F-01 | Tidak ada rotasi; kunci adalah bawaan platform. Jaga env tetap terisi | OTP masuk di `/auth` | Tidak ada tindakan yang tersisa |
 | F-08 | Hapus `STAFF_BOOTSTRAP_EMAILS` | `bootstrapAdministratorAvailable.available = false` | Tidak |
 | F-09 | Tetapkan origin produksi, uji 6 route | Status per route di kedua origin | Sebagian (probe sudah ada) |
 | F-11a | Header keamanan di origin frontend | Header yang benar-benar terlihat di respons origin | Tidak |
 | F-11b | Header di route Convex | `vary` + `nosniff` di respons | Sudah (kode + test) |
-| F-11c | Allowlist CORS | Probe allowlist + Security Desk masih terisi | Sebagian (kode + test sudah ada) |
+| F-11c | Allowlist CORS (opsional) | Probe allowlist + Security Desk masih terisi | Sebagian (kode + test sudah ada) |
 | F-05 | Keputusan kebijakan PII | Register keputusan terisi | Tidak (product owner) |
 | F-17 | Infrastruktur test E2E dua sesi | Test berjalan tanpa dilewati | Tidak (butuh kredensial uji) |

@@ -56,7 +56,6 @@ export default defineConfig({
           ],
           // Heavy optional libraries - separate chunks for better lazy loading
           'framer-motion': ['framer-motion'],
-          'charts': ['recharts'],
           'forms': ['react-hook-form', '@hookform/resolvers', 'zod'],
         },
         // Optimize chunk size

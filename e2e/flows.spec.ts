@@ -115,7 +115,24 @@ test.describe("Skenario D — dua sesi", () => {
   const password = process.env.E2E_USER_PASSWORD;
 
   test("masuk di dua perangkat, lalu cabut satu sesi", async ({ page, browser }) => {
-    test.skip(!email || !password, "Butuh E2E_USER_EMAIL dan E2E_USER_PASSWORD");
+    // CATATAN FASE 9.2. `E2E_USER_PASSWORD` tidak punya padanan di proyek ini.
+    // Autentikasi yang ada hanya `emailOtp` dan `anonymous` (lihat
+    // `src/convex/auth.ts`), jadi tidak ada layar "sandi" untuk diisi dan
+    // `getByLabel(/sandi|password/i)` di bawah tidak akan pernah menemukan
+    // apa pun. Dokumen sebelumnya menyebut test ini butuh "akun uji nyata" -
+    // itu tidak akurat: yang hilang bukan kredensialnya, arsitekturnya.
+    //
+    // Yang dibutuhkan adalah mailbox uji yang menangkap OTP, atau penyedia OTP
+    // khusus test. Keduanya butuh kredensial dan environment yang tidak
+    // dimiliki coding agent, jadi statusnya tetap
+    // `OPEN - TEST INFRASTRUCTURE GAP` (F-17).
+    //
+    // Menambahkan autentikasi sandi demi mengijaukan test ini dilarang: itu
+    // mengubah arsitektur auth demi test, bukan memperbaiki test.
+    test.skip(
+      !email || !password,
+      "Butuh mailbox uji OTP (tidak ada autentikasi sandi di proyek ini)",
+    );
     // Dua konteks = dua perangkat. Sesi B dicabut dari perangkat B, lalu
     // perangkat A harus tetap sahih.
     const contextA = await browser.newContext();

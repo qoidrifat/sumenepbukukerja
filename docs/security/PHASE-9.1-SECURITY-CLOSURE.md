@@ -33,12 +33,12 @@ Level bukti yang dipakai di dokumen ini:
 
 | Temuan | Severity Fase 9 | Kode | Deployment | Operasi | Status |
 |---|---|---|---|---|---|
-| F-01 Kunci OTP | CRITICAL | FIXED | NOT VERIFIED | BELUM | `OPEN — OPERATOR ACTION REQUIRED` |
+| F-01 Kunci OTP | CRITICAL | FIXED | VERIFIED | n/a (bukan milik proyek) | `RISK ACCEPTED` |
 | F-02 `getImageUrl` tanpa otorisasi | HIGH | FIXED | VERIFIED | n/a | `CLOSED` |
 | F-03 Paket draft bocor | MEDIUM | FIXED | VERIFIED | n/a | `CLOSED` |
 | F-04 Metadata moderasi bocor | MEDIUM | FIXED | VERIFIED | n/a | `CLOSED` |
 | F-05 Papan publik mengirim id akun | MEDIUM | MITIGATED | VERIFIED | n/a | `DECISION REQUIRED` |
-| F-06 Penghitung publik tanpa batas | MEDIUM | FIXED | n/a | n/a | `CLOSED` |
+| F-06 Penghitung publik tanpa batas | MEDIUM | FIXED | VERIFIED | n/a | `MITIGATED` |
 | F-07 Error server bocor ke publik | MEDIUM | FIXED (sebagian) | TERBUKTI ADA DI DEV | n/a | `MITIGATED` |
 | F-08 Pemulihan admin aktif | MEDIUM | TIDAK DIUBAH (sengaja) | TERBUKTI AKTIF | BELUM | `OPEN — OPERATOR ACTION REQUIRED` |
 | F-09 Route HTTP 404 | MEDIUM | TIDAK DIUBAH (sengaja) | VERIFIED (salah ukur di Fase 9) | n/a | `CLOSED` |
@@ -47,7 +47,7 @@ Level bukti yang dipakai di dokumen ini:
 | F-12 `submitFeedback` tanpa batas | LOW | FIXED | n/a | n/a | `CLOSED` |
 | F-13 PII di metadata audit | INFO | TIDAK DIUBAH | n/a | n/a | `RISK ACCEPTED` |
 | F-14 `photoId` storage id bebas | LOW | FIXED | n/a | n/a | `CLOSED` |
-| F-15 `dangerouslySetInnerHTML` mati | INFO | TIDAK DIUBAH | n/a | n/a | `RISK ACCEPTED` |
+| F-15 `dangerouslySetInnerHTML` mati | INFO | FIXED (Fase 9.2) | VERIFIED | n/a | `CLOSED` |
 | F-16 Token di `localStorage` | INFO | TIDAK DIUBAH | n/a | n/a | `RISK ACCEPTED` |
 | F-17 Test E2E dua sesi rusak | LOW | TIDAK DIUBAH | n/a | BELUM | `OPEN — TEST INFRASTRUCTURE GAP` |
 
@@ -69,11 +69,30 @@ Severity Fase 9 tidak diubah oleh Fase 9.1: 1 CRITICAL, 1 HIGH, 8 MEDIUM,
   TEST VERIFIED (`src/convex/otp-provider-security.test.ts`), dan sweep
   kredensial di `src/`, `e2e/`, `docs/`, `tmp/`, serta `dist/` tidak menemukan
   literal kredensial di luar nilai sintetis pada test.
-- **Sisa yang jujur:** rotasi di sisi penyedia belum dilakukan. Kredensial lama
-  masih pernah bocor lewat Git dan pernah keluar lewat respons error.
-  Kode yang bersih tidak mencabut kredensial yang sudah keluar.
-- **Tindakan:** `PHASE-9.1-OPERATOR-RUNBOOK.md` bagian F-01.
-- **Status:** `OPEN — OPERATOR ACTION REQUIRED` (P0).
+- **KEPOSISIAN YANG BERUBAH (Fase 9.2, 2026-09-30):** nilai
+  `VLY_EMAIL_OTP_API_KEY` adalah kredensial **bawaan platform Freebuff**, bukan
+  kunci privat proyek ini. Dikonfirmasi oleh tim Freebuff lewat kanal komunitas
+  resmi atas nama deployer platform. Konsekuensinya untuk audit ini:
+  - **Tidak ada rotasi yang bisa dilakukan, oleh siapa pun di proyek ini.**
+    Tidak ada dasbor penyedia yang dimiliki operator untuk mencabut kunci itu.
+    Menandainya `OPEN - OPERATOR ACTION REQUIRED` (P0) berarti menunggu
+    tindakan yang mustahil, dan P0 yang tak bisa ditutup melatih semua orang
+    untuk mengabaikan P0.
+  - Yang bocor bukan rahasia proyek, melainkan nilai default yang dipakai
+    bersama. Risiko sisanya adalah penyalahgunaan kuota penyedia milik
+    platform, bukan takeover akun.
+  - **Inti temuan yang sebenarnya adalah jalur kebocorannya**, yaitu
+    `JSON.stringify(error)` yang menyalin header `x-api-key` ke respons
+    pemanggil anonim. Jalur itu sudah ditutup di kode dan dikunci test.
+- **Mengapa perbaikan kode tetap dipertahankan:** membaca dari env berarti
+  repository tidak memuat nilai literal, dan bila Freebuff suatu saat
+  menggantinya, proyek mengambil nilai baru tanpa perubahan kode.
+- **Sisa yang jujur:** nilai masih dapat dibaca siapa pun yang punya akses
+  repository. Rewrite sejarah Git tetap tidak direkomendasikan: risikonya lebih
+  besar dari nilai kuncinya sendiri.
+- **Status:** `RISK ACCEPTED - PLATFORM MANAGED` (bukan `CLOSED`: nilai masih
+  ada di riwayat Git; bukan `OPEN`: tidak ada tindakan tersisa yang bisa
+  dikerjakan).
 
 ## F-02 — `vendors:getImageUrl` membaca blob storage apa pun
 
@@ -125,12 +144,19 @@ Severity Fase 9 tidak diubah oleh Fase 9.1: 1 CRITICAL, 1 HIGH, 8 MEDIUM,
   pengenal kiriman. `analytics.track` punya plafon per perangkat.
 - **Bukti:** TEST VERIFIED (`security-surface.test.ts` mengunci bahwa panggilan
   setelah plafon tidak menambah hitungan).
-- **Sisa yang jujur:** plafon global bisa dipakai untuk menolak layanan
-  ke semua pengguna sekaligus. Menggantinya dengan identitas per perangkat
-  membutuhkan identitas server yang tidak bisa dipalsukan, dan itu belum ada.
-  Dinyatakan terbuka, bukan ditutup.
-- **Status:** `CLOSED` untuk batas yang diminta; risiko DoS singkat tetap
-  tercatat di `PHASE-9.1-SECURITY-CLOSURE-REPORT.md` bagian P.
+- **Dampak ke pengguna, diverifikasi dari kode:** nol. Saat plafon terlampaui,
+  `incrementClick` mengembalikan `undefined` (`:788`) dan `recordSearch`
+  mengembalikan `0` (`:816`) - keduanya tanpa melempar error, jadi tidak ada
+  spinner, toast, atau "coba lagi nanti" di layar. Kotak pencarian tetap
+  menyaring dan tombol WhatsApp tetap membuka `wa.me`. Yang berhenti hanya
+  **pencatatan**; `searchImpressions` dan `whatsappClicks` adalah metrik
+  internal (`vendors.ts:151`) dan tidak pernah tampil di katalog publik.
+- **Sisa yang jujur:** angka di dasbor managerial bisa dibekukan oleh skrip
+  yang memanggil kedua mutasi itu berulang. Sisa kuota pemanggilan fungsi juga
+  tetap bisa dikonsumsi, karena setiap panggilan tetap melakukan satu
+  `ctx.db.get` dan satu pembacaan indeks. Itu ketersediaan, bukan kerahasiaan.
+- **Status:** `MITIGATED` - batas yang diminta sudah ada dan teruji, dan
+  sisa risikonya adalah pembekuan metrik, bukan penolakan layanan.
 
 ## F-07 — Pesan error ke pemublik memuat detail server
 
@@ -160,7 +186,7 @@ Severity Fase 9 tidak diubah oleh Fase 9.1: 1 CRITICAL, 1 HIGH, 8 MEDIUM,
 - **Bukti baru (DEPLOYMENT VERIFIED):** `tmp/qa-p91-closure-evidence.json` ->
   `bootstrap.available.body.value = {"available": true}` dan
   `bootstrap.setupStatus.body.value.staffCount = 3`,
-  `hasAnyStaff = true`. Jadi jalur pemulihan **masif aktif** pada deployment
+  `hasAnyStaff = true`. Jadi jalur pemulihan **masih aktif** pada deployment
   yang diuji, dan pemulihannya juga tidak lagi dibutuhkan karena sudah ada tiga
   pengelola.
 - **Tindakan:** hapus `STAFF_BOOTSTRAP_EMAILS` dari Keys. Prosedur lengkap di
@@ -278,17 +304,38 @@ Severity Fase 9 tidak diubah oleh Fase 9.1: 1 CRITICAL, 1 HIGH, 8 MEDIUM,
 
 ## F-15 — `dangerouslySetInnerHTML` pada kode mati
 
-- **Verifikasi Fase 9.1 (SOURCE VERIFIED):** satu-satunya kemunculan ada di
-  `src/components/ui/chart.tsx`. Berkas itu tidak diimpor di mana pun; satu
- -satunya rujukan ada di dalam **komentar** pada
-  `src/components/ui/index.ts`. `recharts` hanya dirujuk oleh berkas itu.
+- **Verifikasi (SOURCE VERIFIED):** satu-satunya kemunculan
+  `dangerouslySetInnerHTML` di repo ada di `src/components/ui/chart.tsx`.
+  Tidak ada berkas aplikasi yang mengimpor berkas itu. Rujukannya ada dua,
+  dan keduanya harus disebut apa adanya:
+  - `src/components/ui/index.ts:90` - **re-export yang AKTIF**:
+    `export { ... } from "./chart"`.
+  - `src/components/ui/index.ts:116` - komentar contoh lazy loading.
+
+  Catatan koreksi: versi dokumen sebelumnya menyebut satu-satunya rujukan ada
+  di dalam komentar. Itu tidak tepat - baris 90 adalah re-export nyata, hanya
+  tidak terpakai karena tidak ada berkas aplikasi yang mengimpor barrel
+  `@/components/ui`. Yang membuat jalur ini mati adalah ketiadaan pemakai
+  barrel, bukan tidak adanya re-export.
+- **Bukti pendukung (BUILD VERIFIED):** `recharts` memiliki 0 kemunculan di
+  seluruh chunk `dist/assets/`, dan pencarian
+  `from "@/components/ui"` di `src/` hanya menemukan baris di dalam
+  `index.ts` itu sendiri.
 - **Kesimpulan:** tidak ada sumber data yang mengalir ke sink itu, jadi tidak
   ada payload yang bisa sampai ke sana. Tidak ada XSS yang bisa dieksploitasi
   melalui jalur ini.
-- **Mengapa tidak dihapus:** penghapusan akan menyentuh konfigurasi bundel
-  (`vite.config.ts` punya `manualChunks` untuk `recharts`) dan berada di luar
-  scope Fase 9.1. Risiko yang tersisa nol pada jalur yang dapat dicapai.
-- **Status:** `RISK ACCEPTED`.
+- **Eksekusi Fase 9.2 (Tier 4 - SOURCE + BUILD VERIFIED):** `chart.tsx`
+  dihapus, re-export di `src/components/ui/index.ts:90` dibuang, entri
+  `'charts': ['recharts']` di `vite.config.ts` dihapus, dan dependensi
+  `recharts` dicabut dari `package.json` lalu lockfile diperbarui.
+  `grep -rl recharts dist/` = **0 berkas**.
+- **Pagar yang ditambahkan:** `eslint.config.js` sekarang punya
+  `no-restricted-imports` yang menolak `@/components/ui` (path maupun pola).
+  Aturan ini **dibuktikan bekerja**: impor barrel yang disengaja membuat
+  `bun run lint` gagal dengan pesan yang menyebut F-15, dan dihilangkan begitu
+  berkas dikembalikan. Impor per komponen (`@/components/ui/button`) tetap
+  boleh - itu bentuk yang dipakai seluruh repo.
+- **Status:** `CLOSED`. Tidak ada lagi `dangerouslySetInnerHTML` di repo.
 
 ## F-16 — Token sesi di `localStorage`
 

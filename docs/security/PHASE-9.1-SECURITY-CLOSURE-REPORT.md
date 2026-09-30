@@ -16,9 +16,13 @@ Yang tidak boleh hilang dari ringkasan ini:
 
 - **Tidak ada satu pun temuan CRITICAL atau HIGH yang tersisa belum
   diperbaiki di sisi kode.** Keduanya sudah tertutup dan diuji.
-- **F-01 belum tertutup secara operasional.** Kode bersih tidak mencabut
-  kredensial yang pernah bocor. Rotasi di sisi penyedia adalah P0 dan hanya
-  operator yang bisa melakukannya.
+- **F-01 tidak bisa dirotasi, dan itu bukan kelemahan audit ini.** Nilai
+  `VLY_EMAIL_OTP_API_KEY` adalah kredensial **bawaan platform Freebuff**,
+  bukan kunci privat proyek - dikonfirmasi tim Freebuff lewat kanal komunitas
+  resmi. Tidak ada dasbor yang dimiliki operator untuk mencabutnya, sehingga
+  statusnya `RISK ACCEPTED - PLATFORM MANAGED`, bukan P0 terbuka. Jalur yang
+  sebenarnya berbahaya - `JSON.stringify(error)` yang menyalin header
+  `x-api-key` ke respons pemanggil anonim - sudah tertutup dan dikunci test.
 - **F-08 masih aktif di deployment yang diuji.** `STAFF_BOOTSTRAP_EMAILS` masih
   terisi, padahal tiga pengelola sudah ada. Perlu satu langkah operator.
 - **Tidak ada origin frontend produksi yang otoritatif** di repositori, jadi
@@ -62,7 +66,7 @@ dibuat-buat agar totalnya terlihat rapi.
 
 ## C. Koreksi Laporan
 
-Tiga koreksi yang benar-benar mengubah isi, bukan hanya rapi-ol Writer.
+Tiga koreksi yang benar-benar mengubah isi, bukan hanya merapikan kalimat.
 
 ### C-1 — F-09 diukur di origin yang salah
 
@@ -118,8 +122,8 @@ CORS. Wildcard tanpa credentials dipulihkan, jadi tidak ada regresi fungsional.
 | Kode | FIXED. Kunci hanya dari `VLY_EMAIL_OTP_API_KEY`; env kosong = gagal dengan pesan jelas; objek error penyedia tidak pernah ikut ke pesan. |
 | Sweep kredensial | Bersih. `src/`, `e2e/`, `docs/`, `tmp/`, dan `dist/` tidak punya literal kredensial di luar nilai sintetis pada test. |
 | Regression test | `src/convex/otp-provider-security.test.ts` lulus. |
-| Rotasi di penyedia | BELUM. |
-| Status | `OPEN — OPERATOR ACTION REQUIRED` (P0) |
+| Rotasi di penyedia | **TIDAK BERLAKU.** Nilai adalah kredensial bawaan platform Freebuff, bukan kunci privat proyek. Dikonfirmasi tim Freebuff lewat kanal komunitas resmi. |
+| Status | `RISK ACCEPTED - PLATFORM MANAGED` |
 
 Tidak ada nilai kredensial yang ditampilkan di dokumen ini, dan tidak ada yang
 disalin ke mana pun.
@@ -155,7 +159,7 @@ disalin ke mana pun.
 
 ### Anti-replay pada webhook
 
-Pertanyaan yang dijawab sebelumwyebrush mengubah apa pun:
+Pertanyaan yang dijawab sebelum satu baris pun diubah:
 
 1. **Apakah penyedia mengirim id pesan unik?** Ya. Meta memakai
    `wamid`, Twilio memakai `MessageSid`/`SmsSid`.
@@ -306,7 +310,7 @@ Tidak ada regresi Fase 1-8. Fase 8 hanya dibaca, tidak ditulis ulang.
 |---|---|---|
 | Push + typecheck | `bunx convex dev --once` | PASS |
 | Typecheck | `bunx tsc -b --noEmit` | PASS, 0 error |
-| Unit test | `bun run test` | **54 berkas, 770 test, 770 lulus, 0 gagal, 0 dilewati** |
+| Unit test | `bun run test` | **56 berkas, 789 test, 789 lulus, 0 gagal, 0 dilewati** |
 | E2E | `bun run test:e2e` | **32 lulus, 0 gagal, 10 dilewati** |
 | Build | `bun run build` | PASS |
 | Lint | `bun run lint` | 0 error, 26 warning (sudah ada sebelumnya) |
@@ -325,10 +329,13 @@ Test keamanan yang dijalankan terpisah:
 | `realtime.test.ts` | (sama) |
 | **Total 6 berkas keamanan** | **139 lulus, 0 gagal** |
 
-Tambahan Fase 9.1: 36 test di dua berkas baru/ diperluas
-(`security-surface.test.ts` dan `http-cors-security.test.ts`).
+Fase 9.1 menambah isi dua berkas yang disentuh: `security-surface.test.ts`
+(27 test) dan `http-cors-security.test.ts` (9 test) = 36 test di kedua berkas
+itu. Angka itu adalah isi berkas, bukan penambahan bersih terhadap total.
 
-Perbandingan dengan baseline Fase 9: 749 menjadi 770 unit test, 21 test baru.
+Perbandingan dengan baseline Fase 9: 749 menjadi 789 unit test. Kenaikan 40
+test, dan seluruhnya test baru - tidak ada test lama yang dihapus, dilewati,
+atau dilonggarkan.
 Tidak ada test yang dihapus, dilewati, atau dilonggarkan.
 
 ---
@@ -340,11 +347,11 @@ Dipisahkan sesuai aturan bukti, dan tidak dicampur.
 | Level | Status | Bukti |
 |---|---|---|
 | SOURCE VERIFIED |UNTUK | Kode dibaca langsung; 105 fungsi publik terinventarisasi, 11 tanpa guard, masing-masing dengan alasan. |
-| TEST VERIFIED | UNTUK | 770 unit test dan 6 berkas keamanan lulus. |
+| TEST VERIFIED | UNTUK | 789 unit test dan 6 berkas keamanan lulus. |
 | DEPLOYMENT VERIFIED (dev) | UNTUK | `tmp/qa-p91-closure-evidence.json` dan `tmp/qa-p91-cors-allowlist-evidence.json`. |
 | DEPLOYMENT VERIFIED (produksi) | **TIDAK ADA** | Tidak ada konfigurasi deploy produksi di repositori. |
 | EXTERNAL VERIFIED |UNTUK | Webhook gagal tertutup dan 404 di origin yang salah terukur, keduanya diukur langsung. Verifikasi akun Meta/Twilio di sisi penyedia tidak dilakukan. |
-| OPERATOR VERIFIED | **BELUM** | Rotasi F-01 dan pembersihan F-08 belum punya bukti operator. |
+| OPERATOR VERIFIED | **BELUM** | Hanya pembersihan F-08 (`STAFF_BOOTSTRAP_EMAILS`) yang menunggu bukti operator. F-01 tidak lagi punya tindakan operator yang tersisa. |
 
 Catatan kejujuran: deployment yang diuji adalah **development**. Tidak ada
 kalimat "production secure" di dokumen ini, karena tidak ada bukti yang
@@ -356,24 +363,31 @@ mendukungnya.
 
 Tidak disembunyikan.
 
-1. **Kredensial OTP lama masih belum dicabut** (P0, di luar kendali agent).
+1. ~~**Kredensial OTP lama masih belum dicabut**~~ - DIHAPUS pada Fase 9.2.
+   Nilai tersebut adalah kredensial bawaan platform Freebuff, bukan milik
+   proyek, jadi tidak ada rotasi yang bisa dilakukan. Yang tersisa hanya
+   penyalahgunaan kuota penyedia milik platform, dan itu bukan P0.
 2. **Allowlist pemulihan admin masih aktif di deployment** (P0, satu langkah
    operator).
 3. **Header keamanan frontend belum ada** dan tidak bisa diverifikasi.
-4. **Kredensial OTP masih bocor lewat Git.** Nilainya sudah tidak dipakai kode,
-   tapi tetap bisa dibaca siapa pun yang punya akses repository. Menghapus dari
-   riwayat membutuhkan rewrite sejarah, yang biasanya lebih berisiko daripada
-   nilai kuncinya sendiri. Putusan ada di tangan pemilik repository.
-5. **Plafon global F-06 bisa dipakai untuk menolak layanan ke semua pengguna
-   sekaligus** dalam jendela satu jam. Perbaikannya butuh identitas server yang
-   tidak bisa dipalsukan; identitas itu belum ada.
+4. **Nilai OTP masih terbaca lewat Git** (residu, bukan P0). Nilainya adalah
+   bawaan platform yang dipakai bersama, bukan rahasia proyek, dan sudah tidak
+   dipakai kode. Rewrite sejarah tidak direkomendasikan: risikonya lebih besar
+   dari nilai kuncinya sendiri.
+5. **Plafon global F-06 bisa membekukan angka metrik** dalam jendela satu jam.
+   Dampak ke pengguna sudah diverifikasi dari kode: nol. Saat plafon terlampaui
+   kedua mutasi itu `return` tanpa melempar error, jadi kotak pencarian dan
+   tombol WhatsApp tetap bekerja normal; hanya pencatatan yang berhenti, dan
+   metrik itu tidak pernah tampil di katalog publik. Sisa risikonya adalah
+   ketersediaan (kuota pemanggilan tetap bisa dikonsumsi), bukan penolakan
+   layanan.
 6. **Papan permintaan publik masih menayangkan nama pemohon** (F-05) sampai
    ada keputusan produk.
 7. **Test E2E dua sesi masih dilewati** karena tidak ada infrastruktur OTP uji
    (F-17).
 8. **Idempotensi webhook adalah ganti anti-replay.** Kalau suatu saat suatu
-   kiriman tanpa `providerMessageId` perlu Trusted Provider menghasilkan
-   perubahan state, jendela timestamp harus ditambahkan. Sekarang belum
+   kiriman tanpa `providerMessageId` perlu Trusted Provider untuk
+   menghasilkan perubahan state, jendela timestamp harus ditambahkan. Sekarang belum
    diperlukan.
 9. **Penghitung publik masih bisa dipanggil tanpa sesi.** Batasnya mencegah
    pembakaran kuota, bukan penyalahgunaan data.
@@ -401,9 +415,10 @@ Tidak ada. Rinciannya:
 Alasannya, dan hanya alasannya:
 
 - Semua temuan CRITICAL dan HIGH sudah diperbaiki di kode dan dikunci test.
-- Sisa yang terbuka genuinely di luar kendali coding agent: rotasi kredensial
-  (butuh akses dasbor penyedia), penghapusan environment (butuh akses Keys),
-  dan header origin frontend (butuh konfigurasi penyajian).
+- Sisa yang terbuka genuinely di luar kendali coding agent, dan hanya dua:
+  penghapusan `STAFF_BOOTSTRAP_EMAILS` dari Keys, dan header origin frontend
+  (butuh konfigurasi penyajian). Plus satu keputusan produk (F-05) dan satu
+  gap infrastruktur test (F-17).
 - Tidak ada bypass otorisasi di produksi yang terukur, tidak ada eksposur
   storage privat yang terukur, tidak ada kebocoran PII privat yang terukur, dan
   tidak ada pemalsukan webhook yang berhasil.
@@ -429,12 +444,12 @@ Angka di bawah dihitung ulang untuk Fase 9.1, bukan disalin dari Fase 9.
 | LOW | 4 |
 | INFO | 3 |
 | CRITICAL/HIGH tersisa belum diperbaiki di kode | 0 |
-| Status `CLOSED` | 6 |
-| Status `MITIGATED` | 2 |
+| Status `CLOSED` | 7 |
+| Status `MITIGATED` | 3 |
 | Status `RISK ACCEPTED` | 4 |
-| Status `OPEN` | 3 |
+| Status `OPEN` | 2 |
 | Status `DECISION REQUIRED` | 1 |
-| Status `BLOCKED` | 1 |
+| Status `BLOCKED` | 0 |
 
 ### Data dan otorisasi
 
@@ -476,9 +491,9 @@ dirotasi.
 
 | Metrik | Nilai |
 |---|---|
-| Unit test berkas | 54 |
-| Unit test total | 770 |
-| Unit test lulus | 770 |
+| Unit test berkas | 56 |
+| Unit test total | 789 |
+| Unit test lulus | 789 |
 | Unit test gagal | 0 |
 | Unit test dilewati | 0 |
 | E2E lulus | 32 |
@@ -506,7 +521,7 @@ Alasannya berdasarkan bukti, bukan urutan arbitrer:
   panel admin benar-benar membuka percakapan yang benar. Itu butuh kredensial
   uji yang sama dengan yang dibutuhkan F-17, jadi harus disiapkan bersama.
 - F-11a (header frontend) sebaiknya ikut dikerjakan pada tahap yang sama,
-  karena_operator sudah harus menyiapkan environment produksi untuk keduanya.
+  karena operator sudah harus menyiapkan environment produksi untuk keduanya.
 - F-16 tidak masuk antrean: tidak ditemukan XSS yang dapat dieksploitasi, dan
   mitigasi utamanya (CSP) terikat pada F-11a. Mengganti arsitektur penyimpanan
   token tanpa bukti XSS akan jadi perubahan berspekulasi.

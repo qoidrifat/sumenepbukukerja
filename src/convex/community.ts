@@ -7,6 +7,31 @@ import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { writeAudit, writeListingHistory } from "./audit";
 import { denied, requireAssignablePhoto, requireManagementViewer } from "./access";
+import { resolveDisplayName } from "../lib/display-name";
+
+/**
+ * Nama yang tampil publik untuk satu pemohon.
+ *
+ * QUERY CONVEX TIDAK BOLEH MENULIS. Ini bukan pilihan gaya: batasan itu
+ * yang membuat cache "turunkan lalu simpan saat baca" mustahil di sini, dan
+ * mencoba lewat `ctx.db.patch` akan ditolak compiler. Karena itu fungsi ini
+ * murni: tebakan dihitung ulang di setiap pembacaan papan, yang memang murah
+ * (beberapa operasi string).
+ *
+ * Di mana nilainya disimpan? Di `users.ensureMyDisplayName` - sebuah mutation
+ * yang dipanggil sekali setelah pengguna masuk. Itulah yang membuat nama
+ * stabil antar pembacaan tanpa melanggar batasan query.
+ *
+ * `users.publicName` sengaja tidak punya indeks: nilainya dibaca lewat
+ * `ctx.db.get(pemohonId)` yang sudah ada, jadi tidak ada biaya indeks baru.
+ * Email hanya dipakai DI SINI, di server, dan tidak pernah masuk respons.
+ */
+function resolvePublicName(
+  requester: { publicName?: string; email?: string } | null,
+): string {
+  if (!requester) return "Warga Sumenep";
+  return resolveDisplayName(requester.publicName, requester.email);
+}
 import { imageRejection } from "../lib/image-upload";
 
 const categoryValidator = v.union(
@@ -276,6 +301,11 @@ export const listRequests = query({
         // `requesterId` dibuang dari salinan, bukan dari dokumen aslinya.
         const { requesterId: requesterIdInternal, ...publicRequest } = request;
         void requesterIdInternal;
+        // FASE 9.2 - F-05. `requesterName` tidak lagi memakai `users.name`
+        // milik akun. Urutannya: koreksi pengguna, lalu tebakan dari email,
+        // lalu fallback. Yang penting di sini adalah `email` TIDAK PERNAH
+        // ikut keluar - hanya hasil turunannya yang dikirim.
+        const requesterName = resolvePublicName(requester);
         return {
           ...publicRequest,
           // FASE 9: `requesterId` adalah pengenal akun internal (P3), bukan
@@ -284,7 +314,7 @@ export const listRequests = query({
           // itu tidak pernah dikirim. UI yang perlu menjawab "ini permintaan
           // saya" tetap bisa, karena ia selalu punya identitas.
           ...(viewerId ? { requesterId: request.requesterId } : {}),
-          requesterName: requester?.name ?? "Warga Sumenep",
+          requesterName,
           vendorName: vendor?.name,
           offers,
         };

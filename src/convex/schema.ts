@@ -67,6 +67,13 @@ const schema = defineSchema(
       emailVerificationTime: v.optional(v.number()),
       isAnonymous: v.optional(v.boolean()),
       role: v.optional(roleValidator),
+      // FASE 9.2 - F-05 opsi ketiga: nama yang tampil di papan permintaan
+      // publik. Sengaja TERPISAH dari `name`: `name` milik akun dan dipakai
+      // panel admin, audit log, dan alur undangan staff. Menimpanya akan
+      // mengubah tiga hal itu tanpa disengaja. Field ini hanya boleh berisi
+      // tebakan dari email atau koreksi eksplisit pengguna, tidak pernah
+      // nilai yang diketik saat pendaftaran.
+      publicName: v.optional(v.string()),
     })
       .index("email", ["email"])
       // FASE 9.1 - F-14. Satu indeks supaya pemeriksaan "blob ini adalah foto

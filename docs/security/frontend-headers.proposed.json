@@ -1,0 +1,63 @@
+{
+  "_README": [
+    "USULAN HEADER FRONTEND - BELUM AKTIF, DAN SENGAJA TIDAK BISA AKTIF SENDIRI.",
+    "",
+    "Kenapa berkas ini TIDAK bernama `vercel.json`: nama itu dibaca otomatis",
+    "saat deploy. Kalau sebuah `vercel.json` ada, blok `headers` di dalamnya",
+    "langsung dipakai - tidak ada cara menonaktifkannya lewat komentar atau",
+    "field yang diabaikan. Menulis kebijakan CSP ke sana sambil menulis",
+    "'belum aktif' di atasnya akan jadi berkas yang berbohong tentang",
+    "keadaannya sendiri, dan itu kesalahan yang persis dibantah di dokumen audit",
+    "ini.",
+    "",
+    "Repo ini juga tidak punya origin frontend produksi yang otoritatif, jadi",
+    "kebijakan di bawah belum pernah diuji terhadap origin manapun. Salah",
+    "pasang bisa mematikan seluruh tampilan dengan cara yang tidak terlihat:",
+    "  - img-src yang salah membuat SEMUA foto listing hilang di katalog,",
+    "    galeri, dan panel admin.",
+    "  - connect-src yang salah mematikan live update (notifikasi, papan",
+    "    permintaan, antrean) TANPA error - halaman tetap render, tidak ada",
+    "    yang bergerak.",
+    "  - style-src tanpa 'unsafe-inline' meruntuhkan layout, karena",
+    "    react-bits.tsx menyuntik style inline dan framer-motion menambah",
+    "    aturan gaya ke DOM.",
+    "",
+    "CARA MENGAKTIFKAN (urutan, jangan dibalik):",
+    "  1. Tentukan dan catat origin frontend produksi.",
+    "  2. Uji di subdomain staging lebih dulu, bukan di domain utama.",
+    "  3. Jalankan `bun run test:e2e` di origin yang sama dengan konfigurasi",
+    "     header - build lokal tidak membuktikan apa pun soal header.",
+    "  4. Kalau preview platform membungkus aplikasi dalam iframe,",
+    "     `frame-ancestors 'none'` akan membuatnya blank. Periksa dulu.",
+    "  5. Baru salin blok `headers` ke `vercel.json` (atau setelan platform",
+    "     yang setara).",
+    "",
+    "Catatan HSTS: hanya berguna di origin yang benar-benar HTTPS dan sudah",
+    "menjadi domain utama. Salah pasang pada domain yang masih dipakai",
+    "pengembangan bisa mengunci akses browser.",
+    "",
+    "Asal sumber di bawah adalah inventaris kode, bukan tebakan."
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.convex.cloud; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        {
+          "key": "Permissions-Policy",
+          "value": "geolocation=(), camera=(), microphone=(), payment=()"
+        },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains"
+        }
+      ]
+    }
+  ]
+}

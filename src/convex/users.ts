@@ -3,10 +3,11 @@ import { internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { getStaffAccess, requireManagementViewer, requireStaff, requireUser, type StaffRole } from "./access";
+import { denied, getStaffAccess, requireManagementViewer, requireStaff, requireUser, type StaffRole } from "./access";
 import { writeAudit } from "./audit";
 import { isOwnerAccount } from "../lib/owner-account";
 import { imageRejection } from "../lib/image-upload";
+import { resolveDisplayName, sanitizeDisplayName } from "../lib/display-name";
 
 /**
  * Read-only user query used by the existing auth UI. Role assignment is never
@@ -293,6 +294,83 @@ export const bootstrapAdministratorAvailable = query({
   handler: async () => ({
     available: Boolean(process.env.STAFF_BOOTSTRAP_EMAILS?.trim()),
   }),
+});
+
+/**
+ * Nama tampilan publik milik pemanggil.
+ *
+ * Query ini HANYA untuk sesi pemilik. Mengembalikan nama orang lain dari sini
+ * hanya membuka enumerasi yang F-05 sedang tutup.
+ */
+export const myDisplayName = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const doc = (await ctx.db.get(userId)) as {
+      publicName?: string;
+      email?: string;
+    } | null;
+    return {
+      publicName: doc?.publicName ?? null,
+      // Yang SEDANG tampil, supaya UI bisa memakai nilai itu sebagai awal
+      // isian tanpa menebak sendiri di browser.
+      current: resolveDisplayName(doc?.publicName, doc?.email),
+    };
+  },
+});
+
+/**
+ * Menyimpan tebakan turunan SEKALI, lalu tidak pernah menimpanya lagi.
+ *
+ * Kenapa mutation dan bukan ditulis di dalam query: query Convex tidak boleh
+ * menulis, jadi cache harus hidup di jalur yang boleh. Dipanggil sekali
+ * setelah pengguna masuk - itulah yang membuat nama stabil antar pembacaan
+ * tanpa melanggar batasan itu.
+ *
+ * Kenapa nilai yang ada tidak ditimpa: tebakan pertama harus stabil. Kalau
+ * setiap panggilan menghitung ulang, nama di papan berubah setiap kali aturan
+ * turunan berubah, dan koreksi pengguna hilang tanpa jejak.
+ */
+export const ensureMyDisplayName = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const doc = (await ctx.db.get(userId)) as {
+      publicName?: string;
+      email?: string;
+    } | null;
+    if (!doc) return null;
+    if (doc.publicName) return doc.publicName;
+    const derived = resolveDisplayName(undefined, doc.email);
+    // Fallback tidak disimpan: `Warga Sumenep` yang tersimpan akan membekukan
+    // akun yang email-nya baru saja terkirim.
+    if (derived === "Warga Sumenep") return derived;
+    await ctx.db.patch(userId, { publicName: derived });
+    return derived;
+  },
+});
+
+/**
+ * Koreksi eksplisit oleh pengguna.
+ *
+ * Inilah yang membuat aturan turunan boleh gagal dengan jujur. Tanpa jalur ini,
+ * `ahmanuddinfirman92@gmail.com` akan selamanya tampil sebagai
+ * "Ahmanuddinfirman" dan tidak ada jalan keluar selain mengganti email.
+ */
+export const setMyDisplayName = mutation({
+  args: { name: v.string() },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const cleaned = sanitizeDisplayName(args.name);
+    if (!cleaned) return denied("Nama tampilan minimal 2 huruf.");
+    if (cleaned !== args.name.trim()) {
+      // Dijawab dengan nilai yang benar-benar dipakai, bukan ditolak diam-diam
+      // supaya pengguna tidak menebak apa yang salah.
+      return denied(`Nama tampilan itu tidak bisa dipakai. Coba: ${cleaned}`);
+    }
+    await ctx.db.patch(userId, { publicName: cleaned });
+    return cleaned;
+  },
 });
 
 /**

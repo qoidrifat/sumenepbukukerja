@@ -670,6 +670,34 @@ export function useNotificationPreferences() {
   return useQuery(api.community.getNotificationPreferences, {});
 }
 
+/**
+ * Nama tampilan publik milik pengguna yang sedang masuk.
+ *
+ * FASE 9.2 - F-05. Nama ini yang muncul di papan permintaan publik. Ia bukan
+ * nama akun: `users.name` milik Convex Auth dan dipakai panel admin, jadi
+ * menimpanya akan mengubah tiga alur lain tanpa disengaja.
+ */
+export function useMyDisplayName() {
+  return useQuery(api.users.myDisplayName, {});
+}
+
+/**
+ * Menyimpan tebakan turunan sekali, lalu menerima koreksi pengguna.
+ *
+ * `ensure` dipanggil sekali setelah masuk supaya nama stabil; `set` hanya
+ * dipanggil saat pengguna benar-benar menekan tombol simpan. Keduanya
+ * dipisah karena `ensure` idempoten (aman dipanggil ulang) sedangkan `set`
+ * tidak - memanggil `set` diam-diam akan menimpa koreksi.
+ */
+export function useDisplayNameActions() {
+  const ensure = useMutation(api.users.ensureMyDisplayName);
+  const set = useMutation(api.users.setMyDisplayName);
+  return {
+    ensureDisplayName: ensure,
+    setDisplayName: set,
+  };
+}
+
 export function useWhatsappStatus() {
   return useQuery(api.whatsapp.getWhatsappStatus, {});
 }

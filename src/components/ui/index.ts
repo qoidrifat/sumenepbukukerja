@@ -87,7 +87,6 @@ export { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "./resizabl
 export { Sidebar, SidebarProvider, SidebarTrigger, SidebarInset, SidebarHeader, SidebarFooter, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarGroupAction, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuAction, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton, SidebarMenuBadge, SidebarSeparator, SidebarRail } from "./sidebar"; // ~10KB
 
 // Data Visualization
-export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle } from "./chart"; // ~20KB+ (requires recharts - very large!)
 
 // Notifications
 export { Toaster } from "./sonner"; // ~8KB - Toast notifications
@@ -112,7 +111,7 @@ export { Toaster } from "./sonner"; // ~8KB - Toast notifications
  * import { Card, Tabs, Chart } from "@/components/ui";
  * import { Select, Button } from "@/components/ui";
  *
- * Large bundle impact: ~35KB+ (due to Chart/recharts)
+ * Removed in Fase 9.2: Chart/recharts were never imported by any app file.
  * Consider lazy loading: const Chart = lazy(() => import("@/components/ui/chart"));
  */
 

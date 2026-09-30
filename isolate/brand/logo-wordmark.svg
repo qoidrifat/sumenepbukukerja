@@ -1,9 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="520" height="100" viewBox="0 0 520 100" role="img" aria-labelledby="title desc">
-  <title id="title">Sumenep Buku Kerja wordmark</title>
-  <desc id="desc">The Sumenep Buku Kerja name set in a friendly, sturdy sans-serif style.</desc>
-  <g transform="translate(4 0)">
-    <text x="0" y="55" fill="#0F172A" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="38" font-weight="800" letter-spacing="-1.4">Sumenep <tspan fill="#2563EB">Buku</tspan> Kerja</text>
-    <path d="M0 72H512" stroke="#2563EB" stroke-width="3"/>
-    <text x="0" y="94" fill="#64748B" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="600">Jasa dekat, tanpa ribet.</text>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 72" width="420" height="72" role="img" aria-labelledby="brand-title brand-desc"><title id="brand-title">Sumenep Buku Kerja</title><desc id="brand-desc">Wordmark Sumenep Buku Kerja.</desc><text x="0" y="50" fill="#0F172A" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="34" font-weight="800" letter-spacing="-1.1" text-anchor="start">Sumenep <tspan fill="#2563EB">Buku</tspan> Kerja</text></svg>

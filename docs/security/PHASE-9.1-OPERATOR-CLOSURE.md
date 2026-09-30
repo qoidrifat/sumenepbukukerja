@@ -11,7 +11,7 @@ Prosedur langkah demi langkah ada di `PHASE-9.1-OPERATOR-RUNBOOK.md`.
 | Temuan | Tindakan operator | Verifikasi | Status saat ini |
 |---|---|---|---|
 | F-01 | Tidak ada rotasi. Nilai `VLY_EMAIL_OTP_API_KEY` adalah kredensial **bawaan platform Freebuff**, bukan kunci privat proyek (dikonfirmasi tim Freebuff lewat kanal komunitas resmi). Jaga agar tetap terisi di Keys | OTP sign-in di `/auth` berhasil; `bun run test` tetap hijau | `RISK ACCEPTED - PLATFORM MANAGED` |
-| F-08 | Dev sudah selesai. Produksi: deploy kode dulu, baru pastikan ada pengelola, baru kunci allowlist | `users:adminSetupStatus` di produksi menjawab `staffCount >= 1` lalu `bootstrapAvailable = false` | `CLOSED` di dev (`qualified-chameleon-491`); produksi `focused-lemur-389` **belum ada kodenya** |
+| F-08 | Dev sudah selesai. Produksi: buat satu pengelola, pastikan ada, baru kunci allowlist | `users:adminSetupStatus` di produksi menjawab `staffCount >= 1` lalu `bootstrapAvailable = false` | `CLOSED` di dev. Produksi sudah ada kodenya, tapi masih `staffCount: 0` dengan `bootstrapAvailable: true` |
 | F-09 | Tetapkan origin produksi (frontend + Convex) dan uji keenam route di kedua origin | Status per route di kedua origin cocok dengan `tmp/qa-p91-closure-evidence.json` untuk `.convex.site` | `PARTLY DONE` - dev terukur, produksi belum |
 | F-11a | Pasang header keamanan (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors) di lapisan penyajian origin frontend | Header terlihat nyata di respons origin frontend; `bun run test:e2e` tetap lulus di origin itu | `BLOCKED — NO AUTHORITATIVE PRODUCTION FRONTEND ORIGIN` |
 | F-11c | Opsional: isi `ADMIN_CONTEXT_ALLOWED_ORIGINS` dengan origin frontend produksi | `tmp/qa-p91-cors-allowlist-probe.mjs` (sesuaikan konstanta) menunjukkan hanya origin itu yang diizinkan; Security Desk tetap menampilkan IP sumber | `MITIGATED` (satu label, sama dengan `SECURITY-CLOSURE.md`) - wildcard tanpa credentials sudah aman dan tidak merusak apa pun |
@@ -47,17 +47,22 @@ diketahui, semua diukur langsung:
 | Lapisan penyajian | Vercel (`server: Vercel`) | header respons |
 | Akun Convex | milik pemilik, bukan Freebuff (dipindah 2026-09-30) | dasbor Convex |
 | Deployment development | `https://qualified-chameleon-491.convex.cloud` / `.convex.site` | probe, sehat |
-| Deployment production | `https://focused-lemur-389.convex.cloud` / `.convex.site` | probe, **never deployed** |
+| Deployment production | `https://focused-lemur-389.convex.cloud` / `.convex.site` | **sudah di-deploy 2026-09-30** (kode + skema + 120 indeks) |
 | Convex yang dipanggil frontend produksi | `hidden-starfish-79` - deployment **lama** milik Freebuff | `new ConvexReactClient("https://hidden-starfish-79.convex.cloud")` di bundel produksi |
 | Header yang SUDAH ada | HSTS `max-age=63072000`, `nosniff`, `Referrer-Policy` | respons origin frontend |
 | Header yang BELUM ada | `Content-Security-Policy`, `Permissions-Policy`, `X-Frame-Options` | respons origin frontend |
 
 Empat temuan yang lahir dari pengukuran ini:
 
-1. **P0 - produksi belum pernah di-deploy.** `focused-lemur-389` menjawab
-   `Server Error` pada semua fungsi dan 404 pada semua route. Situs produksi
-   tidak punya backend. Ini yang harus dibenahi lebih dulu; selama begitu,
-   tidak ada satu pun temuan lain yang bisa disebut "ditutup di produksi".
+1. **P0 - produksi TIDAK LAGI kosong, tapi belum siap dipakai.** Setelah deploy
+   pertama pada 2026-09-30, `focused-lemur-389` sudah punya kode, skema, dan
+   120 indeks; keenam route HTTP menjawab benar, dan katalog berisi 6 listing.
+   Yang belum benar: `SITE_URL` produksi masih menunjuk `rare-scorpion-625.convex.site`
+   (deployment Freebuff yang sudah PAUSED), jadi `robots.txt` dan `sitemap.xml`
+   mengiklankan alamat mati; `staffCount` masih `0` dengan
+   `bootstrapAvailable: true`; dan action `auth:signIn` masih menjawab
+   `Server Error` tanpa detail, sementara deployment development
+  _memberi jawaban terstruktur untuk panggilan yang sama.
 2. **P0 - frontend produksi masih menunjuk backend yang salah.** Build Vercel
    punya `hidden-starfish-79` yang tertanam di dalam bundel, yaitu deployment
    Freebuff yang sudah ditinggalkan dan seluruh funksinya gagal

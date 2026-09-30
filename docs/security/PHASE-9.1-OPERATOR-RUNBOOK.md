@@ -167,14 +167,58 @@ penyedia mana pun, tidak perlu rewrite kode, dan tidak bisa gagal di tengah jala
 ### Fakta origin yang sudah terukur (bukan tebakan)
 
 Pengujian dilakukan terhadap deployment yang dikonfigurasi di Keys lewat
-`VITE_CONVEX_URL`, yaitu `https://rare-scorpion-625.convex.cloud`. Pengujian
-itu **DEVELOPMENT**, bukan produksi.
+`VITE_CONVEX_URL`. **Migrasi 2026-09-30:** proyek pindah dari Convex milik
+Freebuff ke akun Convex milik pemilik, jadi nama deployment berubah. Yang
+dipakai probe sekarang:
 
 | Fungsi | Origin | Bukti |
 |---|---|---|
-| Query, mutation, action (`/api/*`) | `https://rare-scorpion-625.convex.cloud` | `tmp/qa-p91-closure-evidence.json` |
-| Route HTTP (`/sitemap.xml`, `/robots.txt`, `/admin-gate/context`, `/webhook/whatsapp`, `/twilio/status`) | `https://rare-scorpion-625.convex.site` | probe yang sama |
-| Frontend (HTML aplikasi) | **belum diketahui** | tidak ada konfigurasi deploy di repositori |
+| Query, mutation, action (`/api/*`) | `https://qualified-chameleon-491.convex.cloud` (dev) | `tmp/qa-p91-closure-evidence.json` |
+| Route HTTP (`/sitemap.xml`, `/robots.txt`, `/admin-gate/context`, `/webhook/whatsapp`, `/twilio/status`) | `https://qualified-chameleon-491.convex.site` (dev) | probe yang sama |
+| Frontend (HTML aplikasi) | `https://sumenepbukukerja.freebuff.app/` (Vercel) | `tmp/qa-origin-probe.mjs` |
+| Produksi | `https://focused-lemur-389.convex.cloud` / `.convex.site` | **belum pernah di-deploy** |
+
+Deployment lama milik Freebuff (`rare-scorpion-625` = PAUSED,
+`hidden-starfish-79` = ditinggalkan) **tidak boleh dipakai sebagai bukti
+apa pun** setelah migrasi ini.
+
+## Menghentikan `[CONVEX A(auth:signIn)] Server Error` di produksi
+
+Gejalanya: di `/auth`, passcode lolos lalu email gagal dengan
+`[CONVEX A(auth:signIn)] ... Server Error`.
+
+Penyebabnya **bukan** OTP, bukan kode, dan bukan kredensial. Build Vercel punya
+URL Convex lama yang tertanam di dalam bundel:
+
+```
+new ConvexReactClient("https://hidden-starfish-79.convex.cloud")
+```
+
+`hidden-starfish-79` adalah deployment Freebuff yang sudah ditinggalkan, dan
+setiap fungsinya menjawab `Server Error`. Perbaikannya ada di **Vercel**, bukan
+di Keys:
+
+1. Di Vercel, set `VITE_CONVEX_URL` = `https://focused-lemur-389.convex.cloud`
+   untuk environment Production (dan `https://qualified-chameleon-491.convex.cloud`
+   untuk Preview). `VITE_*` dibaca Vite **saat build**, jadi ini wajib
+   redeploy, bukan restart.
+2. Deploy kode ke `focused-lemur-389` lebih dulu. Selama deployment itu belum
+   ada, frontend produksi akan menolak semua panggilan.
+3. Deploy ulang Vercel (Preview dulu, baru Production).
+4. Verifikasi: `node tmp/qa-origin-probe.mjs`. Baris `instantiated client` harus
+   menunjuk `focused-lemur-389`, bukan `hidden-starfish-79`.
+5. Setelah itu, F-08 di produksi harus dinilai ulang: buat satu pengelola,
+   pastikan `staffCount >= 1`, baru kunci `STAFF_BOOTSTRAP_EMAILS`.
+
+Jangan tertukar dua kelompok env var ini:
+
+| Env var | Ditaruh di | Dipakai untuk |
+|---|---|---|
+| `VITE_CONVEX_URL` | **Vercel** | backend yang dipanggil frontend, bake saat build |
+| `VLY_EMAIL_OTP_API_KEY` | Convex | pengiriman OTP |
+| `STAFF_BOOTSTRAP_EMAILS` | Convex | allowlist pemulihan admin |
+| `SITE_URL` | Convex | host untuk sitemap dan robots |
+| `ADMIN_CONTEXT_ALLOWED_ORIGINS` | Convex | allowlist CORS beacon admin |
 
 Kriteria pembeda yang dipakai: `fetch` ke `.convex.cloud` untuk route HTTP membalas
 `404`, sedangkan `.convex.site` menjawab `200`/`405` sesuai daemonnya. Berarti
@@ -284,7 +328,7 @@ Prosedur bila ingin mengetatkan:
 | Temuan | Tindakan | Verifikasi | Bisa dikerjakan agent? |
 |---|---|---|---|
 | F-01 | Tidak ada rotasi; kunci adalah bawaan platform. Jaga env tetap terisi | OTP masuk di `/auth` | Tidak ada tindakan yang tersisa |
-| F-08 | Hapus `STAFF_BOOTSTRAP_EMAILS` | Terukur 2026-09-30: `available = false`, `staffCount = 3` | Sudah (operator) |
+| F-08 | Hapus `STAFF_BOOTSTRAP_EMAILS` (dev sudah selesai; produksi menilai ulang setelah deploy) | Terukur 2026-09-30 di `qualified-chameleon-491`: `available = false`, `staffCount = 3` | Sudah (operator) |
 | F-09 | Tetapkan origin produksi, uji 6 route | Status per route di kedua origin | Sebagian (probe sudah ada) |
 | F-11a | Header keamanan di origin frontend | Header yang benar-benar terlihat di respons origin | Tidak |
 | F-11b | Header di route Convex | `vary` + `nosniff` di respons | Sudah (kode + test) |

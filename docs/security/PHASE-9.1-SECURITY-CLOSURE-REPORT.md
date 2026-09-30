@@ -23,12 +23,15 @@ Yang tidak boleh hilang dari ringkasan ini:
   statusnya `RISK ACCEPTED - PLATFORM MANAGED`, bukan P0 terbuka. Jalur yang
   sebenarnya berbahaya - `JSON.stringify(error)` yang menyalin header
   `x-api-key` ke respons pemanggil anonim - sudah tertutup dan dikunci test.
-- **F-08 sudah ditutup di development, dan masih terbuka di produksi.**
-  `STAFF_BOOTSTRAP_EMAILS` dihapus dari deployment dev, dan probe mengukur
-  ulang: `available: false` dengan tiga pengelola tetap utuh. Tapi probe di
-  deployment produksi menjawab `bootstrapAvailable: true` dengan
-  `staffCount: 0`. Di situs yang sedang dipakai pengguna, jalur give-it-yourself
-  admin justru masih terbuka dan belum ada satu pun pengelola.
+- **F-08 sudah ditutup di deployment yang hidup.** `STAFF_BOOTSTRAP_EMAILS`
+  dihapus, dan probe di `qualified-chameleon-491` mengukur ulang:
+  `available: false` dengan tiga pengelola tetap utuh.
+- **Produksi belum pernah di-deploy, dan frontend produksi menunjuk backend
+  yang salah.** Owner memindahkan proyek ke akun Convex sendiri. Deployment
+  produksi `focused-lemur-389` menjawab `Server Error` pada semua fungsi, dan
+  build Vercel masih menunjuk `hidden-starfish-79` milik Freebuff yang sudah
+  ditinggalkan. Itu sebabnya OTP gagal dengan
+  `[CONVEX A(auth:signIn)] Server Error`.
 - **Tidak ada origin frontend produksi yang otoritatif** di repositori, jadi
   header keamanan frontend (F-11a) berstatus `NOT VERIFIED`, bukan `PASS`.
 - **Satu kesimpulan Fase 9 turns out salah:** route HTTP tidak hilang. Fase 9
@@ -158,7 +161,9 @@ disalin ke mana pun.
   pengembalian.
 - Yang tidak berubah: `users.bootstrapAdministrator` masih ada, jadi kemampuan
   memulihkan akses admin kalau semua pengelola hilang tetap utuh.
-- Status: `OPEN — PRODUCTION EXPOSURE`. Yang tertutup cuma development.
+- Status: `CLOSED` di deployment development yang hidup
+  (`qualified-chameleon-491`). Produksi belum bisa dinilai karena belum ada
+  kodenya.
 
 ---
 
@@ -372,7 +377,7 @@ Dipisahkan sesuai aturan bukti, dan tidak dicampur.
 | DEPLOYMENT VERIFIED (dev) | UNTUK | `tmp/qa-p91-closure-evidence.json` dan `tmp/qa-p91-cors-allowlist-evidence.json`. |
 | DEPLOYMENT VERIFIED (produksi) | **TIDAK ADA** | Tidak ada konfigurasi deploy produksi di repositori. |
 | EXTERNAL VERIFIED |UNTUK | Webhook gagal tertutup dan 404 di origin yang salah terukur, keduanya diukur langsung. Verifikasi akun Meta/Twilio di sisi penyedia tidak dilakukan. |
-| OPERATOR VERIFIED | SEBAGIAN | Pembersihan F-08 terbukti di **dev** saja (`available: false`, `staffCount: 3`). Di **produksi** hasilnya kebalikan: `bootstrapAvailable: true`, `staffCount: 0`, jadi tindakan operator untuk F-08 belum selesai. F-01 tidak punya tindakan operator tersisa. |
+| OPERATOR VERIFIED | UNTUK (1 dari 1) | Pembersihan F-08 terukur di deployment development `qualified-chameleon-491`: `available: false`, `staffCount: 3`. F-01 tidak punya tindakan operator tersisa. |
 
 Catatan kejujuran: deployment yang diuji adalah **development**. Tidak ada
 kalimat "production secure" di dokumen ini, karena tidak ada bukti yang
@@ -388,9 +393,10 @@ Tidak disembunyikan.
    Nilai tersebut adalah kredensial bawaan platform Freebuff, bukan milik
    proyek, jadi tidak ada rotasi yang bisa dilakukan. Yang tersisa hanya
    penyalahgunaan kuota penyedia milik platform, dan itu bukan P0.
-2. **Allowlist pemulihan admin masih aktif di deployment produksi** (P0).
-   Dev sudah bersih, produksi menjawab `bootstrapAvailable: true` dengan
-   `staffCount: 0`.
+2. ~~**Allowlist pemulihan admin masih aktif di deployment produksi**~~ - DIHAPUS.
+   Terukur bersih di `qualified-chameleon-491` (`available: false`,
+   `staffCount: 3`). Produksi `focused-lemur-389` belum ada kodenya, jadi F-08
+   di sana harus dinilai ulang setelah deploy.
 3. **Header keamanan frontend belum ada** dan tidak bisa diverifikasi.
 4. **Nilai OTP masih terbaca lewat Git** (residu, bukan P0). Nilainya adalah
    bawaan platform yang dipakai bersama, bukan rahasia proyek, dan sudah tidak
@@ -437,10 +443,10 @@ Tidak ada. Rinciannya:
 Alasannya, dan hanya alasannya:
 
 - Semua temuan CRITICAL dan HIGH sudah diperbaiki di kode dan dikunci test.
-- Sisa yang terbuka genuinely di luar kendali coding agent, dan hanya dua:
-  allowlist pemulihan admin di deployment produksi, dan header origin frontend
-  (butuh konfigurasi penyajian). Plus satu keputusan produk (F-05) dan satu
-  gap infrastruktur test (F-17).
+- Sisa yang terbuka genuinely di luar kendali coding agent: header origin
+  frontend, dan **deploy produksi yang belum pernah dijalankan** (butuh
+  `VITE_CONVEX_URL` di Vercel plus satu kali push ke `focused-lemur-389`).
+  Plus satu keputusan produk (F-05) dan satu gap infrastruktur test (F-17).
 - Tidak ada bypass otorisasi di produksi yang terukur, tidak ada eksposur
   storage privat yang terukur, tidak ada kebocoran PII privat yang terukur, dan
   tidak ada pemalsukan webhook yang berhasil.
@@ -466,10 +472,10 @@ Angka di bawah dihitung ulang untuk Fase 9.1, bukan disalin dari Fase 9.
 | LOW | 4 |
 | INFO | 3 |
 | CRITICAL/HIGH tersisa belum diperbaiki di kode | 0 |
-| Status `CLOSED` | 7 |
+| Status `CLOSED` | 8 (F-08 masuk lagi setelah diukur ulang di deployment dev yang baru) |
 | Status `MITIGATED` | 3 |
 | Status `RISK ACCEPTED` | 4 |
-| Status `OPEN` | 2 (F-08 produksi, F-17) |
+| Status `OPEN` | 1 (F-17) |
 | Status `DECISION REQUIRED` | 1 |
 | Status `BLOCKED` | 0 |
 

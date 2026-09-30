@@ -40,7 +40,7 @@ Level bukti yang dipakai di dokumen ini:
 | F-05 Papan publik mengirim id akun | MEDIUM | MITIGATED | VERIFIED | n/a | `DECISION REQUIRED` |
 | F-06 Penghitung publik tanpa batas | MEDIUM | FIXED | VERIFIED | n/a | `MITIGATED` |
 | F-07 Error server bocor ke publik | MEDIUM | FIXED (sebagian) | TERBUKTI ADA DI DEV | n/a | `MITIGATED` |
-| F-08 Pemulihan admin aktif | MEDIUM | TIDAK DIUBAH (sengaja) | VERIFIED (dev ditutup, PRODUKSI MASIH AKTIF) | SEBAGIAN | `OPEN — PRODUCTION EXPOSURE` |
+| F-08 Pemulihan admin aktif | MEDIUM | TIDAK DIUBAH (sengaja) | VERIFIED (dev `qualified-chameleon-491`) | SUDAH (dev) | `CLOSED` |
 | F-09 Route HTTP 404 | MEDIUM | TIDAK DIUBAH (sengaja) | VERIFIED (salah ukur di Fase 9) | n/a | `CLOSED` |
 | F-10 Penaburan katalog anonim | LOW | TIDAK DIUBAH (sengaja) | n/a | n/a | `RISK ACCEPTED` |
 | F-11 Header keamanan & CORS | MEDIUM | DIBATASI (bagian route) | FRONTEND NOT VERIFIED | BELUM | `MITIGATED` |
@@ -178,7 +178,7 @@ Severity Fase 9 tidak diubah oleh Fase 9.1: 1 CRITICAL, 1 HIGH, 8 MEDIUM,
   produksi, dan `DEPLOYED — EKSPOSUR TERBUKTI MASIH ADA DI DEV` untuk yang
   terukur.
 
-## F-08 — Jalur pemulihan admin sudah dimatikan DI DEV, masih aktif di produksi
+## F-08 — Jalur pemulihan admin sudah dimatikan (dev), produksi belum ada kodenya
 
 - **Kode sekarang:** SENGAJA TIDAK DIUBAH. `users.bootstrapAdministrator` dan
   test pemulihannya harus tetap ada; menghapusnya demi membuat status terlihat
@@ -209,31 +209,25 @@ Severity Fase 9 tidak diubah oleh Fase 9.1: 1 CRITICAL, 1 HIGH, 8 MEDIUM,
 - **Yang TIDAK berubah:** `users.bootstrapAdministrator` dan test
   pemulihannya. `bun run test` tetap hijau, jadi kemampuan memulihkan akses
   admin kalau semua pengelola hilang masih utuh.
-- **KOREKSI 2026-09-30 (DEPLOYMENT VERIFIED, produksi):** allowlist itu
-  **hanya dihapus dari deployment development**. Probe di deployment produksi
-  menjawab:
+- **KOREKSI 2026-09-30 (DEPLOYMENT VERIFIED, setelah migrasi akun):** proyek
+  pindah dari Convex milik Freebuff ke akun Convex milik pemilik. Empat
+  deployment yang relevan, semua diukur:
 
-  ```
-  prod adminSetupStatus : {"bootstrapAvailable":true,"staffCount":0.0,
-                           "hasAnyStaff":false,
-                           "deployment":"https://hidden-starfish-79.convex.cloud"}
-  prod bootstrap probe  : {"status":"success","value":{"available":true}}
-  ```
+  | Deployment | Peran | Hasil ukur |
+  |---|---|---|
+  | `qualified-chameleon-491` | dev (baru) | `bootstrapAvailable: false`, `staffCount: 3`. Fase 9.1/9.2 hidup di sini. |
+  | `focused-lemur-389` | produksi (baru) | **Never deployed.** Semua fungsi dan route gagal / 404. |
+  | `hidden-starfish-79` | produksi lama (Freebuff) | Semua fungsi `Server Error`. Inilah yang dipanggil frontend produksi. |
+  | `rare-scorpion-625` | dev lama (Freebuff) | **PAUSED**: "Cannot run functions while this deployment is paused". |
 
-  Bandingkan dengan dev: `bootstrapAvailable: false`, `staffCount: 3`. Jadi di
-  produksi jalurnya justru **lebih terbuka**, bukan lebih tertutup, dan
-  sekalian tidak ada satu pun pengelola di sana. Siapa pun yang menguasai
-  mailbox pada allowlist produksi bisa menjalankan
-  `users:bootstrapAdministrator` dan memberi dirinya peran admin penuh di situs
-  yang sedang dipakai pengguna. Ini P0, dan lebih besar dari temuan aslinya.
-- **Tindakan yang benar:** hapus `STAFF_BOOTSTRAP_EMAILS` **pada deployment
-  produksi**, setelah memastikan ketiga pengelola benar-benar ada di produksi.
-  Jangan menghapus variable itu tanpa verifikasi lebih dulu: kalau allowlist
-  itu yang membuat pengelola pertama di produksi, penghapusannya membuat situs
-  produksi tidak punya satu pun admin. Urutan benar ada di
+  Koreksi atas koreksi sebelumnya: hasil `bootstrapAvailable: true` dengan
+  `staffCount: 0` tadi terukur di `hidden-starfish-79`, yaitu deployment Freebuff
+  yang sudah ditinggalkan. Itu **bukan** produksi milik Anda, jadi tidak boleh
+  dipakai sebagai bukti status produksi.
+- **Status sekarang:** `CLOSED` untuk deployment yang hidup (dev). Produksi
+  `focused-lemur-389` belum punya kode sama sekali, jadi F-08 di sana belum bisa
+  dinilai - dan harus dinilai ulang setelah kode di-deploy. Urutan benar ada di
   `PHASE-9.1-OPERATOR-RUNBOOK.md` bagian F-08.
-- **Status:** `OPEN — PRODUCTION EXPOSURE` (dev sudah tertutup; produksi belum,
-  dan di produksi justru `staffCount = 0`).
 
 ## F-09 — Route HTTP tidak tersedia pada origin yang diuji
 

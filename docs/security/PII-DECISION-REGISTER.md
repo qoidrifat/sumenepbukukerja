@@ -1,6 +1,6 @@
 # Register Keputusan PII
 
-Status: **DECISION REQUIRED** - menunggu pemilik produk.
+Status: **R-1 SELESAI (2026-09-30). R-2, R-3, R-4 masih DECISION REQUIRED.**
 
 Dokumen ini sengaja **tidak** memilih jawaban. Tiga field di bawah masih
 memakai eksposur yang sekarang, dan tidak ada yang bisa diputuskan dari kode:
@@ -31,8 +31,11 @@ rekomendasi; itu status.
 | Konsekuensi teknis | (b) dan (c) gratis: bentuknya dihitung saat query, tanpa skema baru. (d) memerlukan satu kolom boolean baru plus alur persetujuan di UI, dan perlu keputusan tentang permintaan lama yang belum pernah ditanyakan. |
 | Yang TIDAK boleh dilakukan | Menyembunyikan field di CSS, atau mengirim nama lalu memfilter di frontend. Keduanya bukan pengaman privasi. |
 | Pemilik keputusan | Product owner, dengan nilai privasi |
-| Keputusan | (kosong) |
-| Tanggal keputusan | (kosong) |
+| Keputusan | **(a) Tetap publik apa adanya.** 2026-09-30. Alasan yang dicatat: papan permintaan gratis adalah produk; nama membuat warga saling mengenali dan mengurangi pesan tak berbalas, dan nilainya untuk moderasi. Eksposur diterima dengan sadar, bukan diabaikan. |
+| Tanggal keputusan | 2026-09-30 |
+| Dampak kode | **NOL perubahan.** `community:listRequests` sudah tidak mengirim `requesterId` (Fase 9) dan nama yang dikirim berasal dari `publicName` turunan, bukan `users.name` maupun email (Fase 9.2 Tier 5). Opsi (a) tidak menambah beban baru. |
+| Catatan Tier 5 | Kolom koreksi "Nama Anda di papan permintaan" (`src/components/display-name-field.tsx`) tetap ada dan tetap publik. Jadi pengguna bisa memilih apa yang dilihat orang lain - ini membuat opsi (a) lebih baik daripada bentuk (a) yang asli, karena eksposurnya sekarang bisa Knowing disetel sendiri oleh pemiliknya. |
+| Sisa risiko yang diterima | Nama orang nyata tampil tanpa persetujuan eksplisit di halaman yang bisa diindeks. Rate of disclosure lebih tinggi dari nomor telepon. Mitigasi yang tersedia: kolom koreksi sekali, dan keputusan tidak menutup kemungkinan ada permintaan penghapusan nama di kemudian hari. |
 
 ---
 

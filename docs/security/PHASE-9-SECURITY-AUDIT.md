@@ -26,8 +26,8 @@ konfigurasi yang hanya bisa ditutup oleh operator.**
 | Field PII di permukaan publik (sebelum) | 7 |
 | Field PII/P3 dihapus dari permukaan publik | 4 |
 | Field dienkripsi | 0 (sengaja, lihat bagian 10) |
-| Temuan | 16 |
-| CRITICAL / HIGH / MEDIUM / LOW / INFO | 1 / 1 / 7 / 4 / 3 |
+| Temuan | 17 |
+| CRITICAL / HIGH / MEDIUM / LOW / INFO | 1 / 1 / 8 / 4 / 3 |
 | Temuan CRITICAL tersisa | **0** |
 | Temuan HIGH tersisa | **0** |
 | Test unit | 53 berkas, 749 lulus, 0 gagal |
@@ -276,7 +276,8 @@ kemungkinan, severity, root cause, fix, regression test, verifikasi, status.
   `at async handler (../src/convex/vendors.ts:312:34)`. Sesudah perbaikan,
   `getImageUrl` tidak lagi melempar sama sekali, dan penolakan otorisasi memakai
   `ConvexError` sehingga respons memiliki `errorData` berisi pesan yang dimaksud.
-- **Dampak:** memetakan kode danTechnik attackers. **Severity: MEDIUM.**
+- **Dampak:** memetakan kode dan nama fungsi internal kepada penyerang.
+  **Severity: MEDIUM.**
 - **Sisa yang jujur:** pada deployment **dev** (yang diuji), Convex tetap
   mengisi `errorMessage` dengan stack trace meski errornya `ConvexError` —
   `../../src/convex/access.ts:31:0` masih terlihat. Perilaku deployment produksi
@@ -381,8 +382,8 @@ kemungkinan, severity, root cause, fix, regression test, verifikasi, status.
 - **Penilaian:** konsekuensi XSS adalah pencurian token; tidak ada `<meta>` CSP
   yang memaksa `HttpOnly`. Mengganti mekanisme penyimpanan berarti mengganti
   arsitektur auth, yang di luar scope dan tidak diminta.
-- **Severity: INFO — RISK ACCEPTED**, dengan catatan bahwa_
-  alchemy XSS harus dianggap belum selesai.
+- **Severity: INFO — RISK ACCEPTED**, dengan catatan bahwa mitigasi XSS
+  harus dianggap belum selesai.
 
 ### F-17 — Cacat test E2E dua sesi (warisan Fase 8)
 - **Bukti:** `e2e/flows.spec.ts` mencari label "sandi/password", sedangkan auth

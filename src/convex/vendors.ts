@@ -7,7 +7,7 @@ import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { writeAudit, writeListingHistory } from "./audit";
-import { denied, requireManagementViewer, requireProvenIdentity } from "./access";
+import { denied, requireAssignablePhoto, requireManagementViewer, requireProvenIdentity } from "./access";
 
 const slugify = (value: string) =>
   value
@@ -503,6 +503,11 @@ export const createVendor = mutation({
     if (args.serviceRadiusKm !== undefined && (args.serviceRadiusKm < 0 || args.serviceRadiusKm > 500)) {
       throw new Error("Radius layanan harus antara 0 dan 500 km");
     }
+    // FASE 9.1 - F-14. Hanya pengelola yang boleh memasang `photoId`, tapi
+    // "pengelola" bukan berarti "boleh menempelkan blob apa saja": lihat
+    // `requireAssignablePhoto`. Foto profil dan bukti klaim tidak pernah layak
+    // tayang sebagai foto listing.
+    if (privileged) await requireAssignablePhoto(ctx, args.photoId);
     const now = Date.now();
     const base = slugify(args.name);
     const existing = await ctx.db
@@ -593,6 +598,11 @@ export const updateVendor = mutation({
     if (changes.lng !== undefined && (changes.lng < -180 || changes.lng > 180)) throw new Error("Koordinat longitude tidak valid");
     if (changes.responseMinutes !== undefined && (changes.responseMinutes < 0 || changes.responseMinutes > 10080)) throw new Error("Waktu respons harus antara 0 dan 10.080 menit");
     if (changes.serviceRadiusKm !== undefined && (changes.serviceRadiusKm < 0 || changes.serviceRadiusKm > 500)) throw new Error("Radius layanan harus antara 0 dan 500 km");
+    // FASE 9.1 - F-14. Sama seperti `createVendor`: `photoId` hanya berarti
+    // apa pun kalau blob-nya memang layak ditayangkan.
+    if (privileged && changes.photoId !== undefined) {
+      await requireAssignablePhoto(ctx, changes.photoId);
+    }
 
     const nextStatus = privileged
       ? changes.status
@@ -1031,16 +1041,108 @@ export const setFavoriteCollection = mutation({
   },
 });
 
+/**
+ * FASE 9.1 - F-12: batas laju untuk masukan warga.
+ *
+ * SEBELUM PERBAIKAN INI, `submitFeedback` tidak punya gerbang apa pun: siapa pun,
+ * dengan atau tanpa sesi, bisa menulis baris `notifications` sebanyak pun. Satu
+ * skrip sederhana cukup mengisi tabel yang menyimpan masukan warga - membakar
+ * kuota fungsi, memperlambat panel moderasi, dan membuat data pengirim nyata
+ * jadi tercemar.
+ *
+ * IDENTITASNYA DIAMBIL DARI SISI SERVER, tidak pernah dari klien. Ini jawaban
+ * langsung atas syarat "penghitung tidak boleh bisa dilewati dengan mengubah
+ * pengenal dari klien": fungsi ini tidak menerima APA PUN id dari pemanggil, jadi
+ * tidak ada yang bisa dipalsukan, dihapus, atau dirotasi untuk memulai ulang
+ * hitungan. Dua lapis batas, keduanya bounded:
+ *
+ *  1. Per akun. Berlaku kalau pemanggil benar-benar punya baris `users` -
+ *     persis seperti pembeda yang dipakai `storage.recordUploadedBlob` untuk
+ *     membedakan akun nyata dari identitas anonim Convex Auth. Satu pembacaan
+ *     pada indeks `byUser` dengan `.take(limit + 1)`.
+ *  2. Plafon global. Untuk pengunjung tanpa akun, dan sebagai jaring
+ *     pengaman kalau banyak akun dipakai bergantian. Satu pembacaan pada
+ *     indeks `byKindCreatedAt` (kind, createdAt) dalam rentang satu jam.
+ *
+ * ANGKANYA mengikuti pemakaian nyata, bukan angka kecil asal: seorang warga
+ * menulis paling banyak satu atau dua masukan, jadi lima per jam per akun
+ * tidak menyentuh alur sah, sementara satu skrip yang mengetik ribuan kali
+ * berhenti di ambang pertama.
+ *
+ * PESAN PENOLAKAN memakai `denied()` supaya tidak pernah jadi "Server Error"
+ * yang memuat stack trace dan path sumber ke pemanggil anonim.
+ */
+export const FEEDBACK_PER_ACCOUNT_HOURLY_LIMIT = 5;
+export const FEEDBACK_GLOBAL_HOURLY_LIMIT = 200;
+const FEEDBACK_WINDOW_MS = 60 * 60 * 1000;
+const MAX_FEEDBACK_TITLE = 160;
+const MAX_FEEDBACK_BODY = 2_000;
+const MAX_FEEDBACK_EMAIL = 200;
+
+const countAccountFeedback = async (
+  ctx: GenericMutationCtx<DataModel>,
+  userId: DataModel["users"]["document"]["_id"],
+  windowStart: number,
+) => {
+  const recent = await ctx.db
+    .query("notifications")
+    .withIndex("byUser", (q) => q.eq("userId", userId))
+    .filter((q) => q.and(q.eq(q.field("kind"), "feedback"), q.gte(q.field("createdAt"), windowStart)))
+    .take(FEEDBACK_PER_ACCOUNT_HOURLY_LIMIT + 1);
+  return recent.length;
+};
+
+const countGlobalFeedback = async (
+  ctx: GenericMutationCtx<DataModel>,
+  windowStart: number,
+) => {
+  const recent = await ctx.db
+    .query("notifications")
+    .withIndex("byKindCreatedAt", (q) =>
+      q.eq("kind", "feedback").gte("createdAt", windowStart),
+    )
+    .take(FEEDBACK_GLOBAL_HOURLY_LIMIT + 1);
+  return recent.length;
+};
+
 export const submitFeedback = mutation({
   args: { email: v.optional(v.string()), title: v.string(), body: v.string() },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
+    // `getAuthUserId` juga mengembalikan id untuk penyedia Anonymous Convex Auth,
+    // jadi "punya sesi" bukan berarti "punya akun". Baris `users` adalah bukti
+    // akun yang benar-benar ada - sumber yang sama dengan yang dipakai
+    // `recordUploadedBlob`.
+    const account = userId ? await ctx.db.get(userId) : null;
+
+    // Batas isi dulu, sebelum batas laju: payload 10 MB sudah harus ditolak
+    // berdasarkan isinya, bukan berdasarkan siapa yang mengirimnya.
+    const title = args.title.trim();
+    const body = args.body.trim();
+    if (title.length < 3 || title.length > MAX_FEEDBACK_TITLE) {
+      denied(`Judul masukan harus 3-${MAX_FEEDBACK_TITLE} karakter`);
+    }
+    if (body.length < 10 || body.length > MAX_FEEDBACK_BODY) {
+      denied(`Isi masukan harus 10-${MAX_FEEDBACK_BODY} karakter`);
+    }
+    const email = args.email?.trim().slice(0, MAX_FEEDBACK_EMAIL) || undefined;
+
+    const windowStart = Date.now() - FEEDBACK_WINDOW_MS;
+    if (account) {
+      if ((await countAccountFeedback(ctx, account._id, windowStart)) >= FEEDBACK_PER_ACCOUNT_HOURLY_LIMIT) {
+        denied("Terlalu banyak masukan terkirim. Coba lagi satu jam lagi.");
+      }
+    }
+    if ((await countGlobalFeedback(ctx, windowStart)) >= FEEDBACK_GLOBAL_HOURLY_LIMIT) {
+      denied("Terlalu banyak masukan terkirim. Coba lagi sebentar lagi.");
+    }
+
     return await ctx.db.insert("notifications", {
-      userId: userId ?? undefined,
-      email: args.email,
+      userId: account?._id,
+      email,
       kind: "feedback",
-      title: args.title.trim(),
-      body: args.body.trim(),
+      title,
+      body,
       read: false,
       createdAt: Date.now(),
     });

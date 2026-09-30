@@ -2,6 +2,7 @@ import { getAuthSessionId, getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
+import { imageRejection } from "../lib/image-upload";
 
 export type StaffRole = "admin" | "staff" | "viewer";
 export type StaffAccess = {
@@ -161,4 +162,69 @@ export async function requireProvenIdentity(
     );
   }
   return approved.whatsappPhone;
+}
+
+/**
+ * FASE 9.1 - F-14: storage id yang offered sebagai foto listing harus BISA
+ * ditayangkan sebagai foto listing.
+ *
+ * SEBELUM PERBAIKAN INI, `createVendor` dan `updateVendor` menerima `photoId`
+ * apa pun dari pemanggil privileged, dan `getImageUrl` (yang sudah diamankan
+ * di Fase 9) disajikan lewat jalur `vendors.byPhotoId` untuk listing `active`.
+ * Hasilnya satu storage id yang bocor - misalnya dari `listingClaims` yang
+ * memuat KTP/foto usaha warga, atau dari dokumen cadangan `backupRuns` yang
+ * berisi enam tabel termasuk `auditLogs` - bisa DIPAKAI untuk membuat foto
+ * publik, hanya dengan menempelkannya ke listing yang sedang tayang.
+ *
+ * Jadi ini bukan "privatilitas", ini kebocoran lewat jalur resmi: penyimpanan
+ * id berubah dari URL acak yang tidak berhasil menjadi foto yang benar-benar
+ * tayang. Yang diperiksa di sini adalah ATURAN BISNIS "ini foto yang layak
+ * ditayangkan", yang berlaku sama untuk staff, admin, dan pemilik listing:
+ *
+ *  1. Blob-nya benar-benar ada di storage (id karangan langsung gugur).
+ *  2. Blob-nya memang gambar dan dalam batas ukuran (sumber aturan yang sama
+ *     dengan `imageRejection`, jadi tidak ada aturan ukuran kedua).
+ *  3. BUKAN bukti klaim (`listingClaims.byEvidenceStorageId`) - dokumen
+ *     pribadi warga, tidak pernah layak jadi foto toko.
+ *  4. BUKAN dokumen cadangan (`backupRuns.byStorageId`).
+ *  5. BUKAN foto profil milik orang lain (`users.byProfileImageStorageId`).
+ *     Memakai foto profil orang lain sebagai foto listing mem publikkan berkas
+ *     pribadi yang tidak pernah diminta untuk ditayangkan di katalog.
+ *
+ * Yang SENGAJA TIDAK diperiksa: "apakah pemanggil mengunggah blob ini
+ * sendiri". Blob foto listing tidak punya tabel kepemilikan, jadi aturan itu
+ * hanya akan jadi tebakan - dan tebakan yang terlalu ketat justru memotong
+ * alur sah ketikaModerasi memindahkan foto yang sudah ada. Aturan yang dipakai
+ * di sini adalah "boleh ditayangkan", bukan "siapa yang mengunggah", jadi
+ * alur Moderasi yang sah tetap jalan.
+ *
+ * PEMAKAI SAH yang tidak berubah: dashboard admin dan dashboard pemilik
+ * sama-sama mengambil `uploaded.storageId` dari `uploadImageFile` sebelum
+ * menempelkannya, dan moderation community memindahkan `storageId` yang
+ * sudah lolos `validatePhotoFile`. Semua blob itu lolos kelima pemeriksaan.
+ */
+export async function requireAssignablePhoto(ctx: Context, storageId: string | undefined) {
+  // `undefined` berarti "tidak ada foto", dan itu keadaan normal listing baru.
+  if (storageId === undefined) return;
+  const id = storageId.trim();
+  if (!id) return;
+  const metadata = await ctx.db.system.get("_storage", id as never);
+  if (!metadata) denied("Foto tidak ditemukan");
+  const rejection = imageRejection({ size: metadata.size, contentType: metadata.contentType });
+  if (rejection) denied(rejection);
+  const claim = await ctx.db
+    .query("listingClaims")
+    .withIndex("byEvidenceStorageId", (q) => q.eq("evidenceStorageId", id))
+    .first();
+  if (claim) denied("Foto ini adalah bukti klaim dan tidak bisa dipakai sebagai foto listing");
+  const backup = await ctx.db
+    .query("backupRuns")
+    .withIndex("byStorageId", (q) => q.eq("storageId", id))
+    .first();
+  if (backup) denied("Foto ini adalah dokumen cadangan dan tidak bisa dipakai sebagai foto listing");
+  const profile = await ctx.db
+    .query("users")
+    .withIndex("byProfileImageStorageId", (q) => q.eq("profileImageStorageId", id))
+    .first();
+  if (profile) denied("Foto ini adalah foto profil dan tidak bisa dipakai sebagai foto listing");
 }

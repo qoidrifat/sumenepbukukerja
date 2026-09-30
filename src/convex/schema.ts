@@ -67,7 +67,12 @@ const schema = defineSchema(
       emailVerificationTime: v.optional(v.number()),
       isAnonymous: v.optional(v.boolean()),
       role: v.optional(roleValidator),
-    }).index("email", ["email"]),
+    })
+      .index("email", ["email"])
+      // FASE 9.1 - F-14. Satu indeks supaya pemeriksaan "blob ini adalah foto
+      // profil orang lain" tidak memakai filter atas seluruh tabel `users`.
+      // Field ini opsional, jadi indeks hanya memuat baris yang punya foto.
+      .index("byProfileImageStorageId", ["profileImageStorageId"]),
 
     businesses: defineTable({
       name: v.string(),
@@ -162,7 +167,13 @@ const schema = defineSchema(
       createdAt: v.number(),
     })
       .index("byUser", ["userId"])
-      .index("byVendor", ["vendorId"]),
+      .index("byVendor", ["vendorId"])
+      // FASE 9.1 - F-12. Index ini dibuat untuk batas laju `submitFeedback`,
+      // yang tidak punya identitas server untuk dichasetiap pengunjung. Dengan
+      // indeks (kind, createdAt) satu pembacaan cukup `.take(N + 1)` pada satu
+      // rentang satu jam: bounded, tanpa memindai tabel notifikasi yang juga
+      // dipakai pengirim pesan warga.
+      .index("byKindCreatedAt", ["kind", "createdAt"]),
 
     vendorPhotos: defineTable({
       vendorId: v.id("vendors"),
@@ -330,7 +341,11 @@ const schema = defineSchema(
     })
       .index("byVendor", ["vendorId"])
       .index("byStatus", ["status"])
-      .index("byRequester", ["requesterId"]),
+      .index("byRequester", ["requesterId"])
+      // FASE 9.1 - F-14. Bukti klaim adalah dokumen pribadi warga, jadi storage
+      // id-nya tidak boleh bisa dipasang sebagai foto listing publik. Satu
+      // indeks membuat larangan itu satu pembacaan, bukan pemindaian tabel.
+      .index("byEvidenceStorageId", ["evidenceStorageId"]),
 
     listingHistory: defineTable({
       vendorId: v.id("vendors"),

@@ -6,7 +6,7 @@ import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { writeAudit, writeListingHistory } from "./audit";
-import { denied, requireManagementViewer } from "./access";
+import { denied, requireAssignablePhoto, requireManagementViewer } from "./access";
 import { imageRejection } from "../lib/image-upload";
 
 const categoryValidator = v.union(
@@ -1051,6 +1051,12 @@ export const createVendorPhoto = mutation({
     if (!vendor) throw new Error("Listing tidak ditemukan");
     if (!args.storageId) throw new Error("Foto belum berhasil diunggah");
     await validatePhotoFile(ctx, args.storageId);
+    // FASE 9.1 - F-14. Galeri foto listing berakhir sebagai foto publik: begitu
+    // satu foto disetujui, `vendors.getImageUrl` melayanakannya tanpa sesi.
+    // Maka blob yang TIDAK layak ditayangkan - bukti klaim, dokumen cadangan,
+    // foto profil orang lain - harus ditolak di pintu masuk, bukan hanya
+    // ditolak sebagai "bukan gambar".
+    await requireAssignablePhoto(ctx, args.storageId);
     if (args.caption && args.caption.trim().length > 160) throw new Error("Deskripsi foto maksimal 160 karakter");
     const currentPhotos = await ctx.db
       .query("vendorPhotos")

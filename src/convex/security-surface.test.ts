@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { SEARCH_EVENT_HOURLY_LIMIT } from "./vendors";
+import { FEEDBACK_GLOBAL_HOURLY_LIMIT, FEEDBACK_PER_ACCOUNT_HOURLY_LIMIT } from "./vendors";
 
 /**
  * Fase 9 - regression test untuk permukaan data dan gerbang otorisasi.
@@ -425,5 +426,292 @@ describe("Fase 9: penghitung publik punya plafon per jam", () => {
       "pemanggilan setelah plafon tidak boleh menambah hitungan").toBe(0);
     const vendor = await t.run(async (ctx) => await (ctx.db as unknown as Db).get(vendorId as never));
     expect(vendor?.searchImpressions).toBe(1);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* FASE 9.1                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * F-14 - `photoId` hanya boleh menunjuk blob yang LAYAK ditayangkan.
+ *
+ * Jejak yang openness sebelumnya: `getImageUrl` (F-02) hanya melayani `photoId`
+ * milik listing `active`, jadi "saya privileged, storage id ini bebas saya pakai"
+ * adalah jalur resmi untuk menjadikan berkas privat - bukti klaim warga, dokumen
+ * cadangan, foto profil orang lain - menjadi foto publik yang diberi URL.
+ * Test di bawah menutup kelima kasus penolakan plus satu kasus sah.
+ */
+describe("Fase 9.1: storage id yang tidak layak tayang tidak bisa jadi foto listing", () => {
+  /** Helper: jadikan pengelola (admin) untuk satu listing uji. */
+  async function asStaff(t: ReturnType<typeof convexTest>, name: string, email: string) {
+    const seeded = await seedUser(t, { name, email });
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as Db;
+      await db.insert("staffMembers", {
+        userId: seeded.id as never,
+        role: "admin",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    return seeded.identity;
+  }
+
+  test("foto sah tetap bisa dipasang dan tetap tayang publik", async () => {
+    const t = convexTest(schema, modules);
+    const { vendorId } = await createDraftListing(t, "Pemilik Sah", "pemilik-sah@contoh.test");
+    const admin = await asStaff(t, "Admin Sah", "admin-sah@contoh.test");
+    const storageId = await t.run(async (ctx) => await storeImage(ctx));
+
+    await admin.mutation(api.vendors.updateVendor, {
+      id: vendorId as never,
+      ...listingPayload,
+      status: "active",
+      photoId: storageId,
+    });
+    const anonymous = t.withIdentity({});
+    expect(
+      await anonymous.query(api.vendors.getImageUrl, { storageId }),
+      "foto sah harus tetap punya URL untuk pembaca publik",
+    ).toBeTruthy();
+  });
+
+  test("bukti klaim tidak bisa dipasang sebagai foto listing", async () => {
+    const t = convexTest(schema, modules);
+    const { vendorId } = await createDraftListing(t, "Warga Bukti", "warga-bukti@contoh.test");
+    const admin = await asStaff(t, "Admin Bukti", "admin-bukti@contoh.test");
+    const claimer = await seedUser(t, { name: "Penuntut Klaim", email: "klaim@contoh.test" });
+    const evidenceId = await t.run(async (ctx) => await storeImage(ctx));
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as Db;
+      await db.insert("listingClaims", {
+        vendorId: vendorId as never,
+        requesterId: claimer.id as never,
+        whatsappPhone: "628120000010",
+        email: "klaim@contoh.test",
+        businessAddress: "Alamat usaha untuk bukti",
+        evidenceStorageId: evidenceId,
+        status: "pending",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      admin.mutation(api.vendors.updateVendor, {
+        id: vendorId as never,
+        ...listingPayload,
+        status: "active",
+        photoId: evidenceId,
+      }),
+      "bukti klaim warga tidak boleh jadi foto listing publik",
+    ).rejects.toThrow();
+    expect(
+      await t.withIdentity({}).query(api.vendors.getImageUrl, { storageId: evidenceId }),
+      "blob bukti tetap tidak boleh dilayani ke anonim",
+    ).toBeNull();
+  });
+
+  test("dokumen cadangan tidak bisa dipasang sebagai foto listing", async () => {
+    const t = convexTest(schema, modules);
+    const { vendorId } = await createDraftListing(t, "Pemilik Cadangan", "cadangan@contoh.test");
+    const admin = await asStaff(t, "Admin Cadangan", "admin-cadangan@contoh.test");
+    const backupId = await t.run(async (ctx) => {
+      const storage = ctx.storage as unknown as { store: (blob: Blob) => Promise<unknown> };
+      return (await storage.store(new Blob(["dokumen cadangan"], { type: "image/jpeg" }))) as string;
+    });
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as Db;
+      await db.insert("backupRuns", {
+        weekKey: "2026-W01",
+        storageId: backupId,
+        tableCounts: {},
+        bytes: 17,
+        startedAt: Date.now(),
+        status: "ok",
+      });
+    });
+
+    await expect(
+      admin.mutation(api.vendors.updateVendor, {
+        id: vendorId as never,
+        ...listingPayload,
+        status: "active",
+        photoId: backupId,
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("foto profil pengguna lain tidak bisa dipasang sebagai foto listing", async () => {
+    const t = convexTest(schema, modules);
+    const { vendorId } = await createDraftListing(t, "Pemilik Asing", "asing@contoh.test");
+    const admin = await asStaff(t, "Admin Asing", "admin-asing@contoh.test");
+    const stranger = await seedUser(t, { name: "Warga Foto Pribadi", email: "pribadi@contoh.test" });
+    const profileId = await t.run(async (ctx) => await storeImage(ctx));
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as Db;
+      await db.patch(stranger.id as never, { profileImageStorageId: profileId });
+    });
+
+    await expect(
+      admin.mutation(api.vendors.updateVendor, {
+        id: vendorId as never,
+        ...listingPayload,
+        status: "active",
+        photoId: profileId,
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("storage id yang tidak ada di storage ditolak, bukan disimpan diam-diam", async () => {
+    const t = convexTest(schema, modules);
+    const { vendorId } = await createDraftListing(t, "Pemilik Karangan", "karangan@contoh.test");
+    const admin = await asStaff(t, "Admin Karangan", "admin-karangan@contoh.test");
+
+    await expect(
+      admin.mutation(api.vendors.updateVendor, {
+        id: vendorId as never,
+        ...listingPayload,
+        status: "active",
+        photoId: "storage_yang_tidak_ada_fase9_1",
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("galeri foto juga menolak blob privat, bukan cuma foto utama", async () => {
+    const t = convexTest(schema, modules);
+    const { identity, vendorId } = await createDraftListing(t, "Pemilik Galeri Privat", "galeri-privat@contoh.test");
+    const claimer = await seedUser(t, { name: "Penuntut Galeri", email: "klaim-galeri@contoh.test" });
+    const evidenceId = await t.run(async (ctx) => await storeImage(ctx));
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as Db;
+      await db.insert("listingClaims", {
+        vendorId: vendorId as never,
+        requesterId: claimer.id as never,
+        whatsappPhone: "628120000011",
+        email: "klaim-galeri@contoh.test",
+        businessAddress: "Alamat usaha untuk bukti",
+        evidenceStorageId: evidenceId,
+        status: "pending",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      identity.mutation(api.community.createVendorPhoto, {
+        vendorId: vendorId as never,
+        storageId: evidenceId,
+        caption: "Bukti",
+      }),
+      "galeri berakhir jadi foto publik, jadi aturan yang sama wajib berlaku",
+    ).rejects.toThrow();
+  });
+});
+
+/**
+ * F-12 - `submitFeedback` tidak lagi bisa dipakai menulis tanpa batas.
+ *
+ * Yang diuji: batas per akun, batas global untuk tanpa akun, penolakan isi
+ * yang tidak wajar, dan fakta bahwa TIDAK ADA argumen yang bisa dipakai
+ * memalsukan identitas untuk memulai ulang hitungan.
+ */
+describe("Fase 9.1: masukan warga dibatasi di server", () => {
+  const validFeedback = (index: number) => ({
+    title: `Masukan nomor ${index}`,
+    body: "Isi masukan warga yang panjangnya cukup untuk diuji.",
+  });
+
+  const countFeedback = (t: ReturnType<typeof convexTest>) =>
+    t.run(async (ctx) => {
+      const rows = await ctx.db.query("notifications").collect();
+      return rows.filter((row) => row.kind === "feedback").length;
+    });
+
+  test("masukan yang wajar masih diterima", async () => {
+    const t = convexTest(schema, modules);
+    const identity = await seedUser(t, { name: "Warga Uji Batas", email: "warga-batas@contoh.test" });
+    const first = await identity.identity.mutation(api.vendors.submitFeedback, validFeedback(1));
+    expect(first).toBeTruthy();
+    expect(await countFeedback(t)).toBe(1);
+  });
+
+  test("masukan ke-6 dalam satu jam dari akun yang sama ditolak", async () => {
+    const t = convexTest(schema, modules);
+    const identity = await seedUser(t, { name: "Warga Batas Spam", email: "warga-spam@contoh.test" });
+    for (let index = 0; index < FEEDBACK_PER_ACCOUNT_HOURLY_LIMIT; index += 1) {
+      await identity.identity.mutation(api.vendors.submitFeedback, validFeedback(index));
+    }
+    await expect(
+      identity.identity.mutation(api.vendors.submitFeedback, validFeedback(99)),
+      "kiriman berulang dari satu akun harus berhenti di ambang server",
+    ).rejects.toThrow();
+    expect(await countFeedback(t)).toBe(FEEDBACK_PER_ACCOUNT_HOURLY_LIMIT);
+  });
+
+  test("akun lain tidak mewarisi hitungan akun pertama", async () => {
+    // Kalau batasnya dihitung per deployment, akun kedua ikut terkunci dan itu
+    // product regression. Batas harus per akun.
+    const t = convexTest(schema, modules);
+    const spammer = await seedUser(t, { name: "Warga Spam", email: "spam@contoh.test" });
+    const other = await seedUser(t, { name: "Warga Sabar", email: "sabar@contoh.test" });
+    for (let index = 0; index < FEEDBACK_PER_ACCOUNT_HOURLY_LIMIT; index += 1) {
+      await spammer.identity.mutation(api.vendors.submitFeedback, validFeedback(index));
+    }
+    await expect(spammer.identity.mutation(api.vendors.submitFeedback, validFeedback(100))).rejects.toThrow();
+    expect(await other.identity.mutation(api.vendors.submitFeedback, validFeedback(1))).toBeTruthy();
+  });
+
+  test("pengunjung tanpa akun ikut dibatasi plafon global", async () => {
+    const t = convexTest(schema, modules);
+    const guest = t.withIdentity({ name: "Pengunjung Tanpa Akun" });
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as Db;
+      const now = Date.now();
+      for (let index = 0; index < FEEDBACK_GLOBAL_HOURLY_LIMIT; index += 1) {
+        await db.insert("notifications", {
+          kind: "feedback",
+          title: `Masukan massal ${index}`,
+          body: "Masukan sintetis untuk menguji plafon global.",
+          createdAt: now,
+        });
+      }
+    });
+    await expect(guest.mutation(api.vendors.submitFeedback, validFeedback(1))).rejects.toThrow();
+  });
+
+  test("isi yang tidak wajar ditolak sebelum batas laju", async () => {
+    const t = convexTest(schema, modules);
+    const identity = await seedUser(t, { name: "Warga Isi", email: "isi@contoh.test" });
+    await expect(
+      identity.identity.mutation(api.vendors.submitFeedback, { title: "a", body: "pendek" }),
+    ).rejects.toThrow();
+    await expect(
+      identity.identity.mutation(api.vendors.submitFeedback, {
+        title: "x".repeat(400),
+        body: "Isi yang panjangnya cukup untuk diuji.",
+      }),
+    ).rejects.toThrow();
+    expect(await countFeedback(t)).toBe(0);
+  });
+
+  test("argumen yang memalsukan identitas ditolak di lapisan validasi", async () => {
+    // Batas dihitung dari baris `users` milik sesi, jadi tidak ada argumen
+    // identitas yang bisa dikirim. Convex menolak field tak dikenal sebelum
+    // handler jalan, jadi pemanggil tidak bisa mengarang `userId` baru untuk
+    // membatalkan hitungan sendiri.
+    const t = convexTest(schema, modules);
+    const identity = await seedUser(t, { name: "Warga Identitas", email: "identitas@contoh.test" });
+    for (const forged of [{ userId: "orang_lain" }, { anonymousId: "perangkat_lain" }, { kind: "feedback_palsu" }]) {
+      await expect(
+        identity.identity.mutation(api.vendors.submitFeedback, {
+          ...validFeedback(1),
+          ...forged,
+        } as never),
+        `argumen ${Object.keys(forged)[0]} tidak boleh diterima`,
+      ).rejects.toThrow();
+    }
+    expect(await countFeedback(t)).toBe(0);
   });
 });

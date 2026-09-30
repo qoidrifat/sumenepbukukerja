@@ -278,20 +278,80 @@ const ADMIN_CONTEXT_ROUTE = "/admin-gate/context";
  * alamat klien, header itu akan otomatis terpakai pada permintaan berikutnya —
  * tanpa perubahan kode.
  */
-const CONTEXT_CORS_HEADERS: Record<string, string> = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "POST, OPTIONS",
-  "access-control-allow-headers": "content-type, x-forwarded-for, x-real-ip, cf-connecting-ip, true-client-ip",
-  "access-control-max-age": "600",
-  "cache-control": "no-store",
-};
+const CONTEXT_CORS_METHODS = "POST, OPTIONS";
+const CONTEXT_CORS_REQUEST_HEADERS =
+  "content-type, x-forwarded-for, x-real-ip, cf-connecting-ip, true-client-ip";
+
+/**
+ * FASE 9.1 - F-11: CORS route konteks, dipersempit tanpa merusak beacon.
+ *
+ * UKURAN PADA DEPLOYMENT YANG DIUJI (`tmp/qa-p91-http-evidence.json`):
+ * `POST /admin-gate/context` dijawab `access-control-allow-origin: *` dan TIDAK
+ * pernah mengirim `access-control-allow-credentials`. Jadi risikonya bukan
+ * pencurian cookie - tidak ada kredensial sama sekali. Risikonya: situs mana
+ * pun bisa memanggil route ini dari peramban pengunjung dan membaca
+ * jawabannya, yaitu masked IP, kota/negara, dan token konteks milik
+ * pengunjung itu sendiri.
+ *
+ * YANG SENGAJA TIDAK DIPAKAI SEBAGAI ALLOWLIST: `SITE_URL`. Buktinya ada di
+ * `tmp/qa-p91-cors-allowlist-evidence.json`: pada deployment yang diuji,
+ * `SITE_URL` menunjuk origin `.convex.site` itu sendiri, bukan origin frontend.
+ * Memakainya sebagai allowlist sempat membuat beacon Security Desk kehilangan
+ * akses begitu kode baru berjalan - frontend tidak pernah dibaca peramban pada
+ * origin itu. `SITE_URL` menjelaskan "alamat situs untuk sitemap", bukan "asal
+ * aplikasi ini dipanggil", jadi tidak boleh dipakai untuk mempersempit CORS.
+ *
+ * YANG DIGUNAKAN: `ADMIN_CONTEXT_ALLOWED_ORIGINS`, daftar origin dipisah koma.
+ *  - Terisi: hanya origin di daftar itu yang mendapat
+ *    `access-control-allow-origin`. Asing tidak mendapat apa pun.
+ *  - Kosong: wildcard tanpa credentials, yaitu perilaku sebelum Fase 9.1.
+ *    Dipilih supaya deployment yang belum punya origin frontend resmi tidak
+ *    kehilangan metadata IP di Security Desk.
+ *
+ * DUA LARANGAN YANG TIDAK PERNAH DILANGGAR, berapa pun konfigurasi:
+ *  - `access-control-allow-credentials` tidak pernah dikirim. Wildcard
+ *    bersama credentials ditolak browser dan juga tidak dipakai di sini.
+ *  - Dengan allowlist terisi, origin asing tidak pernah mendapat `*`.
+ */
+export function buildContextCorsHeaders(requestOrigin: string | null, allowedOrigins: string[]) {
+  const headers: Record<string, string> = {
+    "access-control-allow-methods": CONTEXT_CORS_METHODS,
+    "access-control-allow-headers": CONTEXT_CORS_REQUEST_HEADERS,
+    "access-control-max-age": "600",
+    "cache-control": "no-store",
+    // Wajib: respons memakai Origin pada allowlist, jadi cache bersama tidak
+    // boleh memakai satu jawaban untuk origin lain.
+    vary: "Origin",
+    // Route ini mengembalikan JSON milik pemanggil sendiri, dan beacon-nya tetap
+    // butuh jawaban yang tidak ditafsirkan ulang sebagai berkas lain.
+    "x-content-type-options": "nosniff",
+  };
+  if (allowedOrigins.length === 0) {
+    headers["access-control-allow-origin"] = "*";
+    return headers;
+  }
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    headers["access-control-allow-origin"] = requestOrigin;
+  }
+  return headers;
+}
+
+const allowedContextOrigins = () =>
+  (process.env.ADMIN_CONTEXT_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+
+const contextCorsHeaders = (request: Request) =>
+  buildContextCorsHeaders(request.headers.get("origin"), allowedContextOrigins());
 
 const adminSecurityContext = httpAction(async (ctx, request: Request) => {
+  const corsHeaders = contextCorsHeaders(request);
   if (request.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CONTEXT_CORS_HEADERS });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
   if (request.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: CONTEXT_CORS_HEADERS });
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   }
   try {
     const resolved = resolveClientIp(request.headers);
@@ -347,7 +407,7 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
         geoResolved: Boolean(geo.country || geo.city || geo.region),
         expiresAt,
       },
-      { headers: { "content-type": "application/json", ...CONTEXT_CORS_HEADERS } },
+      { headers: { "content-type": "application/json", ...corsHeaders } },
     );
   } catch {
     // Gagal menangkap konteks bukan alasan menolak halaman auth — login tetap
@@ -363,7 +423,7 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
         proxyDetected: false,
         chainLength: 0,
       },
-      { status: 200, headers: CONTEXT_CORS_HEADERS },
+      { status: 200, headers: corsHeaders },
     );
   }
 });

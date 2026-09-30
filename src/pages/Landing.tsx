@@ -8,6 +8,9 @@ import {
   Check,
   ClipboardList,
   Compass,
+  // FASE 9.1 - dipakai kartu katalog untuk lencana status verifikasi.
+  CircleHelp,
+  ShieldCheck,
   Home,
   MapPin,
   MessageCircle,
@@ -29,7 +32,8 @@ import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp"
 import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
 import { CategoryMascot, CategoryMascotStage } from "@/components/category-mascot";
 import { BrandMascot } from "@/components/brand-mascot";
-import { AccessibilityControls, AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
+import { AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
+import { AccessibilityControls } from "@/components/display-controls";
 import {
   AnimatedContent,
   AnimatedList,
@@ -176,6 +180,40 @@ function VendorCard({ vendor, landmark, saved, onSave, onCompare }: { vendor: Ve
             <span className="rounded-full bg-blue-50 px-2.5 py-1 text-sm font-bold text-blue-700">{vendor.category}</span>
             <span className="inline-flex items-center gap-1 text-sm font-bold text-amber-700"><span aria-hidden="true">★</span> {vendor.rating} <span className="font-medium text-slate-500">({vendor.reviews})</span></span>
             <AvailabilityBadge vendor={vendor} />
+            {/*
+              FASE 9.1 - PEKERJAAN 3: sinyal kepercayaan di permukaan penemuan.
+
+              SEBELUMNYA status verifikasi hanya muncul di halaman profil
+              (`/v/:slug`). Di katalog - tempat warga pertama kali memutuskan
+              untuk menghubungi atau tidak - tidak ada sama sekali, dan
+              fallback-nya "Tercatat di katalog" tidak
+              menjelaskan apa pun.
+
+              Kenapa ini funnel, bukan hiasan: direktori lokal berhadapan
+              risiko penipuan, dan yang dicari warga bukan "lucu", tapi "ini asli".
+              Menampilkan status di katalog membuatnya jadi satu klik.
+              SYARAT AKSESIBILITAS: warna tidak pernah jadi satu-satunya
+              penanda. Ikon DAN teks ikut, supaya tetap terbaca oleh pengguna
+              buta warna dan pembaca layar - persis seperti di halaman profil.
+
+              CATATAN KEAMANAN: `verified` sudah ikut di public query
+              `vendors:listActive` (lihat `docs/security/PUBLIC-DATA-MATRIX.md`),
+              jadi ini nol perubahan backend dan tidak membuka data baru.
+            */}
+            <span
+              className={`inline-flex min-h-7 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-extrabold ${
+                vendor.verified
+                  ? "bg-emerald-50 text-emerald-800"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              {vendor.verified ? (
+                <ShieldCheck className="size-3.5" aria-hidden="true" />
+              ) : (
+                <CircleHelp className="size-3.5" aria-hidden="true" />
+              )}
+              {vendor.verified ? "Terverifikasi" : "Belum diverifikasi"}
+            </span>
           </div>
           <h3 className="text-[clamp(1.05rem,2.5vw,1.25rem)] font-extrabold leading-snug tracking-[-0.025em] text-slate-950">
             {/*

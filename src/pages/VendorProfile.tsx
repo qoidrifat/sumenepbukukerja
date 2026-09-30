@@ -29,6 +29,7 @@ import { generateWhatsAppLink } from "@/lib/whatsapp";
 import { useListingMetadata } from "@/lib/use-listing-metadata";
 import { BlurText, GlassSurface, ScrollReveal } from "@/components/react-bits";
 import { AvailabilityBadge, ClaimListingPanel, PackageList, ReportListingButton } from "@/components/community-widgets";
+import { AccessibilityControls } from "@/components/display-controls";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
 import NotFound from "./NotFound";
 
@@ -627,6 +628,16 @@ function VendorProfileContent() {
               </div>
             </GlassSurface>
           </motion.aside>
+        </div>
+        {/*
+          FASE 9.1 - PEKERJAAN 2: kontrol aksesibilitas harus bisa diakses
+          mana saja. Sebelumnya hanya ada di beranda dan dasbor, jadi warga yang
+          butuh "teks besar" atau kontras tinggi harus balik ke beranda dulu
+          sebelum membuka profil mitra. Sekarang ikut di halaman yang mereka
+          sedang baca.
+        */}
+        <div className="mx-auto mt-8 max-w-[1600px] px-4 sm:px-6 lg:px-10">
+          <AccessibilityControls />
         </div>
       </main>
 

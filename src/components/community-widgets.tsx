@@ -52,7 +52,7 @@ import {
 } from "@/lib/select-options";
 import { useOfflineQueue } from "@/lib/offline-queue";
 
-const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
+import { focusRing } from "@/components/display-controls";
 
 /** Label status pengiriman. Status comes straight from the provider webhook. */
 const deliveryStatusLabel: Record<string, string> = {
@@ -1050,23 +1050,6 @@ export function PwaControls() {
         ) : null}
       </div>
     </section>
-  );
-}
-
-export function AccessibilityControls() {
-  const [largeText, setLargeText] = useState(() => typeof window !== "undefined" && window.localStorage.getItem("sumenep-large-text") === "true");
-  const [highContrast, setHighContrast] = useState(() => typeof window !== "undefined" && window.localStorage.getItem("sumenep-high-contrast") === "true");
-  useEffect(() => {
-    document.documentElement.dataset.largeText = largeText ? "true" : "false";
-    document.documentElement.dataset.highContrast = highContrast ? "true" : "false";
-    window.localStorage.setItem("sumenep-large-text", String(largeText));
-    window.localStorage.setItem("sumenep-high-contrast", String(highContrast));
-  }, [largeText, highContrast]);
-  return (
-    <div className="flex flex-wrap items-center gap-2" aria-label="Mode tampilan">
-      <button type="button" aria-pressed={largeText} onClick={() => setLargeText((value) => !value)} className={`min-h-12 rounded-lg border px-3 text-sm font-extrabold ${focusRing} ${largeText ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white text-slate-700"}`}>Teks besar</button>
-      <button type="button" aria-pressed={highContrast} onClick={() => setHighContrast((value) => !value)} className={`min-h-12 rounded-lg border px-3 text-sm font-extrabold ${focusRing} ${highContrast ? "border-slate-950 bg-slate-950 text-white" : "border-slate-300 bg-white text-slate-700"}`}>Kontras</button>
-    </div>
   );
 }
 

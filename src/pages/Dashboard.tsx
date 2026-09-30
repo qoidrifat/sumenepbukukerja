@@ -51,7 +51,8 @@ import {
   categorySelectOptions,
   type ThemedSelectOption,
 } from "@/lib/select-options";
-import { AccessibilityControls, ClaimListingPanel, InteractionHistory, MyRequestHistory, NotificationCenter, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
+import { ClaimListingPanel, InteractionHistory, MyRequestHistory, NotificationCenter, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
+import { AccessibilityControls } from "@/components/display-controls";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
 
 type OwnerAvailability = NonNullable<Vendor["availability"]>;

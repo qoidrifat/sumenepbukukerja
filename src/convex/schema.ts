@@ -114,7 +114,14 @@ const schema = defineSchema(
       .index("bySlug", ["slug"])
       .index("byStatus", ["status"])
       .index("byLandmark", ["landmark"])
-      .index("byOwner", ["ownerId"]),
+      .index("byOwner", ["ownerId"])
+      .index("byPhotoId", ["photoId"]),
+      // Indeks ini ditambah di Fase 9 untuk satu alasan: `vendors:getImageUrl`
+      // harus bisa MEMBUKTIKAN bahwa sebuah storage id adalah foto publik
+      // listing aktif, bukan sekadar memercayai pemanggil yang mengetahuinya.
+      // Tanpa indeks, satu-satunya cara adalah memindai seluruh tabel pada
+      // setiap permintaan gambar - persis yang tidak boleh terjadi di jalur
+      // yang paling sering dipanggil halaman profil.
 
     reviews: defineTable({
       vendorId: v.id("vendors"),

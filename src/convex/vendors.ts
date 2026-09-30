@@ -7,7 +7,7 @@ import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { writeAudit, writeListingHistory } from "./audit";
-import { requireManagementViewer, requireProvenIdentity } from "./access";
+import { denied, requireManagementViewer, requireProvenIdentity } from "./access";
 
 const slugify = (value: string) =>
   value
@@ -37,7 +37,7 @@ async function requireUser(
   ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
 ) {
   const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Masuk untuk mengakses ruang pengelola");
+  if (!userId) denied("Masuk untuk mengakses ruang pengelola");
   return userId;
 }
 
@@ -70,7 +70,7 @@ async function requireStaff(
 ) {
   const userId = await requireUser(ctx);
   if (!(await hasStaffAccess(ctx, userId))) {
-    throw new Error("Hanya pengelola yang dapat mengakses ruang ini");
+    denied("Hanya pengelola yang dapat mengakses ruang ini");
   }
   return userId;
 }
@@ -80,10 +80,10 @@ async function requireVendorManager(
   vendor: DataModel["vendors"]["document"] | null,
 ) {
   const userId = await requireUser(ctx);
-  if (!vendor) throw new Error("Listing tidak ditemukan");
-  if (await isViewer(ctx, userId)) throw new Error("Viewer hanya dapat melihat data");
+  if (!vendor) denied("Listing tidak ditemukan");
+  if (await isViewer(ctx, userId)) denied("Viewer hanya dapat melihat data");
   if (vendor.ownerId !== userId && !(await hasStaffAccess(ctx, userId))) {
-    throw new Error("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
+    denied("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
   }
   return userId;
 }
@@ -302,11 +302,54 @@ export const getBySlug = query({
   },
 });
 
+/**
+ * URL foto listing yang benar-benar publik.
+ *
+ * FASE 9 - MASALAH: versi lama menerima storage id apa saja lalu langsung
+ * `ctx.storage.getUrl(storageId)`. Artinya "publik" diartikan sebagai
+ * "pemanggil kebetulan punya id-nya". Id itu sendiri adalah kredensial, dan
+ * satu id yang bocor cukup untuk membuka apa pun yang ditunjuk olehnya:
+ * bukti usaha pada `listingClaims.evidenceStorageId` ( KTP/foto usaha warga),
+ * dokumen cadangan mingguan pada `backupRuns.storageId` (isi enam tabel
+ * termasuk audit log), dan foto profil pengelola. Query ini juga melempar
+ * error internal apa adanya, sehingga stack trace beserta path sumber ikut
+ * sampai ke pemanggil anonim.
+ *
+ * Bukti ukurannya ada di `tmp/qa-p9-public-surface-evidence.json`: pemanggil
+ * tanpa sesi menerima `../src/convex/vendors.ts:312:34` di badan errornya.
+ *
+ * PERBAIKAN: sebuah storage id hanya dilayani kalau server bisa MEMBUKTIKAN
+ * blob itu foto yang tayang di katalog publik, yaitu:
+ *   - `photoId` dari listing berstatus `active`, atau
+ *   - baris `vendorPhotos` yang aktif DAN sudah disetujui moderasi.
+ * Selain itu jawabannya `null`, bukan error. Tidak ada lagi jalur yang
+ * bergantung pada "anda tahu id-nya".
+ *
+ * PEMAKAI YANG TIDAK BERUBAH: halaman profil publik listing (`/v/:slug`)
+ * adalah satu-satunya pemanggil, dan listing di sana selalu `active`.
+ */
 export const getImageUrl = query({
   args: { storageId: v.string() },
   handler: async (ctx, args) => {
-    if (!args.storageId) return null;
-    return await ctx.storage.getUrl(args.storageId);
+    const storageId = args.storageId.trim();
+    if (!storageId) return null;
+    // Foto sampul: harus milik listing yang benar-benar tayang.
+    const cover = await ctx.db
+      .query("vendors")
+      .withIndex("byPhotoId", (q) => q.eq("photoId", storageId))
+      .unique();
+    if (cover && cover.status === "active") {
+      return (await ctx.storage.getUrl(storageId)) ?? null;
+    }
+    // Foto galeri: hanya yang aktif dan sudah disetujui.
+    const photo = await ctx.db
+      .query("vendorPhotos")
+      .withIndex("byStorageId", (q) => q.eq("storageId", storageId))
+      .unique();
+    if (photo && photo.active !== false && photo.moderationStatus === "approved") {
+      return (await ctx.storage.getUrl(storageId)) ?? null;
+    }
+    return null;
   },
 });
 
@@ -678,6 +721,42 @@ export const generateUploadUrl = mutation({
   },
 });
 
+/**
+ * Plafon global per jam untuk penghitung yang bisa dipanggil tanpa sesi.
+ *
+ * KENAPA PERLU (hasil audit Fase 9): `incrementClick` dan `recordSearch` tidak
+ * punya gerbang apa pun - keduanya menerima siapa saja, dan keduanya menulis ke
+ * database setiap kali dipanggil. Tanpa plafon, satu skrip bisa menaikkan
+ * `whatsappClicks` dan `searchImpressions` jadi angka yang tidak benar dan
+ * membakar kuota pemanggilan fungsi. `analytics.track` sudah punya batas
+ * demikian; dua mutasi ini tertinggal.
+ *
+ * CARA MENGUKURNYA: indeks `byEvent` terurut dari yang terbaru, jadi
+ * `.take(N + 1)` berhenti di-ASAP begitu plafon terlampaui. Tidak ada pemindaian
+ * tabel penuh, dan tidak ada yang perlu dipercaya dari klien.
+ *
+ * ANGKANYA jauh di atas pemakaian nyata (puluhan sampai ratusan sehari), jadi
+ * ini tidak dimaksudkan membatasi orang yang benar-benar menekan tombol.
+ */
+export const CLICK_EVENT_HOURLY_LIMIT = 2_000;
+export const SEARCH_EVENT_HOURLY_LIMIT = 1_000;
+const PUBLIC_COUNTER_WINDOW_MS = 60 * 60 * 1000;
+
+const overPublicCounterCeiling = async (
+  ctx: GenericMutationCtx<DataModel>,
+  event: "search_impression" | "whatsapp_clicked" | "share_clicked",
+  limit: number,
+) => {
+  const recent = await ctx.db
+    .query("analyticsEvents")
+    .withIndex("byEvent", (q) => q.eq("event", event))
+    .order("desc")
+    .take(limit + 1);
+  if (recent.length > limit) return true;
+  // Jendela waktu: baris terbaru bisa saja sudah lebih dari satu jam lalu.
+  return (recent[0]?._creationTime ?? 0) > Date.now() - PUBLIC_COUNTER_WINDOW_MS;
+};
+
 export const incrementClick = mutation({
   args: {
     id: v.id("vendors"),
@@ -689,6 +768,15 @@ export const incrementClick = mutation({
     const current = await ctx.db.get(args.id);
     if (!current || current.status !== "active") return;
     const kind = args.kind ?? "whatsapp";
+    if (
+      await overPublicCounterCeiling(
+        ctx,
+        kind === "share" ? "share_clicked" : "whatsapp_clicked",
+        CLICK_EVENT_HOURLY_LIMIT,
+      )
+    ) {
+      return;
+    }
     const key =
       kind === "whatsapp"
         ? "whatsappClicks"
@@ -715,6 +803,7 @@ export const recordSearch = mutation({
   handler: async (ctx, args) => {
     const normalized = args.query.trim().slice(0, 120);
     if (normalized.length < 2 || args.vendorIds.length === 0) return 0;
+    if (await overPublicCounterCeiling(ctx, "search_impression", SEARCH_EVENT_HOURLY_LIMIT)) return 0;
     const uniqueIds = [...new Set(args.vendorIds)].slice(0, 24);
     const vendors = await Promise.all(
       uniqueIds.map((vendorId) => ctx.db.get(vendorId)),

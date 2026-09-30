@@ -12,6 +12,26 @@ export type StaffAccess = {
 type Context = GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>;
 
 /**
+ * Penolakan yang aman dikirim ke pemanggil.
+ *
+ * KENAPA `ConvexError` DAN BUKAN `Error` (hasil audit Fase 9):
+ * error internal yang tidak tertangkap dikembalikan Convex sebagai "Server
+ * Error" yang memuat stack trace beserta path sumber, misalnya
+ * `at handler (../src/convex/vendors.ts:312:34)`. Itu bocor struktur internal
+ * ke siapa pun yang tahu nama fungsi, termasuk pemanggil tanpa sesi. Buktinya
+ * ada di `tmp/qa-p9-public-surface-evidence.json` dan di regression test
+ * `src/convex/security-surface.test.ts`.
+ *
+ * `ConvexError` adalah jalur "kesalahan pemanggil": pesannya sampai ke klien
+ * tanpa stack trace. PESANNYA SENDIRI TIDAK DIUBAH, jadi setiap test yang
+ * menolak lewat `rejects.toThrow` tetap cocok dan UI tetap menampilkan
+ * kalimat yang sama.
+ */
+export function denied(message: string): never {
+  throw new ConvexError(message);
+}
+
+/**
  * Resolve permissions exclusively from server-side records. A normal Auth user
  * is deliberately not privileged just because they have a client-side URL or
  * a role posted by the browser. Legacy admin/staff rows remain supported for
@@ -38,7 +58,7 @@ export async function getStaffAccess(ctx: Context, userId: DataModel["users"]["d
 
 export async function requireUser(ctx: Context) {
   const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Masuk untuk menggunakan fitur Buku Kerja");
+  if (!userId) denied("Masuk untuk menggunakan fitur Buku Kerja");
   await assertSessionNotRevoked(ctx);
   return userId;
 }
@@ -77,7 +97,7 @@ export async function requireStaff(ctx: Context, minimum: "staff" | "admin" = "s
   const userId = await requireUser(ctx);
   const access = await getStaffAccess(ctx, userId);
   if (!access || (minimum === "admin" && access.role !== "admin") || (minimum === "staff" && access.role === "viewer")) {
-    throw new Error(minimum === "admin" ? "Hanya admin yang dapat melakukan tindakan ini" : "Hanya pengelola yang dapat melakukan tindakan ini");
+    denied(minimum === "admin" ? "Hanya admin yang dapat melakukan tindakan ini" : "Hanya pengelola yang dapat melakukan tindakan ini");
   }
   return access;
 }
@@ -85,7 +105,7 @@ export async function requireStaff(ctx: Context, minimum: "staff" | "admin" = "s
 export async function requireManagementViewer(ctx: Context) {
   const userId = await requireUser(ctx);
   const access = await getStaffAccess(ctx, userId);
-  if (!access) throw new Error("Hanya pengelola yang dapat mengakses data ini");
+  if (!access) denied("Hanya pengelola yang dapat mengakses data ini");
   return access;
 }
 
@@ -94,11 +114,11 @@ export async function requireVendorManager(
   vendor: DataModel["vendors"]["document"] | null,
 ) {
   const userId = await requireUser(ctx);
-  if (!vendor) throw new Error("Listing tidak ditemukan");
+  if (!vendor) denied("Listing tidak ditemukan");
   const access = await getStaffAccess(ctx, userId);
-  if (access?.role === "viewer") throw new Error("Viewer hanya dapat melihat data");
+  if (access?.role === "viewer") denied("Viewer hanya dapat melihat data");
   if (vendor.ownerId !== userId && !access) {
-    throw new Error("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
+    denied("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
   }
   return { userId, access };
 }
@@ -136,7 +156,7 @@ export async function requireProvenIdentity(
     .collect();
   const approved = claims.find((claim) => claim.status === "verified");
   if (!approved) {
-    throw new Error(
+    denied(
       "Ajukan klaim listing dengan bukti usaha di Dashboard, tunggu admin memverifikasi, lalu Anda boleh mengelola listing",
     );
   }

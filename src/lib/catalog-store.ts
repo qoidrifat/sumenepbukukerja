@@ -33,7 +33,7 @@ export type VendorRecord = Vendor & {
 
 export type ServiceRequest = {
   _id: string;
-  requesterId: string;
+  requesterId?: string;
   requesterName: string;
   title: string;
   description: string;
@@ -71,7 +71,7 @@ export type RequestOffer = {
   _id: string;
   requestId: string;
   vendorId: string;
-  offeredBy: string;
+  offeredBy?: string;
   vendorName?: string;
   message?: string;
   status: "offered" | "accepted" | "withdrawn" | "expired";

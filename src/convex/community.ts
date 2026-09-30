@@ -6,7 +6,7 @@ import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { writeAudit, writeListingHistory } from "./audit";
-import { requireManagementViewer } from "./access";
+import { denied, requireManagementViewer } from "./access";
 import { imageRejection } from "../lib/image-upload";
 
 const categoryValidator = v.union(
@@ -63,7 +63,7 @@ async function requireUser(
   ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
 ) {
   const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Masuk untuk menggunakan fitur warga");
+  if (!userId) denied("Masuk untuk menggunakan fitur warga");
   return userId;
 }
 
@@ -96,7 +96,7 @@ async function requireStaff(
 ) {
   const userId = await requireUser(ctx);
   if (!(await hasStaffAccess(ctx, userId))) {
-    throw new Error("Hanya pengelola yang dapat mengakses data ini");
+    denied("Hanya pengelola yang dapat mengakses data ini");
   }
   return userId;
 }
@@ -106,10 +106,10 @@ async function requireVendorManager(
   vendor: DataModel["vendors"]["document"] | null,
 ) {
   const userId = await requireUser(ctx);
-  if (!vendor) throw new Error("Listing tidak ditemukan");
-  if (await isViewer(ctx, userId)) throw new Error("Viewer hanya dapat melihat data");
+  if (!vendor) denied("Listing tidak ditemukan");
+  if (await isViewer(ctx, userId)) denied("Viewer hanya dapat melihat data");
   if (vendor.ownerId !== userId && !(await hasStaffAccess(ctx, userId))) {
-    throw new Error("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
+    denied("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
   }
   return userId;
 }
@@ -227,7 +227,11 @@ export const listRequests = query({
     mine: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const requesterId = args.mine ? await getAuthUserId(ctx) : undefined;
+    // Identitas pemanggil dibaca satu kali untuk dua keperluan: menyaring
+    // "milik saya", dan menentukan apakah id akun boleh ikut keluar (lihat
+    // catatan FASE 9 di pemetaan hasil di bawah).
+    const viewerId = await getAuthUserId(ctx);
+    const requesterId = args.mine ? viewerId : undefined;
     if (args.mine && !requesterId) return [];
     const rows = args.status
       ? await ctx.db
@@ -259,12 +263,27 @@ export const listRequests = query({
           request.vendorId ? ctx.db.get(request.vendorId) : Promise.resolve(null),
           ctx.db.query("requestOffers").withIndex("byRequest", (q) => q.eq("requestId", request._id)).collect(),
         ]);
-        const offers = await Promise.all(offerRows.map(async (offer) => ({
-          ...offer,
-          vendorName: (await ctx.db.get(offer.vendorId))?.name ?? "Listing",
-        })));
+        const offers = await Promise.all(offerRows.map(async (offer) => {
+          const { offeredBy, ...rest } = offer;
+          return {
+            ...rest,
+            // Keluar hanya untuk pemanggil yang punya identitas, sama seperti
+            // `requesterId` di bawah.
+            ...(viewerId ? { offeredBy } : {}),
+            vendorName: (await ctx.db.get(offer.vendorId))?.name ?? "Listing",
+          };
+        }));
+        // `requesterId` dibuang dari salinan, bukan dari dokumen aslinya.
+        const { requesterId: requesterIdInternal, ...publicRequest } = request;
+        void requesterIdInternal;
         return {
-          ...request,
+          ...publicRequest,
+          // FASE 9: `requesterId` adalah pengenal akun internal (P3), bukan
+          // data yang perlu ditampilkan di papan publik. Pemanggil tanpa sesi
+          // tidak mungkin menjadi pemilik permintaan ini, jadi untuk mereka id
+          // itu tidak pernah dikirim. UI yang perlu menjawab "ini permintaan
+          // saya" tetap bisa, karena ia selalu punya identitas.
+          ...(viewerId ? { requesterId: request.requesterId } : {}),
           requesterName: requester?.name ?? "Warga Sumenep",
           vendorName: vendor?.name,
           offers,
@@ -630,6 +649,20 @@ export const listPackages = query({
   handler: async (ctx, args) => {
     const vendorId = args.vendorId;
     if (!vendorId) return [];
+    const vendor = await ctx.db.get(vendorId);
+    if (!vendor) return [];
+    // FASE 9: query ini tidak pernah memeriksa status listing, jadi paket
+    // listing yang masih draft (belum ditinjau admin, belum tayang di mana
+    // pun) ikut terbaca siapa pun yang tahu id-nya - persis kebocoran yang
+    // `listVendorPhotos` sudah cegah. Aturannya sekarang sama: publik hanya
+    // untuk listing `active`, selebihnya untuk pemilik atau pengelola.
+    if (vendor.status !== "active") {
+      const viewerId = await getAuthUserId(ctx);
+      const canManage = Boolean(
+        viewerId && (vendor.ownerId === viewerId || (await hasStaffAccess(ctx, viewerId))),
+      );
+      if (!canManage) return [];
+    }
     const rows = await ctx.db
       .query("vendorPackages")
       .withIndex("byVendor", (q) => q.eq("vendorId", vendorId))
@@ -980,9 +1013,24 @@ export const listVendorPhotos = query({
       .filter((photo) => photo.active !== false && (canSeePending || (photo.moderationStatus !== "pending" && photo.moderationStatus !== "rejected")))
       .sort((a, b) => a.createdAt - b.createdAt)
       .slice(0, 12);
+    // FASE 9: `...photo` pernah ikut membawa `moderatedBy` (id akun pengelola
+    // yang memoderasi) dan `moderationNote` (catatan internal pengelola) ke
+    // pembaca anonim. Dua-duanya internal: catatan moderasi tidak pernah
+    // ditampilkan ke publik, dan id pengelola tidak dibutuhkan galeri.
+    // Sekarang field yang keluar dipilih satu per satu.
     return Promise.all(
       visible.map(async (photo) => ({
-        ...photo,
+        _id: photo._id,
+        vendorId: photo.vendorId,
+        caption: photo.caption,
+        createdAt: photo.createdAt,
+        ...(canSeePending
+          ? {
+              moderationStatus: photo.moderationStatus,
+              moderationNote: photo.moderationNote,
+              moderatedAt: photo.moderatedAt,
+            }
+          : {}),
         url: await ctx.storage.getUrl(photo.storageId),
       })),
     );

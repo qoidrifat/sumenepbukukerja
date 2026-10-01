@@ -52,7 +52,11 @@ export function AdminLogoutConfirm({
       open={open}
       onOpenChange={(next) => (logoutBusy ? undefined : onOpenChange(next))}
     >
-      <AdminDialogContent aria-labelledby={titleId} aria-describedby={descriptionId}>
+      <AdminDialogContent
+        data-dialog-width="confirm"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+      >
         <div className="border-b-2 border-[#121212] bg-[#FFE662] px-4 py-4 sm:px-5">
           <p className="text-[0.7rem] font-black uppercase tracking-[0.14em] text-[#525252]">
             Keamanan ruang admin

@@ -187,9 +187,10 @@ test("dialog admin memusatkan dirinya sendiri, bukan lewat overlay", () => {
   expect(block).not.toContain("translate: none");
   expect(block).not.toContain("transform: translate(-50%");
 
-  // Aturan yang menentukan: `height` yang definite membuat margin
-  // auto dihitung nol pada positioning absolut, dan dialog menempel di atas.
-  expect(block).not.toMatch(/^\s*height:/m);
+  // Tinggi wajib DEFINITE mengikuti isi. Tanpa itu, kotak abspos dengan
+  // top/bottom non-auto merentang mengisi viewport (aturan abspos 10.6.4) dan
+  // margin auto hanya membagi sisa ruang - dialog jadi setinggi layar.
+  expect(block).toContain("height: fit-content");
 
   // Overlay sekarang hanya latar. Kalau suatu saat kembali jadi wadah, tiga
   // hal di bawah harus ikut hilang, karena tidak ada yang memusatkannya lagi.
@@ -214,28 +215,56 @@ test("dialog konfirmasi memakai pola pemusatan yang sama", () => {
   // minifier dan membuat dialog meleset di produksi.
   expect(block).toContain("translate: 0");
   expect(block).not.toContain("translate: none");
-  expect(block).not.toMatch(/^\s*height:/m);
+  // Tinggi mengikuti isi; tanpa itu dialog merentang setinggi viewport.
+  expect(block).toContain("height: fit-content");
   expect(block).toContain("env(safe-area-inset-bottom");
 });
 
-test("tinggi dialog mengikuti viewport yang terlihat, bukan layout viewport", () => {
-  // Urutan itu penting dan mudah terbalik. `max-height: 100%` yang ditulis
-  // setelah `calc(100dvh - ...)` menang dan mematikan aturan yang justru kita
-  // inginkan: pada Android yang keyboardnya naik, 100% tetap mengacu ke layout
-  // viewport yang tidak menyusut, sehingga dialog lebih tinggi dari area yang
-  // terlihat dan tombolnya tertutup keyboard.
+test("tinggi dialog mengikuti isi, bukan viewport", () => {
+  // Bug tangkapan layar "dialog terlalu tinggi": `position: fixed` +
+  // `inset: 0` + margin auto TANPA tinggi definite membuat kotak merentang
+  // mengisi viewport (aturan abspos CSS 2.1 bagian 10.6.4), lalu margin auto
+  // hanya membagi sisa ruang. Hasilnya dialog setinggi layar dengan ruang
+  // kosong besar di bawah isinya - persis laporan "kurang fit,
+  // dilebih-lebihkan".
+  //
+  // `height: fit-content` membuat tinggi DEFINITE mengikuti isi; barulah
+  // margin auto yang dibagi sama itu berarti memusatkan. Saat isi melebihi
+  // layar, sisa ruangnya nol, margin auto dipatok nol, dan max-height +
+  // overflow-y mengambil alih - dialog panjang tetap bisa di-scroll.
   for (const selector of [".admin-dialog-content {", ".admin-confirm-content {"]) {
-    // `.admin-confirm-content {` muncul dua kali: satu untuk scope portal dan
-    // satu untuk layout. Yang diuji adalah yang terakhir.
     const start = css.lastIndexOf(selector);
     const block = css.slice(start, css.indexOf("}", start));
-    const fallback = block.indexOf("max-height: 100%");
-    const dynamic = block.indexOf("max-height: calc(100dvh");
-    expect(fallback, selector).toBeGreaterThan(-1);
-    expect(dynamic, selector).toBeGreaterThan(-1);
-    // Fallback ditulis lebih dulu, aturan dvh menimpanya belakangan.
-    expect(dynamic, selector).toBeGreaterThan(fallback);
+    // Baris deklarasi diukur, bukan teksnya di mana pun: komentar di dalam
+    // blok juga menyebut nama property, dan itu akan menyesatkan urutan.
+    const moz = block.match(/^\s*height: -moz-fit-content;/m);
+    const std = block.match(/^\s*height: fit-content;/m);
+    expect(moz, selector).not.toBeNull();
+    expect(std, selector).not.toBeNull();
+    expect(block.indexOf(moz[0]), selector).toBeLessThan(block.indexOf(std[0]));
+    // max-height tetap wajib sebagai batas atas ketika isi melebihi layar.
+    expect(block, selector).toContain("max-height: calc(100dvh");
   }
+});
+
+
+
+test("dialog satu-keputusan lebih sempit dari dialog form", () => {
+  // Konfirmasi keluar/cabut akses hanya berisi satu peringatan dan dua tombol.
+  // Lebarnya 26rem, bukan 32rem milik dialog form, supaya terlihat seperti
+  // pertanyaan, bukan formulir.
+  const marker = '.admin-dialog-content[data-dialog-width="confirm"]';
+  const narrow = css.slice(css.indexOf(marker), css.indexOf("}", css.indexOf(marker)));
+  expect(narrow).toContain("max-width: 26rem");
+  // Pemakainya: konfirmasi keluar dan dialog cabut akses sesi.
+  expect(source("../components/admin-logout-button.tsx")).toContain(marker);
+  expect(source("../components/admin-session-revoke.tsx")).toContain(marker);
+  // Dialog form tidak boleh ikut menyempit.
+  expect(source("../components/admin-profile.tsx")).not.toContain(marker);
+  expect(source("../components/admin-session-actions.tsx")).not.toContain(marker);
+  // Attribute selector dipakai justru karena utility Tailwind kalah urutan
+  // layer terhadap max-width di blok dialog - className tidak berpengaruh.
+  expect(source("../components/admin-logout-button.tsx")).not.toContain("max-w-[");
 });
 
 test("meta viewport memberi tahu peramban agar keyboard menyusutkan layout", () => {

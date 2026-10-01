@@ -699,48 +699,35 @@
 }
 
 /*
-  PEMUSATAN - bagian ini sudah tiga kali ditulis ulang, dan dua kali salah.
-  Catatan kali ini sengaja ditulis panjang agar pola yang benar tidak hilang
-  lagi bersama jawabannya.
+  PEMUSATAN - bagian ini sudah empat kali disentuh, dan tiga kali salah.
+  Catatan ini sengaja panjang agar pola yang benar tidak hilang lagi.
 
-  1. Versi pertama: `top-1/2 left-1/2` + `transform: translate(-50%,-50%)`.
-     Gagal karena `translate` (untuk memusatkan) dan `transform` (untuk
-     animasi) berebut property yang sama; hasilnya pusat meleset 263px ke
-     kiri, hampir keluar layar.
+  1. `top-1/2 left-1/2` + `transform: translate(-50%,-50%)`: `translate`
+     (memusatkan) dan `transform` (animasi) berebut property yang sama;
+     pusat meleset 263px ke kiri.
 
-  2. Versi kedua: `position: fixed; inset: 0; height: max-content; margin:
-     auto`. Kedengarannya benar, tapi TIDAK. Aturan abspos CSS 2.1 menyatakan:
-     bila `top`, `bottom`, dan `height` semuanya bukan `auto`, margin `auto`
-     dihitung NOL dan `bottom` diabaikan. Dialog menempel di `top: 0` dan
-     pita judul terpotong di luar layar - persis tangkapan layar yang Anda
-     kirim.
+  2. `height: max-content` + `margin: auto`: benar secara teori, gagal di
+     lapangan karena dukungan peramban saat itu; dialog menempel di `top: 0`.
 
-  3. Versi ketiga (yang causes bug ini): overlay dijadikan wadah flex dan
-     dialog dijadikan flex item dengan `position: relative`. Ia terdengar
-     benar dan memang benar untuk DOM tempat dialog benar-benar anak overlay.
-     Di sini tidak. Radix merender
+  3. Overlay dijadikan wadah flex dengan dialog `position: relative`: Radix
+     merender Overlay dan Content sebagai SAUDARA di dalam portal, jadi
+     dialog bukan anak flex itu dan jatuh ke alur normal dokumen.
 
-         <div data-slot="dialog-portal">
-           <div data-slot="dialog-overlay" />      <-- self-closing
-           <div data-slot="dialog-content">...</div>
-         </div>
+  4. (Bug tangkapan layar "dialog terlalu tinggi".) `position: fixed; inset:
+     0; margin: auto` TANPA tinggi yang definite. Aturan abspos CSS 2.1
+     (bagian 10.6.4): bila `top` dan `bottom` sama-sama non-auto dan `height`
+     auto, TINGGI KOTAK MERENTANG mengisi sisa ruang, lalu margin auto
+     dibagi sama. Hasilnya dialog setinggi viewport dengan ruang kosong
+     besar di bawah isinya - dialog passcode dan konfirmasi keluar keduanya
+     terlihat begitu di tangkapan layar.
 
-     Overlay dan Content adalah SAUDARA. `display: flex` pada overlay tidak
-     pernah memusatkan apa pun, dan `position: relative` membuat dialog
-     kembali ke alur normal dokumen - yaitu anak terakhir <body>, setelah
-     seluruh aplikasi, di bawah lipatan layar. Dialognya tidak terpotong di
-     atas; dialognya tidak ada di layar sama sekali.
-
-  Yang benar tanpa bergantung pada struktur DOM: dialog memusatkan DIRI
-  SENDIRI lewat margin simetris pada positioning absolut yang tidak
-  ter-constraint berlebihan.
+  Yang benar: `height: fit-content` membuat tinggi DEFINITE mengikuti isi,
+  lalu margin auto yang dibagi sama itu menjadi PEUSAT, bukan sisa ruang.
+  Saat isinya lebih tinggi dari layar, persamaannya negatif, margin dipatok
+  nol, dialog menempel di atas, dan `max-height` + `overflow-y` mengambil
+  alih - tetap terbaca dan bisa di-scroll sampai ujung bawah.
 */
 .admin-dialog-content {
-  /* `fixed` + `inset: 0` + `margin: auto` adalah satu-satunya kombinasi yang
-     menetralkan `top-[50%]`/`left-[50%]` bawaan shadcn TETAPI tetap terpusat.
-     Yang menentukan adalah `height` TIDAK pernah definite: dengan `top` dan
-     `bottom` sama-sama non-auto dan `height` auto, aturan abspos menyatakan
-     kedua margin auto disamakan - itulah yang memusatkan. */
   position: fixed;
   inset: 0;
   z-index: 90;
@@ -749,6 +736,10 @@
   gap: 0;
   width: 100%;
   max-width: 32rem;
+  /* Wajib definite: tanpa ini dialog merentang setinggi viewport. Fallback
+     -moz-fit-content ditulis lebih dulu untuk Firefox lama. */
+  height: -moz-fit-content;
+  height: fit-content;
   /* `100dvh` mengikuti viewport yang benar-benar terlihat: ketika keyboard
      Android naik, tinggi ini ikut mengecil, jadi dialog tidak pernah lebih
      tinggi dari area yang tersisa. Fallback ditulis lebih dulu - urutan
@@ -794,6 +785,15 @@
 .admin-dialog-content:focus-visible {
   outline: 4px solid #ff5a26;
   outline-offset: 4px;
+}
+
+/* Dialog konfirmasi satu-keputusan (keluar, cabut akses). Isinya hanya satu
+   peringatan dan dua tombol, jadi lebarnya disempitkan. Attribute selector
+   dipakai, bukan className, karena max-width di blok atas ditulis tanpa
+   !important dan utility Tailwind kalah urutan layer terhadapnya - percobaan
+   lewat className tidak berpengaruh sama sekali. */
+.admin-dialog-content[data-dialog-width="confirm"] {
+  max-width: 26rem;
 }
 
 /* Elemen di dalam dialog tetap perlu gaya admin, karena portal tidak
@@ -1103,15 +1103,18 @@
 }
 
 .admin-confirm-content {
-  /* Pola pemusatan yang sama dengan `.admin-dialog-content`: dialog memusatkan
-     dirinya sendiri lewat `inset: 0` + `margin: auto`, bukan
-     `top-1/2 translate(-50%)` dan bukan lewat overlay. */
+  /* Pola pemusatan yang sama dengan `.admin-dialog-content`, termasuk
+     `height: fit-content` yang wajib: tanpa itu dialog merentang setinggi
+     viewport dan margin auto hanya membagi sisa ruang, bukan memusatkan.
+     Fallback Firefox lama ditulis lebih dulu, aturan standar menimpanya. */
   position: fixed;
   inset: 0;
   z-index: 90;
   display: grid;
   width: 100%;
   max-width: 34rem !important;
+  height: -moz-fit-content;
+  height: fit-content;
   max-height: 100%;
   max-height: calc(100dvh - 2rem);
   margin: auto;

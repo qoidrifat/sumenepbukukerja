@@ -232,6 +232,7 @@ function RevokeButton({
 
       <Dialog open={open} onOpenChange={(next) => (busy ? undefined : setOpen(next))}>
         <AdminDialogContent
+          data-dialog-width="confirm"
           aria-labelledby={headingId}
           aria-describedby={descriptionId}
         >

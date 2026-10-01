@@ -174,13 +174,20 @@ test("dialog admin memusatkan dirinya sendiri, bukan lewat overlay", () => {
   expect(block).toContain("position: fixed");
   expect(block).toContain("inset: 0");
   expect(block).toContain("margin: auto");
-  // Tanpa ini, `translate-x-[-50%]` bawaan shadcn menggeser dialog sebesar
-  // setengah ukuran itself, dan transform animasi menimpa pemusatan.
-  expect(block).toContain("translate: none");
+  // Dua property BERBEDA, dan keduanya wajib. `translate-x-[-50%]` bawaan
+  // shadcn menulis ke `translate`, animasi dialog menulis ke `transform`.
+  //
+  // Bug produksi yang nyata: `translate: none` pernah ditulis di sini, lalu
+  // dibuang minifier karena `none` adalah nilai awal property itu - dan
+  // dialog langsung meleset setengah layar di produksi. Karena itu bentuk
+  // yang wajib adalah `translate: 0`, yang bukan nilai awal dan tidak pernah
+  // dianggap redundan.
+  expect(block).toContain("translate: 0");
   expect(block).toContain("transform: none");
+  expect(block).not.toContain("translate: none");
   expect(block).not.toContain("transform: translate(-50%");
 
-  // Aturan yang benar-benar menentukan: `height` yang definite membuat margin
+  // Aturan yang menentukan: `height` yang definite membuat margin
   // auto dihitung nol pada positioning absolut, dan dialog menempel di atas.
   expect(block).not.toMatch(/^\s*height:/m);
 
@@ -192,6 +199,23 @@ test("dialog admin memusatkan dirinya sendiri, bukan lewat overlay", () => {
   );
   expect(overlay).not.toContain("display: flex");
   expect(overlay).not.toContain("align-items");
+});
+
+test("dialog konfirmasi memakai pola pemusatan yang sama", () => {
+  // `admin-confirm-content` dipakai AlertDialogPrimitive di package manager.
+  // Polanya harus identik: kalau salah satu diperbaiki dan yang lain tidak,
+  // dua dialog di meja yang sama akan terlihat berbeda.
+  const start = css.lastIndexOf(".admin-confirm-content {");
+  const block = css.slice(start, css.indexOf("}", start));
+  expect(block).toContain("position: fixed");
+  expect(block).toContain("inset: 0");
+  expect(block).toContain("margin: auto");
+  // Sama seperti dialog utama: `translate: 0`, bukan `none` yang dibuang
+  // minifier dan membuat dialog meleset di produksi.
+  expect(block).toContain("translate: 0");
+  expect(block).not.toContain("translate: none");
+  expect(block).not.toMatch(/^\s*height:/m);
+  expect(block).toContain("env(safe-area-inset-bottom");
 });
 
 test("tinggi dialog mengikuti viewport yang terlihat, bukan layout viewport", () => {

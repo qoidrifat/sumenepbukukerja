@@ -116,7 +116,11 @@ test("dialog profil memusatkan dirinya sendiri, bukan lewat overlay", () => {
   expect(block).toContain("position: fixed");
   expect(block).toContain("inset: 0");
   expect(block).toContain("margin: auto");
-  expect(block).toContain("translate: none");
+  // Bentuk angka nol itu wajib: bentuk kata dibuang minifier (karena sama
+  // dengan nilai awal property), dan yang hilang itu membuat dialog meleset
+  // setengah layar di produksi. Lihat kontrak tema untuk catatan lengkapnya.
+  expect(block).toContain("translate: 0");
+  expect(block).not.toContain("translate: none");
   // Inilah yang menentukan: `height` yang definite membuat margin auto nol.
   expect(block).not.toMatch(/^\s*height:/m);
   // Bilah gestur Android tidak boleh menimpa baris tombol paling bawah.

@@ -700,8 +700,8 @@
 
 /*
   PEMUSATAN - bagian ini sudah tiga kali ditulis ulang, dan dua kali salah.
-  Catatan kali ini sengaja berbunyi seperti einspruch agar pola yang benar
-  tidak hilang lagi bersama jawabannya.
+  Catatan kali ini sengaja ditulis panjang agar pola yang benar tidak hilang
+  lagi bersama jawabannya.
 
   1. Versi pertama: `top-1/2 left-1/2` + `transform: translate(-50%,-50%)`.
      Gagal karena `translate` (untuk memusatkan) dan `transform` (untuk
@@ -717,7 +717,7 @@
 
   3. Versi ketiga (yang causes bug ini): overlay dijadikan wadah flex dan
      dialog dijadikan flex item dengan `position: relative`. Ia terdengar
-     benar dan memang benar UNTUK DOM tempat dialog benar-benar anak overlay.
+     benar dan memang benar untuk DOM tempat dialog benar-benar anak overlay.
      Di sini tidak. Radix merender
 
          <div data-slot="dialog-portal">
@@ -727,7 +727,7 @@
 
      Overlay dan Content adalah SAUDARA. `display: flex` pada overlay tidak
      pernah memusatkan apa pun, dan `position: relative` membuat dialog
-     kembali ke alur normal dokumen - yaitu Children dari <body>, setelah
+     kembali ke alur normal dokumen - yaitu anak terakhir <body>, setelah
      seluruh aplikasi, di bawah lipatan layar. Dialognya tidak terpotong di
      atas; dialognya tidak ada di layar sama sekali.
 
@@ -762,10 +762,23 @@
      Tanpa jarak aman ini, isian bisa menempel tepat di tepi scroll dan sebagian
      peramban tidak menampilkannya sama sekali. */
   scroll-padding-block: 1rem;
-  /* Wajib: tanpa ini, `translate-x-[-50%]` dan `translate-y-[-50%]` bawaan
-     shadcn masih menggeser dialog sebesar setengah ukuran itself, dan
-     transform yang dipakai animasi akan menimpa pemusatan. */
-  translate: none;
+  /* Wajib, dan KEDUANYA diperlukan. `translate-x-[-50%]`/`translate-y-[-50%]`
+     bawaan shadcn menulis ke property `translate`, sedangkan animasi kita
+     menulis ke property `transform` - dua property berbeda yang tidak saling
+     menetralkan. Melepas salah satu berarti dialog bergeser setengah ukuran
+     dirinya sendiri, atau animasinya memindahkan dialog yang sedang terpusat.
+
+     Terbukti di produksi: minifier pernah membuang deklarasi penawar geseran
+     karena nilainya dianggap sama dengan nilai awal property itu, dan dialog
+     langsung meleset - keluhan "tidak terpusat" yang datang dari layar nyata.
+     Supaya tidak terulang, nilainya ditulis dengan bentuk yang TIDAK dianggap
+     redundan oleh minifier: nilai awal `translate` adalah kata `n-o-n-e`,
+     jadi angka nol bukan nilai awal dan selalu dipertahankan. Ketiga property
+     transformasi ditulis lengkap karena dialog bisa digeser oleh salah
+     satunya saja. */
+  translate: 0;
+  rotate: 0;
+  scale: 1;
   transform: none;
   border: 2px solid #121212 !important;
   border-radius: 2px !important;
@@ -1104,13 +1117,17 @@
   margin: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
-  translate: none;
+  /* Sama seperti .admin-dialog-content: bentuk angka nol, bukan bentuk kata
+     yang dibuang minifier, supaya utility shadcn tidak menggeser dialog. */
+  translate: 0;
+  rotate: 0;
+  scale: 1;
   transform: none;
   border: 2px solid #121212 !important;
   border-radius: 2px !important;
   color: #1a1a1a;
   background: #fdfbf7 !important;
-  padding: 0 !important;
+  padding: 0 0 env(safe-area-inset-bottom, 0px) !important;
   box-shadow: 6px 6px 0 0 #121212 !important;
   outline: none;
 }

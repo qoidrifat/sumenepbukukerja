@@ -107,7 +107,10 @@ test("dialog memusatkan dirinya sendiri, bukan lewat overlay", () => {
   expect(block).toContain("position: fixed");
   expect(block).toContain("inset: 0");
   expect(block).toContain("margin: auto");
-  expect(block).toContain("translate: none");
+  // Bentuk angka nol itu wajib: bentuk kata dibuang minifier, dan yang hilang
+  // itu membuat dialog meleset setengah layar di produksi. Lihat kontrak tema.
+  expect(block).toContain("translate: 0");
+  expect(block).not.toContain("translate: none");
   expect(block).not.toContain("transform: translate(-50%");
   // `height` definite akan mematikan margin auto dan mengembalikan pola (b).
   expect(block).not.toMatch(/^\s*height:/m);

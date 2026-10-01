@@ -29,63 +29,59 @@ import {
   signOut,
   type Auth,
 } from "firebase/auth";
+import { FIREBASE_WEB_CONFIG, type FirebaseWebConfig } from "./firebase-web-config";
 
-type FirebaseClientConfig = {
-  apiKey: string;
-  authDomain: string;
-  projectId: string;
-};
+type FirebaseClientConfig = FirebaseWebConfig;
 
 /**
  * Awalan nilai yang disandikan pipeline build.
  *
- * Dipakai sebagai deteksi, bukan sebagai sekadar formalitas. Tanpa cek ini,
- * konfigurasi terenkripsi lolos sebagai "terisi" dan kegagalannya baru
- *ketahuan di sisi Firebase dengan pesan yang tidak menunjuk ke build.
+ * Dipakai sebagai deteksi, bukan formalitas. Tanpa cek ini, konfigurasi
+ * terenkripsi lolos sebagai "terisi" dan kegagalannya baru ketahuan di sisi
+ * Firebase dengan pesan yang tidak menunjuk ke build.
  */
 const ENCRYPTED_PREFIX_PATTERN = /^encrypted:/i;
 
 let cached: { auth: Auth; projectId: string } | null = null;
 
 /**
- * Env yang dibaca. Ketiganya berasal dari build, jadi nilainya tertanam di
- * bundel -
- * aman, karena aturan Firebase memang client key bukan rahasia. Yang tidak
- * pernah ada di sini: private key, service account, atau kredensial admin.
+ * Env yang dibaca lebih dulu, kalau isinya layak pakai.
+ *
+ * Ketiganya bukan rahasia. Aturan Firebase memang client key bukan rahasia,
+ * dan nilainya sudah ikut ada di bundel setiap kali aplikasi dimuat. Yang
+ * tidak pernah ada di sini: private key, service account, atau kredensial
+ * admin.
  */
-function readConfig(): FirebaseClientConfig | null {
-  // WAJIB dibaca sebagai anggota statik, bukan lewat objek `import.meta.env`.
-  //
-  // Alasannya sudah dibuktikan di hasil build. Pipeline build menyandikan nilai
-  // environment lalu menyuntikkannya ke dalam objek `import.meta.env` sebagai
-  // "encrypted:...". Akses statik `import.meta.env.NAMA` diganti compiler
-  // dengan nilai aslinya; akses lewat objek `const env = import.meta.env`
-  // lalu `env.NAMA` justru menerima yang terenkripsi.
-  //
-  // Buktinya ada di bundle yang sama: `import.meta.env.VITE_CONVEX_URL` di
-  // `src/main.tsx` muncul sebagai teks biasa, sementara objek `import.meta.env`
-  // di situ memuat `VITE_FIREBASE_API_KEY: "encrypted:..."`.
-  //
-  // Gejalanya kalau salah baca murahan sekali dan menyesatkan: string
-  // terenkripsi itu BUKAN string kosong, jadi tombol Google tetap muncul dan
-  // `firebaseAvailable()` tetap true - tapi API key yang sampai ke Firebase
-  // salah, ditolak, dan satu-satunya yang tampil adalah "gagal masuk". Tidak
-  // ada satu pun permintaan yang menyentuh server, sehingga log tidak pernah
-  // menunjukkan apa pun.
-  const apiKey = (import.meta.env.VITE_FIREBASE_API_KEY as string | undefined)?.trim();
-  const authDomain = (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined)?.trim();
-  const projectId = (import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined)?.trim();
+function configFromEnv(): FirebaseClientConfig | null {
+  // WAJIB dibaca sebagai anggota statik. Akses lewat objek
+  // `const env = import.meta.env` membuat nama variabelnya sendiri yang
+  // disandikan, sehingga kompilasi tidak pernah menggantinya dengan teks
+  // biasa. Buktinya ada di bundle produksi.
+  const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+  const authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
+  const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
   if (!apiKey || !authDomain || !projectId) return null;
   if (ENCRYPTED_PREFIX_PATTERN.test(apiKey) || ENCRYPTED_PREFIX_PATTERN.test(authDomain)) {
-    // Tombol yang tahu pasti tidak bisa dipakai lebih baik disembunyikan
-    // daripada ditampilkan lalu gagal tanpa penjelasan. Keluhan ke operator
-    // masuk ke console, bukan ke layar pengunjung.
+    // Keluhan ini tidak pernah tampil di layar. Isinya hanya untuk operator.
     console.error(
-      "[FIREBASE_AUTH] nilai VITE_FIREBASE_* masuk terenkripsi. Baca sebagai anggota statik import.meta.env, jangan lewat objek.",
+      "[FIREBASE_AUTH] VITE_FIREBASE_* masuk terenkripsi oleh pipeline build. Memakai konfigurasi dari repo.",
     );
     return null;
   }
   return { apiKey, authDomain, projectId };
+}
+
+/**
+ * Konfigurasi yang benar-benar dipakai.
+ *
+ * `configFromEnv` lebih dulu, konstanta di `firebase-web-config.ts` sebagai
+ * cadangan. Urutan ini penting: di Freebuff, setiap env yang ditambahkan
+ * operator tiba di aplikasi dalam keadaan terenkripsi, jadi di Freebuff env
+ * tidak pernah jadi sumber utama. Penjelasan panjangnya ada di berkas
+ * konfigurasi itu.
+ */
+function readConfig(): FirebaseClientConfig | null {
+  return configFromEnv() ?? { ...FIREBASE_WEB_CONFIG };
 }
 
 /** Apakah tombol Google dan email-sandi boleh ditampilkan sama sekali. */
@@ -176,7 +172,7 @@ export function currentFirebaseEmail(): string | null {
   return email ? email.trim().toLowerCase() : null;
 }
 
-/** Galat yang kodenya sudah diterjemahkan ke kalimat siap tampil. */
+/** Kode yang dipetakan ke pesan. Teks asli dari SDK tidak pernah tampil. */
 export class FirebaseClientError extends Error {
   // Deklarasi eksplisit, bukan parameter property: `tsconfig.app.json` menyalakan
   // `erasableSyntaxOnly`, yang melarang sintaks yang harus dihapus compiler.

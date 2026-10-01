@@ -158,8 +158,17 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       }
       await signIn("email-otp", formData);
       setStep({ email });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Kode verifikasi gagal dikirim. Coba lagi.");
+    } catch {
+      // Server menolak jalur ini dengan kalimat untuk operator, yang menyebut
+      // nama environment variable. Isinya pernah tampil apa adanya di halaman
+      // publik karena `caught.message` dipakai langsung. Apa pun yang dilempar
+      // di sini sekarang dibuang dan diganti kalimat yang bisa ditindaklanjuti
+      // orang yang sedang memegang halaman.
+      setError(
+        firebaseEnabled
+          ? "Kode email belum bisa dikirim. Masuk dengan Google, atau pakai email dan sandi di atas."
+          : "Kode email belum bisa dikirim saat ini. Coba lagi nanti.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -540,38 +549,21 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
               ) : (
               <form onSubmit={handleEmailSubmit}>
                 <CardContent>
-                  <label className="flex flex-col gap-2">
-                    <span className="text-sm font-extrabold text-slate-800">Email</span>
-                    <span className="relative">
-                      <Mail className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-blue-600" />
-                      <Input
-                        name="email"
-                        placeholder="nama@email.com"
-                        type="email"
-                        autoComplete="email"
-                        className="min-h-12 pl-11 text-base"
-                        disabled={isLoading}
-                        required
-                      />
-                    </span>
-                  </label>
-                  {error ? <p className="mt-3 text-sm font-bold text-red-700">{error}</p> : null}
-                  {notice ? (
-                    <p className="mt-3 text-sm font-bold text-emerald-700">{notice}</p>
-                  ) : null}
-                  <Button type="submit" className="mt-5 min-h-12 w-full text-base" disabled={isLoading}>
-                    {isLoading ? <Loader2 className="size-5 animate-spin" /> : <ArrowRight className="size-5" />}
-                    Kirim kode masuk
-                  </Button>
+                  {/* FASE 9.2 - urutan pintu masuk.
+
+                      Kredensial OTP milik Freebuff tidak bisa dipindahkan ke
+                      akun Convex milik pemilik sendiri, jadi jalur ini tidak
+                      akan pernah bisa mengirim kode lagi. Selama tombolnya
+                      masih yang paling menonjol, pengunjung pertama yang
+                      menekan akan berakhir di jalan buntu.
+
+                      Karena itu, kalau Firebase terkonfigurasi, ia yang jadi
+                      pintu masuk utama dan OTP turun ke bawah pemisah. Kalau
+                      BELUM terkonfigurasi, blok ini tidak dirender sama sekali
+                      dan OTP tetap satu-satunya isi form - ini bukan pilihan
+                      desain, hanya konsekuensi dari env var build. */}
                   {firebaseEnabled ? (
                     <>
-                      <div className="my-5 flex items-center gap-3">
-                        <span className="h-px flex-1 bg-slate-200" />
-                        <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-400">
-                          atau
-                        </span>
-                        <span className="h-px flex-1 bg-slate-200" />
-                      </div>
                       <Button
                         type="button"
                         variant="outline"
@@ -588,8 +580,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       </Button>
                       <Button
                         type="button"
-                        variant="ghost"
-                        className="mt-2 min-h-11 w-full text-sm"
+                        variant="outline"
+                        className="mt-2 min-h-12 w-full text-base"
                         onClick={() => {
                           setError(null);
                           setNotice(null);
@@ -599,8 +591,51 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       >
                         Gunakan email dan sandi
                       </Button>
+                      <div className="my-5 flex items-center gap-3">
+                        <span className="h-px flex-1 bg-slate-200" />
+                        <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-400">
+                          atau
+                        </span>
+                        <span className="h-px flex-1 bg-slate-200" />
+                      </div>
                     </>
                   ) : null}
+                  <label className="flex flex-col gap-2">
+                    <span className="text-sm font-extrabold text-slate-800">Email</span>
+                    <span className="relative">
+                      <Mail className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-blue-600" />
+                      <Input
+                        name="email"
+                        placeholder="nama@email.com"
+                        type="email"
+                        autoComplete="email"
+                        className="min-h-12 pl-11 text-base"
+                        disabled={isLoading}
+                        required
+                      />
+                    </span>
+                  </label>
+                  {error ? (
+                    <p className="mt-3 text-sm font-bold text-red-700" role="alert">
+                      {error}
+                    </p>
+                  ) : null}
+                  {notice ? (
+                    <p className="mt-3 text-sm font-bold text-emerald-700">{notice}</p>
+                  ) : null}
+                  <Button
+                    type="submit"
+                    variant={firebaseEnabled ? "ghost" : "default"}
+                    className={
+                      firebaseEnabled
+                        ? "min-h-11 w-full text-sm"
+                        : "mt-5 min-h-12 w-full text-base"
+                    }
+                    disabled={isLoading}
+                  >
+                    {isLoading ? <Loader2 className="size-5 animate-spin" /> : <ArrowRight className="size-5" />}
+                    Kirim kode masuk
+                  </Button>
                   {/* Tidak ada "Masuk sebagai tamu" di halaman ini, dan
                       sengaja tidak akan ditambah lagi. Akun anonim tidak punya
                       email, jadi begitu peran pengelola diberikan padanya,

@@ -33,7 +33,7 @@ Level bukti yang dipakai di dokumen ini:
 
 | Temuan | Severity Fase 9 | Kode | Deployment | Operasi | Status |
 |---|---|---|---|---|---|
-| F-01 Kunci OTP | CRITICAL | FIXED | VERIFIED | n/a (bukan milik proyek) | `RISK ACCEPTED` |
+| F-01 Kunci API penyedia OTP | CRITICAL | FIXED, lalu jalur OTP DIHAPUS (Fase 9.2) | VERIFIED | n/a (kredensial bukan milik proyek) | `CLOSED IN CODE - OTP PATH REMOVED` |
 | F-02 `getImageUrl` tanpa otorisasi | HIGH | FIXED | VERIFIED | n/a | `CLOSED` |
 | F-03 Paket draft bocor | MEDIUM | FIXED | VERIFIED | n/a | `CLOSED` |
 | F-04 Metadata moderasi bocor | MEDIUM | FIXED | VERIFIED | n/a | `CLOSED` |
@@ -65,10 +65,15 @@ Severity Fase 9 tidak diubah oleh Fase 9.1: 1 CRITICAL, 1 HIGH, 8 MEDIUM,
   Env kosong membuat pengiriman gagal dengan pesan yang jelas, bukan diam-diam
   memakai nilai bawaan. Objek error dari penyedia tidak pernah ikut ke pesan;
   yang dicatat ke log server hanya kode status.
-- **Bukti:** SOURCE VERIFIED (`src/convex/auth/emailOtp.ts`),
-  TEST VERIFIED (`src/convex/otp-provider-security.test.ts`), dan sweep
-  kredensial di `src/`, `e2e/`, `docs/`, `tmp/`, serta `dist/` tidak menemukan
-  literal kredensial di luar nilai sintetis pada test.
+- **Bukti (per 2026-10-01):** kedua berkas yang dulu dikutip di sini sudah
+  DIHAPUS bersama jalurnya. `src/convex/auth/emailOtp.ts` dan
+  `src/convex/otp-provider-security.test.ts` tidak ada lagi di repo, jadi tidak
+  boleh lagi dipakai sebagai bukti apa pun. Yang menggantikannya adalah
+  `src/convex/firebase-auth-security.test.ts`, yang mengunci tiga aturan yang
+  dulu dipegang test OTP: JWKS resmi Google, pembungkus `{ args }` untuk
+  `auth:store`, dan tidak adanya `email-otp` di daftar provider. Sweep
+  kredensial di `src/`, `e2e/`, `docs/`, `tmp/`, serta `dist/` tetap tidak
+  menemukan literal kredensial di luar nilai sintetis pada test.
 - **KEPOSISIAN YANG BERUBAH (Fase 9.2, 2026-09-30):** nilai
   `VLY_EMAIL_OTP_API_KEY` adalah kredensial **bawaan platform Freebuff**, bukan
   kunci privat proyek ini. Dikonfirmasi oleh tim Freebuff lewat kanal komunitas
@@ -93,6 +98,30 @@ Severity Fase 9 tidak diubah oleh Fase 9.1: 1 CRITICAL, 1 HIGH, 8 MEDIUM,
 - **Status:** `RISK ACCEPTED - PLATFORM MANAGED` (bukan `CLOSED`: nilai masih
   ada di riwayat Git; bukan `OPEN`: tidak ada tindakan tersisa yang bisa
   dikerjakan).
+
+### KEPOSISIAN KEDUA (Fase 9.2, 2026-10-01) - jalurnya dihapus
+
+Keputusan produk, bukan kegagalan teknis. Provider `email-otp`, berkas
+`src/convex/auth/emailOtp.ts`, test-nya, dan form OTP di `/auth` semuanya
+dihapus. Alasannya:
+
+1. `VLY_EMAIL_OTP_API_KEY` adalah kredensial platform Freebuff. Tidak bisa
+   dibuat ulang di akun Convex milik pemilik, jadi jalur itu tidak akan pernah
+   bisa mengirim kode lagi.
+2. Selama provider-nya masih terdaftar, satu klik berarti satu pesan operator
+   tanpa jalan keluar - lebih buruk daripada tidak ada.
+3. Penggantinya sudah ada dan gratis: Google dan Email/Sandi lewat provider
+   `firebase` di `src/convex/auth/firebase.ts`, diverifikasi server dengan JWKS
+   resmi Google, tanpa layanan email pihak ketiga.
+4. Jalur lupa sandi yang tadinya tidak ada sudah ditutup: tautan reset dikirim
+   Firebase, dibatasi 1.000/hari, dan pesannya sama untuk email terdaftar
+   maupun tidak.
+
+Yang masih hidup hanya residu historis: nilai kunci di riwayat Git, dan
+`VLY_EMAIL_OTP_API_KEY` di Keys milik Freebuff. Keduanya tidak lagi bisa
+dipakai kode mana pun di repo ini.
+
+Status F-01 menjadi `CLOSED IN CODE - OTP PATH REMOVED`.
 
 ## F-02 — `vendors:getImageUrl` membaca blob storage apa pun
 
@@ -402,6 +431,13 @@ risiko token di `localStorage`.
   dilarang. Yang perlu adalah infrastruktur test: mailbox uji yang menangkap
   OTP, atau penyedia khusus test. Keduanya butuh kredensial dan environment
   yang tidak dimiliki agent.
+- **Posisi Fase 9.2:** penghalangnya BERGESER, bukan hilang. Provider `firebase`
+  memberi jalur email dan sandi yang tidak butuh mailbox uji, jadi syarat
+  "penyedia email khusus test" tidak lagi berlaku. Yang dibutuhkan sekarang
+  hanya satu akun uji di Firebase plus `E2E_USER_EMAIL` dan
+  `E2E_USER_PASSWORD`, lalu test yang diisi lewat form sandi itu. Test
+  `e2e/flows.spec.ts` sengaja belum ditulis ulang: menghijaukan test dengan
+  menebak alur login menghasilkan test yang lulus tanpa menguji apa pun.
 - **Status:** `OPEN — TEST INFRASTRUCTURE GAP`.
 
 ---

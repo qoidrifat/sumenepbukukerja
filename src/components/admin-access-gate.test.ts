@@ -129,3 +129,19 @@ test("tanpa bootstrap terbuka, layar kembali ke penjelasan lama", () => {
   // Tiga peran tetap dijelaskan supaya pengunjung tahu apa yang hilang.
   expect(markup).toContain("Tiga peran pengelola");
 });
+
+test("tamu yang terkunci tidak diarahkan ke jalur yang sudah dihapus", () => {
+  const markup = render({
+    signedIn: true,
+    bootstrapAvailable: true,
+    bootstrapEligible: false,
+    bootstrapBlocker: "noEmail",
+    accountEmail: null,
+  });
+  // Provider `email-otp` sudah dihapus di Fase 9.2. Petunjuk yang masih menyebut
+  // kode OTP mengirim orang ke layar yang tidak ada - persis jenis jalan buntu
+  // yang dihapus itu.
+  expect(markup).not.toMatch(/OTP/);
+  // Yang boleh muncul hanya pintu masuk yang benar-benar hidup.
+  expect(markup).toContain("lewat Google atau lewat email dan sandi");
+});

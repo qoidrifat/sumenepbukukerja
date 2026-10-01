@@ -10,8 +10,9 @@
 //    `lazy()` di `src/main.tsx`, jadi komponen ini tidak pernah menyentuh jalur
 //    kritis beranda.
 // 2. KETIKA ENV BELUM DIISI, TIDAK ADA YANG MELEDAK. `firebaseAvailable()` jadi
-//    `false`, tombol disembunyikan, dan aplikasi tetap jalan lewat OTP. Auth
-//    yang hilang total akan membuat `/auth` kosong untuk siapa pun.
+//    `false`, tombol disembunyikan, dan `/auth` menampilkan penjelasan apa yang
+//    belum terisi. Auth yang hilang total akan membuat `/auth` kosong untuk
+//    siapa pun, dan layar kosong selalu dibaca orang sebagai situs rusak.
 // 3. PESAN ERROR KE PENGGUNA TIDAK PERNAH BERISI DETAIL TEKNIS. Kode Firebase
 //    dipetakan ke kalimat yang bisa ditindaklanjuti. Menumpuk pesan mentah
 //    dari SDK pernah membocorkan nama project dan konfigurasi di halaman, dan
@@ -26,6 +27,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendEmailVerification,
+  sendPasswordResetEmail,
+  verifyPasswordResetCode,
   signOut,
   type Auth,
 } from "firebase/auth";
@@ -102,6 +105,69 @@ function getClient(): { auth: Auth; projectId: string } {
     : initializeApp({ apiKey: config.apiKey, authDomain: config.authDomain, projectId: config.projectId });
   cached = { auth: getAuth(app), projectId: config.projectId };
   return cached;
+}
+
+/**
+ * Pesan setelah permintaan reset sandi.
+ *
+ * SENGaja sama untuk email terdaftar maupun tidak. Kalau dua kasus itu
+ * dibedakan, halaman ini berubah jadi alat untuk menebak email mana yang punya
+ * akun di aplikasi ini. Pola pemetaan kode ke kalimat yang bisa ditindaklanjuti
+ * tanpa membocorkan ada di `CODE_TO_MESSAGE`; aturan lainnya sama dengan
+ * `src/convex/auth/firebase.ts`.
+ */
+const RESET_SENT_MESSAGE =
+  "Kalau email itu terdaftar di Buku Kerja, kami sudah mengirim tautan untuk membuat sandi baru. Cek kotak masuk dan folder spam.";
+
+/**
+ * Kirim email reset sandi.
+ *
+ * Tidak pernah melempar "email tidak terdaftar" ke pemanggil. Kesalahan itu
+ * ditelan dan diganti pesan yang sama dengan kasus berhasil, supaya halaman
+ * publik tidak bisa dipakai untuk memetakan email yang punya akun.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const { auth } = getClient();
+  try {
+    await sendPasswordResetEmail(auth, email.trim().toLowerCase(), {
+      // Tautan dikembalikan ke aplikasi sendiri, bukan ke halaman default
+      // Firebase. Tanpa itu, pengguna bisa menyelesaikan reset di domain
+      // Firebase dan tidak pernah kembali ke Buku Kerja.
+      url: `${window.location.origin}/auth`,
+      handleCodeInApp: true,
+    });
+  } catch (caught) {
+    const code = (caught as { code?: unknown })?.code;
+    if (code === "auth/user-not-found" || code === "auth/missing-email") {
+      throw new FirebaseClientError("not-configured", RESET_SENT_MESSAGE);
+    }
+    throw caught;
+  }
+}
+
+/** Email pemilik tautan reset sandi ini, dipakai untuk layar konfirmasi. */
+export type ResetTarget = { email: string };
+
+/**
+ * Selesaikan reset sandi dari tautan yang diklik.
+ *
+ * `verifyPasswordResetCode` memeriksa kode di sisi Firebase; kalau sudah
+ * dipakai atau kedaluwarsa, kode itu ditolak SEBELUM sandi bisa diubah. Itu
+ * yang membuat tautan tidak bisa dipakai dua kali.
+ */
+export async function completePasswordReset(
+  oobCode: string,
+  password: string,
+): Promise<ResetTarget> {
+  const { auth } = getClient();
+  const email = await verifyPasswordResetCode(auth, oobCode);
+  // `updatePassword` hanya menerima objek User, dan `verifyPasswordResetCode`
+  // belum tentu mengisi `auth.currentUser`. Jadi sandi baru dipasang lewat
+  // masuk sekali pakai dengan email hasil verifikasi, lalu langsung keluar.
+  // Urutan ini juga membuat kode terverifikasi benar-benar terpakai.
+  await signInWithEmailAndPassword(auth, email, password);
+  await signOut(auth);
+  return { email };
 }
 
 /** ID token yang diverifikasi server di `src/convex/auth/firebase.ts`. */
@@ -236,6 +302,10 @@ const CODE_TO_MESSAGE: Record<string, string> = {
   "auth/invalid-verification-code": "Kode verifikasi tidak cocok atau sudah kedaluwarsa.",
   "auth/invalid-verification-id": "Tautan verifikasi tidak berlaku lagi. Minta yang baru.",
   "auth/expired-action-code": "Tautan verifikasi sudah kedaluwarsa. Minta yang baru.",
+
+  // Reset sandi.
+  "auth/invalid-action-code": "Tautan ini sudah tidak berlaku atau sudah dipakai. Minta tautan baru.",
+  "auth/missing-password": "Sandi baru belum diisi.",
 
   // Jendela masuk dan keterbatasan peramban.
   "auth/popup-closed-by-user": "Jendela masuk Google ditutup sebelum selesai.",

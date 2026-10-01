@@ -2,7 +2,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createAccountRequest, firebase, identityFromClaims } from "./auth/firebase";
-import { emailOtp } from "./auth/emailOtp";
 
 /**
  * FASE 9.2 - regression test untuk provider Firebase.
@@ -21,8 +20,9 @@ import { emailOtp } from "./auth/emailOtp";
  *  4. TOKEN DAN DETAIL ERROR TIDAK PERNAH KE PESAN. Pola yang sama seperti
  *     `otp-provider-security.test.ts`, dan alasannya sama: `auth:signIn` bisa
  *     dipanggil siapa pun tanpa sesi.
- *  5. PROVIDER OTP TIDAK BOLEH HILANG. Menambah provider baru tidak boleh
- *     mematikan jalur yang sudah dipakai pengguna yang kuncinya tersedia.
+ *  5. JALUR EMAIL-OTP SUDAH DIHAPUS. Provider-nya bergantung pada kredensial
+ *     milik platform lain yang tidak bisa dibuat ulang di akun pemilik, jadi
+ *     membiarkannya terdaftar hanya menghasilkan form yang pasti gagal.
  */
 
 const FIREBASE_PROJECT_ID_ENV = "FIREBASE_PROJECT_ID";
@@ -203,12 +203,13 @@ describe("Fase 9.2: registrasi provider", () => {
     expect(provider.options?.id).toBe("firebase");
   });
 
-  test("provider OTP yang lama masih ada dengan id yang sama", () => {
-    // Menambah jalur baru tidak boleh mematikan jalur lama. Kalau kuncinya
-    // suatu saat tersedia lagi, alur itu harus langsung hidup tanpa kod ulang.
-    const otp = emailOtp as unknown as { type?: string; options?: { id?: string } };
-    expect(otp.type).toBe("email");
-    expect(otp.options?.id).toBe("email-otp");
+  test("provider email-otp sudah tidak terdaftar lagi", () => {
+    // Kredensialnya milik platform lain dan tidak bisa dibuat ulang, jadi
+    // provider ini tidak akan pernah bisa mengirim kode. Seliorkannya dari
+    // daftar provider mencegah `/auth` menampilkan form OTP yang pasti gagal.
+    const source = readFileSync(SOURCE, "utf8");
+    expect(source).not.toContain("email-otp");
+    expect(source).not.toContain("emailOtp");
   });
 
   test("sumber tidak memuat project id atau token sebagai literal", () => {

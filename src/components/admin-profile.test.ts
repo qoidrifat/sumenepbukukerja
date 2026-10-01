@@ -9,7 +9,7 @@ import { expect, test } from "vitest";
  *     memakai scope admin yang sama dengan form passcode. Tanpa scope itu,
  *     seluruh kelas admin di dalam dialog tidak akan cocok sama sekali.
  *  2. Field tanggal/waktu di tiap permukaan memakai kelas yang sesuai dengan
- *     tema halaman itu — dan TIDAK memakai kelas milik tema yang lain. Ikon
+ *     tema halaman itu - dan TIDAK memakai kelas milik tema yang lain. Ikon
  *     kalender digambar sistem operasi, jadi satu-satunya kendali kita adalah
  *     selector yang tepat sasaran.
  */
@@ -48,12 +48,30 @@ test("tombol profil memakai token admin, bukan gaya tombol generik", () => {
 });
 
 test("dialog profil memakai scope admin-dialog yang sama dengan form passcode", () => {
-  expect(profile).toContain('className="admin-dialog-content"');
+  expect(profile).toContain("admin-dialog-content");
   expect(profile).toContain('overlayClassName="admin-dialog-overlay"');
   expect(profile).toContain("admin-input");
   expect(profile).toContain("admin-btn admin-btn-primary");
   // Warnanya memakai token admin, bukan palet baru.
   expect(profile).not.toMatch(/from "@\/components\/ui\/button"/);
+});
+
+test("tombol tutup bawaan disembunyikan supaya tidak menimpa header", () => {
+  // `DialogContent` merender tombol X `absolute top-4 right-4`. Di dialog ini
+  // isi paling atas adalah header kuning setinggi belasan baris, sehingga X
+  // itu mendarat di atas judul dan teksnya. Footer sudah punya tombol "Tutup",
+  // jadi tombol kedua hanya menambah satu jalan keluar yang tidak perlu, dan
+  // membuat header terlihat berantakan.
+  expect(profile).toContain("showCloseButton={false}");
+});
+
+test("dialog profil dipusatkan oleh margin otomatis", () => {
+  // Pemusatan di `.admin-dialog-content` memakai `inset: 0` + `margin: auto`.
+  // `mx-auto` di sini hanya penguat; yang penting class itu ada dan dialog tidak
+  // memakai `translate` yang bentrok dengan animasi zoom bawaan.
+  expect(profile).toContain("mx-auto");
+  expect(css).toContain("margin: auto");
+  expect(css).toContain("translate: none");
 });
 
 test("email sengaja tidak bisa diedit di panel profil", () => {
@@ -82,7 +100,7 @@ test("id berkas dibaca dari jawaban unggah, bukan dari seluruh jawabannya", () =
 });
 
 test("aturan ukuran dan jenis foto diambil dari modul bersama, bukan ditulis ulang", () => {
-  // Dua salinan aturan berarti dua kesempatan untuk berbeda pendapat — dan
+  // Dua salinan aturan berarti dua kesempatan untuk berbeda pendapat - dan
   // yang paling sering terjadi adalah pesannya berbeda untuk berkas yang sama.
   // Validasi sekarang tinggal di dalam `uploadWithDedup`; komponen ini
   // tidak boleh menulis ulang aturan maupun batasnya sendiri.
@@ -98,7 +116,7 @@ test("aturan ukuran dan jenis foto diambil dari modul bersama, bukan ditulis ula
 test("dedup dan downscale dilewati lewat satu alur unggah bersama", () => {
   // Tiga jalur unggah (profil, galeri listing, bukti klaim) memakai helper
   // yang sama. Kalau panel profil kembali mengunggah sendiri lewat `fetch`,
-  // foto profil berhenti ikut downscale dan dedup — dua keunggulan yang
+  // foto profil berhenti ikut downscale dan dedup - dua keunggulan yang
   // justru paling besar di byte yang terkirim ke storage.
   expect(profile).toContain("uploadWithDedup(file, {");
   expect(profile).toContain("lookupBlobBySha");
@@ -110,7 +128,7 @@ test("dedup dan downscale dilewati lewat satu alur unggah bersama", () => {
 test("menghapus foto adalah niat eksplisit, bukan kesimpulan dari keadaan", () => {
   // Kalau `removeImage` disimpulkan dari `!pending && profile?.hasImage`, maka
   // setelah foto baru tersimpan `hasImage` menjadi true sementara `pending`
-  // sudah null — dan menekan "Simpan profil" untuk kedua kalinya menghapus
+  // sudah null - dan menekan "Simpan profil" untuk kedua kalinya menghapus
   // foto yang baru saja disimpan.
   expect(profile).toContain("removeImage: removePhoto ? true : undefined");
   expect(profile).not.toContain("removeImage: !pending");
@@ -145,7 +163,7 @@ test("indicators kalender diberi gaya untuk kedua tema", () => {
 
 test("semua field tanggal punya batas bawah dan balikan bahasa Indonesia", () => {
   // Tanpa batas bawah, "dibutuhkan kapan" dan "perkiraan tersedia lagi" bisa
-  // diisi masa lalu — yang tidak pernah masuk akal untuk keduanya.
+  // diisi masa lalu - yang tidak pernah masuk akal untuk keduanya.
   expect(community).toContain("min={todayISODate()}");
   expect(dashboard).toContain("min={minAvailableAtLocal()}");
   expect(adminPage).toContain("min={minNextAvailableAtLocal()}");

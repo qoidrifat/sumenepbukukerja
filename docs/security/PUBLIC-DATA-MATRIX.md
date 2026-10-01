@@ -45,7 +45,7 @@ Legenda:
 | Nomor WhatsApp pada `whatsappThreads` | **Tidak** | Saja (diri sendiri) | Ya | Ya | Ya | plaintext |
 | Foto profil pengelola | **Tidak** | Saja (diri sendiri) | Ya | Ya | Ya | storage bertanda tangan |
 | Hash passcode, salt, hash tiket undangan | **Tidak** | **Tidak** | **Tidak** | **Tidak** | Ya (hash saja) | hash |
-| Kredensial penyedia (token WhatsApp, kunci OTP) | **Tidak** | **Tidak** | **Tidak** | **Tidak** | **Tidak** | environment |
+| Kredensial penyedia (token WhatsApp) | **Tidak** | **Tidak** | **Tidak** | **Tidak** | **Tidak** | environment |
 | IP mentah | **Tidak** | **Tidak** | **Tidak** | **Tidak** | **Tidak** | tidak pernah disimpan |
 | Data lokasi peramban | **Tidak** | **Tidak** | **Tidak** | **Tidak** | **Tidak** | tidak pernah dikirim |
 

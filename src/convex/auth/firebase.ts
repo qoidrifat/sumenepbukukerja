@@ -2,11 +2,11 @@
 //
 // FASE 9.2 - FASAL 9.1.1
 //
-// Latar belakang yang jujur: proyek ini sebelumnya hanya punya `emailOtp` yang
-// bergantung pada `VLY_EMAIL_OTP_API_KEY`, yaitu kredensial milik platform
-// Freebuff. Kredensial itu tidak bisa dirotasi dan tidak bisa disalin ke akun
-// Convex milik pemilik sendiri, jadi setelah migrasi akun, alur OTP tidak punya
-// kuncinya. Provider ini menutup jalur masuk tanpa kredensial tersebut.
+// Latar belakang yang jujur: proyek ini sebelumnya hanya punya jalur OTP yang
+// bergantung pada kredensial milik platform Freebuff. Kredensial itu tidak bisa
+// dirotasi dan tidak bisa disalin ke akun Convex milik pemilik sendiri, jadi
+// setelah migrasi akun jalur itu tidak punya kuncinya dan provider-nya sudah
+// dihapus. Provider ini menutup jalur masuk tanpa kredensial tersebut.
 //
 // Mengapa `ConvexCredentials` dan bukan "cukup kirim ID token ke Convex":
 // `requireUser()` di `src/convex/access.ts` memakai `getAuthUserId()` dari
@@ -15,7 +15,7 @@
 // `ctx.auth.getUserIdentity()` terisi, tanpa membuat sesi, sehingga setiap
 // panggilan terautentikasi tetap ditolak dengan "Masuk untuk menggunakan fitur
 // Buku Kerja". `ConvexCredentials` adalah jalur resmi yang membuat sesi itu,
-// dan provider `emailOtp` yang sudah ada tidak tersentuh.
+// dan tidak ada lagi provider lain yang bergantung pada kredensial pihak ketiga.
 //
 // Yang dikunci di sini, dan alasan setiap keputusan:
 //
@@ -30,13 +30,13 @@
 //    token dari project Firebase lain milik orang lain akan diterima.
 // 4. GAGAL TERTUTUP, TANPA MENYALIN APA PUN. Pesan yang dilempar ke pemanggil
 //    tidak pernah memuat token, kunci JWKS, atau objek error dari `jose`.
-//    Pola yang sama sudah dipakai di `emailOtp.ts` dan dikunci test-nya di
-//    `src/convex/otp-provider-security.test.ts`.
+//    Pola yang sama sudah dipakai di provider OTP yang sekarang dihapus, dan
+//    aturan itu dikunci test di berkas ini.
 // 5. Identitas memakai `sub` (Firebase UID), bukan email. `sub` tidak bisa
 //    diubah pengguna; email bisa.
 //
 // CATATAN PRODUK: `shouldLinkViaEmail: true` berarti akun Google dengan email
-// yang sama TERHUBUNG ke akun OTP yang sudah ada, jadi listing, permintaan, dan
+// yang sama TERHUBUNG ke akun lama yang sudah ada, jadi listing, permintaan, dan
 // peran pengelola ikut terbawa. Itu yang membuat migrasi tidak memutus riwayat.
 // Kalau suatu saat ingin pemisahan penuh, ubah satu baris ini - tapi perhatikan
 // akibatnya: orang yang sama akan punya dua akun terpisah, dan itu keputusan
@@ -191,7 +191,7 @@ async function verifyFirebaseToken(token: string): Promise<FirebaseVerified> {
   } catch (error) {
     // Yang dicatat hanya nama kesalahan, bukan objek error-nya: objek itu
     // memuat klaim token dan bisa jadi memuat material yang tidak boleh
-    // masuk ke log bersama. Persis aturan yang sama dengan `emailOtp.ts`.
+    // masuk ke log bersama. Persis aturan yang sama dengan provider OTP yang dihapus.
     const reason = error instanceof Error ? error.name : "unknown";
     console.warn("[FIREBASE_AUTH] verifikasi token gagal", { reason });
     throw new Error("Sesi Google tidak bisa diverifikasi. Masuk lagi.");

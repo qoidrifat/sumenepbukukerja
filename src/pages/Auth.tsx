@@ -11,25 +11,32 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSlot,
-} from "@/components/ui/input-otp";
+
 /* Sumber logo yang sama dengan navbar dan admin: /brand/logo-mark.svg. */
 const BRAND_LOGO = "/brand/logo-mark.svg";
 import { useAuth } from "@/hooks/use-auth";
 import { AnimatedContent, GlassSurface, ScrollReveal, ShinyText } from "@/components/react-bits";
 import { useAdminPasscodeGate } from "@/lib/admin-gate-client";
+import { ResetPasswordForm } from "@/components/reset-password-form";
 import {
   createEmailAccount,
   currentFirebaseEmail,
   firebaseAvailable,
   firebaseErrorMessage,
+  requestPasswordReset,
   signInWithEmail,
   signInWithGoogle,
   signOutOfFirebase,
 } from "@/lib/firebase-client";
+
+/**
+ * Pesan setelah permintaan reset sandi dikirim.
+ *
+ * Sengaja sama dengan pesan di `requestPasswordReset`: halaman publik tidak
+ * boleh membedakan email terdaftar dan tidak terdaftar.
+ */
+const RESET_SENT =
+  "Kalau email itu terdaftar di Buku Kerja, kami sudah mengirim tautan untuk membuat sandi baru. Cek kotak masuk dan folder spam.";
 
 /** Logo Google. Inline supaya tidak menambah permintaan jaringan. */
 function GoogleMark() {
@@ -97,21 +104,27 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   });
   const [passcode, setPasscode] = useState("");
   const [showPasscode, setShowPasscode] = useState(false);
-  const [step, setStep] = useState<"signIn" | "password" | { email: string }>("signIn");
+  const [step, setStep] = useState<"signIn" | "password">("signIn");
   // Bendera ini datang dari `SessionRevokedGuard`: perangkat ini baru saja
   // dicabut dari Security Desk, jadi orangnya perlu tahu kenapa ia mendarat
   // lagi di halaman masuk. Bukan error — ini konsekuensi yang dia minta sendiri
   // (atau yang orang lain minta untuk perangkatnya).
   const wasRevoked = searchParams.get("revoked") === "1";
-  const [otp, setOtp] = useState("");
+  
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // FASE 9.2 - jalur masuk tanpa `VLY_EMAIL_OTP_API_KEY`. OTP tetap ada di
-  // bawah; ini jalur tambahan, bukan pengganti, supaya tidak ada yang kehilangan
-  // akses kalau salah satu kredensial bermasalah.
   const [firebaseEnabled] = useState(() => firebaseAvailable());
   const [passwordMode, setPasswordMode] = useState<"signIn" | "signUp">("signIn");
   const [notice, setNotice] = useState<string | null>(null);
+  const [showReset, setShowReset] = useState(false);
+  // Email tujuan reset sandi disimpan di state, bukan dibaca dari FormData.
+  // Alasannya bukan selera: blok reset dulu dirender di DALAM form sign-in,
+  // dan dua form bersarang membuat satu klik "Kirim tautan reset" menjalankan
+  // dua penangan sekaligus - reset sandi DAN masuk dengan sandi lama itu.
+  const [resetEmail, setResetEmail] = useState("");
+  // Kode reset sandi yang datang dari tautan email. Kalau ada, halaman ini
+  // tidak menampilkan daftar akun sama sekali.
+  const resetCode = searchParams.get("oobCode");
 
   const passcodeGranted = gate.state.kind === "granted" ? gate.state : null;
   const needsPasscode = adminGateRequired && passcodeGranted === null;
@@ -136,59 +149,26 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   };
 
-  const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handlePasswordReset = async () => {
+    const email = resetEmail.trim();
+    if (!email) {
+      setError("Tulis dulu email yang dipakai untuk masuk.");
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
-      const formData = new FormData(event.currentTarget);
-      const email = String(formData.get("email") ?? "");
-      // Tukar tiket sekali pakai dulu, supaya email yang diverifikasi jelas
-      // berasal dari orang yang baru saja lolos passcode.
-      if (passcodeGranted) {
-        const ok = await gate.redeem(passcodeGranted.ticket, email);
-        if (!ok) {
-          setError(
-            "Sesi passcode sudah tidak berlaku. Muat ulang halaman dan coba lagi.",
-          );
-          gate.reset();
-          setIsLoading(false);
-          return;
-        }
-      }
-      await signIn("email-otp", formData);
-      setStep({ email });
-    } catch {
-      // Server menolak jalur ini dengan kalimat untuk operator, yang menyebut
-      // nama environment variable. Isinya pernah tampil apa adanya di halaman
-      // publik karena `caught.message` dipakai langsung. Apa pun yang dilempar
-      // di sini sekarang dibuang dan diganti kalimat yang bisa ditindaklanjuti
-      // orang yang sedang memegang halaman.
-      setError(
-        firebaseEnabled
-          ? "Kode email belum bisa dikirim. Masuk dengan Google, atau pakai email dan sandi di atas."
-          : "Kode email belum bisa dikirim saat ini. Coba lagi nanti.",
-      );
+      await requestPasswordReset(email);
+      setResetEmail("");
+      setNotice(RESET_SENT);
+    } catch (caught) {
+      setError(firebaseErrorMessage(caught));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleOtpSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setIsLoading(true);
-    setError(null);
-    try {
-      const formData = new FormData(event.currentTarget);
-      await signIn("email-otp", formData);
-      navigate(redirect);
-    } catch {
-      setError("Kode yang dimasukkan belum tepat. Silakan periksa kembali.");
-      setOtp("");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  
 
   /**
    * Tukar tiket passcode dengan email milik akun yang BARU SAJA masuk di
@@ -311,6 +291,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   };
 
+  if (resetCode) return <ResetPasswordForm oobCode={resetCode} />;
+
   return (
     <main className="notebook-paper flex min-h-dvh min-h-[100svh] flex-col px-4 py-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
       <div className={`${shellWidth} flex items-center justify-between gap-4`}>
@@ -336,15 +318,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           <GlassSurface tint="light" className="w-full rounded-2xl p-0 shadow-lg">
           <Card className="w-full border-slate-200 bg-white/95 p-0 shadow-lg sm:p-2">
             <AnimatedContent
-              animationKey={
-                needsPasscode
-                  ? "passcode"
-                  : step === "signIn"
-                    ? "email"
-                    : step === "password"
-                      ? "password"
-                      : step.email
-              }
+              animationKey={needsPasscode ? "passcode" : step === "password" ? "password" : "signIn"}
             >
           {needsPasscode ? (
             <>
@@ -550,7 +524,11 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         />
                       </span>
                     </label>
-                    {error ? <p className="mt-3 text-sm font-bold text-red-700">{error}</p> : null}
+                    {error && !showReset ? (
+                      <p className="mt-3 text-sm font-bold text-red-700" role="alert">
+                        {error}
+                      </p>
+                    ) : null}
                     {notice ? (
                       <p className="mt-3 text-sm font-bold text-emerald-700">{notice}</p>
                     ) : null}
@@ -581,37 +559,74 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         ? "Belum punya akun? Daftar saja"
                         : "Sudah punya akun? Masuk saja"}
                     </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="mt-1 min-h-11 w-full text-sm"
-                      onClick={() => {
-                        setError(null);
-                        setNotice(null);
-                        setStep("signIn");
-                      }}
-                      disabled={isLoading}
-                    >
-                      Kembali ke kode email
-                    </Button>
+                    {showReset ? (
+                      <div className="mt-4 border-t border-slate-200 pt-4">
+                        <p className="text-sm leading-6 text-slate-600">
+                          Tautan untuk membuat sandi baru dikirim ke email itu. Satu
+                          akun satu email, jadi tautannya hanya berlaku sekali dan
+                          hanya untuk orang yang memegang kotak masuk tersebut.
+                        </p>
+                        <label className="mt-3 flex flex-col gap-2">
+                          <span className="text-sm font-extrabold text-slate-800">
+                            Email untuk tautan reset
+                          </span>
+                          <Input
+                            name="resetEmail"
+                            type="email"
+                            autoComplete="email"
+                            placeholder="nama@email.com"
+                            className="min-h-12 text-base"
+                            value={resetEmail}
+                            onChange={(event) => setResetEmail(event.target.value)}
+                            disabled={isLoading}
+                            required
+                          />
+                        </label>
+                        {error ? (
+                          <p className="mt-3 text-sm font-bold text-red-700" role="alert">
+                            {error}
+                          </p>
+                        ) : null}
+                        <Button
+                          type="button"
+                          className="mt-4 min-h-12 w-full text-base"
+                          onClick={() => {
+                            void handlePasswordReset();
+                          }}
+                          disabled={isLoading}
+                        >
+                          {isLoading ? <Loader2 className="size-5 animate-spin" /> : null}
+                          {isLoading ? "Mengirim..." : "Kirim tautan reset"}
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="mt-1 min-h-11 w-full text-sm"
+                        onClick={() => {
+                          setError(null);
+                          setNotice(null);
+                          setShowReset(true);
+                        }}
+                        disabled={isLoading}
+                      >
+                        Lupa sandi?
+                      </Button>
+                    )}
                   </CardContent>
                 </form>
               ) : (
-              <form onSubmit={handleEmailSubmit}>
+              <div>
                 <CardContent>
-                  {/* FASE 9.2 - urutan pintu masuk.
+                  {/* FASE 9.2 - satu-satunya pintu masuk yang tersisa.
 
-                      Kredensial OTP milik Freebuff tidak bisa dipindahkan ke
-                      akun Convex milik pemilik sendiri, jadi jalur ini tidak
-                      akan pernah bisa mengirim kode lagi. Selama tombolnya
-                      masih yang paling menonjol, pengunjung pertama yang
-                      menekan akan berakhir di jalan buntu.
-
-                      Karena itu, kalau Firebase terkonfigurasi, ia yang jadi
-                      pintu masuk utama dan OTP turun ke bawah pemisah. Kalau
-                      BELUM terkonfigurasi, blok ini tidak dirender sama sekali
-                      dan OTP tetap satu-satunya isi form - ini bukan pilihan
-                      desain, hanya konsekuensi dari env var build. */}
+                      Provider `email-otp` sudah dihapus (lihat `src/convex/auth.ts`),
+                      jadi tombol Google dan email-sandi ini sekarang SELURUH isi
+                      layar ini. Karena itu, kalau `firebaseEnabled` false, layar
+                      tidak boleh dibiarkan kosong: orang akan mengira situsnya rusak
+                      lalu pergi. Blok di bawahnya menjelaskan apa yang belum
+                      terisi dan apa yang harus diperbaiki administrator. */}
                   {firebaseEnabled ? (
                     <>
                       <Button
@@ -649,43 +664,29 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         <span className="h-px flex-1 bg-slate-200" />
                       </div>
                     </>
+                  ) : (
+                    <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-4">
+                      <p className="text-sm font-black text-slate-900">
+                        Pintu masuk belum siap di lingkungan ini.
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        Masuk dengan Google dan masuk dengan email serta sandi
+                        keduanya membaca satu konfigurasi Firebase yang belum
+                        terisi pada build ini, jadi tidak ada pintu yang bisa dibuka
+                        sekarang. Administrator perlu mengisi kunci API web
+                        Firebase, lalu memuat ulang halaman ini. Sesi yang sudah
+                        terbentuk tidak ikut hilang karena itu.
+                      </p>
+                    </div>
+                  )}
+                  {notice ? (
+                    <p className="mt-3 text-sm font-bold text-emerald-700">{notice}</p>
                   ) : null}
-                  <label className="flex flex-col gap-2">
-                    <span className="text-sm font-extrabold text-slate-800">Email</span>
-                    <span className="relative">
-                      <Mail className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-blue-600" />
-                      <Input
-                        name="email"
-                        placeholder="nama@email.com"
-                        type="email"
-                        autoComplete="email"
-                        className="min-h-12 pl-11 text-base"
-                        disabled={isLoading}
-                        required
-                      />
-                    </span>
-                  </label>
-                  {error ? (
+                  {error && !showReset ? (
                     <p className="mt-3 text-sm font-bold text-red-700" role="alert">
                       {error}
                     </p>
                   ) : null}
-                  {notice ? (
-                    <p className="mt-3 text-sm font-bold text-emerald-700">{notice}</p>
-                  ) : null}
-                  <Button
-                    type="submit"
-                    variant={firebaseEnabled ? "ghost" : "default"}
-                    className={
-                      firebaseEnabled
-                        ? "min-h-11 w-full text-sm"
-                        : "mt-5 min-h-12 w-full text-base"
-                    }
-                    disabled={isLoading}
-                  >
-                    {isLoading ? <Loader2 className="size-5 animate-spin" /> : <ArrowRight className="size-5" />}
-                    Kirim kode masuk
-                  </Button>
                   {/* Tidak ada "Masuk sebagai tamu" di halaman ini, dan
                       sengaja tidak akan ditambah lagi. Akun anonim tidak punya
                       email, jadi begitu peran pengelola diberikan padanya,
@@ -693,67 +694,10 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       yang membuat seluruh deployment terkunci. Satu akun per
                       orang, satu email nyata, satu akun yang bisa dipulihkan. */}
                 </CardContent>
-              </form>
+              </div>
               )}
             </>
-          ) : (
-            <>                <CardHeader className="text-center">
-                {passcodeGranted ? (
-                  <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-extrabold text-emerald-800">
-                    <ShieldCheck className="size-4" aria-hidden="true" />
-                    Passcode terverifikasi
-                  </p>
-                ) : null}
-                <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Kode 6 digit</p>
-                <CardTitle className="mt-2 text-2xl font-black tracking-[-0.035em] text-slate-950 sm:text-3xl">Periksa email Anda</CardTitle>
-                <CardDescription className="break-all text-base leading-7">
-                  Kami mengirim kode ke {step.email}.
-                </CardDescription>
-              </CardHeader>
-              <form onSubmit={handleOtpSubmit}>
-                <CardContent>
-                  <input type="hidden" name="email" value={step.email} />
-                  <input type="hidden" name="code" value={otp} />
-                  <div className="flex justify-center py-3 sm:py-4">
-                    <InputOTP
-                      value={otp}
-                      onChange={setOtp}
-                      maxLength={6}
-                      disabled={isLoading}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" && otp.length === 6 && !isLoading) {
-                          const form = (event.target as HTMLElement).closest("form");
-                          if (form) form.requestSubmit();
-                        }
-                      }}
-                    >
-                      <InputOTPGroup className="[&_[data-slot=input-otp-slot]]:h-10 [&_[data-slot=input-otp-slot]]:w-10 [&_[data-slot=input-otp-slot]]:text-base sm:[&_[data-slot=input-otp-slot]]:h-12 sm:[&_[data-slot=input-otp-slot]]:w-12 sm:[&_[data-slot=input-otp-slot]]:text-lg">
-                        {Array.from({ length: 6 }).map((_, index) => (
-                          <InputOTPSlot key={index} index={index} />
-                        ))}
-                      </InputOTPGroup>
-                    </InputOTP>
-                  </div>
-                  {error ? <p className="mt-3 text-center text-sm font-bold text-red-700">{error}</p> : null}
-                  <p className="mt-4 text-center text-sm leading-6 text-slate-600">
-                    Tidak menerima kode?{" "}
-                    <button type="button" onClick={() => setStep("signIn")} className="min-h-12 rounded-lg px-2 font-extrabold text-blue-700 hover:bg-blue-50">
-                      Kirim ulang
-                    </button>
-                  </p>
-                </CardContent>
-                <CardFooter className="flex-col gap-2">
-                  <Button type="submit" className="min-h-12 w-full text-base" disabled={isLoading || otp.length !== 6}>
-                    {isLoading ? <Loader2 className="size-5 animate-spin" /> : <ArrowRight className="size-5" />}
-                    {isLoading ? "Memverifikasi..." : "Verifikasi kode"}
-                  </Button>
-                  <Button type="button" variant="ghost" className="min-h-12 w-full text-base" onClick={() => setStep("signIn")} disabled={isLoading}>
-                    Gunakan email lain
-                  </Button>
-                </CardFooter>
-              </form>
-            </>
-          )}
+          ) : null}
             </AnimatedContent>
           </Card>
           </GlassSurface>

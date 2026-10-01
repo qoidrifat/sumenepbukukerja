@@ -19,11 +19,9 @@ ada di `PHASE-9.1-SECURITY-CLOSURE-REPORT.md`.
 
 ## F-17a — Mengaktifkan Firebase Authentication (P0, untuk akun produksi)
 
-Bagian ini ditambahkan 2026-09-30. Provider `firebase` sudah ada di kode
-(`src/convex/auth/firebase.ts`) dan sudah terverifikasi lewat 13 test
-(`src/convex/firebase-auth-security.test.ts`), tapi **tidak akan aktif sampai
-env var di bawah diisi**. Tanpa itu, halaman `/auth` hanya menampilkan alur OTP
-dan tombol Google sengaja disembunyikan.
+Bagian ini ditambahkan 2026-09-30 dan diperbarui 2026-10-01 setelah migrasi
+selesai. Provider `firebase` sudah aktif di kedua deployment dan Google sign-in
+sudah terbukti bekerja. JALUR EMAIL-OTP SUDAH DIHAPUS.
 
 ### Kenapa ini perlu
 
@@ -34,25 +32,24 @@ berbayar dan tanpa domain pengirim milik sendiri.
 
 ### Env var yang wajib diisi
 
-Di **Convex** (backend), per deployment - `focused-lemur-389` dan
+Hanya satu, di **Convex** (backend), per deployment - `focused-lemur-389` dan
 `qualified-chameleon-491`:
 
 | Nama | Isi | Mandatory |
 |---|---|---|
-| `FIREBASE_PROJECT_ID` | Project ID dari Firebase Console, misal `sumenep-buku-kerja` | Ya |
+| `FIREBASE_PROJECT_ID` | Project ID dari Firebase Console | Ya |
 
-Di **lingkungan build** (bukan Convex) - ini dibaca Vite saat build, jadi nilainya
-masuk ke bundel peramban:
+**`VITE_FIREBASE_*` TIDAK lagi dipakai.** Pipeline build platform Freebuff
+mengenskripsi setiap nilai environment yang ditambahkan operator; di bundel
+nilainya muncul sebagai `"encrypted:..."`, yang ditolak Firebase sebagai API key
+tidak sah. Nilai aslinya sekarang tersimpan di
+`src/lib/firebase-web-config.ts` dan dipakai sebagai cadangan. `readConfig()`
+membaca env lebih dulu, jadi kalau suatu saat platform berhenti mengenskripsi,
+env otomatis menang tanpa perubahan kode lagi.
 
-| Nama | Isi | Mandatory |
-|---|---|---|
-| `VITE_FIREBASE_API_KEY` | Web API key di Firebase Console > Project settings > General | Ya |
-| `VITE_FIREBASE_AUTH_DOMAIN` | `NAMAPROJECT.firebaseapp.com` | Ya |
-| `VITE_FIREBASE_PROJECT_ID` | Sama dengan `FIREBASE_PROJECT_ID` di atas | Ya |
-
-Nilai `VITE_FIREBASE_API_KEY` **bukan rahasia** dan memang wajib ada di sisi
-klien - itu aturan Firebase. Yang tidak boleh pernah ada di repo maupun bundel:
-service account JSON, private key, dan admin credential.
+Nilai Web API key **bukan rahasia** dan memang wajib ada di sisi klien - itu
+aturan Firebase. Yang tidak boleh pernah ada di repo maupun bundel: service
+account JSON, private key, dan admin credential.
 
 ### Di Firebase Console
 
@@ -74,13 +71,60 @@ service account JSON, private key, dan admin credential.
 4. Cek `users:adminSetupStatus` di deployment itu. Akun Google dengan email
    yang sama harus TERHUBUNG ke akun lama: `staffCount` tidak boleh naik,
    karena `shouldLinkViaEmail` menyatukannya, bukan membuat akun baru.
-5. `bun run test` harus tetap 829/829.
+5. `bun run test` harus tetap hijau (target saat ini 59 berkas / 837 test).
 
-### Yang sengaja tidak diubah
+### Jalur email-otp: SUDAH DIHAPUS (2026-10-01)
 
-Provider `emailOtp` tetap terdaftar. Jangan dihapus hanya karena kuncinya
-belum ada - kalau kuncinya suatu saat tersedia lagi, alur itu harus langsung
-hidup tanpa perubahan kode.
+Keputusan produk, bukan kegagalan teknis. Provider `email-otp`, berkas
+`src/convex/auth/emailOtp.ts`, dan form OTP di `/auth` semuanya dihapus.
+
+Alasannya:
+
+1. `VLY_EMAIL_OTP_API_KEY` adalah kredensial platform Freebuff. Tidak bisa
+   dibuat ulang di akun Convex milik pemilik, jadi jalur itu tidak akan pernah
+   bisa mengirim kode.
+2. Selama provider-nya masih terdaftar, `/auth` menampilkan satu klik yang
+   pasti berakhir di jalan buntu. Kode mati lebih mahal daripada kode tidak
+   ada.
+3. Penggantinya sudah ada dan gratis: Google dan Email/Sandi lewat Firebase.
+   Verifikasi email di Firebase punya kuota 1.000/hari di plan Spark, jauh
+   melebihi kebutuhan.
+4. Opsi "email tanpa sandi" (magic link) tidak diambil karena batas email link
+   sign-in di plan gratis hanya 5 email/hari. Itu bukan gratis, itu tidak
+   berfungsi.
+
+Akun yang sudah ada TIDAK terhapus; hanya kemampuannya masuk lewat provider itu
+yang hilang. Pengelola produksi yang masuk lewat Google tidak terpengaruh.
+
+Untuk pasang ulang `STAFF_BOOTSTRAP_EMAILS`, lihat F-08.
+
+### Reset sandi
+
+`/auth` punya alur **Lupa sandi?** yang memanggil `sendPasswordResetEmail`.
+Tautannya kembali ke `/auth?oobCode=...` dan ditangani
+`src/components/reset-password-form.tsx`.
+
+Dua aturan yang dijaga:
+
+- Pesan yang tampil **sama** apakah email-nya terdaftar atau tidak. Kalau
+  dibedakan, halaman publik berubah jadi alat menebak email yang punya akun.
+- Kode diverifikasi sebelum sandi bisa ditulis, jadi tautan kedaluwarsa atau
+  yang sudah dipakai tidak bisa mengubah kata sandi siapa pun.
+
+Dua hal yang harus dipastikan operator di Firebase Console sebelum reset bisa
+digerakkan, karena keduanya gagal dari sisi server dan tidak kelihatan dari
+kode mana pun:
+
+1. **Sign-in provider Email/Password harus aktif.** Kalau tidak, permintaannya
+   ditolak dengan `auth/operation-not-allowed`.
+2. **Domain produksi harus ada di daftar Authorized domains.** Kalau tidak,
+   tautannya ditolak dengan `auth/unauthorized-domain`. Domain yang dipakai
+   adalah `sumenepbukukerja.freebuff.app`.
+
+Kalau salah satu belum beres, halaman `/auth` akan menampilkan penjelasan, bukan
+layar kosong. `src/pages/auth-password-reset.test.ts` mengunci hal itu.
+
+Jejak OTP yang masih ada di `e2e/flows.spec.ts` adalah komentar historis.
 
 ---
 
@@ -105,7 +149,7 @@ Temuan asli F-01 punya dua bagian, dan hanya satu yang berakar pada nilai:
 | Bagian temuan | Status | Alasan |
 |---|---|---|
 | Nilai literal ada di berkas | Sudah diperbaiki | Kode membaca dari env. Repository tidak memuat nilai. |
-| `JSON.stringify(error)` menyalin header `x-api-key` ke respons pemanggil anonim | Sudah diperbaiki | Objek error penyedia tidak lagi ikut ke pesan. Dikunci `src/convex/otp-provider-security.test.ts`. |
+| `JSON.stringify(error)` menyalin header `x-api-key` ke respons pemanggil anonim | Sudah diperbaiki, lalu jalurnya dihapus | Objek error penyedia tidak lagi ikut ke pesan. Test yang mengunci aturan itu, `src/convex/otp-provider-security.test.ts`, ikut dihapus pada 2026-10-01 bersama provider-nya. |
 | Rotasi nilai | **Tidak berlaku** | Nilai milik platform, tidak bisa dicabut dari sisi proyek. |
 
 Bagian kedua inilah yang sebenarnya berbahaya, dan bagian itulah yang sudah
@@ -114,14 +158,17 @@ platform - bukan takeover akun, bukan kebocoran data warga.
 
 ### Prosedur yang tersisa (bukan rotasi)
 
-Tidak ada langkah rotasi. Yang perlu dilakukan operator:
+**Tidak ada satu pun langkah yang tersisa.** Jalur yang memakai kredensial itu
+dihapus pada 2026-10-01 (lihat bagian "Jalur email-otp: SUDAH DIHAPUS" di atas),
+jadi tidak ada kode di repo ini yang membaca `VLY_EMAIL_OTP_API_KEY`. Yang
+sekarang perlu dilakukan operator:
 
 1. **Jangan** menuliskan nilai kredensial ke mana pun - dokumen, issue, chat,
    atau log.
-2. Pastikan `VLY_EMAIL_OTP_API_KEY` tetap terisi di Keys, karena kode gagal
-   dengan pesan jelas bila env kosong.
+2. Variabel `VLY_EMAIL_OTP_API_KEY` boleh dikosongkan atau dihapus dari Keys.
+   Menghapusnya bebas risiko sekarang, karena tidak ada kode yang membacanya.
 3. Bila Freebuff suatu saat mengganti nilai bawaannya, tidak ada tindakan yang
-   perlu diambil: proyek mengambil nilai baru dari env tanpa perubahan kode.
+   perlu diambil: proyek tidak pernah memakainya lagi.
 4. Catat keputusan ini beserta sumber konfirmasinya (tim Freebuff, kanal
    komunitas resmi, tanggal) di `PHASE-9.1-SECURITY-CLOSURE.md` bagian F-01.
 
@@ -133,11 +180,12 @@ sendiri, dan nilai itu bukan rahasia proyek. Putusan ini sudah dicatat.
 
 ### Kalau suatu saat platform mengaktifkan rotasi
 
-Bila Freebuff menyediakan mekanisme rotasi per-deploy, prosedur sebenarnya
-adalah: buat nilai baru di platform, pasang ke `VLY_EMAIL_OTP_API_KEY`, deploy,
-verifikasi OTP sign-in di `/auth`, **lalu** cabut yang lama di platform.
-Urutan "cabut dulu, baru buat" tidak boleh dipakai - di antara keduanya tidak
-ada satu pun akun yang bisa masuk.
+**Tidak berlaku lagi.** Rotasi hanya masuk akal kalau ada kode yang memakai
+kuncinya; sekarang tidak ada. Kalau suatu saat proyek memakai ulang penyedia
+email itu, prosedurnya tetap: buat nilai baru di platform, pasang, deploy,
+verifikasi **sign-in email dan sandi** di `/auth`, **lalu** cabut yang lama di
+platform. Urutan "cabut dulu, baru buat" tidak boleh dipakai - di antara
+keduanya tidak ada satu pun akun yang bisa masuk.
 
 ---
 
@@ -164,8 +212,9 @@ Kode pemulihan dan test-nya tidak boleh diperlemah. Yang berubah hanya nilai
    (tanpa sesi sudah cukup) dan catat `staffCount` serta `hasAnyStaff`.
    Saat evidence terakhir diambil, `staffCount = 3` dan `hasAnyStaff = true`.
 2. **Verifikasi pemulihan tidak dibutuhkan.** Pastikan setiap pengelola punya
-   akun aktif yang bisa masuk lewat OTP. Kalau ada pengelola yang belum pernah
-   masuk, selesaikan dulu - jangan matikan allowlist sebelum itu.
+   akun aktif yang bisa masuk lewat Google atau email dan sandi. Kalau ada
+   pengelola yang belum pernah masuk, selesaikan dulu - jangan matikan
+   allowlist sebelum itu.
 3. **Hapus `STAFF_BOOTSTRAP_EMAILS`** dari Keys/API keys (hapus variablanya,
    jangan hanya dikosongkan, supaya tidak bisa terisi kembali tidak sengaja).
 4. **Deploy ulang / restart** deployment bila perlu.
@@ -301,7 +350,7 @@ Jangan tertukar dua kelompok env var ini:
 | Env var | Ditaruh di | Dipakai untuk |
 |---|---|---|
 | `VITE_CONVEX_URL` | tempat build berjalan | backend yang dipanggil frontend, bake saat build. Kalau publish dari Freebuff, ini milik Freebuff dan tidak bisa diubah dari akun Vercel sendiri. |
-| `VLY_EMAIL_OTP_API_KEY` | Convex | pengiriman OTP |
+| `VLY_EMAIL_OTP_API_KEY` | Convex | tidak lagi dipakai - jalur OTP dihapus 2026-10-01 |
 | `STAFF_BOOTSTRAP_EMAILS` | Convex | allowlist pemulihan admin |
 | `SITE_URL` | Convex | host untuk sitemap dan robots |
 | `ADMIN_CONTEXT_ALLOWED_ORIGINS` | Convex | allowlist CORS beacon admin |
@@ -413,7 +462,7 @@ Prosedur bila ingin mengetatkan:
 
 | Temuan | Tindakan | Verifikasi | Bisa dikerjakan agent? |
 |---|---|---|---|
-| F-01 | Tidak ada rotasi; kunci adalah bawaan platform. Jaga env tetap terisi | OTP masuk di `/auth` | Tidak ada tindakan yang tersisa |
+| F-01 | Tidak ada rotasi; kunci adalah bawaan platform, dan jalur yang memakainya sudah dihapus | Tidak ada kode yang membaca `VLY_EMAIL_OTP_API_KEY` | Tidak ada tindakan yang tersisa |
 | F-08 | Hapus `STAFF_BOOTSTRAP_EMAILS` (dev sudah selesai; produksi menilai ulang setelah deploy) | Terukur 2026-09-30 di `qualified-chameleon-491`: `available = false`, `staffCount = 3` | Sudah (operator) |
 | F-09 | Tetapkan origin produksi, uji 6 route | Status per route di kedua origin | Sebagian (probe sudah ada) |
 | F-11a | Header keamanan di origin frontend | Header yang benar-benar terlihat di respons origin | Tidak |

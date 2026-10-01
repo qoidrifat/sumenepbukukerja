@@ -171,7 +171,11 @@ export function AdminProfile() {
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="admin-dialog-content" overlayClassName="admin-dialog-overlay">
+        <DialogContent
+          className="admin-dialog-content mx-auto"
+          overlayClassName="admin-dialog-overlay"
+          showCloseButton={false}
+        >
           <div className="border-b-2 border-[#121212] bg-[#FFE662] px-4 py-4 sm:px-5">
             <p className="text-[0.7rem] font-black uppercase tracking-[0.14em] text-[#525252]">
               Akun pengelola
@@ -256,7 +260,7 @@ export function AdminProfile() {
               </p>
               {picked && pending ? (
                 <p className="mt-2 break-all text-xs font-bold text-[#525252]">
-                  {picked.name} · {formatBytes(picked.size)} · siap disimpan
+                  {picked.name}, {formatBytes(picked.size)}, siap disimpan
                 </p>
               ) : null}
               <input

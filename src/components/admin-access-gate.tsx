@@ -38,8 +38,9 @@ const STAFF_ROLE_CARDS = [
 
 /**
  * Halaman "/admin" untuk siapa pun yang belum berhak: tamu yang belum masuk
- * maupun warga yang sudah masuk tetapi belum punya peran.instead of redirect,
- *cbi menjelaskan di sini supaya tidak terasa seperti halaman rusak.
+ * maupun warga yang sudah masuk tetapi belum punya peran. Alih-alih
+ * dialihkan begitu saja, garis penyebabnya dijelaskan di sini supaya tidak
+ * terasa seperti halaman rusak.
  */
 export type AdminAccessGateState = {
   signedIn: boolean;
@@ -59,7 +60,7 @@ export type AdminAccessGateState = {
 const BLOCKER_GUIDE: Record<string, { title: string; body: string }> = {
   noEmail: {
     title: "Akun ini masuk sebagai tamu, jadi tidak punya email",
-    body: "Sesi yang sedang dipakai dibuat lewat Mode tamu, sehingga tidak tercatat email sama sekali. Allowlist tidak akan pernah cocok untuk akun tanpa email. Keluar dulu dari akun ini, lalu masuk lagi memakai email Anda dan kode OTP.",
+    body: "Sesi yang sedang dipakai dibuat lewat Mode tamu, sehingga tidak tercatat email sama sekali. Allowlist tidak akan pernah cocok untuk akun tanpa email. Keluar dulu dari akun ini, lalu masuk lagi memakai email Anda, lewat Google atau lewat email dan sandi.",
   },
   notAllowlisted: {
     title: "Email Anda belum terdaftar untuk akses awal",

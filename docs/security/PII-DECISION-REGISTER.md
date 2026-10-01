@@ -1,6 +1,6 @@
 # Register Keputusan PII
 
-Status: **R-1 SELESAI (2026-09-30). R-2, R-3, R-4 masih DECISION REQUIRED.**
+Status: **R-1 dan R-5 SELESAI. R-2, R-3, R-4 masih DECISION REQUIRED.**
 
 Dokumen ini sengaja **tidak** memilih jawaban. Tiga field di bawah masih
 memakai eksposur yang sekarang, dan tidak ada yang bisa diputuskan dari kode:
@@ -9,7 +9,7 @@ produk dan kebijakan privasi, bukan keputusan teknis.
 
 Yang dilakukan di sini:
 
-1. Memb_catatan kondisi sekarang dengan bukti, bukan dengan asumsi.
+1. Mencatat kondisi sekarang dengan bukti, bukan dengan asumsi.
 2. Menuliskan opsi beserta konsekuensi teknis masing-masing.
 3. Menandai siapa yang memutuskan dan kapan.
 
@@ -34,7 +34,7 @@ rekomendasi; itu status.
 | Keputusan | **(a) Tetap publik apa adanya.** 2026-09-30. Alasan yang dicatat: papan permintaan gratis adalah produk; nama membuat warga saling mengenali dan mengurangi pesan tak berbalas, dan nilainya untuk moderasi. Eksposur diterima dengan sadar, bukan diabaikan. |
 | Tanggal keputusan | 2026-09-30 |
 | Dampak kode | **NOL perubahan.** `community:listRequests` sudah tidak mengirim `requesterId` (Fase 9) dan nama yang dikirim berasal dari `publicName` turunan, bukan `users.name` maupun email (Fase 9.2 Tier 5). Opsi (a) tidak menambah beban baru. |
-| Catatan Tier 5 | Kolom koreksi "Nama Anda di papan permintaan" (`src/components/display-name-field.tsx`) tetap ada dan tetap publik. Jadi pengguna bisa memilih apa yang dilihat orang lain - ini membuat opsi (a) lebih baik daripada bentuk (a) yang asli, karena eksposurnya sekarang bisa Knowing disetel sendiri oleh pemiliknya. |
+| Catatan Tier 5 | Kolom koreksi "Nama Anda di papan permintaan" (`src/components/display-name-field.tsx`) tetap ada dan tetap publik. Jadi pengguna bisa memilih apa yang dilihat orang lain - ini membuat opsi (a) lebih baik daripada bentuk (a) yang asli, karena eksposurnya sekarang bisa disetel sendiri oleh pemiliknya. |
 | Sisa risiko yang diterima | Nama orang nyata tampil tanpa persetujuan eksplisit di halaman yang bisa diindeks. Rate of disclosure lebih tinggi dari nomor telepon. Mitigasi yang tersedia: kolom koreksi sekali, dan keputusan tidak menutup kemungkinan ada permintaan penghapusan nama di kemudian hari. |
 
 ---
@@ -62,7 +62,7 @@ rekomendasi; itu status.
 | Kolom | Isi |
 |---|---|
 | Field | `vendors.phone` (string, wajib) |
-| Eksposur sekarang | Publik di katalog. Ini adalah **produk**: seluruh nilaitraktofungsi katalog adalah "hubungi via WhatsApp". |
+| Eksposur sekarang | Publik di katalog. Ini adalah **produk**: seluruh nilai dan fungsi katalog adalah "hubungi via WhatsApp". |
 | Bukti | `public-data-surface.test.ts` secara eksplisit mengharapkan `phone` ada di katalog publik, dan `src/convex/alert-recipient-security.test.ts` menjaga nomor tujuan admin tetap di satu berkas. |
 | Tujuan bisnis | Nomor adalah kontak yang dicari pengguna. Menyingkirkannya menghapus nilai produk. |
 | Risiko privasi | Nomor usaha publik adalah normal di direktori bisnis. Nomor pribadi yang dipakai pemilik listing memiliki risiko scraper lebih tinggi. |
@@ -75,7 +75,7 @@ rekomendasi; itu status.
 
 ---
 
-## R-4 — Nama dan lokasi pada datamoderasi internal
+## R-4 — Nama dan lokasi pada data moderasi internal
 
 | Kolom | Isi |
 |---|---|
@@ -92,6 +92,26 @@ rekomendasi; itu status.
 
 ---
 
+## R-5 — Jalur lupa sandi dan penghapusan jalur OTP
+
+| Kolom | Isi |
+|---|---|
+| Field | `users.email` (alamat masuk warga), akun Firebase yang menyimpan kata sandi |
+| Eksposur sekarang | Tidak ada yang membedakan email terdaftar dari email tidak terdaftar di layar reset. Pesan suksesnya sama persis untuk keduanya, dan kode `auth/user-not-found` ditelan sebelum sempat sampai ke peramban. |
+| Bukti | `src/lib/firebase-client.ts` (`requestPasswordReset`, `RESET_SENT_MESSAGE`), `src/pages/Auth.tsx` (`RESET_SENT`), dan `src/pages/auth-password-reset.test.ts` yang mengunci kedua kalimat itu identik. |
+| Tujuan bisnis | Warga yang lupa kata sandi tidak boleh buntu permanen. Keadaan sebelumnya: satu-satunya jalan masuk adalah kode OTP, dan kunci pengirimnya tidak bisa dibuat ulang di akun pemilik. |
+| Risiko privasi | Kalau layar reset membedakan email terdaftar dan tidak, `/auth` berubah jadi alat pemetaan: siapa pun bisa mengetes apakah seorang warga punya akun di aplikasi ini, satu per satu. |
+| Opsi | (a) Satu pesan untuk semua orang. (b) Bedakan secara eksplisit. (c) Tambahkan verifikasi Captcha untuk membatasi laju. |
+| Konsekuensi teknis | (a) tanpa perubahan, sudah dikerjakan. (b) tidak boleh. (c) memerlukan layanan pihak ketiga baru dan hanya membatasi laju tebakan, bukan enumerasinya. |
+| Yang TIDAK boleh dilakukan | Menampilkan "email tidak terdaftar" dari kode Firebase apa pun, lewat halaman ini maupun lewat pesan error lain. |
+| Pemilik keputusan | Product owner |
+| Keputusan | **(a) satu pesan untuk semua orang, sekalian menghapus jalur OTP.** 2026-10-01. Dua hal diputuskan bersama: provider `email-otp` dihapus karena kuncinya tidak bisa dibuat ulang dan jalur yang terdaftar tapi pasti gagal lebih buruk daripada tidak ada; lupa sandi diisi memakai email Firebase sendiri dengan kuota 1.000/hari, tanpa menambah layanan baru. |
+| Tanggal keputusan | 2026-10-01 |
+| Langkah berikutnya | Kalau data menunjukkan banyak warga tanpa akun Google, langkah berikutnya adalah magic link lewat Resend - sebagai tambahan, bukan pengganti, dan hanya setelah keadaan sekarang stabil. |
+| Dampak kode | `requestPasswordReset` dan `completePasswordReset` di `src/lib/firebase-client.ts`, `src/components/reset-password-form.tsx`, dan cabang `oobCode` di `src/pages/Auth.tsx`. |
+
+---
+
 ## Aturan yang berlaku sampai ada keputusan
 
 - Tidak ada perubahan kode pada R-1 sampai R-3 tanpa keputusan tertulis di
@@ -103,3 +123,7 @@ rekomendasi; itu status.
 - Enkripsi field **tidak** adalah jawaban untuk R-1 sampai R-3. Data ini harus
   tetap terbaca server untuk fitur yang berjalan; yang menentukan paparan adalah
   batas akses dan bentuk data, bukan enkripsi at rest.
+- R-5 SUDAH punya keputusan tertulis. Aturan yang mengikat: pesan reset sandi
+  tidak boleh pernah membedakan email terdaftar dan tidak, di halaman maupun di
+  modul klien. Kalau suatu saat perlu diubah, ikut sertakan test yang mengunci
+  bentuk barunya.

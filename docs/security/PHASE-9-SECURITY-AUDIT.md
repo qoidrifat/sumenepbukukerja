@@ -14,8 +14,14 @@ konfigurasi yang hanya bisa ditutup oleh operator.**
 > Dokumen ini adalah catatan audit Fase 9 pada tanggal di atas, bukan status
 > saat ini. Sumber status yang berlaku ada di `PHASE-9.1-SECURITY-CLOSURE.md`.
 > Contoh perubahan sejak itu: F-08 sudah `CLOSED` (operator menghapus
-> `STAFF_BOOTSTRAP_EMAILS` pada 2026-09-30) dan F-01 menjadi
-> `RISK ACCEPTED - PLATFORM MANAGED`, bukan P0 terbuka.
+> `STAFF_BOOTSTRAP_EMAILS` pada 2026-09-30), F-01 menjadi
+> `RISK ACCEPTED - PLATFORM MANAGED`, bukan P0 terbuka, dan pada 2026-10-01
+> jalur OTP-nya sendiri DIHAPUS: provider `email-otp`, berkas
+> `src/convex/auth/emailOtp.ts`, serta `otp-provider-security.test.ts` tidak
+> ada lagi di repo. Penggantinya provider `firebase` (Google dan Email/Sandi).
+> Jadi setiap kalimat di bawah yang menyebut `emailOtp`, `VLY_EMAIL_OTP_API_KEY`,
+> atau `otp-provider-security.test.ts` menggambarkan keadaan waktu audit, bukan
+> keadaan sekarang.
 
 ---
 
@@ -91,6 +97,10 @@ read-only ke deployment, perbandingan sebelum/sesudah.
   di `vendors.ts` dan `community.ts`.
 - **AuthN:** Convex Auth dengan provider `emailOtp` dan `Anonymous`. Tidak ada
   password. Token JWT disimpan klien di `localStorage` (mekanisme bawaan).
+  - **Fase 9.2 (2026-10-01):** `emailOtp` dihapus dan diganti provider
+    `firebase`, jadi sekarang ada Google dan Email/Sandi plus lupa sandi.
+    `Anonymous` tetap ada karena mengeluarkannya akan memutus sesi tamu yang
+    sedang berjalan.
 - **Storage:** blob privat di `_storage`; tidak ada URL publik permanen. Semua
   URL yang keluar adalah URL bertanda tangan hasil `ctx.storage.getUrl`.
 - **Deploy yang diuji adalah deployment DEV.** Perbedaan ini penting untuk
@@ -299,9 +309,9 @@ kemungkinan, severity, root cause, fix, regression test, verifikasi, status.
 - **Aset:** peran `admin`.
 - **Bukti (probe, tanpa sesi):** `users:bootstrapAdministratorAvailable` →
   `{"available": true}`; `users:adminSetupStatus` → `staffCount: 3`.
-- **Prasyarat:**-controlled atas mailbox yang emailnya ada di
-  `STAFF_BOOTSTRAP_EMAILS` (OTP email harus diterima di alamat itu). Tidak ada
-  kedaluwarsa, notifikasi, atau batas percobaan.
+- **Prasyarat:** kontrol atas mailbox yang emailnya ada di
+  `STAFF_BOOTSTRAP_EMAILS` (email yang dipakai masuk harus diterima di alamat
+  itu). Tidak ada kedaluwarsa, notifikasi, atau batas percobaan.
 - **Dampak:** bila salah satu alamat allowlist tidak lagi milik admin aktif,
   siapa pun yang menguasai mailbox itu bisa mengambil peran admin penuh.
   **Severity: MEDIUM** (naik menjadi HIGH bila allowlist memuat alamat yang
@@ -399,6 +409,8 @@ kemungkinan, severity, root cause, fix, regression test, verifikasi, status.
 - **Bukti:** `e2e/flows.spec.ts` mencari label "sandi/password", sedangkan auth
   proyek memakai OTP email. Test itu sudah dilewati dari Fase 8, bukan diperbaiki,
   karena memperbaiki auth demi menghijaukan test tidak boleh terjadi.
+  - **Fase 9.2:** jalur email dan sandi sudah ada lewat Firebase, jadi
+    penghalangnya bergeser ke satu akun uji Firebase, bukan arsitektur auth.
 - **Severity: LOW.** **Status: OPEN** (perbaikan perlu kredensial uji yang tidak
   tersedia untuk agent).
 
@@ -408,7 +420,7 @@ kemungkinan, severity, root cause, fix, regression test, verifikasi, status.
 
 | ID | Perbaikan | File | Test |
 |---|---|---|---|
-| F-01 | Kunci OTP dari environment; error axios tidak pernah ikut ke pesan | `src/convex/auth/emailOtp.ts` | `otp-provider-security.test.ts` |
+| F-01 | Kunci OTP dari environment; error axios tidak pernah ikut ke pesan | `src/convex/auth/emailOtp.ts` (-dihapus 2026-10-01) | `otp-provider-security.test.ts` (dihapus juga; digantikan `firebase-auth-security.test.ts`) |
 | F-02 | `getImageUrl` hanya untuk blob terbukti publik; indeks `byPhotoId` | `src/convex/vendors.ts`, `src/convex/schema.ts` | `security-surface.test.ts` |
 | F-03 | `listPackages` memeriksa status listing | `src/convex/community.ts` | `security-surface.test.ts` |
 | F-04 | Proyeksi eksplisit galeri foto | `src/convex/community.ts` | `security-surface.test.ts` |
@@ -529,10 +541,13 @@ Test keamanan baru:
 
 - `src/convex/security-surface.test.ts` — 15 test (F-02 enam, F-03 tiga, F-04 dua,
   F-05 dua, F-07 satu, F-06 satu).
-- `src/convex/otp-provider-security.test.ts` — 3 test (F-01).
+- `src/convex/otp-provider-security.test.ts` — 3 test (F-01). Berkas ini sudah
+  DIHAPUS pada 2026-10-01 bersama provider-nya; penggantinya
+  `src/convex/firebase-auth-security.test.ts` (16 test) plus
+  `src/lib/firebase-client.test.ts` (6 test).
 
 Test lama yang tetap mengunci perilaku ini: `public-data-surface.test.ts` (6),
-`realtime.test.ts` (83, termasuk security desk, passcode, pencabutan sesi, OTP),
+`realtime.test.ts` (83, termasuk security desk, passcode, dan pencabutan sesi),
 `alert-recipient-security.test.ts` (10), `whatsapp-webhook.test.ts` (14),
 `admin-passcode.test.ts`, `error-reporting.test.ts` (41), `storage.test.ts`,
 `db-efficiency.test.ts`, `data-retention.test.ts`, `backup-recovery.test.ts`.
@@ -543,7 +558,7 @@ Test lama yang tetap mengunci perilaku ini: `public-data-surface.test.ts` (6),
 
 | Risiko | Status | Kenapa tidak ditutup |
 |---|---|---|
-| Kunci OTP lama masih hidup di penyedia sampai dirotasi | **OPEN** | butuh akses ke penyedia; agent tidak boleh menyentuh kredensial |
+| ~~Kunci OTP lama masih hidup di penyedia sampai dirotasi~~ | **DITUTUP (2026-10-01)** | jalurnya dihapus, jadi nilai itu tidak lagi dipakai kode mana pun |
 | `STAFF_BOOTSTRAP_EMAILS` masih aktif | **OPEN** | hanya operator yang bisa menghapus dari Keys; menutup jalur=kematian pemulihan |
 | Stack trace masih terlihat di deployment dev | **OPEN (parsial)** | perilaku platform; perlu deployment produksi untuk verifikasi |
 | 5 route HTTP 404 di origin uji | **OPEN** | di luar kendali repo; tidak dipindahkan karena mengubah arsitektur |
@@ -571,7 +586,7 @@ Dipisahkan sesuai aturan: SOURCE / TEST / DEPLOYMENT / EXTERNAL.
 | **DEPLOYMENT (before)** | kebocoran yang sama tercatat | `tmp/qa-p9-public-surface-evidence-BEFORE.json` |
 | **DEPLOYMENT (HTTP)** | **tidak terverifikasi** — 5/5 route 404 | probe yang sama |
 | **DEPLOYMENT (headers)** | **tidak terverifikasi** | probe yang sama |
-| **EXTERNAL** | pengiriman OTP, WhatsApp Meta/Twilio, `wa.me` | **tidak terverifikasi** (butuh kredensial) |
+| **EXTERNAL** | pengiriman email (Firebase, 1.000/hari), WhatsApp Meta/Twilio, `wa.me` | **tidak terverifikasi** (butuh kredensial) |
 
 Probe adalah read-only: hanya `POST /api/query` dengan `header: "anonymous"`
 dan `GET` ke lima route. Tidak ada mutasi, tidak ada akun uji, tidak ada data
@@ -585,8 +600,9 @@ nyata yang disentuh.
 
 - 0 CRITICAL tersisa, 0 HIGH tersisa (syarat keluar fase ini terpenuhi).
 - 1 CRITICAL memerlukan **tindakan operator** sebelum dismantle: putar
-  `VLY_EMAIL_OTP_API_KEY` di Keys. Sampai itu dilakukan, login OTP gagal dengan
-  pesan yang jelas.
+  `VLY_EMAIL_OTP_API_KEY` di Keys. - **DIPERBARUI 2026-10-01:** tindakan ini
+  tidak lagi berlaku. Nilai itu adalah kredensial bawaan platform Freebuff dan
+  jalur yang memakainya sudah dihapus, jadi tidak ada yang perlu diputar.
 - 1 MEDIUM terbuka yang hanya bisa ditutup operator: hapus
   `STAFF_BOOTSTRAP_EMAILS` dari Keys.
 - Sisanya terdokumentasi di bagian 16, dengan batas dan alasannya.

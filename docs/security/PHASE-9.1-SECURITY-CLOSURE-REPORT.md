@@ -19,19 +19,24 @@ Yang tidak boleh hilang dari ringkasan ini:
 - **F-01 tidak bisa dirotasi, dan itu bukan kelemahan audit ini.** Nilai
   `VLY_EMAIL_OTP_API_KEY` adalah kredensial **bawaan platform Freebuff**,
   bukan kunci privat proyek - dikonfirmasi tim Freebuff lewat kanal komunitas
-  resmi. Tidak ada dasbor yang dimiliki operator untuk mencabutnya, sehingga
-  statusnya `RISK ACCEPTED - PLATFORM MANAGED`, bukan P0 terbuka. Jalur yang
+  resmi. Tidak ada dasbor yang dimiliki operator untuk mencabutnya. Jalur yang
   sebenarnya berbahaya - `JSON.stringify(error)` yang menyalin header
-  `x-api-key` ke respons pemanggil anonim - sudah tertutup dan dikunci test.
+  `x-api-key` ke respons pemanggil anonim - sudah ditutup di kode.
+- **F-01 ditutup lebih jauh di Fase 9.2 (2026-10-01): jalurnya dihapus.**
+  Provider `email-otp`, berkas `src/convex/auth/emailOtp.ts`, test-nya, dan
+  form OTP di `/auth` semuanya dibuang, karena kredensialnya tidak bisa dibuat
+  ulang di akun pemilik sementara penggantinya (Google dan Email/Sandi lewat
+  Firebase) sudah ada dan gratis. Statusnya jadi
+  `CLOSED IN CODE - OTP PATH REMOVED`.
 - **F-08 sudah ditutup di deployment yang hidup.** `STAFF_BOOTSTRAP_EMAILS`
   dihapus, dan probe di `qualified-chameleon-491` mengukur ulang:
   `available: false` dengan tiga pengelola tetap utuh.
-- **Produksi belum pernah di-deploy, dan frontend produksi menunjuk backend
-  yang salah.** Owner memindahkan proyek ke akun Convex sendiri. Deployment
-  produksi `focused-lemur-389` menjawab `Server Error` pada semua fungsi, dan
-  build Vercel masih menunjuk `hidden-starfish-79` milik Freebuff yang sudah
-  ditinggalkan. Itu sebabnya OTP gagal dengan
-  `[CONVEX A(auth:signIn)] Server Error`.
+- **Produksi sudah pernah menerima kode, tapi perubahan hari ini belum.**
+  Deployment produksi `focused-lemur-389` sudah pernah di-deploy, dan build
+  Vercel terakhir sudah tidak lagi menunjuk `hidden-starfish-79` milik Freebuff
+  yang sudah ditinggalkan - itu sebabnya `[CONVEX A(auth:signIn)] Server Error`
+  muncul. Yang belum dilakukan ada di sisi operator: `npx convex deploy
+  --env-file deploy-prod.env`, lalu publish ulang di Freebuff.
 - **Tidak ada origin frontend produksi yang otoritatif** di repositori, jadi
   header keamanan frontend (F-11a) berstatus `NOT VERIFIED`, bukan `PASS`.
 - **Satu kesimpulan Fase 9 turns out salah:** route HTTP tidak hilang. Fase 9
@@ -126,11 +131,12 @@ CORS. Wildcard tanpa credentials dipulihkan, jadi tidak ada regresi fungsional.
 
 | Aspek | Status |
 |---|---|
-| Kode | FIXED. Kunci hanya dari `VLY_EMAIL_OTP_API_KEY`; env kosong = gagal dengan pesan jelas; objek error penyedia tidak pernah ikut ke pesan. |
+| Kode | FIXED, lalu jalurnya DIHAPUS (Fase 9.2). Provider `email-otp`, `src/convex/auth/emailOtp.ts`, dan form OTP di `/auth` tidak ada lagi. |
 | Sweep kredensial | Bersih. `src/`, `e2e/`, `docs/`, `tmp/`, dan `dist/` tidak punya literal kredensial di luar nilai sintetis pada test. |
-| Regression test | `src/convex/otp-provider-security.test.ts` lulus. |
+| Regression test | `src/convex/firebase-auth-security.test.ts` (16 test) menggantikan `otp-provider-security.test.ts` yang ikut dihapus bersama jalurnya. |
 | Rotasi di penyedia | **TIDAK BERLAKU.** Nilai adalah kredensial bawaan platform Freebuff, bukan kunci privat proyek. Dikonfirmasi tim Freebuff lewat kanal komunitas resmi. |
-| Status | `RISK ACCEPTED - PLATFORM MANAGED` |
+| Pengganti | Google dan Email/Sandi lewat provider `firebase`, diverifikasi server dengan JWKS resmi Google. Reset sandi memakai email Firebase (1.000/hari), tanpa layanan email baru. |
+| Status | `CLOSED IN CODE - OTP PATH REMOVED` |
 
 Tidak ada nilai kredensial yang ditampilkan di dokumen ini, dan tidak ada yang
 disalin ke mana pun.
@@ -334,7 +340,7 @@ Tidak ada regresi Fase 1-8. Fase 8 hanya dibaca, tidak ditulis ulang.
 |---|---|---|
 | Push + typecheck | `bunx convex dev --once` | PASS |
 | Typecheck | `bunx tsc -b --noEmit` | PASS, 0 error |
-| Unit test | `bun run test` | **58 berkas, 816 test, 816 lulus, 0 gagal, 0 dilewati** |
+| Unit test | `bun run test` | **60 berkas, 847 test, 847 lulus, 0 gagal, 0 dilewati** |
 | E2E | `bun run test:e2e` | **32 lulus, 0 gagal, 10 dilewati** |
 | Build | `bun run build` | PASS |
 | Lint | `bun run lint` | 0 error, 26 warning (sudah ada sebelumnya) |
@@ -347,16 +353,21 @@ Test keamanan yang dijalankan terpisah:
 |---|---|
 | `security-surface.test.ts` | 27 |
 | `http-cors-security.test.ts` | 9 |
-| `otp-provider-security.test.ts` | 3 |
+| `firebase-auth-security.test.ts` | 16 |
+| `firebase-client.test.ts` | 6 |
 | `public-data-surface.test.ts` | 7 |
 | `alert-recipient-security.test.ts` | 10 |
 | `realtime.test.ts` | 83 |
 | `display-name-security.test.ts` | 12 |
-| **Total 7 berkas keamanan** | **151 lulus, 0 gagal** |
+| **Total 8 berkas keamanan** | **170 lulus, 0 gagal** |
 
-Fase 9.2 menambah satu berkas baru, `display-name-security.test.ts` (12 test),
-yang mengunci F-05: nama yang tampil di papan permintaan tidak boleh bisa
-ditelusuri balik ke email, dan kolom koreksi hanya sekali.
+Fase 9.2 menambah `display-name-security.test.ts` (12 test), yang mengunci
+F-05: nama yang tampil di papan permintaan tidak boleh bisa ditelusuri balik ke
+email, dan kolom koreksi hanya sekali. `otp-provider-security.test.ts` ikut
+dihapus bersama provider-nya;Sebagai gantinya ada
+`firebase-auth-security.test.ts` (16 test) dan `firebase-client.test.ts`
+(6 test), plus `src/pages/auth-password-reset.test.ts` (9 test) yang mengunci
+jalur lupa sandi.
 
 Perbandingan dengan baseline Fase 9: 749 menjadi 816 unit test, kenaikan 67
 test. Seluruhnya test baru - tidak ada test lama yang dihapus, dilewati, atau
@@ -399,9 +410,10 @@ Tidak disembunyikan.
    di sana harus dinilai ulang setelah deploy.
 3. **Header keamanan frontend belum ada** dan tidak bisa diverifikasi.
 4. **Nilai OTP masih terbaca lewat Git** (residu, bukan P0). Nilainya adalah
-   bawaan platform yang dipakai bersama, bukan rahasia proyek, dan sudah tidak
-   dipakai kode. Rewrite sejarah tidak direkomendasikan: risikonya lebih besar
-   dari nilai kuncinya sendiri.
+   bawaan platform yang dipakai bersama, bukan rahasia proyek, dan sejak
+   2026-10-01 tidak ada kode mana pun di repo ini yang memakainya. Rewrite
+   sejarah tidak direkomendasikan: risikonya lebih besar dari nilai kuncinya
+   sendiri.
 5. **Plafon global F-06 bisa membekukan angka metrik** dalam jendela satu jam.
    Dampak ke pengguna sudah diverifikasi dari kode: nol. Saat plafon terlampaui
    kedua mutasi itu `return` tanpa melempar error, jadi kotak pencarian dan
@@ -411,8 +423,9 @@ Tidak disembunyikan.
    layanan.
 6. **Papan permintaan publik masih menayangkan nama pemohon** (F-05) sampai
    ada keputusan produk.
-7. **Test E2E dua sesi masih dilewati** karena tidak ada infrastruktur OTP uji
-   (F-17).
+7. **Test E2E dua sesi masih dilewati** (F-17). Penghalangnya sudah bergeser:
+   jalur email dan sandi Firebase tidak butuh mailbox uji, jadi yang dibutuhkan
+   tinggal satu akun uji di Firebase dan test yang ditulis ulang.
 8. **Idempotensi webhook adalah ganti anti-replay.** Kalau suatu saat suatu
    kiriman tanpa `providerMessageId` perlu Trusted Provider untuk
    menghasilkan perubahan state, jendela timestamp harus ditambahkan. Sekarang belum

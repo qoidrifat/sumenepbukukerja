@@ -119,8 +119,8 @@ test.describe("Skenario D — dua sesi", () => {
     //
     // Keterangan yang lebih lama di sini sudah tidak berlaku. Dulu diklaim
     // proyek ini tidak punya autentikasi sandi sama sekali, sehingga test ini
-    // tidak mungkin hijau. Itu benar waktu itu: yang ada hanya `emailOtp` dan
-    // `anonymous`.
+    // tidak mungkin hijau. Itu benar waktu itu: yang ada hanya `anonymous` dan
+    // `emailOtp`, dan `emailOtp` sendiri sudah dihapus pada 2026-10-01.
     //
     // Sekarang provider `firebase` (lihat `src/convex/auth/firebase.ts`)
     // memberi jalur email + sandi yang TIDAK butuh mailbox uji - syarat yang
@@ -128,8 +128,8 @@ test.describe("Skenario D — dua sesi", () => {
     // yang dibutuhkan sekarang adalah satu akun uji di Firebase, plus
     // `E2E_USER_EMAIL` dan `E2E_USER_PASSWORD` yang menunjuk akun itu, dan
     // test di bawah harus diisi lewat form sandi Firebase - bukan
-    // `getByLabel(/sandi|password/i)` yang sekarang menunjuk form yang tidak
-    // ada di layar OTP.
+    // `getByLabel(/sandi|password/i)` yang menunjuk isian di layar yang salah,
+    // karena layar OTP sudah tidak ada.
     //
     // Test ini sengaja TIDAK diubah sekarang. Menghijaukan test dengan
     // menebak-nebak alur login baru akan menghasilkan test yang lulus tanpa

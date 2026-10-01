@@ -689,9 +689,10 @@ const schema = defineSchema(
     // Pengikat percobaan login berhasil ke sesi Convex Auth yang sebenarnya.
     //
     // Percobaan "berhasil" dicatat saat passcode cocok, jadi saat itu BELUM
-    // ada sesi — email OTP dan sign-in baru terjadi sesudahnya. Karena itu
-    // asosiasi ini dibuat belakangan, saat perangkat sudah benar-benar masuk
-    // dan sesi aslinya bisa dibaca dari JWT yang ditandatangani server
+    // ada sesi — verifikasi email di Firebase dan penukaran tiket baru terjadi
+    // sesudahnya. Karena itu asosiasi ini dibuat belakangan, saat perangkat
+    // sudah benar-benar masuk dan sesi aslinya bisa dibaca dari JWT yang
+    // ditandatangani server
     // (`userId|authSessions._id`). Klien tidak pernah mengirim id sesi:
     // kalau begitu, nilainya bisa dipalsukan.
     //

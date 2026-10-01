@@ -10,7 +10,7 @@ Prosedur langkah demi langkah ada di `PHASE-9.1-OPERATOR-RUNBOOK.md`.
 
 | Temuan | Tindakan operator | Verifikasi | Status saat ini |
 |---|---|---|---|
-| F-01 | Tidak ada rotasi. Nilai `VLY_EMAIL_OTP_API_KEY` adalah kredensial **bawaan platform Freebuff**, bukan kunci privat proyek (dikonfirmasi tim Freebuff lewat kanal komunitas resmi). Jaga agar tetap terisi di Keys | OTP sign-in di `/auth` berhasil; `bun run test` tetap hijau | `RISK ACCEPTED - PLATFORM MANAGED` |
+| F-01 | Tidak ada rotasi. Nilai `VLY_EMAIL_OTP_API_KEY` adalah kredensial **bawaan platform Freebuff**. 2026-10-01: jalur OTP **dihapus** karena kuncinya tidak bisa dibuat ulang di akun pemilik | Tidak ada lagi jalur yang bergantung pada kredensial itu; `bun run test` tetap hijau | `CLOSED IN CODE — OTP PATH REMOVED` |
 | F-08 | Dev sudah selesai. Produksi: buat satu pengelola, pastikan ada, baru kunci allowlist | `users:adminSetupStatus` di produksi menjawab `staffCount >= 1` lalu `bootstrapAvailable = false` | `CLOSED` di dev. Produksi sudah ada kodenya, tapi masih `staffCount: 0` dengan `bootstrapAvailable: true` |
 | F-09 | Tetapkan origin produksi (frontend + Convex) dan uji keenam route di kedua origin | Status per route di kedua origin cocok dengan `tmp/qa-p91-closure-evidence.json` untuk `.convex.site` | `PARTLY DONE` - dev terukur, produksi belum |
 | F-11a | Pasang header keamanan (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors) di lapisan penyajian origin frontend | Header terlihat nyata di respons origin frontend; `bun run test:e2e` tetap lulus di origin itu | `BLOCKED — NO AUTHORITATIVE PRODUCTION FRONTEND ORIGIN` |

@@ -30,6 +30,7 @@ const ADMIN_SOURCES = [
   "../components/admin-governance.tsx",
   "../components/admin-invite-link.tsx",
   "../components/admin-loading-skeleton.tsx",
+  "../components/admin-logout-button.tsx",
   "../components/admin-metrics-board.tsx",
   "../components/admin-package-manager.tsx",
   "../components/admin-profile.tsx",
@@ -39,6 +40,7 @@ const ADMIN_SOURCES = [
   "../components/admin-session-revoke.tsx",
   "../components/admin-workspace-hero.tsx",
   "../components/admin-workspace.tsx",
+  "../components/auth-admin-panel.tsx",
   "../pages/Admin.tsx",
 ];
 
@@ -82,11 +84,14 @@ test("tidak ada warna palet aplikasi di ruang pengelola", () => {
 
 test("hex yang dipakai di luar palet admin sudah habis", () => {
   // Palet Warm Brutalism yang sah. Satu-satunya warna di luar daftar ini
-  // pernah muncul adalah Hijau/Oranye turunan yang tidak punya padanan.
+  // pernah muncul adalah Hijau/Oranye turunan yang tidak punya padanan, dan
+  // keempat warna logo Google di bawah. Logo itu merek dagang, bukan pilihan
+  // gaya: warna yang diubah membuat orang mengira tombol itu bukan Google.
   const allowed = new Set([
     "121212", "525252", "1A1A1A", "FFE662", "7C2D12", "FF5A26", "F1EDE3",
     "24533A", "DCEBD7", "F5F0E5", "E9B4A7", "FAF7EE", "D6D3D1", "E7E5E4",
     "EDEAE0", "FDFBF7", "FFFCF5", "FFFFFF",
+    "4285F4", "34A853", "FBBC05", "EA4335",
   ]);
   const offenders: string[] = [];
   for (const file of ADMIN_SOURCES) {
@@ -109,6 +114,7 @@ test("semua dialog admin melewati satu komponen", () => {
   // Semua pemakai wajib ambil dari modul bersama.
   for (const file of [
     "../components/admin-profile.tsx",
+    "../components/admin-logout-button.tsx",
     "../components/admin-session-actions.tsx",
     "../components/admin-session-revoke.tsx",
   ]) {
@@ -244,17 +250,77 @@ test("menu header punya isi yang lengkap dan bisa diakses", () => {
   // Ikon digambar sendiri, bukan aset eksternal.
   expect(workspace).toContain("admin-menu-icon");
   expect(workspace).not.toMatch(/https?:\/\/[^"']*menu[^"']*\.(svg|png)/);
-  // Keluar lewat modul bersama, bukan implementasi kedua.
-  expect(workspace).toContain("useAdminLogout");
+  // Keluar lewat modul bersama, bukan implementasi kedua. Item menunya cuma
+  // membuka konfirmasi; dialognya dipasang di luar panel menu supaya tidak
+  // ikut terlepas bersama panel yang menutupi dirinya.
+  expect(workspace).toContain("AdminLogoutConfirm");
+  expect(workspace).toContain("setLogoutOpen(true)");
 });
 
 test("alur keluar punya satu implementasi saja", () => {
   const sessionActions = source("../components/admin-session-actions.tsx");
+  const workspace = source("../components/admin-workspace.tsx");
+  const logoutButton = source("../components/admin-logout-button.tsx");
   const logoutModule = source("../lib/admin-logout.ts");
-  // Hanya modul bersama yang boleh menyentuh `logoutAdmin`.
-  expect(sessionActions).toContain("useAdminLogout");
-  expect(sessionActions).not.toContain("api.adminGate.logoutAdmin");
+  // Hanya modul bersama yang boleh menyentuh `logoutAdmin`, dan hanya satu
+  // komponen yang boleh memanggilnya. Dua tempat memang memanggil keluar
+  // (menu header dan panel Sesi), tapi keduanya lewat komponen yang sama.
+  expect(sessionActions).toContain("AdminLogoutButton");
+  expect(workspace).toContain("AdminLogoutConfirm");
+  expect(logoutButton).toContain("useAdminLogout");
+  for (const file of [sessionActions, workspace]) {
+    expect(file).not.toContain("useAdminLogout");
+    expect(file).not.toContain("api.adminGate.logoutAdmin");
+  }
   expect(logoutModule).toContain("api.adminGate.logoutAdmin");
+});
+
+test("keluar dari ruang admin selalu ditanyakan lebih dulu", () => {
+  const logoutButton = source("../components/admin-logout-button.tsx");
+  // Tanpa konfirmasi, satu getar tidak sengaja di menu header langsung menutup
+  // ruang kerja, dan sesi yang sudah dicabut di server tidak bisa dikembalikan.
+  expect(logoutButton).toContain("Anda yakin ingin mengakhiri sesi ini?");
+  expect(logoutButton).toContain("Batal, lanjut bekerja");
+  // Konfirmasi memakai dialog admin: terpusat, animasi masuk, dan tidak
+  // menutup dirinya sendiri di Android saat keyboard naik.
+  expect(logoutButton).toContain("<AdminDialogContent");
+  expect(logoutButton).not.toContain("<DialogContent");
+  // Peringatan kehilangan isian harus ada, karena itu alasan sebenarnya
+  // orang menyesal menekan "Keluar".
+  expect(logoutButton).toContain("belum disimpan");
+});
+
+test("tampilan panel Sesi dan menu header memakai komponen keluar yang sama", () => {
+  // Dua tombol keluar dengan dua konfirmasi berbeda pasti akan berbeda pada
+  // suatu saat. Yang dijaga adalah keduanya memanggil BERKAS yang sama.
+  const logoutButton = source("../components/admin-logout-button.tsx");
+  expect(logoutButton).toContain("export function AdminLogoutButton");
+  expect(logoutButton).toContain("export function AdminLogoutConfirm");
+  // Hanya satu tempat yang benar-benar memanggil keluar.
+  expect(logoutButton.split("logoutAdmin()").length - 1).toBe(1);
+});
+
+test("layar masuk ruang pengelola memakai tema ruang kerja", () => {
+  const panel = source("../components/auth-admin-panel.tsx");
+  const auth = source("../pages/Auth.tsx");
+  // Primitive admin saja. Kartu, isian, dan tombol aplikasi tidak boleh masuk.
+  expect(panel).toContain("admin-workspace");
+  expect(panel).toContain("admin-panel");
+  expect(panel).toContain("admin-input");
+  expect(panel).toContain("admin-btn");
+  expect(panel).not.toContain("notebook-paper");
+  for (const component of ["Card", "Input", "Button"]) {
+    expect(panel, component).not.toContain(`from "@/components/ui/${component.toLowerCase()}"`);
+  }
+  // Halaman publik dan halaman admin tidak boleh saling menimpa: dasar
+  // kuskus admin adalah tujuan, bukan sekadar URL yang sedang dibuka.
+  expect(auth).toContain("isAdminDestination(redirect)");
+  expect(auth).toContain("if (adminGateRequired) {");
+  // Layar buat sandi baru ikut bertema, termasuk lewat tautan email yang
+  // tidak membawa `returnTo`.
+  expect(auth).toContain("variant={adminGateRequired || adminIntent ?");
+  expect(auth).toContain("rememberAdminAuthIntent(redirect)");
+  expect(auth).toContain("consumeAdminAuthIntent()");
 });
 
 test("gelar pemilik hanya boleh ditulis di modulnya", () => {

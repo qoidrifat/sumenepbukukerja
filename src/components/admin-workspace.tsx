@@ -19,8 +19,8 @@ import { type VendorRecord } from "@/lib/catalog-store";
 import { formatDateTime, formatRelativeTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import { AdminProfile } from "@/components/admin-profile";
+import { AdminLogoutConfirm } from "@/components/admin-logout-button";
 import { OWNER_SHORT_TITLE } from "@/lib/owner-account";
-import { useAdminLogout } from "@/lib/admin-logout";
 
 /*
  * Tiga panel (paket, metrik, tinjauan laporan) sudah pindah ke berkasnya
@@ -210,9 +210,12 @@ export function AdminHeader({
   reviewQueue?: { claims: number; photos: number; reports: number; total: number };
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  // Konfirmasi keluar hidup di luar `AnimatePresence`. Panel menu harus dilepas
+  // begitu item dipilih supaya tidak menutupi dialog, dan kalau dialognya ikut
+  // terpasang di dalam panel itu, konfirmasi tidak akan pernah terlihat.
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { logoutAdmin, logoutBusy } = useAdminLogout();
   const reduceMotion = useReducedMotion();
 
   // Panel menutup saat diklik di luar dan saat Escape, dengan fokus dikembalikan
@@ -342,20 +345,20 @@ export function AdminHeader({
                   type="button"
                   role="menuitem"
                   className="admin-menu-item admin-menu-item-danger"
-                  disabled={logoutBusy}
                   onClick={() => {
                     setMenuOpen(false);
-                    void logoutAdmin();
+                    setLogoutOpen(true);
                   }}
                 >
                   <LogOut className="size-5 shrink-0" aria-hidden="true" />
-                  {logoutBusy ? "Keluar..." : "Keluar"}
+                  Keluar
                 </button>
               </motion.div>
             ) : null}
           </AnimatePresence>
         </div>
       </div>
+      <AdminLogoutConfirm open={logoutOpen} onOpenChange={setLogoutOpen} />
       <div
         className="h-2 border-t-2 border-[#121212] bg-[linear-gradient(90deg,#FF5A26_0_38%,#FFE662_38%_72%,#121212_72%_100%)]"
         aria-hidden="true"

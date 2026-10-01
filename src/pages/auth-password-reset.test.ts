@@ -57,13 +57,29 @@ test("email yang tidak terdaftar tidak pernah dibedakan di sisi peramban", () =>
 
 test("layan buat sandi baru hanya dibuka dari tautan email", () => {
   expect(auth).toContain('const resetCode = searchParams.get("oobCode")');
-  expect(auth).toContain("return <ResetPasswordForm oobCode={resetCode} />");
+  expect(auth).toContain("oobCode={resetCode}");
   // Layar ini punya satu tugas: mengganti sandi. Tidak ada tombol yang
   // memanggilnya dari dalam halaman lain.
   expect(resetForm).toContain("completePasswordReset(");
   // Kode diverifikasi DI SEBELUM sandi bisa ditulis, jadi tautan kedaluwarsa
   // atau yang sudah dipakai tidak bisa mengubah kata sandi siapa pun.
   expect(client).toContain("await verifyPasswordResetCode(auth, oobCode);");
+});
+
+test("layar buat sandi baru ikut bertema ruang pengelola", () => {
+  // Tautan reset dibuat Firebase, jadi `returnTo` tidak bisa ikut di dalamnya.
+  // Tanpa niat yang disimpan sebelum email dikirim, pengelola akan melihat
+  // layar tema publik di tengah alur yang semuanya internal.
+  expect(auth).toContain("if (adminGateRequired) rememberAdminAuthIntent(redirect);");
+  expect(auth).toContain('variant={adminGateRequired || adminIntent ? "admin" : "public"}');
+  // Setelah sandi tersimpan, orang kembali ke pintu masuk admin, bukan ke
+  // daftar akun warga.
+  expect(resetForm).toContain("`/auth?returnTo=${encodeURIComponent(returnTo || \"/admin\")}`");
+  // Cangkanya memakai primitive admin, bukan kartu dan isian aplikasi.
+  expect(resetForm).toContain('variant?: "public" | "admin"');
+  expect(resetForm).toContain("admin-workspace");
+  expect(resetForm).toContain("admin-panel");
+  expect(resetForm).toContain("admin-input");
 });
 
 test("form reset tidak bersarang di dalam form sign-in", () => {

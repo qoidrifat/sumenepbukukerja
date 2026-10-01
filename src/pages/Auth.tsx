@@ -18,6 +18,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { AnimatedContent, GlassSurface, ScrollReveal, ShinyText } from "@/components/react-bits";
 import { useAdminPasscodeGate } from "@/lib/admin-gate-client";
 import { ResetPasswordForm } from "@/components/reset-password-form";
+import { AuthAdminPanel } from "@/components/auth-admin-panel";
+import { consumeAdminAuthIntent, rememberAdminAuthIntent } from "@/lib/admin-auth-intent";
 import {
   createEmailAccount,
   currentFirebaseEmail,
@@ -125,6 +127,13 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   // Kode reset sandi yang datang dari tautan email. Kalau ada, halaman ini
   // tidak menampilkan daftar akun sama sekali.
   const resetCode = searchParams.get("oobCode");
+  // Tautan reset dibuat Firebase, jadi `returnTo` tidak bisa ikut di dalamnya.
+  // Niat "ini alur ruang admin" disimpan sebelum email dikirim dan dibaca satu
+  // kali di sini, supaya layar buat-sandi baru tidak berubah tema di tengah
+  // alur. Lihat `src/lib/admin-auth-intent.ts`.
+  const [adminIntent] = useState(() =>
+    resetCode ? consumeAdminAuthIntent() : null,
+  );
 
   const passcodeGranted = gate.state.kind === "granted" ? gate.state : null;
   const needsPasscode = adminGateRequired && passcodeGranted === null;
@@ -158,6 +167,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     try {
+      if (adminGateRequired) rememberAdminAuthIntent(redirect);
       await requestPasswordReset(email);
       setResetEmail("");
       setNotice(RESET_SENT);
@@ -291,7 +301,62 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   };
 
-  if (resetCode) return <ResetPasswordForm oobCode={resetCode} />;
+  // `adminIntent` menutup kasus yang tidak bisa dilihat dari URL: pengelola
+  // yang meminta tautan reset lewat `/auth?returnTo=/admin`, lalu membuka
+  // tautannya di tab atau perangkat lain pada sesi berikutnya.
+  if (resetCode) {
+    return (
+      <ResetPasswordForm
+        oobCode={resetCode}
+        variant={adminGateRequired || adminIntent ? "admin" : "public"}
+        returnTo={adminIntent ?? redirect}
+      />
+    );
+  }
+
+  // Hati-hati: tujuan `/admin` mendapat layar bertema admin. "Sedang menuju ruang
+  // pengelola" dan "halaman masuk warga" adalah dua produk berbeda; membuat
+  // keduanya terlihat sama adalah cara seseorang mengetik passcode admin ke
+  // halaman yang memang tidak pernah mengirimnya ke server. Logika tiga langkah
+  // di atas tetap di tempatnya; yang dipindah hanya tampilannya.
+  if (adminGateRequired) {
+    return (
+      <AuthAdminPanel
+        step={step}
+        passcodeGranted={passcodeGranted !== null}
+        passcode={passcode}
+        onPasscodeChange={setPasscode}
+        showPasscode={showPasscode}
+        onToggleShowPasscode={() => setShowPasscode((current) => !current)}
+        onPasscodeSubmit={handlePasscodeSubmit}
+        passcodeState={gate.state}
+        wasRevoked={wasRevoked}
+        isLoading={isLoading}
+        firebaseEnabled={firebaseEnabled}
+        passwordMode={passwordMode}
+        resetEmail={resetEmail}
+        onResetEmailChange={setResetEmail}
+        showReset={showReset}
+        onToggleReset={() => {
+          setError(null);
+          setNotice(null);
+          setShowReset(true);
+        }}
+        onTogglePasswordMode={() => {
+          setPasswordMode((mode) => (mode === "signIn" ? "signUp" : "signIn"));
+          setError(null);
+          setNotice(null);
+        }}
+        onGoogleSignIn={() => void handleGoogleSignIn()}
+        onPasswordSubmit={handlePasswordSubmit}
+        onPasswordReset={() => void handlePasswordReset()}
+        error={error}
+        notice={notice}
+        onGoHome={() => navigate("/")}
+        formatLockRemaining={formatLockRemaining}
+      />
+    );
+  }
 
   return (
     <main className="notebook-paper flex min-h-dvh min-h-[100svh] flex-col px-4 py-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">

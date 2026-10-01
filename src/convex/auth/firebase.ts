@@ -99,20 +99,39 @@ type FirebaseVerified = {
 };
 
 /**
- * JWKS Google untuk satu project.
+ * Kunci publik penandatangan token Firebase Auth.
  *
- * Dipisah dari handler supaya kuncinya dibuat sekali per runtime, bukan
- * setiap kali ada yang mencoba masuk. `createRemoteJWKSet` sendiri sudah
- * melakukan cache kunci dan hanya mengambil ulang saat kid tidak dikenal.
+ * PENTING: nama yang diminta endpoint ini adalah NAMA LAYANAN yang
+ * menandatangani token, yaitu `securetoken@system.gserviceaccount.com` -
+ * BUKAN project id. Nama itu memang milik Google dan sama untuk semua
+ * project Firebase di dunia.
+ *
+ * Versi lama memakai `{projectId}` di sini, dan itu selalu gagal: endpoint
+ * membalas `400 Request contains an invalid argument` karena project id bukan
+ * service account. Akibatnya `jwtVerify` selalu melempar, dan setiap pengguna -
+ * termasuk yang sudah benar-benar berhasil masuk di Google - mendapat "Sesi
+ * Google tidak bisa diverifikasi". Gejalanya Mirip dengan token palsu, jadi
+ * kegagalan ini tidak pernah terdeteksi dari log.
+ *
+ * Apakah aman memakai kumpulan kunci yang dibagi seluruh project? Ya, karena
+ * `issuer` dan `audience` tetap dicocokkan dengan `FIREBASE_PROJECT_ID` di
+ * bawah. Token dari project Firebase lain punya `aud` berbeda dan ditolak
+ * sebelum signature-nya berarti apa pun. Aturan itu ada di
+ * `src/convex/firebase-auth-security.test.ts`.
+ *
+ * `createRemoteJWKSet` sudah melakukan cache kunci di dalam dirinya dan hanya
+ * mengambil ulang saat `kid` yang datang tidak dikenal, jadi rotasi kunci
+ * Google tidak perlu ditangani manual.
  */
-let jwksCache: { projectId: string; jwks: ReturnType<typeof createRemoteJWKSet> } | null = null;
+const FIREBASE_JWKS_URL =
+  "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
 
-function jwksFor(projectId: string) {
-  if (jwksCache?.projectId === projectId) return jwksCache.jwks;
-  const jwks = createRemoteJWKSet(
-    new URL(`https://www.googleapis.com/service_accounts/v1/jwk/${projectId}`),
-  );
-  jwksCache = { projectId, jwks };
+let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
+
+function jwksFor() {
+  if (jwksCache) return jwksCache;
+  const jwks = createRemoteJWKSet(new URL(FIREBASE_JWKS_URL));
+  jwksCache = jwks;
   return jwks;
 }
 
@@ -163,7 +182,7 @@ async function verifyFirebaseToken(token: string): Promise<FirebaseVerified> {
 
   let claims: Record<string, unknown>;
   try {
-    const verified = await jwtVerify(token, jwksFor(projectId), {
+    const verified = await jwtVerify(token, jwksFor(), {
       issuer: `https://securetoken.google.com/${projectId}`,
       audience: projectId,
       algorithms: ["RS256"],

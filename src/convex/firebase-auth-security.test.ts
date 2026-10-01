@@ -184,12 +184,26 @@ describe("Fase 9.2: registrasi provider", () => {
 
   test("sumber tidak memuat project id atau token sebagai literal", () => {
     const source = readFileSync(SOURCE, "utf8");
-    // Issuer dan JWKS harus dibangun dari env, bukan ditulis mati.
+    // Issuer tetap dibangun dari env, bukan ditulis mati.
     expect(source).toContain(FIREBASE_PROJECT_ID_ENV);
     expect(source).toMatch(/securetoken\.google\.com\/\$\{/);
-    expect(source).toMatch(/service_accounts\/v1\/jwk\/\$\{/);
     // Tidak ada satu pun ID token atau private key yang boleh masuk repo.
     expect(source).not.toMatch(/eyJhbGciOi/);
     expect(source).not.toMatch(/-----BEGIN/);
+  });
+
+  test("kunci publik diambil dari layanan penandatangan, bukan dari project id", () => {
+    const source = readFileSync(SOURCE, "utf8");
+    // Regresi untuk bug yang membuat semua pengguna ditolak.
+    //
+    // Endpoint `service_accounts/v1/jwk/{nama}` MEMBUTUHKAN nama service
+    // account. Memasukkan project id membalas 400, `jwtVerify` selalu gagal,
+    // dan pesannya ("Sesi Google tidak bisa diverifikasi") identik dengan
+    // kasus token palsu - sehingga tidak ada bedanya di log dan tidak ada yang
+    // realizes sampai semua orang gagal masuk.
+    expect(source).toContain("securetoken@system.gserviceaccount.com");
+    // Dan project id tidak boleh disisipkan ke URL JWKS sama sekali.
+    expect(source).not.toMatch(/service_accounts\/v1\/jwk\/\$\{/);
+    expect(source).not.toMatch(/jwk\/\$\{projectId\}/);
   });
 });

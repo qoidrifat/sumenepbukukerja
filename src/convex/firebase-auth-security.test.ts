@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { firebase, identityFromClaims } from "./auth/firebase";
+import { createAccountRequest, firebase, identityFromClaims } from "./auth/firebase";
 import { emailOtp } from "./auth/emailOtp";
 
 /**
@@ -165,6 +165,35 @@ describe("Fase 9.2: gerbang authorize", () => {
     expect(message).not.toContain("eyJhbGciOiJSUzI1NiJ9");
     // Nama host JWKS juga tidak perlu muncul ke pemanggil.
     expect(message).not.toContain("googleapis.com");
+  });
+});
+
+describe("Fase 9.2: bentuk permintaan pembuatan akun", () => {
+  test("argumen dibungkus di dalam field args, bukan dikirim level teratas", () => {
+    // Regresi untuk ArgumentValidationError yang memblokir SELURUH pengguna.
+    //
+    // `auth:store` tidak menerima `{ type, provider, account, ... }` langsung.
+    // Validatornya `v.object({ args: v.union(...) })`, jadi seluruh isi harus
+    // masuk ke satu field bernama `args`. Tanpa pembungkusan itu, verifikasi
+    // token berhasil - akun dan email terbaca server - tetapi pembuatan sesi
+    // ditolak, dan yang tampil ke pengguna tetap "gagal masuk".
+    const request = createAccountRequest(identityFromClaims(VERIFIED));
+    expect(Object.keys(request)).toEqual(["args"]);
+    expect(request.args.type).toBe("createAccountFromCredentials");
+    expect(request.args.provider).toBe("firebase");
+    expect(request.args.account.id).toBe(VERIFIED.sub);
+    expect(request.args.shouldLinkViaEmail).toBe(true);
+  });
+
+  test("profil yang dikirim memuat email terverifikasi dan tidak memuat token", () => {
+    const request = createAccountRequest(identityFromClaims(VERIFIED));
+    const serialized = JSON.stringify(request);
+    expect(request.args.profile.email).toBe("warga.sumenep@gmail.com");
+    expect(request.args.profile.emailVerified).toBe(true);
+    // `account.id` memang berisi `sub`; itu persis aturan identitas kita.
+    expect(request.args.account.id).toBe(VERIFIED.sub);
+    // Yang tidak boleh ikut terbawa adalah ID token mentah.
+    expect(serialized).not.toMatch(/eyJhbGciOi/);
   });
 });
 

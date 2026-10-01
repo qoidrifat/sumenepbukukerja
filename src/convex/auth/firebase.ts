@@ -199,6 +199,42 @@ async function verifyFirebaseToken(token: string): Promise<FirebaseVerified> {
 
   return identityFromClaims(claims);
 }
+/**
+ * Bentuk argumen untuk `auth:store`.
+ *
+ * Perhatikan lapisannya: mutation-nya bukan `v.object({ type, provider, ... })`,
+ * melainkan `v.object({ args: v.union(...) })`. Jadi yang dikirim ke
+ * `ctx.runMutation` adalah objek yang membungkus seluruh argumen itu di dalam
+ * satu field bernama `args`.
+ *
+ * Versi lama mengirim isinya langsung sebagai argumen, dan server menjawab
+ * `ArgumentValidationError: Object is missing the required field 'args'`.
+ * Gejalanya menipu: verifikasi token SUDAH berhasil - akun dan email sudah
+ * terbaca server - tapi pembuatan sesi gagal, sehingga yang tampil ke pengguna
+ * tetap "gagal masuk" tanpa alasan.
+ *
+ * Diekstrak jadi fungsi murni supaya bentuk pembungkusnya bisa diuji tanpa
+ * jaringan dan tanpa session.
+ */
+export function createAccountRequest(identity: FirebaseVerified): {
+  args: CreateAccountArgs;
+} {
+  return {
+    args: {
+      type: "createAccountFromCredentials",
+      provider: PROVIDER_ID,
+      account: { id: identity.uid },
+      profile: {
+        email: identity.email,
+        emailVerified: true,
+        name: identity.name,
+        image: identity.picture,
+      },
+      shouldLinkViaEmail: true,
+    },
+  };
+}
+
 export const firebase = ConvexCredentials<DataModel>({
   id: PROVIDER_ID,
   async authorize(credentials, ctx) {
@@ -212,20 +248,9 @@ export const firebase = ConvexCredentials<DataModel>({
     // hanya membuat user + account baru kalau memang belum ada. Dipanggil
     // lewat `auth:store` karena context di sini adalah action, yang tidak boleh
     // menulis ke database secara langsung.
-    const args: CreateAccountArgs = {
-      type: "createAccountFromCredentials",
-      provider: PROVIDER_ID,
-      account: { id: identity.uid },
-      profile: {
-        email: identity.email,
-        emailVerified: true,
-        name: identity.name,
-        image: identity.picture,
-      },
-      shouldLinkViaEmail: true,
-    };
-
-    const result = (await ctx.runMutation(AUTH_STORE, args)) as
+    //
+    // Argumennya dibungkus `{ args }`, bukan dikirim level paling atas.
+    const result = (await ctx.runMutation(AUTH_STORE, createAccountRequest(identity))) as
       | { user?: { _id?: unknown } }
       | undefined;
 

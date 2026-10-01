@@ -221,13 +221,41 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     setNotice(null);
+    // Satu klik melewati tiga tahap yang punya penyebab kegagalan berbeda.
+    // Kalau ketiganya masuk satu blok `try`, semuanya berakhir sebagai
+    // "gagal masuk" dan pengunjung mengira sandinya salah lalu mencoba lagi
+    // berkali-kali - padahal masalahnya di server.
+    //
+    // Tahap 1: Firebase. Kegagalan di sini adalah masalah akun, peramban,
+    // atau izin domain. Semuanya punya pesan sendiri dari peta error.
+    let token: string;
     try {
-      const token = await signInWithGoogle();
-      if (!(await redeemPasscodeForFirebase())) return;
-      await signIn("firebase", { token });
-      navigate(redirect);
+      token = await signInWithGoogle();
     } catch (caught) {
       setError(firebaseErrorMessage(caught));
+      setIsLoading(false);
+      return;
+    }
+    // Tahap 2: penukaran tiket passcode, sebelum sesi menyentuh Convex.
+    try {
+      if (!(await redeemPasscodeForFirebase())) {
+        setIsLoading(false);
+        return;
+      }
+    } catch (caught) {
+      setError(firebaseErrorMessage(caught));
+      setIsLoading(false);
+      return;
+    }
+    // Tahap 3: server Convex. Kalau gagal di sini, Google sudah berhasil dan
+    // tokennya sah, jadi ini masalah kita - bukan salah akun pengguna.
+    try {
+      await signIn("firebase", { token });
+      navigate(redirect);
+    } catch {
+      setError(
+        "Akun Google Anda sudah diterima, tetapi server belum bisa membuka sesi. Coba lagi sebentar lagi.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -241,14 +269,14 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get("firebaseEmail") ?? "").trim();
     const password = String(formData.get("firebasePassword") ?? "");
+    // Tahap 1: Firebase. Sama seperti di tombol Google, kegagalan di sini
+    // punya pesan sendiri dan bisa ditindaklanjuti pengguna.
+    let token: string;
     try {
-      const token =
+      token =
         passwordMode === "signUp"
           ? await createEmailAccount(email, password)
           : await signInWithEmail(email, password);
-      if (!(await redeemPasscodeForFirebase())) return;
-      await signIn("firebase", { token });
-      navigate(redirect);
     } catch (caught) {
       if (passwordMode === "signUp" && firebaseErrorMessage(caught).includes("verifikasi")) {
         setNotice(
@@ -256,6 +284,28 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         );
       }
       setError(firebaseErrorMessage(caught));
+      setIsLoading(false);
+      return;
+    }
+    // Tahap 2: penukaran tiket passcode.
+    try {
+      if (!(await redeemPasscodeForFirebase())) {
+        setIsLoading(false);
+        return;
+      }
+    } catch (caught) {
+      setError(firebaseErrorMessage(caught));
+      setIsLoading(false);
+      return;
+    }
+    // Tahap 3: server Convex.
+    try {
+      await signIn("firebase", { token });
+      navigate(redirect);
+    } catch {
+      setError(
+        "Akun Anda sudah diterima, tetapi server belum bisa membuka sesi. Coba lagi sebentar lagi.",
+      );
     } finally {
       setIsLoading(false);
     }

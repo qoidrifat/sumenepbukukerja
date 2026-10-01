@@ -86,24 +86,34 @@ test("gated admin.css ikut hormati reduced motion", () => {
   expect(css).toContain(".admin-dialog-overlay {");
 });
 
-test("dialog dipusatkan oleh overlay, bukan positioning absolut", () => {
-  // Dua kesalahan yang sudah pernah nyata di sini:
-  //   a) `transform: translate(-50%,-50%)`+dengan utility translate shadcn
-  //      membuat dialog bergeser DUA KALI, pusatnya meleset 263px ke kiri.
+test("dialog memusatkan dirinya sendiri, bukan lewat overlay", () => {
+  // Tiga kesalahan yang sudah pernah nyata di sini:
+  //   a) `transform: translate(-50%,-50%)` bersama utility translate shadcn
+  //      memakai property yang sama, jadi dialog bergeser DUA KALI, pusatnya
+  //      meleset 263px ke kiri.
   //   b) Penggantinya, `position: fixed; inset: 0; height: max-content;
   //      margin: auto`, juga salah: untuk abspos yang sepenuhnya ter-constraint
   //      (top, bottom, dan height bukan auto), margin `auto` dihitung nol dan
   //      `bottom` diabaikan, sehingga dialog menempel di `top: 0` dan pita
   //      judulnya terpotong di luar layar.
+  //   c) Versi ketiga menjadikan overlay wadah flex dan dialog `position:
+  //      relative`. Radix merender overlay dan content sebagai SAUDARA di
+  //      dalam portal yang sama, jadi dialog tidak pernah jadi anak flex itu
+  //      dan jatuh ke alur normal dokumen, yaitu anak terakhir <body>.
   //
-  // Pola yang dipakai sekarang tidak memakai positioning absolut sama sekali.
+  // Pola yang benar tidak bergantung pada struktur DOM: dialog memusatkan
+  // dirinya sendiri, dan yang menentukan adalah `height` yang tetap `auto`.
   const block = css.slice(css.indexOf(".admin-dialog-content {"), css.indexOf("}", css.indexOf(".admin-dialog-content {")));
-  expect(block).toContain("position: relative");
-  expect(block).toContain("inset: auto");
+  expect(block).toContain("position: fixed");
+  expect(block).toContain("inset: 0");
   expect(block).toContain("margin: auto");
   expect(block).toContain("translate: none");
   expect(block).not.toContain("transform: translate(-50%");
-  expect(block).not.toContain("position: fixed");
+  // `height` definite akan mematikan margin auto dan mengembalikan pola (b).
+  expect(block).not.toMatch(/^\s*height:/m);
+  // Overlay hanya latar; kalau ia jadi wadah lagi, tidak ada yang memusatkan.
+  const overlay = css.slice(css.indexOf(".admin-dialog-overlay {"), css.indexOf("}", css.indexOf(".admin-dialog-overlay {")));
+  expect(overlay).not.toContain("display: flex");
 });
 
 test("latar dialog diburam dan ikut teranimasi", () => {

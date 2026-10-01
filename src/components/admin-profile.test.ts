@@ -87,34 +87,47 @@ test("tombol tutup bawaan disembunyikan supaya tidak menimpa header", () => {
   expect(profile).not.toContain("showCloseButton");
 });
 
-test("dialog profil dipusatan oleh overlay, bukan oleh abspos", () => {
-  // Pola lama (`position: fixed; inset: 0; height: max-content; margin: auto`)
-  // sebenarnya salah: untuk abspos yang sepenuhnya ter-constraint, margin
-  // `auto` dihitung nol dan dialog menempel di atas sampai pita judulnya
-  // terpotong. Sekarang overlay yang jadi wadah flex dan dialog jadi flex item.
+test("dialog profil memusatkan dirinya sendiri, bukan lewat overlay", () => {
+  // Dua pola lama keduanya salah, dan alasannya berbeda.
+  //
+  //   a) `transform: translate(-50%,-50%)` bersama utility translate shadcn
+  //      memakai property yang sama, jadi dialog bergeser dua kali.
+  //   b) `position: fixed; inset: 0; height: max-content; margin: auto`:
+  //      untuk abspos yang sepenuhnya ter-constraint, margin `auto` dihitung
+  //      nol, dialog menempel di `top: 0`, dan pita judulnya terpotong.
+  //   c) Overlay dijadikan wadah flex dengan dialog `position: relative`:
+  //      Radix merender overlay dan content sebagai SAUDARA, jadi dialog
+  //      bukan anak flex itu dan jatuh ke alur normal dokumen.
+  //
+  // Yang benar: dialog memusatkan diri sendiri lewat `inset: 0` + `margin:
+  // auto` dengan `height` yang tetap auto.
   const overlay = css.slice(
     css.indexOf(".admin-dialog-overlay {"),
     css.indexOf("}", css.indexOf(".admin-dialog-overlay {")),
   );
-  expect(overlay).toContain("display: flex");
-  // `align-items: center` justru membuat item yang tinggi terpotong di atas.
-  expect(overlay).not.toMatch(/^\s*align-items:/m);
-  expect(overlay).toContain("overflow-y: auto");
-  // Bilah gestur Android tidak boleh menimpa baris tombol paling bawah.
-  expect(overlay).toContain("padding-bottom: calc(1rem + env(safe-area-inset-bottom))");
+  // Overlay sekarang hanya latar, jadi tidak boleh punya sifat wadah.
+  expect(overlay).not.toContain("display: flex");
+  expect(overlay).not.toContain("align-items");
 
   const block = css.slice(
     css.indexOf(".admin-dialog-content {"),
     css.indexOf("}", css.indexOf(".admin-dialog-content {")),
   );
-  expect(block).toContain("position: relative");
-  expect(block).toContain("inset: auto");
+  expect(block).toContain("position: fixed");
+  expect(block).toContain("inset: 0");
   expect(block).toContain("margin: auto");
   expect(block).toContain("translate: none");
+  // Inilah yang menentukan: `height` yang definite membuat margin auto nol.
+  expect(block).not.toMatch(/^\s*height:/m);
+  // Bilah gestur Android tidak boleh menimpa baris tombol paling bawah.
+  expect(block).toContain("env(safe-area-inset-bottom");
   // Tinggi mengikuti viewport yang benar-benar terlihat: keyboard Android
-  // yang naik harus ikut memperkecil area dialog.
-  expect(block).toContain("100dvh");
-  expect(block).toContain("max-height: 100%");
+  // yang naik harus ikut memperkecil area dialog. Fallback ditulis lebih dulu
+  // supaya aturan dvh yang menimpanya belakangan.
+  const fallback = block.indexOf("max-height: 100%");
+  const dynamic = block.indexOf("max-height: calc(100dvh");
+  expect(fallback).toBeGreaterThan(-1);
+  expect(dynamic).toBeGreaterThan(fallback);
 });
 
 test("email sengaja tidak bisa diedit di panel profil", () => {

@@ -148,29 +148,84 @@ test("scope portal membawa token dan primitive yang sebelumnya hilang", () => {
   expect(css).toContain(".admin-dialog-content .admin-status");
 });
 
-test("dialog admin dipusatkan oleh overlay, bukan positioning absolut", () => {
+test("dialog admin memusatkan dirinya sendiri, bukan lewat overlay", () => {
+  // Radix merender Overlay dan Content sebagai SAUDARA di dalam portal yang
+  // sama:
+  //
+  //   <div data-slot="dialog-portal">
+  //     <div data-slot="dialog-overlay" />     <-- self-closing
+  //     <div data-slot="dialog-content">...</div>
+  //   </div>
+  //
+  // Jadi overlay tidak PERNAH bisa menjadi wadah flex bagi dialog. Pola yang
+  // pernah dipakai di sini (overlay jadi `display: flex`, dialog jadi
+  // `position: relative`) akibatnya tidak memusatkan apa pun dan
+  // menjatuhkan dialog ke alur normal dokumen, yaitu anak terakhir <body>.
+  const primitive = source("../components/ui/dialog.tsx");
+  expect(primitive).toContain("<DialogOverlay className={overlayClassName} />");
+  expect(primitive).not.toMatch(
+    /<DialogOverlay[^>]*>[\s\S]*?<\/DialogOverlay>/,
+  );
+
   const block = css.slice(
     css.indexOf(".admin-dialog-content {"),
     css.indexOf("}", css.indexOf(".admin-dialog-content {")),
   );
-  expect(block).toContain("position: relative");
-  expect(block).toContain("inset: auto");
+  expect(block).toContain("position: fixed");
+  expect(block).toContain("inset: 0");
   expect(block).toContain("margin: auto");
+  // Tanpa ini, `translate-x-[-50%]` bawaan shadcn menggeser dialog sebesar
+  // setengah ukuran itself, dan transform animasi menimpa pemusatan.
   expect(block).toContain("translate: none");
+  expect(block).toContain("transform: none");
   expect(block).not.toContain("transform: translate(-50%");
-  // `position: fixed` + `inset: 0` + `height` definite = margin auto jadi nol
-  // menurut aturan abspos CSS, dan dialog menempel di atas sampai terpotong.
-  expect(block).not.toContain("position: fixed");
 
+  // Aturan yang benar-benar menentukan: `height` yang definite membuat margin
+  // auto dihitung nol pada positioning absolut, dan dialog menempel di atas.
+  expect(block).not.toMatch(/^\s*height:/m);
+
+  // Overlay sekarang hanya latar. Kalau suatu saat kembali jadi wadah, tiga
+  // hal di bawah harus ikut hilang, karena tidak ada yang memusatkannya lagi.
   const overlay = css.slice(
     css.indexOf(".admin-dialog-overlay {"),
     css.indexOf("}", css.indexOf(".admin-dialog-overlay {")),
   );
-  expect(overlay).toContain("display: flex");
-  expect(overlay).toContain("overflow-y: auto");
-  // `align-items: center` membuat item yang lebih tinggi dari layar terpotong
-  // di sisi atas dan tidak bisa di-scroll ke sana.
-  expect(overlay).not.toMatch(/^\s*align-items:/m);
+  expect(overlay).not.toContain("display: flex");
+  expect(overlay).not.toContain("align-items");
+});
+
+test("tinggi dialog mengikuti viewport yang terlihat, bukan layout viewport", () => {
+  // Urutan itu penting dan mudah terbalik. `max-height: 100%` yang ditulis
+  // setelah `calc(100dvh - ...)` menang dan mematikan aturan yang justru kita
+  // inginkan: pada Android yang keyboardnya naik, 100% tetap mengacu ke layout
+  // viewport yang tidak menyusut, sehingga dialog lebih tinggi dari area yang
+  // terlihat dan tombolnya tertutup keyboard.
+  for (const selector of [".admin-dialog-content {", ".admin-confirm-content {"]) {
+    // `.admin-confirm-content {` muncul dua kali: satu untuk scope portal dan
+    // satu untuk layout. Yang diuji adalah yang terakhir.
+    const start = css.lastIndexOf(selector);
+    const block = css.slice(start, css.indexOf("}", start));
+    const fallback = block.indexOf("max-height: 100%");
+    const dynamic = block.indexOf("max-height: calc(100dvh");
+    expect(fallback, selector).toBeGreaterThan(-1);
+    expect(dynamic, selector).toBeGreaterThan(-1);
+    // Fallback ditulis lebih dulu, aturan dvh menimpanya belakangan.
+    expect(dynamic, selector).toBeGreaterThan(fallback);
+  }
+});
+
+test("meta viewport memberi tahu peramban agar keyboard menyusutkan layout", () => {
+  // Tanpa `interactive-widget=resizes-content`, `position: fixed` plus
+  // `100dvh` tetap mengacu ke layar penuh ketika keyboard Android naik, dan
+  // dialog yang terpusat setengahnya tidak terlihat.
+  const html = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
+  expect(html).toContain("interactive-widget=resizes-content");
+  // Dan baris aman untuk bilah gestur harus ada di dalam dialog.
+  const block = css.slice(
+    css.indexOf(".admin-dialog-content {"),
+    css.indexOf("}", css.indexOf(".admin-dialog-content {")),
+  );
+  expect(block).toContain("env(safe-area-inset-bottom");
 });
 
 test("animasi masuk dialog halus, bertahap, dan hormati reduced motion", () => {

@@ -668,12 +668,8 @@
   position: fixed;
   inset: 0;
   z-index: 80;
-  /* Wadah flex yang sama dengan dialog: pemusatan aman terhadap overflow. */
-  display: flex;
-  padding: 1rem;
-  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* Latar saja, sama seperti .admin-dialog-overlay. Isi dialog berstruktur
+     SAUDARA dengan overlay ini, jadi overlay tidak bisa menjadi wadah. */
   background: rgb(18 18 18 / 68%);
 }
 
@@ -688,19 +684,10 @@
   position: fixed;
   inset: 0;
   z-index: 80;
-  display: flex;
-  /* `align-items: center` SENGAJA TIDAK dipakai di sini. Pada flexbox, item
-     yang lebih tinggi dari container akan terpotong di sisi atas dan bagian
-     yang terpotong itu tidak bisa di-scroll sampai ke sana - persis yang
-     terjadi pada dialog passcode di layar Android yang pendek. Pemusatan
-     dilakukan oleh `margin: auto` pada item-nya, yang aman terhadap
-     overflow. */
-  padding: 1rem;
-  /* Android dengan navigasi gesture punya bilah di bawah; tanpa padding ini,
-     baris tombol paling bawah berakhir di dalam area gestur. */
-  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* Latar saja. Dulu overlay ini juga jadi wadah flex, tapi itu tidak pernah
+     bekerja: Radix merender Overlay dan Content sebagai SAUDARA di dalam
+     portal yang sama, jadi Content tidak pernah jadi anak flex ini. Lihat
+     catatan panjang di bawah blok .admin-dialog-content. */
   background: rgb(18 18 18 / 55%);
   -webkit-backdrop-filter: blur(10px) saturate(115%);
   backdrop-filter: blur(10px) saturate(115%);
@@ -712,46 +699,62 @@
 }
 
 /*
-  Pemusatan: overlay yang flexion, dialog yang ikut.
+  PEMUSATAN - bagian ini sudah tiga kali ditulis ulang, dan dua kali salah.
+  Catatan kali ini sengaja berbunyi seperti einspruch agar pola yang benar
+  tidak hilang lagi bersama jawabannya.
 
-  Dua kesalahan lama dicatat di sini supaya tidak diulang.
+  1. Versi pertama: `top-1/2 left-1/2` + `transform: translate(-50%,-50%)`.
+     Gagal karena `translate` (untuk memusatkan) dan `transform` (untuk
+     animasi) berebut property yang sama; hasilnya pusat meleset 263px ke
+     kiri, hampir keluar layar.
 
-  1. `DialogContent` bawaan memusatkan lewat `top-1/2 translate-y-[-50%]` dan
-     sekaligus menskalakan lewat `zoom-in-95`. Keduanya memakai property yang
-     saling berebut: `translate` untuk memusatkan, `transform`/`scale` untuk
-     animasi. Menambahkan `transform: translate(-50%, -50%)` sendiri membuat
-     dialog BERGESER DUA KALI setelah animasi selesai - diukur di browser,
-     pusatnya meleset 263px ke kiri, hampir keluar layar.
+  2. Versi kedua: `position: fixed; inset: 0; height: max-content; margin:
+     auto`. Kedengarannya benar, tapi TIDAK. Aturan abspos CSS 2.1 menyatakan:
+     bila `top`, `bottom`, dan `height` semuanya bukan `auto`, margin `auto`
+     dihitung NOL dan `bottom` diabaikan. Dialog menempel di `top: 0` dan
+     pita judul terpotong di luar layar - persis tangkapan layar yang Anda
+     kirim.
 
-  2. Penggantinya, `position: fixed; inset: 0; height: max-content; margin:
-     auto`, terdengar benar tetapi TIDAK. Untuk positioning absolut yang
-     sepenuhnya ter-constraint - `top`, `bottom`, dan `height` semuanya bukan
-     `auto` - aturan CSS 2.1 menyatakan margin `auto` dihitung sebagai nol dan
-     `bottom` diabaikan. Dialog lalu menempel di `top: 0` dan bagian atasnya
-     (pita judul kuning) terpotong di luar layar. Itu yang terlihat pada
-     tangkapan layar dialog passcode, dan bukan soal kebetulan.
+  3. Versi ketiga (yang causes bug ini): overlay dijadikan wadah flex dan
+     dialog dijadikan flex item dengan `position: relative`. Ia terdengar
+     benar dan memang benar UNTUK DOM tempat dialog benar-benar anak overlay.
+     Di sini tidak. Radix merender
 
-  Pola yang dipakai sekarang tidak memakai positioning absolut sama sekali:
-  overlay jadi wadah flex, dialog jadi flex item dengan `margin: auto`, dan
-  `inset: auto` menetralkan `top-1/2`/`left-1/2` bawaan. Konsekuensinya:
-  transform bebas dipakai animasi, tinggi melebihi layar tetap bisa di-scroll
-  sampai ujungnya, dan keyboard Android yang mengubah tinggi viewport tidak
-  membuat dialog melompat keluar layar.
+         <div data-slot="dialog-portal">
+           <div data-slot="dialog-overlay" />      <-- self-closing
+           <div data-slot="dialog-content">...</div>
+         </div>
+
+     Overlay dan Content adalah SAUDARA. `display: flex` pada overlay tidak
+     pernah memusatkan apa pun, dan `position: relative` membuat dialog
+     kembali ke alur normal dokumen - yaitu Children dari <body>, setelah
+     seluruh aplikasi, di bawah lipatan layar. Dialognya tidak terpotong di
+     atas; dialognya tidak ada di layar sama sekali.
+
+  Yang benar tanpa bergantung pada struktur DOM: dialog memusatkan DIRI
+  SENDIRI lewat margin simetris pada positioning absolut yang tidak
+  ter-constraint berlebihan.
 */
 .admin-dialog-content {
-  position: relative;
-  inset: auto;
+  /* `fixed` + `inset: 0` + `margin: auto` adalah satu-satunya kombinasi yang
+     menetralkan `top-[50%]`/`left-[50%]` bawaan shadcn TETAPI tetap terpusat.
+     Yang menentukan adalah `height` TIDAK pernah definite: dengan `top` dan
+     `bottom` sama-sama non-auto dan `height` auto, aturan abspos menyatakan
+     kedua margin auto disamakan - itulah yang memusatkan. */
+  position: fixed;
+  inset: 0;
   z-index: 90;
   display: flex;
   flex-direction: column;
   gap: 0;
   width: 100%;
   max-width: 32rem;
-  /* DvH mengikuti viewport yang benar-benar terlihat: ketika keyboard Android
-     naik, tinggi ini ikut mengecil, jadi dialog tidak pernah lebih tinggi dari
-     area yang tersisa. */
-  max-height: calc(100dvh - 2rem);
+  /* `100dvh` mengikuti viewport yang benar-benar terlihat: ketika keyboard
+     Android naik, tinggi ini ikut mengecil, jadi dialog tidak pernah lebih
+     tinggi dari area yang tersisa. Fallback ditulis lebih dulu - urutan
+     kebalikan diam-diam mematikan aturan yang justru kita inginkan. */
   max-height: 100%;
+  max-height: calc(100dvh - 2rem);
   margin: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -759,13 +762,18 @@
      Tanpa jarak aman ini, isian bisa menempel tepat di tepi scroll dan sebagian
      peramban tidak menampilkannya sama sekali. */
   scroll-padding-block: 1rem;
+  /* Wajib: tanpa ini, `translate-x-[-50%]` dan `translate-y-[-50%]` bawaan
+     shadcn masih menggeser dialog sebesar setengah ukuran itself, dan
+     transform yang dipakai animasi akan menimpa pemusatan. */
   translate: none;
   transform: none;
   border: 2px solid #121212 !important;
   border-radius: 2px !important;
   color: #1a1a1a;
   background: #fdfbf7 !important;
-  padding: 0 !important;
+  /* Android dengan navigasi gesture punya bilah di bawah. Padding ini yang
+     mengangkat baris tombol terakhir keluar dari area gestur. */
+  padding: 0 0 env(safe-area-inset-bottom, 0px) !important;
   box-shadow: 6px 6px 0 0 #121212 !important;
   outline: none;
 }
@@ -1082,18 +1090,17 @@
 }
 
 .admin-confirm-content {
-  /* Pola pemusatan yang sama dengan `.admin-dialog-content`: flex item dengan
-     `margin: auto`, bukan `top-1/2 translate(-50%)`. Pada dialog yang lebih
-     tinggi dari layar, pola lama membuat bagian atasnya tidak terjangkau
-     oleh scroll. */
-  position: relative;
-  inset: auto;
+  /* Pola pemusatan yang sama dengan `.admin-dialog-content`: dialog memusatkan
+     dirinya sendiri lewat `inset: 0` + `margin: auto`, bukan
+     `top-1/2 translate(-50%)` dan bukan lewat overlay. */
+  position: fixed;
+  inset: 0;
   z-index: 90;
   display: grid;
   width: 100%;
   max-width: 34rem !important;
-  max-height: calc(100dvh - 2rem);
   max-height: 100%;
+  max-height: calc(100dvh - 2rem);
   margin: auto;
   overflow-y: auto;
   overscroll-behavior: contain;

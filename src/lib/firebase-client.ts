@@ -141,7 +141,7 @@ export function currentFirebaseEmail(): string | null {
   return email ? email.trim().toLowerCase() : null;
 }
 
-/** Kode yang dipetakan ke pesan. Teks asli dari SDK tidak pernah tampil. */
+/** Galat yang kodenya sudah diterjemahkan ke kalimat siap tampil. */
 export class FirebaseClientError extends Error {
   // Deklarasi eksplisit, bukan parameter property: `tsconfig.app.json` menyalakan
   // `erasableSyntaxOnly`, yang melarang sintaks yang harus dihapus compiler.
@@ -163,31 +163,101 @@ export type FirebaseErrorCode =
   | "rate-limited"
   | "not-configured";
 
+/** Dipakai kalau penyebabnya tidak bisa dipastikan. Sengaja tanpa kode. */
+const GENERIC_MESSAGE = "Gagal masuk. Coba lagi sebentar lagi.";
+
+/**
+ * Kode error Firebase yang dipetakan ke kalimat yang bisa ditindaklanjuti.
+ *
+ * Peta ini pernah terlalu sempit: sebelas kode. Semua yang tidak ada di sana
+ * jatuh ke satu kalimat generik - termasuk kode yang menunjuk masalah
+ * konfigurasi milik operator, seperti kunci API yang tidak sah atau project
+ * id yang salah. Pengunjung lalu melihat "Gagal masuk" padahal penyebabnya ada
+ * di sisi build, bukan di miliknya, dan tidak ada yang bisa mengetahuinya.
+ *
+ * Dua aturan yang wajib dijaga setiap kali kode baru ditambahkan:
+ *
+ *   1. Kalimatnya HARUS menyebut apa yang harus dilakukan, bukan sekadar
+ *      menyatakan gagal.
+ *   2. Kalimatnya TIDAK BOLEH menyebut nama environment variable, nama
+ *      project, atau potongan isi kunci. Halaman ini publik. Rincian untuk
+ *      operator ada di baris console.warn di bawah, yang tidak pernah tampil
+ *      di layar. Aturan kedua dikunci test di `firebase-client.test.ts`.
+ */
 const CODE_TO_MESSAGE: Record<string, string> = {
+  // Kredensial dan status akun.
   "auth/invalid-credential": "Email atau sandi tidak cocok.",
   "auth/user-not-found": "Email atau sandi tidak cocok.",
   "auth/wrong-password": "Email atau sandi tidak cocok.",
   "auth/invalid-email": "Format email tidak valid.",
   "auth/email-already-in-use": "Email itu sudah punya akun. Masuk saja.",
   "auth/weak-password": "Sandi minimal 6 karakter.",
+  "auth/user-disabled": "Akun ini dinonaktifkan. Hubungi pengelola.",
+  "auth/credential-already-in-use":
+    "Email itu sudah dipakai metode masuk lain. Masuk saja dengan yang sudah ada.",
+  "auth/multi-factor-auth-required":
+    "Akun ini butuh verifikasi tambahan. Hubungi pengelola untuk membuka aksesnya.",
+  "auth/unsupported-first-factor": "Metode masuk ini tidak dipakai akun tersebut.",
+
+  // Verifikasi email.
+  "auth/email-already-verified":
+    "Email itu sudah terverifikasi. Masuk saja dengan sandi Anda.",
+  "auth/invalid-verification-code": "Kode verifikasi tidak cocok atau sudah kedaluwarsa.",
+  "auth/invalid-verification-id": "Tautan verifikasi tidak berlaku lagi. Minta yang baru.",
+  "auth/expired-action-code": "Tautan verifikasi sudah kedaluwarsa. Minta yang baru.",
+
+  // Jendela masuk dan keterbatasan peramban.
   "auth/popup-closed-by-user": "Jendela masuk Google ditutup sebelum selesai.",
   "auth/popup-blocked": "Popup diblokir peramban. Izinkan popup untuk situs ini.",
-  "auth/too-many-requests": "Terlalu banyak percobaan. Coba lagi sebentar lagi.",
-  "auth/operation-not-allowed": "Metode masuk ini belum diaktifkan di Firebase Console.",
+  "auth/cancelled-popup-request":
+    "Percobaan masuk sebelumnya masih berjalan. Tutup jendela yang terbuka, lalu coba lagi.",
+  "auth/operation-not-supported-in-this-environment":
+    "Masuk lewat jendela tidak didukung di lingkungan ini. Pakai email dan sandi saja.",
+  "auth/web-storage-unsupported":
+    "Peramban ini memblokir penyimpanan lokal, jadi sesi tidak bisa disimpan. Coba peramban lain.",
   "auth/network-request-failed": "Jaringan bermasalah. Periksa koneksi lalu coba lagi.",
+
+  // Konfigurasi Firebase. Kelompok ini penyebab paling sering di proyek ini,
+  // dan semuanya adalah salah setelan, bukan kesalahan pengguna.
   "auth/unauthorized-domain": "Domain ini belum diizinkan di Firebase Console.",
+  "auth/invalid-api-key":
+    "Kunci API Firebase pada build ini tidak valid. Administrator perlu memperbarui konfigurasi build.",
+  "auth/api-key-not-valid.-please-pass-a-valid-api-key.":
+    "Kunci API Firebase pada build ini tidak valid. Administrator perlu memperbarui konfigurasi build.",
+  "auth/project-not-found":
+    "Proyek Firebase tidak ditemukan. Administrator perlu memeriksa konfigurasi build.",
+  "auth/configuration-not-found":
+    "Authentication di proyek Firebase ini belum disiapkan. Hubungi pengelola.",
+  "auth/requests-from-referer-are-blocked":
+    "Domain ini diblokir oleh pembatasan kunci API. Administrator perlu mengizinkan domain ini.",
+  "auth/app-not-authorized":
+    "Aplikasi web ini belum terdaftar di proyek Firebase. Hubungi pengelola.",
+  "auth/operation-not-allowed": "Metode masuk ini belum diaktifkan di Firebase Console.",
+  "auth/tenant-id-mismatch": "Konfigurasi masuk tidak cocok dengan akun ini.",
+
+  // Kuota dan laju.
+  "auth/too-many-requests": "Terlalu banyak percobaan. Coba lagi sebentar lagi.",
+  "auth/quota-exceeded": "Kuota Firebase untuk hari ini sudah habis. Coba lagi besok.",
 };
 
 /**
  * Terjemahkan error SDK jadi kalimat yang bisa ditindaklanjuti.
  *
- * Fallback disengaja dibuat generik. Kode yang tidak dikenal TIDAK ikut
- * ditampilkan, karena beberapa di antaranya memuat nama project atau
- * konfigurasi yang tidak perlu dilihat pengguna.
+ * Dua aturan yang dipegang di sini:
+ *
+ * 1. KODE ASLI TIDAK PERNAH TAMPIL DI LAYAR. Kalimat mentah dari SDK pernah
+ *    memuat nama project dan konfigurasi, dan itu persis kebocoran yang
+ *    ditegakkan di `docs/security/PHASE-9.1-*`. Yang tampil hanya kalimat di
+ *    peta atau `GENERIC_MESSAGE`.
+ * 2. KODE ASLI TETAP DICATAT KE CONSOLE. Tanpa ini, satu kode baru dari
+ *    Firebase hanya muncul sebagai "gagal masuk" dan operator tidak punya
+ *    bahan apa pun untuk mencari penyebabnya. Kode Firebase bukan rahasia,
+ *    cuma kode.
  */
 export function firebaseErrorMessage(error: unknown): string {
   if (error instanceof FirebaseClientError) return error.message;
   const code = (error as { code?: unknown })?.code;
-  if (typeof code === "string" && CODE_TO_MESSAGE[code]) return CODE_TO_MESSAGE[code];
-  return "Gagal masuk. Coba lagi sebentar lagi.";
+  if (typeof code !== "string") return GENERIC_MESSAGE;
+  console.warn(`[FIREBASE_AUTH] kode error: ${code}`);
+  return CODE_TO_MESSAGE[code] ?? GENERIC_MESSAGE;
 }

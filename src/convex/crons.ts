@@ -37,6 +37,31 @@ crons.daily(
 );
 
 /**
+ * Retensi Security Desk (Fase 7-10).
+ *
+ * Tanpa job ini, `securityIncidents` dan `securityDenyLog` tumbuh tanpa
+ * batas: yang pertama satu baris per insiden yang sudah ditutup, yang kedua
+ * satu baris kecil per penolakan. Keduanya adalah tabel yang dibaca manusia,
+ * jadi membiarkannya bertambah tanpa pangkasan berarti panelnya pelan-pelan
+ * tenggelam di bawah riwayat yang sudah tidak relevan.
+ *
+ * Yang TIDAK dihapus adalah insiden yang masih `open` atau `acknowledged`.
+ * Membuang insiden yang belum ditangani berarti membuang satu-satunya tanda
+ * bahwa ada yang perlu diperiksa, jadi hanya baris yang sudah ditutup dan
+ * penghitung yang sudah lewat jendela aturan yang hilang.
+ *
+ * Argumennya batas usia yang boleh dipangkas. `pruneIncidents` sendiri yang
+ * memilih angka maksimumnya per menjalankan, jadi satu kali jalan tidak pernah
+ * menjadi penghapusan besar di luar satu transaksi.
+ */
+crons.daily(
+  "retensi Security Desk",
+  { hourUTC: 6 },
+  internal.securityIncidents.pruneIncidents,
+  { olderThan: Date.now() - 90 * 24 * 60 * 60_000 },
+);
+
+/**
  * Retensi akun anonim.
  *
  * Sisa akun anonim adalah ~98% isi database saat ini (`authAccounts`,

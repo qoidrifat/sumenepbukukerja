@@ -24,7 +24,7 @@ Deployment dev: `qualified-chameleon-491` | Deployment prod: `focused-lemur-389`
 
 ### 1.1 Yang berubah di commit ini
 
-Tujuh kelompok perubahan, semuanya terverifikasi:
+Sembilan kelompok perubahan, semuanya terverifikasi:
 
 **A. Kebocoran pengenal akun dari papan permintaan publik (P1, sudah bocor).**
 
@@ -107,6 +107,22 @@ mengaktifkan `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS=true`. Route yang sama kini
 dibatasi 30 permintaan per menit per sumber IP, dihitung dari IP yang diamati
 server. Rincian di 2.7 dan 2.8.
 
+**H. Bukti bahwa pola penolakan tidak bisa dicatat dari dalam gerbang (P1, baru commit ini).**
+
+Dua aturan deteksi (`privileged_call_denied`, `storage_reference_invalid`) hidup
+di `access.ts`, di dalam gerbang yang melempar. Pendekatan itu dicoba, diuji,
+dan **ditarik kembali karena terbukti tidak bisa bekerja**: mutation Convex
+bersifat atomik, jadi ketika handler melempar, satu baris bukti yang ditulis
+satu baris sebelumnya ikut hilang. Test membuktikannya secara langsung, dan
+kode yang "tidak bisa bekerja" itu justru tidak pernah complain - hanya
+membayar satu write per penolakan untuk sesuatu yang selalu hilang. Batas kedua
+(`ConvexError` dengan objek mengubah pesan yang dilihat pengguna) juga ketahuan
+karena test yang sudah ada menangkapnya.
+
+Yang berhasil dipasang: `invite_token_invalid`, karena jalur penolakannya
+mengembalikan nilai, bukan melempar. Infrastruktur untuk sisanya sudah siap dan
+retensinya sudah dijadwalkan. Rinciannya di 2.9 dan 5.1.
+
 ### 1.2 Status per bagian
 
 | Bagian | Judul | Status | Catatan |
@@ -118,7 +134,7 @@ server. Rincian di 2.7 dan 2.8.
 | 4 | Privasi WhatsApp | BELUM | Rencana migrasi di bagian 9 |
 | 5 | Integritas Security Desk | SELESAI | `reportSessionContext` sekarang server-authoritative; 8 test regresi |
 | 6 | CORS / HTTP | SELESAI | Fail-closed saat allowlist kosong + batas 30 permintaan/menit per IP; 11 test |
-| 7 | Deteksi serangan | SEBAGIAN | Model + katalog + pencatat + panel SELESAI; 3 dari 9 pemicu tersambung dan diuji |
+| 7 | Deteksi serangan | SEBAGIAN | Model + katalog + pencatat + panel + retensi SELESAI; 4 dari 9 pemicu tersambung dan diuji |
 | 8 | Security header | BELUM | Butuh lapisan deployment (lihat bagian 12) |
 | 9 | postMessage | SELESAI | |
 | 10 | Storage | BELUM | `requireAssignablePhoto` sudah kuat; validasi lewat `storage.ts` belum |
@@ -128,7 +144,7 @@ server. Rincian di 2.7 dan 2.8.
 | 14 | Sinkronisasi rute | BELUM | |
 | 15 | Performa | BELUM | |
 | 16 | Dependency / lockfile | BELUM | |
-| 17-19 | Test / unit / e2e | SEBAGIAN | 963 test hijau, termasuk 29 test baru Fase 5-6; E2E belum disentuh (tidak ada peramban) |
+| 17-19 | Test / unit / e2e | SEBAGIAN | 973 test hijau, termasuk 10 test kontrak penolakan Fase 10; E2E belum disentuh (tidak ada peramban) |
 | 20 | Urutan pengerjaan | SEBAGIAN | Urutan diikuti untuk yang dikerjakan |
 | 21 | Laporan ini | SELESAI | |
 | 22 | Definition of Done | SEBAGIAN | Lihat bagian 11 |
@@ -341,7 +357,7 @@ bukan kebocoran.
 ### 2.8 Route konteks tanpa batas permintaan (sedang)
 
 `POST /admin-gate/context` adalah satu-satunya tempat di project yang bisa
-membaca header permintaan, dan route itu publik. Setiap panggilanNya
+membaca header permintaan, dan route itu publik. Setiap pemanggilannya
 melakukan satu `resolveClientIp`, satu `sha256Hex`, satu pencarian geolokasi
 (jika provider dikonfigurasi), dan satu write. Tidak ada batasnya.
 
@@ -353,6 +369,48 @@ sendiri bersama barisnya. Kunci hitungannya adalah `ipHash` yang dihitung
 server, bukan nilai kiriman klien - kalau kunci bisa datang dari klien, batasnya
 hanya hiasan. Di atas 30 permintaan dalam 60 detik jawabannya `429` dengan
 `retry-after`, dan penolakan tidak pernah menggagalkan gerbang passcode.
+
+### 2.9 Pola penolakan tidak pernah bisa dicatat dari dalam gerbang (temuan arsitektur)
+
+Ditemukan dan dibuktikan pada commit ini. Ini menjawab pertanyaan yang sejak
+awal menggantung di bagian 5.1: apakah aturan `privileged_call_denied` dan
+`storage_reference_invalid` bisa disambungkan dari `access.ts`.
+
+**Jawabannya: tidak, dan alasannya sudah dibuktikan**
+
+Dua hal dicoba dan dua-duanya gagal. Keduanya sekarang terkunci oleh test, jadi
+tidak akan dicoba ulang oleh orang berikutnya.
+
+1. **Jejak di database tidak bisa ditulis dari mutation yang melempar.**
+   Mutation Convex bersifat atomik: ketika handler melempar, seluruh perubahan
+   di transaksi itu ikut dibuang - termasuk satu baris `securityDenyLog` yang
+   ditulis satu baris sebelumnya. Test "bukti yang hilang" di
+   `src/convex/access-denial-contract.test.ts` membuktikannya langsung: satu baris
+   ditulis, error dilempar, baris itu diperiksa, hasilnya nol.
+   Percobaan pertama (gerbang mencatat lalu melempar) terlihat benar saat dibaca
+   dan tidak pernah complain saat berjalan, padahal jejaknya selalu hilang.
+2. **`code` terstruktur mengubah yang dilihat pengguna.** `ConvexError({ code,
+   message })` mengubah `message` menjadi JSON hasil `JSON.stringify`, jadi toast
+   pengguna menerima `{"code":"ACCESS_DENIED",...}` alih-alih kalimatnya.
+   `security-surface.test.ts` menangkapnya sebagai regression. `SESSION_REVOKED`
+   boleh memakai bentuk itu karena sisi kliennya memang memeriksa `data.code`
+   secara khusus; gerbang umum tidak.
+
+Tiga pilihan yang tersisa, semuanya mengubah kontrak pemanggil dan tidak ada
+yang dikerjakan diam-diam:
+
+| Pilihan | Bentuknya | Kenapa belum |
+|---|---|---|
+| Kembalikan objek penolakan | Sudah dipakai di `users.changeStaffRole` dengan alasan yang sama tertulis di sana | Menerapkannya ke seluruh gerbang mengubah kontrak puluhan pemanggil sekaligus |
+| Laporkan dari transaksi lain | Action lewat `runMutation`, atau klien lewat mutation pelaporan yang hanya menerima fakta milik pemanggil sendiri | Butuh wiring klien di provider Convex; tidak bisa diverifikasi tanpa peramban |
+| Jalur yang mengembalikan nilai | `acceptStaffInvite` sudah seperti ini | Persis jalur yang sekarang terpasang |
+
+Yang **berhasil** dipasang pada commit ini: `invite_token_invalid`. Jalur
+`acceptStaffInvite` mengembalikan nilai, bukan melempar, jadi transaksinya selesai
+dan jejaknya bertahan - perbedaan itu diuji langsung berdampingan dengan kasus
+yang rollback. Infrastruktur untuk sisanya sudah siap: tabel `securityDenyLog`,
+`noteSecurityDenial`, indeks per subjek, dan cron retensi. Yang belum adalah
+sumber peristiwanya sendiri.
 
 ---
 
@@ -384,6 +442,12 @@ hanya hiasan. Di atas 30 permintaan dalam 60 detik jawabannya `429` dengan
 | `src/convex/session-context-authority.test.ts` (baru) | 8 test: konteks sesi harus dari server |
 | `src/convex/context-route-hardening.test.ts` (baru) | 11 test: CORS fail-closed + batas permintaan, diuji lewat `t.fetch` |
 | `src/convex/http-cors-security.test.ts` | Satu test diubah kontraknya (wildcard jadi opt-in), tiga test baru |
+| `src/convex/securitySignal.ts` (baru) | Penulis insiden dipisah dari operasi; `noteSecurityDenial` + tabel `securityDenyLog` |
+| `src/convex/securityIncidents.ts` | Penulis insiden diekspor ulang; `pruneIncidents` ikut memangkas `securityDenyLog` |
+| `src/convex/schema.ts` | Tabel `securityDenyLog` + 3 indeks |
+| `src/convex/users.ts` | Penolakan klaim undangan dicatat sebagai pola (`invite_token_invalid`) |
+| `src/convex/crons.ts` | Cron harian "retensi Security Desk" |
+| `src/convex/access-denial-contract.test.ts` (baru) | 10 test: batasan transaksi Convex, gerbang tetap menolak, jalur return-only terdeteksi |
 
 ### 3.2 Alasan tiap keputusan yang bisa dipertanyakan
 
@@ -479,46 +543,55 @@ panel, supaya operator tahu harus apa tanpa membaca kode.
 Ini bukan daftar keinginan; ini urutan yang saya sarankan kalau hanya ada
 waktu untuk tiga hal.
 
-### 5.1 Menyambungkan sisa enam aturan ke titik pemicunya (P1, nilai tertinggi)
+### 5.1 Menyambungkan sisa aturan ke titik pemicunya (P1, nilai tertinggi)
 
-**Tiga dari sembilan sudah tersambung** (`admin_passcode_failures`,
-`admin_lockout_threshold`, `webhook_signature_failure`) dan diuji 11 test di
-`src/convex/security-incidents.test.ts`. Enam berikutnya masih berupa katalog
-yang belum pernah menerima sinyal.
+**Empat dari sembilan sudah tersambung** dan diuji:
 
-| Aturan | Titik pemicu | Cara | Catatan |
-|---|---|---|---|
-| `invite_token_invalid` | berkas undangan staff, saat `byTokenHash` tidak menemukan baris | `recordIncidentWithin` dengan subjek `invite` | Langsung bisa dikerjakan; mutation sudah punya `ctx` |
-| `public_mutation_rate` | `community.ts::createRequest`, `recordInteraction` | Hitung tulisan terakhir per subjek di jendela aturan | Langsung bisa dikerjakan; batas 60/menitnya jauh di atas pemakaian manusia |
-| `session_device_change` | `adminGate.ts`, `heartbeatAdminPresence` | Bandingkan `sessionFingerprint` dengan yang tersimpan di `adminPresence` | Butuh keputusan: sinyalnya ambigu, jadi yang ditawarkan hanya pencabutan sesi, bukan blokir akun |
-| `endpoint_error_burst` | `http.ts`, semua jalur yang memanggil `reportWebhookIssue` | Jumlahkan `occurrences` laporan error per rute di jendela | Pola penghitungannya sudah ada di `recordWebhookSignatureFailure`; tinggal digeneralisasi |
-| `storage_reference_invalid` | `access.ts::requireAssignablePhoto` | Lapor saat rujukan storage tidak ditemukan | Perlu keputusan arsitektur, lihat di bawah |
-| `privileged_call_denied` | `access.ts::requireStaff`, `requireManagementViewer` | Lapor saat gerbang berhak istimewa menolak | Idem |
+| Aturan | Pemicu | Cara kerja |
+|---|---|---|
+| `admin_passcode_failures` | `adminGate.recordAttempt` | Menghitung kegagalan di jendela lewat indeks `byKeyCreatedAt`, satu pembacaan |
+| `admin_lockout_threshold` | `adminGate.recordAttempt` (outcome `locked`) | Ambang satu; kunci penuh tidak punya alasan sah |
+| `webhook_signature_failure` | `http.ts::reportWebhookIssue` | Menjumlahkan `occurrences` laporan error webhook ber-sidik-jari sama di jendela aturan |
+| `invite_token_invalid` | `users.acceptStaffInvite` saat klaim ditolak | Satu baris kecil per penolakan di `securityDenyLog`, dihitung per ember, satu insiden saat ambang terlampaui |
 
-**Keputusan arsitektur yang masih menggantung.** `denied()` di `access.ts`
-adalah fungsi sinkron tanpa `ctx`, dan dua aturan terakhir justru hidup di
-sana. Pilihannya:
+Kelima yang tersisa, dengan status jujur masing-masing:
 
-- (a) mengubah `denied` menjadi `deniedWith(ctx, ...)`. Ini menyentuh puluhan
-  call site di seluruh berkas Convex, dan setiap satu di antaranya adalah
-  kesempatan menulis bug otorisasi baru. Risikonya jauh lebih besar daripada
-  manfaatnya.
-- (b) menambahkan pembungkus tipis di `access.ts` yang melaporkan lalu
-  memanggil `denied`, dan memakainya HANYA di lima gerbang berhak istimewa
-  (`requireStaff` admin, `requireManagementViewer`, `requireVendorManager`,
-  `requireProvenIdentity`, `requireAssignablePhoto`). Sisanya tetap memakai
-  `denied` biasa.
+| Aturan | Titik pemicu | Kenapa belum tersambung |
+|---|---|---|
+| `public_mutation_rate` | `community.ts::createRequest`, `recordInteraction` | Butuh subjek per sumber; IP tidak bisa dibaca di query/mutation, dan jumlahkan per-pengguna butuh tabel penghitung baru |
+| `session_device_change` | `adminGate::reportSessionContext` | Pemicunya sudah ada (`isNewSession`), tapi "perangkat berbeda" bukan dengan sendirinya payload serangan - ambangnya perlu dipilih pemilik |
+| `endpoint_error_burst` | semua jalur yang memanggil `reportWebhookIssue` | Polanya sudah ada di `recordWebhookSignatureFailure`; tinggal digeneralisasi ke semua endpoint |
+| `privileged_call_denied` | `access.ts::requireStaff`, `requireManagementViewer`, `requireVendorManager`, `requireProvenIdentity` | **Terbukti mustahil dari dalam gerbang** - lihat 2.9 |
+| `storage_reference_invalid` | `access.ts::requireAssignablePhoto` | Idem |
 
-Saya condong ke (b), tetapi ini keputusan pemilik kode, bukan keputusan yang
-boleh saya ambil sendiri - dan itu satu-satunya alasan dua aturan ini belum
-dikerjakan.
+**Keputusan arsitektur yang menggantung sudah terjawab oleh bukti, bukan oleh
+preferensi.** Pertanyaan aslinya adalah "`denied()` atau `deniedWith(ctx)`?".
+Jawabannya: keduanya salah, dan alasannya ada di 2.9 - mutation yang melempar
+membuang seluruh tulisannya, jadi "catat lalu tolak" menghasilkan jejak yang
+selalu hilang tanpa pernah complain. Pendekatan itu sudah dicoba, diuji, dan
+ditarik kembali.
 
-Tiga sambungan yang sudah ada memakai pola yang sama, dan polanya layak
-diikuti: hitung dulu dari indeks yang sudah ada di jendela aturan, laporkan
-satu kali, dan **bungkus pencatatannya dengan `try/catch`**. `try/catch` itu
-bukan kelalaian: mutation Convex bersifat transaksional, jadi error di jalur
-deteksi akan membatalkan seluruh handler - termasuk baris bukti yang baru saja
-disimpan. Bug deteksi tidak boleh bisa menghapus bukti serangan.
+Yang sudah disiapkan supaya pekerjaan ini murah ketika keputusan diambil:
+
+- `securitySignal.noteSecurityDenial` - menulis satu baris kecil per penolakan,
+  menghitungnya per subjek lewat indeks komposit, lalu mencatat insiden hanya
+  di atas ambang. Tidak pernah melempar.
+- Tabel `securityDenyLog` dengan `bySubjectCreatedAt`, `byRuleCreatedAt`, dan
+  `byCreatedAt`.
+- Cron harian "retensi Security Desk" yang memangkas insiden yang sudah ditutup
+  dan penghitung yang sudah lewat jendela aturan, tanpa pernah menyentuh
+  insiden yang masih terbuka.
+
+Tiga pilihan yang tersisa, semuanya mengubah kontrak pemanggil:
+
+1. Mutation mengembalikan objek penolakan alih-alih melempar. Sudah dipakai di
+   `users.changeStaffRole` dengan alasan yang sama tertulis di sana.
+2. Melaporkan dari transaksi lain: action lewat `runMutation`, atau klien lewat
+   mutation pelaporan yang hanya menerima fakta milik pemanggil sendiri. Ini
+   satu-satunya pilihan yang tidak mengubah perilaku mutation mana pun, tetapi
+   menyentuh provider Convex dan tidak bisa diverifikasi tanpa peramban.
+3. Membiarkan dua aturan itu tidak aktif, dengan batasnya tertulis di sini dan
+   dikunci test agar tidak ada yang mengira ia sudah berjalan.
 
 ### 5.2 Privasi nomor WhatsApp (P1, "harder to scrape")
 
@@ -781,11 +854,11 @@ Dijalankan pada commit ini, semuanya lulus:
 |---|---|
 | `bunx convex dev --once` | Convex functions ready |
 | `bunx tsc -b --noEmit` | 0 error |
-| `bun run test` | **69 berkas / 963 test / 0 gagal** (naik dari 62/883) |
+| `bun run test` | **70 berkas / 973 test / 0 gagal** (naik dari 62/883) |
 | `bun run lint` | **0 error / 26 warning** (sama dengan baseline) |
-| `node tmp/qa-p91-leakscan.mjs <24 berkas yang disentuh>` | CLEAN |
+| `node tmp/qa-p91-leakscan.mjs <29 berkas yang disentuh>` | CLEAN |
 
-Uji naik dari 883 ke 963 bersih. Berkas test baru:
+Uji naik dari 883 ke 973 bersih. Berkas test baru:
 
 | Berkas | Test | Isi |
 |---|---:|---|
@@ -796,20 +869,21 @@ Uji naik dari 883 ke 963 bersih. Berkas test baru:
 | `src/lib/postmessage-origin.test.ts` (baru) | 6 | Kontrak origin `postMessage` |
 | `src/convex/session-context-authority.test.ts` (baru) | 8 | Konteks sesi harus dari server, bukan dari klien |
 | `src/convex/context-route-hardening.test.ts` (baru) | 11 | CORS fail-closed dan batas permintaan, lewat `t.fetch` |
+| `src/convex/access-denial-contract.test.ts` (baru) | 10 | Batasan transaksi Convex, gerbang tetap menolak, jalur return-only terdeteksi |
 
 Jumlah di atas lebih besar daripada kenaikan bersihnya karena tiga test lama
-DIUBAH kontraknya, bukan ditambah: dua di
+DIUBAH kontraknya sejak Fase 3, bukan ditambah: dua di
 `src/convex/security-surface.test.ts` dan satu di
 `src/convex/display-name-security.test.ts`. Ketiganya sebelumnya **mengunci
 kebocoran `requesterId` sebagai perilaku yang benar**; sekarang menguncinya
 sebagai larangan. Tidak ada test yang dihapus dan tidak ada yang di-`skip`.
 
-Empat test lama berubah kontraknya pada commit ini, semuanya di
+Empat test lama berubah kontraknya sejak laporan pertama, semuanya di
 `src/convex/http-cors-security.test.ts`. Test "tanpa allowlist: wildcard"
 mengaku wildcard sebagai perilaku yang benar; sekarang ia mengunci **tutup**
 sebagai bawaan dan wildcard sebagai opt-in. Test itu tidak dihapus karena ia
-justru yang menangkap paling jujur: kalau kontrak ini tidak dijaga
-dengan test, allowlist kosong akan diam-diam kembali jadi wildcard.
+justru yang menangkap paling jujur: kalau kontrak ini tidak dijaga dengan
+test, allowlist kosong akan diam-diam kembali jadi wildcard.
 
 
 
@@ -878,8 +952,9 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
 - [ ] Webhook diperkuat - **SEBAGIAN.** HMAC dan perbandingan panjang tetap
       sudah ada; idempotensi dan pencegahan replay belum diperiksa.
 - [x] Deteksi serangan nyata diimplementasikan dan diuji - model, katalog,
-      pencatat, panel, 21 test aturan, dan 11 test pemicu. **3 dari 9 pemicu
-      tersambung**; enam sisanya menunggu keputusan di bagian 5.1.
+      pencatat, panel, retensi, 21 test aturan, dan 21 test pemicu. **4 dari 9
+      pemicu tersambung**; dua sisanya terbukti mustahil dari dalam gerbang
+      yang melempar (bagian 2.9), tiga sisanya menunggu pekerjaan tersendiri.
 - [ ] Security header aktif - **BELUM** (bagian 9.3).
 
 ### Keandalan

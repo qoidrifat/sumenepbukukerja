@@ -27,6 +27,32 @@ type Context = GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>;
  * tanpa stack trace. PESANNYA SENDIRI TIDAK DIUBAH, jadi setiap test yang
  * menolak lewat `rejects.toThrow` tetap cocok dan UI tetap menampilkan
  * kalimat yang sama.
+ *
+ * FASE 10 - KENAPA FUNGSI INI TIDAK BISA JADI LEBIH DARI SEKADARNYA.
+ *
+ * Dua hal yang sangat dibutuhkan gerbang hak khusus ternyata tidak bisa
+ * dilakukan dari sini, dan keduanya sudah diuji, bukan ditebak. Buktinya di
+ * `src/convex/access-denial-contract.test.ts`.
+ *
+ *  1. JEJAK DI DATABASE. Mutation Convex bersifat atomik: ketika handler
+ *     melempar, seluruh perubahan di transaksi itu ikut dibuang - termasuk satu
+ *     baris bukti yang ditulis satu baris sebelumnya. Jadi pola penolakan
+ *     tidak bisa dicatat dari dalam gerbang yang melempar. Kode yang
+ *     melakukannya akan terlihat benar saat dibaca dan tidak akan pernah
+ *     complain saat berjalan, padahal jejaknya selalu hilang.
+ *  2. `code` TERSTRUKTUR. `ConvexError` dengan objek mengubah `message` menjadi
+ *     JSON hasil `JSON.stringify`, jadi yang sampai ke toast pengguna bukan lagi
+ *     kalimatnya melainkan `{"code":...}`. `SESSION_REVOKED` boleh begitu karena
+ *     sisi kliennya memang memeriksa `data.code` secara khusus; untuk gerbang
+ *     umum yang tidak begitu, menambahkan `code` adalah regression tampilan
+ *     yang nyata - dan `security-surface.test.ts` langsung menangkapnya.
+ *
+ * Satu-satunya jalan yang tersedia adalah mutation mengembalikan objek
+ * penolakan alih-alih melempar - pola yang sudah dipakai di
+ * `users.changeStaffRole` dengan alasan yang sama tertulis di sana - atau
+ * melaporkan sinyal dari transaksi lain (action lewat `runMutation`, atau klien
+ * lewat mutation pelaporan). Keduanya mengubah kontrak pemanggil, jadi keduanya
+ * dicatat sebagai pekerjaan terbuka di laporan, bukan dikerjakan diam-diam.
  */
 export function denied(message: string): never {
   throw new ConvexError(message);
@@ -98,7 +124,11 @@ export async function requireStaff(ctx: Context, minimum: "staff" | "admin" = "s
   const userId = await requireUser(ctx);
   const access = await getStaffAccess(ctx, userId);
   if (!access || (minimum === "admin" && access.role !== "admin") || (minimum === "staff" && access.role === "viewer")) {
-    denied(minimum === "admin" ? "Hanya admin yang dapat melakukan tindakan ini" : "Hanya pengelola yang dapat melakukan tindakan ini");
+    denied(
+      minimum === "admin"
+        ? "Hanya admin yang dapat melakukan tindakan ini"
+        : "Hanya pengelola yang dapat melakukan tindakan ini",
+    );
   }
   return access;
 }
@@ -216,15 +246,21 @@ export async function requireAssignablePhoto(ctx: Context, storageId: string | u
     .query("listingClaims")
     .withIndex("byEvidenceStorageId", (q) => q.eq("evidenceStorageId", id))
     .first();
-  if (claim) denied("Foto ini adalah bukti klaim dan tidak bisa dipakai sebagai foto listing");
+  if (claim) {
+    denied("Foto ini adalah bukti klaim dan tidak bisa dipakai sebagai foto listing");
+  }
   const backup = await ctx.db
     .query("backupRuns")
     .withIndex("byStorageId", (q) => q.eq("storageId", id))
     .first();
-  if (backup) denied("Foto ini adalah dokumen cadangan dan tidak bisa dipakai sebagai foto listing");
+  if (backup) {
+    denied("Foto ini adalah dokumen cadangan dan tidak bisa dipakai sebagai foto listing");
+  }
   const profile = await ctx.db
     .query("users")
     .withIndex("byProfileImageStorageId", (q) => q.eq("profileImageStorageId", id))
     .first();
-  if (profile) denied("Foto ini adalah foto profil dan tidak bisa dipakai sebagai foto listing");
+  if (profile) {
+    denied("Foto ini adalah foto profil dan tidak bisa dipakai sebagai foto listing");
+  }
 }

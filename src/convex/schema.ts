@@ -662,7 +662,32 @@ const schema = defineSchema(
       // menghitung permintaan satu sumber IP dalam satu menit.
       .index("byIpHashCreatedAt", ["ipHash", "createdAt"]),
 
-    // Presence ringan: kapan seorang pengelola terakhir terlihat di ruang
+    // Penghitung penolakan untuk aturan deteksi yang butuh JUMLAH.
+  //
+  // `recordIncidentWithin` memutuskan dari berapa banyak kejadian di dalam
+  // jendela, dan jumlah itu harus berasal dari data nyata. Tabel ini adalah
+  // data itu: satu baris kecil per penolakan, dibaca lewat indeks komposit per
+  // subjek. Tanpa tabel ini, satu insiden berarti satu baris per percobaan.
+  //
+  // Isinya sengaja tidak menyimpan nilai yang bisa dipakai ulang: untuk
+  // storage id hanya sidik hash-nya, untuk penolakan hak privilege hanya id
+  // dokumen pengguna. Baris ini dibaca Security Desk, jadi tidak boleh berisi
+  // apa pun yang bisa dipakai caller sebagai kredensial.
+  securityDenyLog: defineTable({
+    subjectType: v.union(v.literal("user"), v.literal("storage"), v.literal("invite")),
+    /** Hash atau id yang sudah diturunkan; bukan nilai mentah. */
+    subjectRef: v.string(),
+    ruleKey: v.string(),
+    route: v.string(),
+    userId: v.optional(v.id("users")),
+    sessionReference: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("bySubjectCreatedAt", ["subjectType", "subjectRef", "createdAt"])
+    .index("byRuleCreatedAt", ["ruleKey", "createdAt"])
+    .index("byCreatedAt", ["createdAt"]),
+
+  // Presence ringan: kapan seorang pengelola terakhir terlihat di ruang
     // admin. Dipakai supaya audit log bisa menandai "Aktif sekarang" tanpa
     // polling dari klien.
     adminPresence: defineTable({

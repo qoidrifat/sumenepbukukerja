@@ -5,6 +5,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { denied, getStaffAccess, requireManagementViewer, requireStaff, requireUser, type StaffRole } from "./access";
 import { writeAudit } from "./audit";
+import { noteSecurityDenial } from "./securitySignal";
 import { isOwnerAccount } from "../lib/owner-account";
 import { imageRejection } from "../lib/image-upload";
 import { resolveDisplayName, sanitizeDisplayName } from "../lib/display-name";
@@ -527,6 +528,32 @@ export const acceptStaffInvite = mutation({
       await writeAudit(ctx, {
         action: "staff.invite_rejected",
         metadata: { reason, hasToken: Boolean(token) },
+      });
+      /*
+       * FASE 10: pola penolakan juga masuk Security Desk.
+       *
+       * Token undangan ber-entropi tinggi tidak bisa ditebak, jadi setiap
+       * kegagalan di sini adalah tebakan. Yang dikumpulkan bukan tokennya -
+       * token yang gagal tidak boleh masuk tabel mana pun - melainkan
+       * frekuensinya per ember.
+       *
+       * EMBERNYA SATU, bukan satu per token. Kalau subjeknya token yang
+       * dicoba, setiap tebakan akan menjadi subjek baru dengan hitungan satu
+       * dan ambang sepuluh tidak akan pernah tercapai - persis kebalikan dari
+       * yang dimaksud. Satu ember bersama membuat sepuluh kegagalan dalam
+       * lima belas menit terlihat sebagai satu insiden, dan untuk aplikasi
+       * sekecil ini itulah yang benar.
+       *
+       * `getInviteDetails` adalah query, dan query tidak boleh menulis, jadi
+       * jalur pratinjau tidak ikut dihitung. Itu batas yang diketahui dan
+       * dicatat di laporan, bukan sesuatu yang disembunyikan.
+       */
+      await noteSecurityDenial(ctx, {
+        ruleKey: "invite_token_invalid",
+        subjectType: "invite",
+        subjectRef: "anonymous",
+        route: "acceptStaffInvite",
+        evidence: [`alasan: ${reason}`, `panjang token: ${token.length}`],
       });
       return { ok: false as const, reason };
     };

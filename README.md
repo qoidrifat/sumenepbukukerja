@@ -500,7 +500,8 @@ Ringkasan lengkapnya beserta sisa risiko ada di
 | Otorisasi terpusat - lima salinan aturan di `community.ts` dan `vendors.ts` dihapus | `src/convex/revoked-session-coverage.test.ts` (10 test) |
 | Sesi yang dicabut ditolak di seluruh pintu pengelola, termasuk dua berkas yang dulu melewatkannya | idem |
 | `ensureCatalogSeeded` berhenti menulis ke baris milik orang lain; penyelarasan koordinat jadi `internalMutation` | idem |
-| Tabel `securityIncidents` + sembilan aturan deteksi + panel Security Desk | `src/lib/security-rules.ts`, `src/convex/securityIncidents.ts` (21 + 11 test) |
+| Tabel `securityIncidents` + sembilan aturan deteksi + panel Security Desk + cron retensi | `src/lib/security-rules.ts`, `src/convex/securityIncidents.ts` (21 + 21 test) |
+| Token undangan yang ditebak berulang tercatat sebagai insiden (`invite_token_invalid`) | `src/convex/access-denial-contract.test.ts` (10 test) |
 | Telemetri rute tidak lagi memakai penanda bintang `postMessage` | `src/lib/postmessage-origin.test.ts` (6 test) |
 | Panel "Sesi Anda" tidak lagi menampilkan angka yang diklaim peramban | `src/convex/session-context-authority.test.ts` (8 test) |
 | Route konteks ditutup saat allowlist kosong, dan dibatasi 30 permintaan/menit per IP | `src/convex/context-route-hardening.test.ts` (11 test) |
@@ -524,8 +525,16 @@ Ringkasan lengkapnya beserta sisa risiko ada di
 
 **Yang BELUM selesai dan tidak boleh dianggap selesai:** rotasi rahasia dan
 pemindaian riwayat Git (bagian 6 laporan), privasi nomor WhatsApp (bagian
-5.2), security header (bagian 9.3), dan enam dari sembilan pemicu deteksi
+5.2), security header (bagian 9.3), dan lima dari sembilan pemicu deteksi
 (bagian 5.1).
+
+> **CATATAN VERSI, Fase 10.** Dua aturan deteksi lain - pola penolakan hak
+> khusus dan storage id yang disisir - **tidak bisa** dipasang dari dalam
+> gerbang yang melempar. Mutation Convex bersifat atomik: ketika handler
+> melempar, bukti yang ditulis sebelumnya ikut hilang. Percobaannya dibuat,
+> diuji, lalu ditarik kembali, dan alasannya dikunci test di
+> `src/convex/access-denial-contract.test.ts`. Jangan menuliskan "catat lalu
+> tolak" di dalam mutation; buktinya selalu hilang tanpa error apa pun.
 
 ## Backlog 17 requirement (Fase 1-6)
 

@@ -1,147 +1,23 @@
 import { mutation, internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import type { GenericMutationCtx } from "convex/server";
-import type { DataModel } from "./_generated/dataModel";
 import { requireManagementViewer, requireStaff } from "./access";
 import { writeAudit } from "./audit";
+import { recordIncidentWithin, type IncidentSignal } from "./securitySignal";
 import {
   assertSafeEvidence,
-  decideIncident,
   sanitizeEvidence,
-  shouldAggregate,
-  type IncidentSeverity,
   type IncidentStatus,
   type SecurityRuleKey,
   SECURITY_RULES,
 } from "../lib/security-rules";
 
-type MutationCtx = GenericMutationCtx<DataModel>;
-
 /**
- * Sinyal yang dilaporkan pemanggil.
- *
- * Perhatikan bentuknya: pemanggil melaporkan FAKTA ("passcode salah", IP
- * hash, jumlah kejadian di jendelanya). Pemanggil TIDAK memilih tingkat
- * keparahan, tidak memilih status, dan tidak menulis langsung ke tabel.
- * Semua keputusan itu diambil `decideIncident` dari katalog aturan, sehingga
- * dua jalur berbeda tidak mungkin memberi tingkat berbeda untuk kejadian yang
- * sama.
+ * Penulis insiden hidup di `./securitySignal` supaya `./access` bisa
+ * melaporkan penolakan tanpa mengimpor `requireStaff` dari berkas ini.
+ * Diekspor ulang supaya pemanggil lama tidak perlu diubah semua sekaligus.
  */
-export type IncidentSignal = {
-  ruleKey: SecurityRuleKey;
-  /** Jumlah kejadian di dalam jendela aturan, TERMASUK yang terbaru. */
-  count: number;
-  /** Nilai subjek yang sudah diturunkan - hash, label, atau slug. */
-  subjectRef: string;
-  route: string;
-  method: string;
-  userId?: DataModel["users"]["document"]["_id"];
-  ipHash?: string;
-  ipMasked?: string;
-  sessionFingerprint?: string;
-  /** Keterangan singkat. Disanitasi di sini, bukan di pemanggil. */
-  evidence?: string[];
-};
-
-/**
- * Mencatat sinyal keamanan menjadi insiden.
- *
- * Fungsi ini SENGAJA berupa fungsi biasa, bukan `internalMutation`. Alasannya
- * teknis: sebagian besar deteksi terjadi DI DALAM mutation yang sedang
- * berjalan (misalnya `verifyAdminPasscode` yang gagal), dan mutation tidak
- * bisa memanggil mutation lain secara langsung. Fungsi biasa bisa dipanggil
- * dari mana saja yang sudah punya `ctx`, sedangkan `internalMutation`
- * pembungkusnya di bawah dipakai untuk action lewat scheduler.
- *
- * MELEMPAR, TIDAK DIAM. Kalau bukti memuat pola rahasia, `assertSafeEvidence`
- * melempar. Pencatatan insiden tidak boleh pernah menjadi jalur diam-diam yang
- * merusak tujuan keamanannya sendiri.
- */
-export async function recordIncidentWithin(
-  ctx: MutationCtx,
-  signal: IncidentSignal,
-): Promise<void> {
-  const decision = decideIncident(signal.ruleKey, signal.count);
-  if (decision.action === "ignore") return;
-
-  const rule = SECURITY_RULES[signal.ruleKey];
-  const now = Date.now();
-  const evidence = sanitizeEvidence(signal.evidence ?? []);
-  assertSafeEvidence(evidence);
-
-  const existing = await ctx.db
-    .query("securityIncidents")
-    .withIndex("byAggregate", (q) =>
-      q
-        .eq("ruleKey", signal.ruleKey)
-        .eq("subjectType", rule.subjectType)
-        .eq("subjectRef", signal.subjectRef),
-    )
-    .order("desc")
-    .first();
-
-  if (
-    existing &&
-    shouldAggregate({
-      status: existing.status,
-      lastSeenAt: existing.lastSeenAt,
-      now,
-      windowMs: rule.windowMs,
-    })
-  ) {
-    // Digabung, bukan dibuat baru. `count` diisi JUMLAH kejadian di jendela,
-    // bukan hasil penambahan berulang: nilainya berasal dari hitungan yang
-    // sudah dihitung pemanggil atas data nyata, jadi membiarkannya bertambah
-    // sendiri akan membuat angkanya menggelembung setiap kali fungsi ini
-    // dipanggil untuk sinyal yang sama.
-    const merged = [...new Set([...(existing.evidence ?? []), ...evidence])].slice(0, 20);
-    await ctx.db.patch(existing._id, {
-      count: Math.max(existing.count, signal.count),
-      lastSeenAt: now,
-      // Tingkat hanya boleh naik. Kalau insiden yang sama kembali dengan
-      // hitungan lebih kecil, itu bukan alasan menurunkan kewaspadaan.
-      severity: higherSeverity(existing.severity, decision.severity),
-      evidence: merged,
-      route: signal.route,
-      method: signal.method,
-      updatedAt: now,
-    });
-    return;
-  }
-
-  await ctx.db.insert("securityIncidents", {
-    ruleKey: signal.ruleKey,
-    severity: decision.severity,
-    status: "open",
-    subjectType: rule.subjectType,
-    subjectRef: signal.subjectRef,
-    ...(signal.userId === undefined ? {} : { userId: signal.userId }),
-    ...(signal.ipHash === undefined ? {} : { ipHash: signal.ipHash }),
-    ...(signal.ipMasked === undefined ? {} : { ipMasked: signal.ipMasked }),
-    ...(signal.sessionFingerprint === undefined
-      ? {}
-      : { sessionFingerprint: signal.sessionFingerprint }),
-    route: signal.route,
-    method: signal.method,
-    count: signal.count,
-    firstSeenAt: now,
-    lastSeenAt: now,
-    ...(evidence.length === 0 ? {} : { evidence }),
-    createdAt: now,
-    updatedAt: now,
-  });
-}
-
-const ORDER: Record<IncidentSeverity, number> = {
-  info: 0,
-  low: 1,
-  medium: 2,
-  high: 3,
-  critical: 4,
-};
-
-const higherSeverity = (a: IncidentSeverity, b: IncidentSeverity): IncidentSeverity =>
-  ORDER[a] >= ORDER[b] ? a : b;
+export { recordIncidentWithin };
+export type { IncidentSignal };
 
 /**
  * Pembungkus untuk action dan scheduler.
@@ -221,6 +97,16 @@ export const recordWebhookSignatureFailure = internalMutation({
 /* ------------------------------------------------------------------ */
 /* Security Desk                                                       */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Seberapa lama baris `securityDenyLog` disimpan.
+ *
+ * Jendela aturan paling lama tiga puluh menit (lihat `SECURITY_RULES`). Satu
+ * jam sudah jauh melewati itu, jadi tidak ada hitungan yang bisa terpengaruh
+ * oleh baris yang lebih tua. Baris yang dibuang bukan bukti: insidennya tetap
+ * ada di `securityIncidents`.
+ */
+const DENY_LOG_RETENTION_MS = 60 * 60 * 1000;
 
 const severityValidator = v.union(
   v.literal("info"),
@@ -406,6 +292,23 @@ export const pruneIncidents = internalMutation({
       // belum ditangani berarti membuang satu-satunya tanda bahwa ada yang
       // perlu diperiksa.
       if (row.status === "open" || row.status === "acknowledged") continue;
+      await ctx.db.delete(row._id);
+      removed += 1;
+    }
+
+    // Tabel penghitung penolakan juga harus dipangkas, dan tidak boleh
+    // menggunakan batas usia insiden: jendela aturannya paling lama tiga puluh
+    // menit, jadi apa pun yang sudah berumur satu jam tidak mungkin masih
+    // memengaruhi hitungan mana pun. Baris yang dibuang bukan bukti -
+    // insidennya sendiri tetap ada di `securityIncidents`.
+    const denyCutoff = Date.now() - DENY_LOG_RETENTION_MS;
+    const denyRows = await ctx.db
+      .query("securityDenyLog")
+      .withIndex("byCreatedAt")
+      .order("asc")
+      .take(max * 4);
+    for (const row of denyRows) {
+      if (row.createdAt >= denyCutoff) break;
       await ctx.db.delete(row._id);
       removed += 1;
     }

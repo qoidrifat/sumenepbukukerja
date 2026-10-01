@@ -12,8 +12,10 @@
  *  2. Kalau allowlist origin terisi, hanya origin itu yang mendapat
  *     `access-control-allow-origin`. Origin lain TIDAK boleh mendapat apa pun -
  *     bukan `*`, bukan nilai bogus.
- *  3. Allowlist kosong tetap aman: wildcard tanpa credentials, plus `vary: Origin`
- *     dan `x-content-type-options: nosniff`.
+ *  3. Allowlist kosong berarti TUTUP (Fase 6), bukan wildcard. Wildcard hanya
+ *     boleh muncul kalau operator memintanya lewat
+ *     `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS`, dan tetap tanpa credentials.
+ *     `vary: Origin` dan `x-content-type-options: nosniff` ada di semua mode.
  *
  * Bukti ukurannya ada di `tmp/qa-p91-http-evidence.json` (probe read-only ke
  * origin `.convex.site` pada 2026-09-30).
@@ -21,7 +23,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { buildContextCorsHeaders } from "./http";
+import { buildContextCorsHeaders, resolveContextCorsMode } from "./http";
 
 const httpSource = readFileSync(fileURLToPath(new URL("./http.ts", import.meta.url)), "utf8");
 
@@ -53,13 +55,61 @@ describe("Fase 9.1: CORS route konteks tidak pernah memakai wildcard berkredensi
     expect(headers["access-control-allow-credentials"]).toBeUndefined();
   });
 
-  test("tanpa allowlist: wildcard, tanpa credentials (perilaku tidak berubah)", () => {
-    const headers = buildContextCorsHeaders("https://situs-lain.example", []);
-    expect(headers["access-control-allow-origin"]).toBe("*");
-    expect(headers["access-control-allow-credentials"]).toBeUndefined();
-    expect(headers["access-control-allow-methods"]).toBe("POST, OPTIONS");
-    // Preflight tetap harus bisa lewat supaya beacon Security Desk tidak mati.
-    expect(headers["access-control-allow-headers"]).toContain("content-type");
+  test("tanpa allowlist: TUTUP secara bawaan, wildcard harus diminta eksplisit", () => {
+    // Fase 6. Allowlist kosong dulu berarti `*`, dan wildcard berarti situs mana
+    // pun bisa memanggil route ini dari peramban pengunjung lalu membaca
+    // masked IP, kota, negara, dan token konteks miliknya. Kontrak itu diubah
+    // secara sadar, jadi testnya ikut berubah - bukan dihapus.
+    const tertutup = buildContextCorsHeaders("https://situs-lain.example", []);
+    expect(tertutup["access-control-allow-origin"]).toBeUndefined();
+    expect(tertutup["access-control-allow-credentials"]).toBeUndefined();
+    // Header dasar tetap ada supaya preflight yang ditolak masih bisa
+    // dibedakan dari "rute tidak ada".
+    expect(tertutup["access-control-allow-methods"]).toBe("POST, OPTIONS");
+    expect(tertutup["access-control-allow-headers"]).toContain("content-type");
+    expect(tertutup.vary).toBe("Origin");
+
+    // Wildcard masih bisa obtained, tapi hanya atas permintaan tertulis.
+    const liar = buildContextCorsHeaders("https://situs-lain.example", [], {
+      allowWildcard: true,
+    });
+    expect(liar["access-control-allow-origin"]).toBe("*");
+    expect(liar["access-control-allow-credentials"]).toBeUndefined();
+  });
+
+  test("allowlist terisi mengalahkan permintaan wildcard", () => {
+    // Allowlist yang tersimpan adalah keputusan yang lebih sempit, jadi
+    // permintaan wildcard tidak boleh melontarkannya kembali jadi `*`.
+    const allowed = ["https://bukukerja.example"];
+    expect(
+      buildContextCorsHeaders("https://situs-lain.example", allowed, { allowWildcard: true })[
+        "access-control-allow-origin"
+      ],
+    ).toBeUndefined();
+    expect(
+      buildContextCorsHeaders(allowed[0], allowed, { allowWildcard: true })[
+        "access-control-allow-origin"
+      ],
+    ).toBe(allowed[0]);
+  });
+
+  test("mode CORS hanya bergantung pada allowlist dan permintaan eksplisit", () => {
+    expect(resolveContextCorsMode([])).toBe("closed");
+    expect(resolveContextCorsMode([], { allowWildcard: true })).toBe("wildcard");
+    expect(resolveContextCorsMode(["https://bukukerja.example"])).toBe("allowlist");
+    expect(resolveContextCorsMode(["https://bukukerja.example"], { allowWildcard: true })).toBe(
+      "allowlist",
+    );
+    // Wildcard tidak boleh muncul hanya karena string allowlist berisi spasi.
+    expect(resolveContextCorsMode([" ", ""])).toBe("closed");
+  });
+
+  test("izinin wildcard hanya dibaca dari variabel khusus", () => {
+    expect(httpCode).toContain("ADMIN_CONTEXT_ALLOW_WILDCARD_CORS");
+    // Penegakan tidak boleh bergantung pada tebakan lingkungan. `NODE_ENV`
+    // tidak dijamin ada di setiap deployment Convex, jadi mengandalkannya
+    // berarti kontrol ini bisa diam-diam tidak aktif.
+    expect(httpCode).not.toContain("NODE_ENV");
   });
 
   test("dengan allowlist: hanya origin yang sama yang diizinkan", () => {

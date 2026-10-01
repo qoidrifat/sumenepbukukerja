@@ -21,6 +21,7 @@ import {
   toHex as bytesToHex,
 } from "../lib/security-context";
 import { buildRobotsTxt, buildSitemapXml } from "../lib/sitemap";
+import { CONTEXT_REQUEST_LIMIT, CONTEXT_REQUEST_WINDOW_MS } from "./adminGate";
 
 const http = httpRouter();
 
@@ -348,8 +349,44 @@ const CONTEXT_CORS_REQUEST_HEADERS =
  *  - `access-control-allow-credentials` tidak pernah dikirim. Wildcard
  *    bersama credentials ditolak browser dan juga tidak dipakai di sini.
  *  - Dengan allowlist terisi, origin asing tidak pernah mendapat `*`.
+ *
+ * FASE 6 - KETIKA ALLOWLIST KOSONG, JAWABANNYA SEKARANG "TUTUP", BUKAN `*`.
+ *
+ * Alasannya sederhana. Allowlist kosong sebelumnya berarti wildcard, dan
+ * wildcard berarti setiap situs di internet bisa memanggil route ini dari
+ * peramban pengunjung dan membaca jawabannya: masked IP, kota, negara, dan
+ * token konteks milik pengunjung itu sendiri.
+ *
+ * Mode wildcard masih ada, tapi hanya kalau operator MEMILIHNYA lewat
+ * `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS`. Di luar itu, allowlist kosong berarti
+ * tidak ada `access-control-allow-origin` sama sekali: preflight dan pembacaan
+ * lintas origin sama-sama ditolak peramban, jadi Security Desk hanya kehilangan
+ * metadata IP, bukan kebocorannya. Penjatahan metadata jauh lebih murah
+ * daripada mengaktifkan kebocoran.
+ *
+ * Penegakan tidak bergantung pada `NODE_ENV` atau tebakan lain tentang
+ * lingkungan. Kegagalan mendeteksi "ini produksi" adalah cara yang rapi untuk
+ * tidak menegakkan apa pun.
  */
-export function buildContextCorsHeaders(requestOrigin: string | null, allowedOrigins: string[]) {
+export type ContextCorsMode = "allowlist" | "wildcard" | "closed";
+
+export function resolveContextCorsMode(
+  allowedOrigins: string[],
+  options: { allowWildcard?: boolean } = {},
+): ContextCorsMode {
+  // Normalisasi ulang di sini, bukan hanya di pembaca env. Kalau ada satu
+  // spasi di environment, allowlist "terisi" menurut hitungan panjang tapi
+  // anggota sama sekali adalah wildcard yang lebih buruk.
+  const usable = allowedOrigins.map((value) => value.trim().replace(/\/+$/, "")).filter(Boolean);
+  if (usable.length > 0) return "allowlist";
+  return options.allowWildcard ? "wildcard" : "closed";
+}
+
+export function buildContextCorsHeaders(
+  requestOrigin: string | null,
+  allowedOrigins: string[],
+  options: { allowWildcard?: boolean } = {},
+) {
   const headers: Record<string, string> = {
     "access-control-allow-methods": CONTEXT_CORS_METHODS,
     "access-control-allow-headers": CONTEXT_CORS_REQUEST_HEADERS,
@@ -362,10 +399,12 @@ export function buildContextCorsHeaders(requestOrigin: string | null, allowedOri
     // butuh jawaban yang tidak ditafsirkan ulang sebagai berkas lain.
     "x-content-type-options": "nosniff",
   };
-  if (allowedOrigins.length === 0) {
+  const mode = resolveContextCorsMode(allowedOrigins, options);
+  if (mode === "wildcard") {
     headers["access-control-allow-origin"] = "*";
     return headers;
   }
+  if (mode === "closed") return headers;
   if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
     headers["access-control-allow-origin"] = requestOrigin;
   }
@@ -378,8 +417,14 @@ const allowedContextOrigins = () =>
     .map((value) => value.trim().replace(/\/+$/, ""))
     .filter(Boolean);
 
+/** Wildcard harus diminta tertulis, bukan terjadi karena allowlist lupa diisi. */
+const allowWildcardContextCors = () =>
+  (process.env.ADMIN_CONTEXT_ALLOW_WILDCARD_CORS ?? "").trim().toLowerCase() === "true";
+
 const contextCorsHeaders = (request: Request) =>
-  buildContextCorsHeaders(request.headers.get("origin"), allowedContextOrigins());
+  buildContextCorsHeaders(request.headers.get("origin"), allowedContextOrigins(), {
+    allowWildcard: allowWildcardContextCors(),
+  });
 
 const adminSecurityContext = httpAction(async (ctx, request: Request) => {
   const corsHeaders = contextCorsHeaders(request);
@@ -391,6 +436,45 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
   }
   try {
     const resolved = resolveClientIp(request.headers);
+
+    /*
+     * FASE 6 - BATAS PERMINTAAN, DILETAK SEBELUM PEKERJAAN BERAT.
+     *
+     * Resolve IP dan sha256nya harus terjadi lebih dulu justru supaya
+     * perhitungannya bisa dilakukan: kunci batasnya harus berasal dari IP yang
+     * diamati server, bukan dari apa pun yang dikirim klien. Tanpa itu,
+     * rate limit bisa dilewati dengan mengganti header di setiap permintaan.
+     *
+     * Dihitung dari baris `adminSecurityContexts` yang sudah ada (lihat
+     * `adminGate.contextRequestWindow`), jadi tidak ada tabel penghitung baru
+     * yang harus dipelihara dan tidak ada state yang bisa tidak sinkron.
+     *
+     * Permintaan yang DITOLAK tidak pernah menggagalkan auth: gerbang passcode
+     * tetap jalan tanpa metadata IP, hanya Security Desk yang lebih tipis.
+     * Jangan sampai penolakan ini diterjemahkan UI sebagai passcode belum
+     * dikonfigurasi: dua-duanya bawaan gagal, tapi maknanya sama sekali berbeda.
+     */
+    if (resolved.ip) {
+      const ipHash = await sha256Hex(resolved.ip);
+      const usage = await ctx.runMutation(internal.adminGate.contextRequestWindow, { ipHash });
+      if (usage.count >= CONTEXT_REQUEST_LIMIT) {
+        return Response.json(
+          { error: "rate_limited", retryAfterSeconds: CONTEXT_REQUEST_WINDOW_MS / 1000 },
+          {
+            status: 429,
+            headers: {
+              "content-type": "application/json",
+              // Header ini harus ada juga di respons 429: tanpa
+              // `access-control-allow-origin` yang benar, peramban tidak akan
+              // membaca body-nya dan akan menampilkan error jaringan umum.
+              ...corsHeaders,
+              "retry-after": String(CONTEXT_REQUEST_WINDOW_MS / 1000),
+            },
+          },
+        );
+      }
+    }
+
     const requestId = `req_${bytesToHex(crypto.getRandomValues(new Uint8Array(8)))}`;
     const userAgent = trimUserAgent(request.headers.get("user-agent") ?? undefined) ?? undefined;
     const referrer = sanitizeReferrer(request.headers.get("referer") ?? undefined) ?? undefined;

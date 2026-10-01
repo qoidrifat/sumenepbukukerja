@@ -655,7 +655,12 @@ const schema = defineSchema(
       createdAt: v.number(),
     })
       .index("byToken", ["token"])
-      .index("byExpiresAt", ["expiresAt"]),
+      .index("byExpiresAt", ["expiresAt"])
+      // FASE 6: rate limit route konteks dihitung dari baris yang sudah ada,
+      // bukan dari tabel penghitung terpisah. Baris ini age-nya paling lama 5
+      // menit, jadi satu indeks komposit (ipHash, createdAt) sudah cukup untuk
+      // menghitung permintaan satu sumber IP dalam satu menit.
+      .index("byIpHashCreatedAt", ["ipHash", "createdAt"]),
 
     // Presence ringan: kapan seorang pengelola terakhir terlihat di ruang
     // admin. Dipakai supaya audit log bisa menandai "Aktif sekarang" tanpa

@@ -182,6 +182,13 @@ function PasscodeStrength({
  * Kirim satu jejak header ke server lalu minta server menalinkannya ke sesi
  * yang sedang aktif. Kegagalan diam-diam: panel tetap harus terbuka meski
  * beacon diblokir jaringan.
+ *
+ * FASE 5: yang dikirim hanya token dan device id. Sebelumnya beacon ini juga
+ * menyalin ipMasked, ipSource, ipFamily, requestId, dan userAgent dari
+ * jawabannya lalu meneruskannya ke mutation - jadi panel "Sesi Anda" menulis
+ * angka yang sebenarnya sudah dibaca server, hanya lewat peramban. Server kini
+ * membaca sendiri baris konteksnya, jadi tidak ada jalur lagi untuk
+ * menuliskan IP bikainan ke tabel presence.
  */
 function useAdminSessionBeacon() {
   const convex = useConvex();
@@ -199,14 +206,7 @@ function useAdminSessionBeacon() {
           signal: AbortSignal.timeout(2500),
         });
         if (!response.ok || cancelled) return;
-        const payload = (await response.json()) as {
-          contextId?: string | null;
-          requestId?: string | null;
-          ipMasked?: string | null;
-          ipSource?: string | null;
-          ipFamily?: string | null;
-          userAgent?: string | null;
-        };
+        const payload = (await response.json()) as { contextId?: string | null };
         if (!payload.contextId) return;
         const deviceId = (() => {
           try {
@@ -217,11 +217,6 @@ function useAdminSessionBeacon() {
         })();
         await report({
           token: payload.contextId,
-          requestId: payload.requestId ?? undefined,
-          ipMasked: payload.ipMasked ?? undefined,
-          ipSource: payload.ipSource ?? undefined,
-          ipFamily: payload.ipFamily ?? undefined,
-          userAgent: payload.userAgent ?? window.navigator.userAgent,
           // Yang dikirim device id mentah; server yang meng-hash-nya, sama
           // seperti saat login. Mengirim sidik jadi dari klien membuat dua sisi
           // tidak bisa dibandingkan, dan device id mentah ikut tersimpan.

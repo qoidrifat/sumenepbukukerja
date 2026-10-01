@@ -489,7 +489,7 @@ dan `email` mentah tidak pernah ikut keluar.
 > `offeredBy` ke DTO - test regresi di `src/lib/request-dto.test.ts` akan
 > menolaknya. Lihat `docs/security/SECURITY-HARDENING-REPORT.md` bagian 2.1.
 
-### Hardening keamanan (Fase 0-9)
+### Hardening keamanan (Fase 0-6)
 
 Ringkasan lengkapnya beserta sisa risiko ada di
 `docs/security/SECURITY-HARDENING-REPORT.md`. Yang sudah tayang di kode:
@@ -502,7 +502,25 @@ Ringkasan lengkapnya beserta sisa risiko ada di
 | `ensureCatalogSeeded` berhenti menulis ke baris milik orang lain; penyelarasan koordinat jadi `internalMutation` | idem |
 | Tabel `securityIncidents` + sembilan aturan deteksi + panel Security Desk | `src/lib/security-rules.ts`, `src/convex/securityIncidents.ts` (21 + 11 test) |
 | Telemetri rute tidak lagi memakai penanda bintang `postMessage` | `src/lib/postmessage-origin.test.ts` (6 test) |
+| Panel "Sesi Anda" tidak lagi menampilkan angka yang diklaim peramban | `src/convex/session-context-authority.test.ts` (8 test) |
+| Route konteks ditutup saat allowlist kosong, dan dibatasi 30 permintaan/menit per IP | `src/convex/context-route-hardening.test.ts` (11 test) |
 | `.gitignore` memblokir `.env.keys` dan seluruh dump rahasia | `.gitignore` |
+
+> **CATATAN VERSI, Fase 6.** `POST /admin-gate/context` sebelumnya menjawab
+> `access-control-allow-origin: *` setiap kali allowlist origin kosong, jadi
+> situs mana pun bisa membaca masked IP, kota, dan token konteks milik
+> pengunjung dari perambannya. Sekarang allowlist kosong berarti **tidak ada**
+> header izin sama sekali. Agar panel "Sesi Anda" tetap menampilkan IP di
+> produksi, isi `ADMIN_CONTEXT_ALLOWED_ORIGINS` di tab Keys/API keys:
+>
+> ```
+> ADMIN_CONTEXT_ALLOWED_ORIGINS=https://sumenepbukukerja.freebuff.app
+> ```
+>
+> Jangan pakai `SITE_URL` untuk itu: pada deployment yang diuji, `SITE_URL`
+> menunjuk origin `.convex.site` itu sendiri, bukan origin frontend. Wildcard
+> lama masih bisa diminta secara eksplisit lewat
+> `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS=true`, tapi tidak disarankan.
 
 **Yang BELUM selesai dan tidak boleh dianggap selesai:** rotasi rahasia dan
 pemindaian riwayat Git (bagian 6 laporan), privasi nomor WhatsApp (bagian

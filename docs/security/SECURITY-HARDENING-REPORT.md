@@ -24,7 +24,7 @@ Deployment dev: `qualified-chameleon-491` | Deployment prod: `focused-lemur-389`
 
 ### 1.1 Yang berubah di commit ini
 
-Empat kelompok perubahan, semuanya terverifikasi:
+Tujuh kelompok perubahan, semuanya terverifikasi:
 
 **A. Kebocoran pengenal akun dari papan permintaan publik (P1, sudah bocor).**
 
@@ -86,6 +86,27 @@ artinya situs mana pun yang memasang aplikasi ini di dalam iframe menerima
 seluruh jejak navigasi pengunjung. Sekarang targetnya daftar putih origin yang
 eksplisit, dan perintah navigasi masuk hanya diterima dari induk langsung.
 
+**F. Panel "Sesi Anda" berhenti mempercayai peramban (P1, baru commit ini).**
+
+`reportSessionContext` menerima token konteks server sebagai argumen wajib,
+tidak pernah membacanya, lalu menulis apa pun yang dikirim browser ke
+`adminPresence`: IP, sumber IP, request id, browser, sistem operasi, dan jenis
+perangkat. Panel yang menjalankan keputusan "cabut sesi ini" karena itu
+menampilkan angka yang bisa ditulis sendiri oleh subjek yang dinilai. Sekarang
+token itu dikonsumsi, kolom jaringan diambil dari baris `adminSecurityContexts`,
+dan klasifikasi perangkat diturunkan server dari user agent yang diamati.
+Rincian di 2.6.
+
+**G. Route konteks ditutup dan dibatasi (P1, baru commit ini).**
+
+`POST /admin-gate/context` menjawab `access-control-allow-origin: *` setiap kali
+allowlist origin kosong, sehingga situs mana pun bisa membaca masked IP, kota,
+dan token konteks milik pengunjung dari perambannya. Allowlist kosong kini
+berarti tidak ada header izin sama sekali; wildcard hanya aktif kalau operator
+mengaktifkan `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS=true`. Route yang sama kini
+dibatasi 30 permintaan per menit per sumber IP, dihitung dari IP yang diamati
+server. Rincian di 2.7 dan 2.8.
+
 ### 1.2 Status per bagian
 
 | Bagian | Judul | Status | Catatan |
@@ -95,8 +116,8 @@ eksplisit, dan perintah navigasi masuk hanya diterima dari induk langsung.
 | 2 | Audit fungsi publik | SEBAGIAN | `ensureCatalogSeeded` selesai; 30+ fungsi lain belum didokumentasikan |
 | 3 | Minimisasi data | SELESAI | Daftar putih + 13 test regresi |
 | 4 | Privasi WhatsApp | BELUM | Rencana migrasi di bagian 9 |
-| 5 | Integritas Security Desk | BELUM | Butuh pembacaan mendalam `http.ts` + `adminGate.ts` |
-| 6 | CORS / HTTP | BELUM | `contextCorsHeaders` sudah ada; fail-closed belum |
+| 5 | Integritas Security Desk | SELESAI | `reportSessionContext` sekarang server-authoritative; 8 test regresi |
+| 6 | CORS / HTTP | SELESAI | Fail-closed saat allowlist kosong + batas 30 permintaan/menit per IP; 11 test |
 | 7 | Deteksi serangan | SEBAGIAN | Model + katalog + pencatat + panel SELESAI; 3 dari 9 pemicu tersambung dan diuji |
 | 8 | Security header | BELUM | Butuh lapisan deployment (lihat bagian 12) |
 | 9 | postMessage | SELESAI | |
@@ -107,7 +128,7 @@ eksplisit, dan perintah navigasi masuk hanya diterima dari induk langsung.
 | 14 | Sinkronisasi rute | BELUM | |
 | 15 | Performa | BELUM | |
 | 16 | Dependency / lockfile | BELUM | |
-| 17-19 | Test / unit / e2e | SEBAGIAN | 930 test hijau, termasuk 10 test Convex baru; E2E belum disentuh (tidak ada peramban) |
+| 17-19 | Test / unit / e2e | SEBAGIAN | 963 test hijau, termasuk 29 test baru Fase 5-6; E2E belum disentuh (tidak ada peramban) |
 | 20 | Urutan pengerjaan | SEBAGIAN | Urutan diikuti untuk yang dikerjakan |
 | 21 | Laporan ini | SELESAI | |
 | 22 | Definition of Done | SEBAGIAN | Lihat bagian 11 |
@@ -128,8 +149,9 @@ Bukan karena kurang waktu, tapi karena tiga batas nyata di lingkungan ini:
 3. **Tidak ada kredensial prod.** Deploy prod dan publish frontend hanya bisa
    dijalankan pemilik. Bagian 8 harus dipasang di lapisan itu.
 
-Berbeda dari tiga hal di atas, Bagian 4, 6, 10, 11, 15, dan 16 **bisa**
-dikerjakan di sini. Keempatnya belum dikerjakan karena masing-masing adalah
+Berbeda dari tiga hal di atas, Bagian 4, 10, 11, 15, dan 16 **bisa**
+dikerjakan di sini. Bagian 5 dan 6 sudah dikerjakan pada commit ini (lihat
+2.6, 2.7, dan 5.3). Sisanya belum dikerjakan karena masing-masing adalah
 refaktor lintas berkas yang tidak bisa diverifikasi secara visual pada turn
 ini, dan saya memilih tidak mengirim perubahan yang belum saya yakini benar
 daripada mengirim perubahan yang merusak CTA utama produk.
@@ -242,6 +264,96 @@ dicatat terpisah karena akar masalahnya bukan bug di satu salinan, melainkan
 pola: satu keputusan keamanan yang hidup di lima tempat pasti akan berbeda di
 salah satunya.
 
+### 2.6 Panel "Sesi Anda" menampilkan apa pun yang diklaim peramban (tinggi)
+
+Ditemukan dan diperbaiki pada commit ini.
+
+`adminGate.reportSessionContext` mendeklarasikan `token: v.string()` sebagai
+argumen WAJIB, dan nama argumen itu menjanjikan satu-satunya sumber metadata
+server. Kenyataannya `token` **tidak pernah dibaca** di seluruh mutation itu.
+Handler langsung menulis nilai yang dikirim browser:
+
+```ts
+ipHash: args.ipHash ?? existing?.ipHash,
+ipMasked: args.ipMasked ?? existing?.ipMasked,
+ipSource: args.ipSource ?? existing?.ipSource,
+ipFamily: args.ipFamily ?? existing?.ipFamily,
+requestId: args.requestId ?? existing?.requestId,
+userAgent: args.userAgent ?? existing?.userAgent,
+browser: args.browser ?? existing?.browser,
+os: args.os ?? existing?.os,
+deviceType: args.deviceType ?? existing?.deviceType,
+```
+
+Baris konteks yang sebenarnya dibuat `POST /admin-gate/context` di
+`http.ts` - dengan `resolveClientIp`, `sha256Hex`, dan `parseUserAgent` - lalu
+dibiarkan menua di `adminSecurityContexts` tanpa pernah dipakai. meanwhile
+`verifyAdminPasscode` di berkas yang sama sudah benar sejak awal
+(`parseUserAgent(serverContext?.userAgent ?? args.userAgent)`). Satu gerbang
+membaca server, satu gerbang membaca klien, dan keduanya kelihatan sama dari luar.
+
+Dampaknya bukan kebocoran data ke pihak ketiga. Dampaknya adalah panel
+"Sesi Anda" menampilkan nilai yang bisa ditulis sendiri oleh perangkat yang
+sedang diperiksa: IP dari kota lain, `requestId` bikainan, `deviceType`
+"Desktop" padahal ponsel. Security Desk dipakai untuk dua keputusan -
+"cabut sesi ini" dan "ini bukan orang saya" - dan keduanya tidak boleh
+dibangun di atas angka yang dikontrol subjek yang dinilai.
+
+Perbaikannya: `consumeSecurityContextRow` (fungsi biasa, supaya pembacaan dan
+penghapusan terjadi dalam satu transaksi) membuka baris konteks sekali pakai,
+seluruh kolom jaringan diambil dari sana, dan `browser`/`os`/`deviceType`
+diturunkan server lewat `parseUserAgent`. Klien yang tetap mengirim kedua
+bentuk itu tidak merusak apa pun: nilainya dibuang di server, bukan
+menimpa. Beacon di `src/components/admin-session-actions.tsx` juga berhenti
+menyalin angka itu, jadi tidak ada lagi jalur peramban yang bisa menulis IP
+ke tabel presence.
+
+### 2.7 Route konteks terbuka ke semua origin saat allowlist kosong (sedang)
+
+Ditemukan dan diperbaiki pada commit ini.
+
+`buildContextCorsHeaders` memakai wildcard ketika
+`ADMIN_CONTEXT_ALLOWED_ORIGINS` kosong. Wildcard berarti setiap situs di
+internet dapat memanggil `POST /admin-gate/context` dari peramban pengunjung
+dan membaca jawabannya: masked IP, kota, negara, dan token konteks milik
+pengunjung itu sendiri. Bukti ukurannyaterta di
+`tmp/qa-p91-http-evidence.json` dan `tmp/qa-p91-cors-allowlist-evidence.json`.
+
+Wildcard itu sengaja ada waktu lalu, dengan alasan yang jujur: allowlist kosong
+suka menyebabkan Security Desk kehilangan metadata IP. Perbaikannya bukan
+menghapus wildcard, tapi meminta operator memilihnya:
+
+| Allowlist | `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS` | Hasil |
+|---|---|---|
+| terisi | bebas | hanya origin di daftar; asing tidak mendapat apa pun |
+| kosong | `"true"` | wildcard tanpa credentials (perilaku lama, atas permintaan) |
+| kosong | kosong atau nilai lain | **tidak ada** `access-control-allow-origin` |
+
+Penegakan sengaja tidak bergantung pada `NODE_ENV`. Dokumentasi Convex tidak
+menjamin variabel itu ada di setiap deployment, jadi menjadikannya penentu
+"ini produksi" adalah cara yang rapi untuk tidak menegakkan apa pun. Ada test
+yang menjaga `http.ts` tidak boleh membaca `NODE_ENV` sama sekali.
+
+Konsekuensi yang harus diterima pemilik: sampai `ADMIN_CONTEXT_ALLOWED_ORIGINS`
+diisi, panel "Sesi Anda" tidak lagi menampilkan IP. Itu kehilangan metadata,
+bukan kebocoran.
+
+### 2.8 Route konteks tanpa batas permintaan (sedang)
+
+`POST /admin-gate/context` adalah satu-satunya tempat di project yang bisa
+membaca header permintaan, dan route itu publik. Setiap panggilanNya
+melakukan satu `resolveClientIp`, satu `sha256Hex`, satu pencarian geolokasi
+(jika provider dikonfigurasi), dan satu write. Tidak ada batasnya.
+
+Perbaikannya: `adminGate.contextRequestWindow` menghitung permintaan satu
+sumber IP dalam jendela 60 detik dari baris `adminSecurityContexts` yang sudah
+ada, memakai indeks baru `byIpHashCreatedAt`. Tidak ada tabel penghitung baru,
+jadi tidak ada state yang bisa tidak sinkron, dan jejak permintaan ikut terhapus
+sendiri bersama barisnya. Kunci hitungannya adalah `ipHash` yang dihitung
+server, bukan nilai kiriman klien - kalau kunci bisa datang dari klien, batasnya
+hanya hiasan. Di atas 30 permintaan dalam 60 detik jawabannya `429` dengan
+`retry-after`, dan penolakan tidak pernah menggagalkan gerbang passcode.
+
 ---
 
 ## 3. Berkas dan Rentang Baris
@@ -265,6 +377,13 @@ salah satunya.
 | `src/components/community-widgets.tsx` | `request.requesterId` diganti `request.isMine` |
 | `src/convex/security-surface.test.ts` | Dua test diubah kontraknya |
 | `src/convex/display-name-security.test.ts` | Satu test diubah kontraknya |
+| `src/convex/adminGate.ts` | `consumeSecurityContextRow` baru; `reportSessionContext` server-authoritative; `contextRequestWindow` baru; `CONTEXT_REQUEST_LIMIT` |
+| `src/convex/http.ts` | `resolveContextCorsMode` baru; fail-closed saat allowlist kosong; batas 30 permintaan/menit per IP dengan `429` |
+| `src/convex/schema.ts` | Indeks `byIpHashCreatedAt` pada `adminSecurityContexts` |
+| `src/components/admin-session-actions.tsx` | Beacon sesi hanya mengirim token dan device id |
+| `src/convex/session-context-authority.test.ts` (baru) | 8 test: konteks sesi harus dari server |
+| `src/convex/context-route-hardening.test.ts` (baru) | 11 test: CORS fail-closed + batas permintaan, diuji lewat `t.fetch` |
+| `src/convex/http-cors-security.test.ts` | Satu test diubah kontraknya (wildcard jadi opt-in), tiga test baru |
 
 ### 3.2 Alasan tiap keputusan yang bisa dipertanyakan
 
@@ -452,17 +571,24 @@ indeks atas kunci HMAC saat migrasi.
 
 ### 5.3 Integritas Security Desk dan CORS fail-closed (P1)
 
-`src/convex/http.ts` sudah mengamati data permintaan dan membuat tiket konteks
-berumur pendek. Yang belum diperiksa adalah apakah
-`adminGate.reportSessionContext` benar-benar mengonsumsi tiket itu sebagai
-satu-satunya sumber, atau masih menerima metadata forensik dari peramban.
+SELESAI pada commit ini. Rinciannya ada di 2.6, 2.7, dan 2.8; ringkasannya:
 
-Instruksi awal menyebut CORS `contextCorsHeaders` sudah ada dan ada bukti di
-`tmp/qa-p91-cors-allowlist-evidence.json`. Yang belum: fail-closed saat daftar
-origin kosong di produksi, dan `Vary: Origin` yang konsisten.
+1. **Konteks sesi sekarang server-authoritative.** `token` pada
+   `reportSessionContext` akhirnya dikonsumsi, dan nilai jaringan apa pun yang
+   dikirim klien dibuang di server, bukan dipercaya. `browser`, `os`, dan
+   `deviceType` diturunkan dari user agent yang dibaca server.
+2. **CORS fail-closed.** Allowlist kosong berarti tidak ada
+   `access-control-allow-origin` sama sekali, kecuali operator mengaktifkan
+   `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS=true` secara eksplisit. `Vary: Origin`
+   dan `x-content-type-options: nosniff` ada di semua mode, termasuk respons
+   `429`.
+3. **Batas permintaan.** 30 permintaan per menit per sumber IP, dihitung dari
+   baris konteks yang sudah ada, dijawab `429` dengan `retry-after`, dan tidak
+   pernah menggagalkan gerbang passcode.
 
-Keduanya butuh pembacaan mendalam `http.ts` dan `adminGate.ts` yang belum saya
-lakukan. Saya memilih tidak menebak.
+Yang tersisa dari bagian ini: `ADMIN_CONTEXT_ALLOWED_ORIGINS` harus diisi di
+deployment prod (bagian 9.1). Tanpa itu, panel "Sesi Anda" menampilkan
+"Tidak terdeteksi" untuk IP - degraded, bukan bocor.
 
 ### 5.4 Sisanya
 
@@ -597,7 +723,20 @@ Jangan menambahkan paket hanya untuk membungkam `audit`.
 | Variabel | Di mana | Wajib? | Kalau kosong |
 |---|---|---|---|
 | `VITE_PREVIEW_PARENT_ORIGIN` | Frontend (Vite) | Tidak | Telemetri rute tidak dikirim keluar sama sekali; perintah `navigate` tidak diterima |
+| `ADMIN_CONTEXT_ALLOWED_ORIGINS` | Convex dev + prod | Ya untuk prod | Route konteks menutup lintas origin; panel "Sesi Anda" menampilkan "Tidak terdeteksi" untuk IP |
+| `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS` | Convex dev (opsional) | Tidak | Semua origin closing; biarkan kosong |
 | `WHATSAPP_APP_SECRET` | Convex prod | Sudah ada | Perlu rotasi (bagian 6) |
+
+Nilai yang benar untuk frontend produksi:
+
+```
+ADMIN_CONTEXT_ALLOWED_ORIGINS=https://sumenepbukukerja.freebuff.app
+```
+
+Kalau frontend juga dibuka di origin lain (misalnya pratinjau), tambahkan
+dengan pemisah koma. Ingat `SITE_URL` **tidak boleh** dipakai di sini: pada
+deployment yang diuji, `SITE_URL` menunjuk origin `.convex.site` itu sendiri,
+bukan origin frontend.
 
 ### 9.2 Yang harus dijalankan pemilik
 
@@ -642,11 +781,11 @@ Dijalankan pada commit ini, semuanya lulus:
 |---|---|
 | `bunx convex dev --once` | Convex functions ready |
 | `bunx tsc -b --noEmit` | 0 error |
-| `bun run test` | **67 berkas / 941 test / 0 gagal** (naik dari 62/883) |
+| `bun run test` | **69 berkas / 963 test / 0 gagal** (naik dari 62/883) |
 | `bun run lint` | **0 error / 26 warning** (sama dengan baseline) |
-| `node tmp/qa-p91-leakscan.mjs <19 berkas yang disentuh>` | CLEAN |
+| `node tmp/qa-p91-leakscan.mjs <24 berkas yang disentuh>` | CLEAN |
 
-Uji naik dari 883 ke 941 bersih. Berkas test baru:
+Uji naik dari 883 ke 963 bersih. Berkas test baru:
 
 | Berkas | Test | Isi |
 |---|---:|---|
@@ -655,6 +794,8 @@ Uji naik dari 883 ke 941 bersih. Berkas test baru:
 | `src/convex/security-incidents.test.ts` (baru) | 11 | Tiga pemicu deteksi yang tersambung |
 | `src/convex/revoked-session-coverage.test.ts` (baru) | 10 | Sesi tercabut ditolak; `ensureCatalogSeeded` |
 | `src/lib/postmessage-origin.test.ts` (baru) | 6 | Kontrak origin `postMessage` |
+| `src/convex/session-context-authority.test.ts` (baru) | 8 | Konteks sesi harus dari server, bukan dari klien |
+| `src/convex/context-route-hardening.test.ts` (baru) | 11 | CORS fail-closed dan batas permintaan, lewat `t.fetch` |
 
 Jumlah di atas lebih besar daripada kenaikan bersihnya karena tiga test lama
 DIUBAH kontraknya, bukan ditambah: dua di
@@ -662,6 +803,13 @@ DIUBAH kontraknya, bukan ditambah: dua di
 `src/convex/display-name-security.test.ts`. Ketiganya sebelumnya **mengunci
 kebocoran `requesterId` sebagai perilaku yang benar**; sekarang menguncinya
 sebagai larangan. Tidak ada test yang dihapus dan tidak ada yang di-`skip`.
+
+Empat test lama berubah kontraknya pada commit ini, semuanya di
+`src/convex/http-cors-security.test.ts`. Test "tanpa allowlist: wildcard"
+mengaku wildcard sebagai perilaku yang benar; sekarang ia mengunci **tutup**
+sebagai bawaan dan wildcard sebagai opt-in. Test itu tidak dihapus karena ia
+justru yang menangkap paling jujur: kalau kontrak ini tidak dijaga
+dengan test, allowlist kosong akan diam-diam kembali jadi wildcard.
 
 
 
@@ -678,7 +826,8 @@ Disebut eksplisit supaya tidak terlihat seperti sudah tercakup.
 
 Sudah ditutup sejak versi pertama laporan ini: sesi tercabut (10 test),
 `ensureCatalogSeeded` (4 test), `postMessage` (6 test), dan pemicu deteksi
-untuk tiga aturan pertama (11 test).
+untuk tiga aturan pertama (11 test). Sejak commit ini: integritas konteks sesi
+(8 test) dan CORS fail-closed plus batas permintaan (11 test).
 
 Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
 
@@ -694,7 +843,11 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
   berbahaya disunting.
 - **Test idempotensi dan pencegahan replay webhook.** Bagian 6 menuntutnya;
   belum ada test maupun implementasinya.
-- **Test CORS fail-closed.** Belum ada, karena perilakunya belum diubah.
+- **Test CORS fail-closed.** Sudah ada: 11 test di
+  `src/convex/context-route-hardening.test.ts` dan 4 test yang diubah
+  kontraknya di `src/convex/http-cors-security.test.ts`. Yang BELUM teruji:
+  perilaku route setelah `ADMIN_CONTEXT_ALLOWED_ORIGINS` benar-benar diisi di
+  deployment prod, karena itu hanya bisa dibuktikan dari luar.
 
 ---
 
@@ -714,8 +867,14 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
 - [ ] Nomor telepon pribadi tidak ada di DTO publik - **BELUM.** Ini temuan
       terbuka terbesar; rencananya di bagian 5.2.
 - [ ] Nomor telepon pribadi dilindungi saat disimpan - **BELUM.**
-- [ ] Bukti Security Desk otoritatif dari server - **BELUM** (bagian 5.3).
-- [ ] CORS produksi fail-closed - **BELUM** (bagian 5.3).
+- [x] Bukti Security Desk otoritatif dari server - `reportSessionContext`
+      mengonsumsi token konteks, kolom jaringan diambil dari
+      `adminSecurityContexts`, dan klasifikasi perangkat diturunkan server;
+      8 test regresi di `src/convex/session-context-authority.test.ts`.
+- [x] CORS produksi fail-closed - allowlist kosong berarti tidak ada header
+      izin; wildcard harus diminta lewat `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS`.
+      Route konteks juga dibatasi 30 permintaan/menit per IP yang diamati
+      server. 11 test di `src/convex/context-route-hardening.test.ts`.
 - [ ] Webhook diperkuat - **SEBAGIAN.** HMAC dan perbandingan panjang tetap
       sudah ada; idempotensi dan pencegahan replay belum diperiksa.
 - [x] Deteksi serangan nyata diimplementasikan dan diuji - model, katalog,
@@ -728,9 +887,9 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
 - [ ] Tidak ada tombol rusak yang diketahui - **TIDAK DIVERIFIKASI.**
 - [ ] Tidak ada error kritis yang tertelan tanpa penjelasan - **TIDAK DIVERIFIKASI.**
 - [ ] Tidak ada deep-link rusak - **TIDAK DIVERIFIKASI.**
-- [x] Tidak ada beban kerja publik tanpa batas - untuk `ensureCatalogSeeded`
-      dan `listRequests`, keduanya sekarang dibatasi. Fungsi publik lain belum
-      diaudit (bagian 2).
+- [x] Tidak ada beban kerja publik tanpa batas - untuk `ensureCatalogSeeded`,
+      `listRequests`, dan `POST /admin-gate/context`, semuanya sekarang
+      dibatasi. Fungsi publik lain belum diaudit (bagian 2).
 
 ### Responsif
 

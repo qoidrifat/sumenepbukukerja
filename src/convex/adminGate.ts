@@ -65,6 +65,21 @@ import {
 
 const TICKET_TTL_MS = 10 * 60_000;
 const CONTEXT_TTL_MS = 5 * 60_000;
+/**
+ * FASE 6 - Batas permintaan ke route tangkapan konteks.
+ *
+ * Route ini publik dan menulis satu baris per panggilan, jadi tanpa batas ia
+ * jadi titik volumetric: siapa pun bisa memanggilnya berulang dan memaksa
+ * server melakukan satu resolve IP, satu sha256, satu pencarian geolokasi,
+ * dan satu write per permintaan.
+ *
+ * Angkanya longgar dengan sengaja, mengikuti pemakaian nyata: satu kali saat
+ * gerbang passcode dibuka dan sekali lagi saat panel sesi terpasang. Dua kali
+ * dalam satu menit, bukan tiga puluh. Batas ini ada untuk menahan lalu lintas
+ * yang tidak wajar, bukan untuk orang yang jaringannya sedang buruk.
+ */
+export const CONTEXT_REQUEST_LIMIT = 30;
+export const CONTEXT_REQUEST_WINDOW_MS = 60_000;
 const PRESENCE_STALE_MS = 90_000;
 /** Salt untuk sidik jari sesi. Bukan rahasia, hanya pemisah antar instalasi. */
 const FINGERPRINT_SALT = process.env.ADMIN_FINGERPRINT_SALT?.trim() || "sumenep-buku-kerja";
@@ -148,6 +163,63 @@ export const captureSecurityContext = internalMutation({
     for (const row of stale) await ctx.db.delete(row._id);
     await ctx.db.insert("adminSecurityContexts", { ...args, createdAt: now, expiresAt: now + CONTEXT_TTL_MS });
     return now + CONTEXT_TTL_MS;
+  },
+});
+
+/**
+ * FASE 5 - Konsumsi token konteks dari dalam mutation lain.
+ *
+ * Fungsi biasa, bukan mutation, supaya pembacaan dan penghapusan baris terjadi
+ * dalam satu transaksi bersama mutation pemanggilnya. Kalau dipecah jadi dua
+ * panggilan mutation, ada jeda di antaranya dan token bisa dipakai ulang
+ * di sela itu.
+ *
+ * Perilaku sengaja sama dengan `readSecurityContext`: baris dihapus begitu
+ * dibaca, dan `expiresAt` tetap diperiksa walaupun cron belum sempat memangkas.
+ * Token yang tidak dikenal atau sudah basi menghasilkan `null`, bukan error -
+ * beacon yang gagal tidak boleh menjatuhkan seluruh alur presence.
+ */
+async function consumeSecurityContextRow(
+  ctx: GenericMutationCtx<DataModel>,
+  token: string,
+) {
+  const trimmed = token.trim();
+  if (!trimmed) return null;
+  const row = await ctx.db
+    .query("adminSecurityContexts")
+    .withIndex("byToken", (q) => q.eq("token", trimmed))
+    .unique();
+  if (!row) return null;
+  await ctx.db.delete(row._id);
+  if (row.expiresAt <= Date.now()) return null;
+  return row;
+}
+
+/**
+ * FASE 6 - Berapa permintaan tangkapan konteks yang dibuat satu sumber IP
+ * dalam jendela terakhir.
+ *
+ * Menghitung dari baris `adminSecurityContexts` yang sudah ada, bukan dari
+ * tabel penghitung baru: baris itu age-nya paling lama lima menit, jadi ia* sudah menjadi rekaman permintaan yang jujur - dan kalau huboahan, jejaknya
+ * ikut terhapus bersama barisnya.
+ *
+ * Hanya baris yang punya `ipHash` yang bisa dihitung. Permintaan tanpa IP
+ * terbaca (platform meneruskan request tanpa satu pun header edge) memakai
+ * ember bersama di `verifyAdminPasscode`; di sini pemanggilnya memutuskan
+ * sendiri untuk tidak membatasi, agar deployment yang IP-nya tidak terbaca
+ * tidak ikut kehilangan metadata.
+ */
+export const contextRequestWindow = internalMutation({
+  args: { ipHash: v.string() },
+  handler: async (ctx, args) => {
+    const since = Date.now() - CONTEXT_REQUEST_WINDOW_MS;
+    const rows = await ctx.db
+      .query("adminSecurityContexts")
+      .withIndex("byIpHashCreatedAt", (q) =>
+        q.eq("ipHash", args.ipHash).gte("createdAt", since),
+      )
+      .collect();
+    return { count: rows.length, since };
   },
 });
 
@@ -1239,19 +1311,42 @@ export const logoutAdmin = mutation({
  * Simpan konteks server untuk sesi yang sedang aktif, supaya panel "Sesi Anda"
  * menampilkan IP yang benar-benar diamati origin — bukan yang diklaim browser.
  * Nilainya disamarkan persis seperti di log percobaan masuk.
+ ** FASE 5: Panel ini sekarang benar-benar server-authoritative. Argumen
+ * `token` akhirnya dipakai: baris di `adminSecurityContexts` dibaca lalu
+ * dihapus, dan seluruh nilai jaringan diambil dari sana. Nilai IP, sumber IP,
+ * keluarga IP, dan request id yang dikirim klien diabaikan, bukan dipercaya.
+ * Lihat catatan panjang di dalam handler untuk buktinya.
  */
 export const reportSessionContext = mutation({
   args: {
+    /**
+     * Tiket sekali pakai dari `POST /admin-gate/context`.
+     *
+     * Sejak Fase 5 ini bukan lagi argumen yang diabaikan: token inilah yang
+     * membuka baris konteks server, dan hanya baris itu yang boleh mengisi
+     * kolom jaringan pada `adminPresence`.
+     */
     token: v.string(),
+    // FASE 5 - argumen di bawah sengaja tetap diterima, tapi TIDAK lagi
+    // dipakai sebagai sumber nilai apa pun. Validator Convex menolak argumen
+    // tak dikenal, jadi menghapusnya akan membuat klien yang sudah terbuka
+    // sebelum deploy baru gagal heartbeat. Membuang nilainya di server jauh
+    // lebih aman daripada membuang kompatibilitasnya.
     ipHash: v.optional(v.string()),
     ipMasked: v.optional(v.string()),
     ipSource: v.optional(v.string()),
     ipFamily: v.optional(v.string()),
     requestId: v.optional(v.string()),
+    // Ini satu-satunya nilai klien yang masih dipakai, dan hanya sebagai bahan
+    // mentah: user agent dibaca server lebih dulu kalau konteksnya ada.
+    // Ketiga nilai berikutnya tidak lagi dipakai sama sekali; semuanya
+    // diturunkan server dari user agent itu dengan `parseUserAgent`.
     userAgent: v.optional(v.string()),
     browser: v.optional(v.string()),
     os: v.optional(v.string()),
     deviceType: v.optional(v.string()),
+    // Zona waktu tidak punya padanan header, jadi tidak bisa diamati server.
+    // Nilainya hanya untuk dibaca manusia, tidak pernah jadi bahan keputusan.
     timezone: v.optional(v.string()),
     // Klien mengirim device id mentah, sama seperti saat login. Yang tersimpan
     // di server tetap hasil hash-nya, persis seperti `verifyAdminPasscode`
@@ -1278,6 +1373,42 @@ export const reportSessionContext = mutation({
     // orang lain lalu mencabutnya.
     const sessionId = await getAuthSessionId(ctx);
     const sessionReference = sessionId ? await sha256Hex(sessionId) : null;
+
+    /*
+     * FASE 5 - INI BUG YANG PERNAH ADA DI TEPAT TEMPAT INI.
+     *
+     * `token` masuk ke validator sebagai `v.string()` yang WAJIB, tapi
+     * sebelumnya tidak pernah dibaca satu kali pun di seluruh mutation ini.
+     * Baris konteks tempat header permintaan dibaca di `httpAction` dibiarkan
+     * menua di database, sementara yang ditulis ke `adminPresence` hanyalah
+     * nilai yang dikirim browser: ipHash, ipMasked, ipSource, ipFamily,
+     * requestId, userAgent, browser, os, deviceType.
+     *
+     * Akibatnya panel "Sesi Anda" menampilkan apa pun yang diklaim klien.
+     * Sesi admin bisa menampilkan IP dari kota lain, requestId bikainan, dan
+     * deviceType "Desktop" padahal aslinya ponsel. Yang dipalsukan bukan
+     * izin siapa pun, tapi bahan investigasi: begitu panel menampilkan
+     * apa yang sebenarnya tidak terjadi, "dari perangkat mana" kehilangan
+     * artinya sebagai jejak. `verifyAdminPasscode` di berkas yang sama sudah
+     * benar sejak awal: `parseUserAgent(serverContext?.userAgent)`, bukan
+     * `args.browser`.
+     *
+     * Sekarang token benar-benar dikonsumsi: baris di `adminSecurityContexts`
+     * dibaca lalu dihapus (sekali pakai, sama seperti `readSecurityContext`),
+     * dan seluruh nilai jaringan diambil dari sana.
+     */
+    const serverContext = await consumeSecurityContextRow(ctx, args.token);
+    /*
+     * User agent: pakai yang dibaca server. Kalau beacon tidak pernah sampai
+     * (jaringan, header, atau CORS), user agent kiriman klien tetap dipakai
+     * sebagai bahan mentah - tapi browser, sistem operasi, dan jenis perangkat
+     * tetap DITURUNKAN server dari string itu. Jadi klien tidak pernah boleh
+     * menyatakan "Windows 11" tanpa benar-benar mengirim user agent Windows 11.
+     * Pola ini persis sama dengan yang dipakai `verifyAdminPasscode`.
+     */
+    const rawUserAgent = serverContext?.userAgent ?? trimUserAgent(args.userAgent);
+    const parsedUserAgent = parseUserAgent(rawUserAgent);
+
     const existing = await ctx.db
       .query("adminPresence")
       .withIndex("byUser", (q) => q.eq("userId", userId))
@@ -1285,16 +1416,24 @@ export const reportSessionContext = mutation({
     const isNewSession = !existing || existing.sessionFingerprint !== sessionFingerprint;
     const fields = {
       sessionFingerprint: sessionFingerprint ?? existing?.sessionFingerprint,
-      ipHash: args.ipHash ?? existing?.ipHash,
-      ipMasked: args.ipMasked ?? existing?.ipMasked,
-      ipSource: args.ipSource ?? existing?.ipSource,
-      ipFamily: args.ipFamily ?? existing?.ipFamily,
-      requestId: args.requestId ?? existing?.requestId,
-      userAgent: args.userAgent ?? existing?.userAgent,
-      browser: args.browser ?? existing?.browser,
-      os: args.os ?? existing?.os,
-      deviceType: args.deviceType ?? existing?.deviceType,
-      timezone: args.timezone ?? existing?.timezone,
+      // Kolom jaringan: satu-satunya sumber adalah baris `adminSecurityContexts`.
+      ipHash: serverContext?.ipHash ?? existing?.ipHash,
+      ipMasked: serverContext?.ipMasked ?? existing?.ipMasked,
+      ipSource: serverContext?.ipSource ?? existing?.ipSource,
+      ipFamily: serverContext?.ipFamily ?? existing?.ipFamily,
+      requestId: serverContext?.requestId ?? existing?.requestId,
+      userAgent: rawUserAgent ?? existing?.userAgent,
+      // Diturunkan server, tidak pernah diklaim klien.
+      browser: parsedUserAgent.browser ?? existing?.browser,
+      os: parsedUserAgent.os ?? existing?.os,
+      // `Unknown` berarti tidak bisa dibaca, bukan fakta. Kalau tidak ada user
+      // agent sama sekali, nilai lama dibiarkan supaya tidak ditimpa
+      // keterangan yang justru lebih akurat.
+      deviceType:
+        parsedUserAgent.deviceType !== "Unknown"
+          ? parsedUserAgent.deviceType
+          : existing?.deviceType,
+      timezone: clip(args.timezone, 60) ?? existing?.timezone,
       lastSeenAt: now,
       sessionReference: sessionReference ?? existing?.sessionReference,
     };

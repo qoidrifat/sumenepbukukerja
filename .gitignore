@@ -1,7 +1,61 @@
-.env.local
+# Dependensi dan hasil build
 node_modules
 dist
 src/convex/_generated
 
 # Screenshot QA sementara (Phase 3), bukan aset repo
 tmp/
+
+# ---------------------------------------------------------------------------
+# RAHASIA - FASE 0
+# ---------------------------------------------------------------------------
+# `.env.keys` memuat kunci PRIVAT Dotenvx. Kunci itu bisa mendekripsi seluruh
+# `.env.production` yang terenkripsi, jadi satu salinan yang lolos ke Git
+# setara dengan membocorkan semua nilai di dalamnya sekaligus.
+#
+# Sebelumnya berkas ini TIDAK ada di daftar ini, sehingga satu `git add -A`
+# sudah cukup untuk membuat kunci itu ikut ter-commit. Aturan di bawah menutup
+# seluruh keluarga nama yang dipakai alat (dotenv, dotenvx, Vercel, Convex,
+# Firebase, Playwright) dan sekaligus semua bentuk dump yang sering dipakai
+# saat menyalin nilai rahasia.
+.env
+.env.*
+!.env.example
+
+# Kunci privat Dotenvx, dalam semua nama turunannya.
+.env.keys
+.env.keys.*
+*.env.keys
+
+# Cadangan dan salinan bernomor dari berkas environment.
+.env.bak
+.env.backup
+.env.old
+.env.*.bak
+.env.*.backup
+.env.*.old
+.env.*.tmp
+.env.*.local
+
+# Dump yang dibuat manusia saat menyalin rahasia keluar dari deployment.
+# Nama-nama ini tidak pernah dihasilkan build, jadi kalau muncul di `git
+# status` artinya ada yang salah.
+*.secrets
+*.secrets.*
+secrets.json
+secrets.*.json
+env.dump
+env-dump.txt
+.env.dump
+deploy-prod.env
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Konfigurasi lokal alat, bukan bagian aplikasi.
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.local

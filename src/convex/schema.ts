@@ -820,6 +820,86 @@ const schema = defineSchema(
       .index("byLastSeenAt", ["lastSeenAt"])
       .index("byAlertStatus", ["alertStatus"]),
 
+    // FASE 7 - INSIDEN KEAMANAN.
+    //
+    // Ini yang membedakan "dashboard keamanan" dari "dashboard hiasan".
+    // Sebelum tabel ini ada, aplikasi hanya MENCATAT percobaan (misalnya
+    // `adminPasscodeAttempts`), tapi tidak pernah MENYIMPULKAN apa pun: tidak
+    // ada yang memberi tahu manusia bahwa sebuah IP sudah gagal lima kali
+    // dalam lima belas menit. Operator harus menebak dari daftar mentah, dan
+    // tidak ada yang menebak.
+    //
+    // SATU BARIS PER POLA, BUKAN PER KEJADIAN. Inilah alasan `count`,
+    // `firstSeenAt`, dan `lastSeenAt` ada: percobaan beruntun 10.000 kali
+    // menghasilkan SATU baris yang bertambah, bukan 10.000 baris. Tabel yang
+    // seharusnya memberi peringatan justru akan menenggelamkan peringatannya
+    // sendiri kalau ia tumbuh secepat serangannya.
+    //
+    // ATURAN PEMILIHAN FIELD. Semua yang disimpan di sini dibaca manusia di
+    // Security Desk, jadi tabel ini adalah permukaan baca tersendiri dan harus
+    // tahan dibaca. Yang TIDAK PERNAH masuk: passcode, password, access token,
+    // refresh token, cookie, header Authorization, nomor telepon mentah,
+    // secret provider, dan kunci privat. `sanitizeEvidence` di
+    // `src/lib/security-rules.ts` menegakkannya, dan `assertSafeEvidence`
+    // mengubah pelanggarannya menjadi error - bukan baris yang diam-diam
+    // tersimpan.
+    //
+    // IP juga tidak pernah disimpan apa adanya. Yang ada hanya `ipHash` (untuk
+    // mengelompokkan percobaan dari sumber yang sama tanpa bisa dibalik) dan
+    // `ipMasked` (untuk dibaca manusia: `103.47.x.x`). IP mentah hidup hanya
+    // selama satu permintaan HTTP.
+    securityIncidents: defineTable({
+      ruleKey: v.string(),
+      severity: v.union(
+        v.literal("info"),
+        v.literal("low"),
+        v.literal("medium"),
+        v.literal("high"),
+        v.literal("critical"),
+      ),
+      status: v.union(
+        v.literal("open"),
+        v.literal("acknowledged"),
+        v.literal("resolved"),
+        v.literal("suppressed"),
+      ),
+      // Jenis subjek yang diserang, misalnya `ip`, `user`, `webhook`.
+      subjectType: v.string(),
+      // Nilai subjek yang SUDAH diturunkan (hash atau label), bukan identitas
+      // mentah. Tidak pernah berisi IP atau nomor telepon apa adanya.
+      subjectRef: v.string(),
+      userId: v.optional(v.id("users")),
+      ipHash: v.optional(v.string()),
+      ipMasked: v.optional(v.string()),
+      sessionFingerprint: v.optional(v.string()),
+      route: v.string(),
+      method: v.string(),
+      count: v.number(),
+      firstSeenAt: v.number(),
+      lastSeenAt: v.number(),
+      // Keterangan singkat yang sudah disanitasi. Dibuat sebagai daftar supaya
+      // satu insiden bisa memuat beberapa cabang kegagalan yang berbeda.
+      evidence: v.optional(v.array(v.string())),
+      // Jejak siapa yang menutup insiden ini, supaya "sudah ditangani" bisa
+      // ditanyakan balik kepada orangnya.
+      acknowledgedBy: v.optional(v.id("users")),
+      acknowledgedAt: v.optional(v.number()),
+      resolvedBy: v.optional(v.id("users")),
+      resolvedAt: v.optional(v.number()),
+      resolutionNote: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("byRule", ["ruleKey"])
+      .index("byStatus", ["status"])
+      .index("bySeverity", ["severity"])
+      .index("byLastSeenAt", ["lastSeenAt"])
+      // Dua indeks komposit yang membuat penggabungan insiden menjadi SATU
+      // pembacaan, bukan pemindaian tabel. Inilah yang membuat agregasi tetap
+      // murah tepat saat tabelnya paling padat, yaitu ketika sedang diserang.
+      .index("byAggregate", ["ruleKey", "subjectType", "subjectRef"])
+      .index("byStatusLastSeen", ["status", "lastSeenAt"]),
+
     vendorSubscriptions: defineTable({
       vendorId: v.id("vendors"),
       tier: v.union(v.literal("free"), v.literal("featured"), v.literal("premium")),

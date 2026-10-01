@@ -118,6 +118,42 @@ const reportWebhookIssue = async (
     // Reporter gagal. Dicatat di log server, lalu dihentikan di sini.
     console.warn("[ERROR_REPORT] gagal mencatat laporan webhook:", error);
   }
+
+  /*
+   * FASE 7 - TANDATANGAN WEBHOOK YANG TIDAK COCOK ADALAH SINYAL PALING KERAS
+   * DI SELURUH KATALOG ATURAN.
+   *
+   * Alasannya sederhana: tidak ada klien sah yang gagal tiga kali. Baik Meta
+   * maupun Twilio menandatangani isi permintaannya dengan secret yang hanya
+   * dipegang provider dan server ini; permintaan yang tandatangannya tidak
+   * cocok berarti ada pihak ketiga yang memanggil endpoint webhook tanpa
+   * memegang secret itu. Yang dicoba dicapai jelas: menyuntikkan pesan masuk,
+   * membaca status pengiriman, atau sekadar memaksa server bekerja.
+   *
+   * DITEMPATKAN SETELAH laporan error disimpan, dan itu disengaja: laporan itu
+   * yang menyimpan `occurrences`, dan `recordWebhookSignatureFailure` memakai
+   * angka itu sebagai hitungannya. Kalau urutannya dibalik, setiap insiden
+   * akan tertinggal satu kejadian dari kenyataan.
+   *
+   * DIBUNGKUS try/catch terpisah supaya jalur deteksi tidak pernah bisa
+   * mengubah respons HTTP yang sudah benar. Penolakan `403` tetap dikirim apa
+   * pun yang terjadi pada pencatatan.
+   */
+  if (input.operation.includes("signature")) {
+    const provider = input.operation.includes("meta")
+      ? "meta"
+      : input.operation.includes("twilio")
+        ? "twilio"
+        : "whatsapp";
+    try {
+      await ctx.runMutation(internal.securityIncidents.recordWebhookSignatureFailure, {
+        provider,
+        route: "/whatsapp/webhook",
+      });
+    } catch (error) {
+      console.warn("[SECURITY_INCIDENT] gagal mencatat insiden tandatangan webhook:", error);
+    }
+  }
 };
 
 const applyMetaStatuses = async (ctx: GenericActionCtx<DataModel>, payload: unknown) => {

@@ -264,7 +264,12 @@ function RequestCard({ request }: { request: RequestWithExpiry }) {
     .filter((vendor) => vendor.category === request.category && (request.landmark === "all" || vendor.landmark === request.landmark))
     .slice(0, 3);
   const vendorSlug = request.vendorId ? vendors.find((vendor) => vendor._id === request.vendorId)?.slug : undefined;
-  const isRequester = Boolean(user?._id && user._id === request.requesterId);
+  // FASE 3: perbandingan id akun dipindahkan ke server. `isMine` dihitung di
+  // `toPublicServiceRequest` dari identitas yang dibaca server, jadi klien
+  // tidak perlu memegang - dan tidak lagi menerima - pengenal akun siapa pun.
+  // `user` sengaja tetap dipakai untuk syarat masuk di jalur tawaran di bawah.
+  const isRequester = Boolean(request.isMine);
+  void user;
 
   const accept = async (offerId: string) => {
     setBusy(true);

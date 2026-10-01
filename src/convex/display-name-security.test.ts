@@ -180,23 +180,37 @@ describe("F-05 - tidak ada kebocoran email lewat nama turunan", () => {
     expect(json).not.toContain("gmail.com");
   });
 
-  test("requesterId tetap keluar hanya untuk pemanggil yang punya sesi", async () => {
+  /**
+   * FASE 3 - KONTRAK DIPERKETAT.
+   *
+   * Versi sebelumnya test ini mengunci `requesterId` sebagai perilaku yang
+   * benar untuk pemanggil yang punya sesi. Sekarang tidak ada satu pun bentuk
+   * jawaban yang memuatnya: pertanyaan "ini permintaan saya?" dijawab server
+   * dengan `isMine`/`canManage`, dan id akunnya tetap di server.
+   *
+   * Email juga tetap diperiksa di sini karena ia satu-satunya field akun yang
+   * punya jalur nyata menuju DTO ini lewat `resolvePublicName`.
+   */
+  test("papan mengirim kemampuan, dan tidak pernah mengirim id akun atau email", async () => {
     const t = convexTest(schema, modules);
     const { requestId, userId } = await seedRequester(t, {
       email: "siti.hajar@gmail.com",
     });
 
     const anonim = findRequest(await board(t, requestId), requestId);
-    expect(anonim?.requesterId).toBeUndefined();
+    expect(anonim?.isMine).toBe(false);
+    expect(anonim?.canOffer).toBe(false);
+    expect(anonim).not.toHaveProperty("requesterId");
     expect(anonim?.requesterName).toBe("Siti Hajar");
 
     const pemilik = findRequest(
       await board(t, requestId, `${userId}|sesi-uji-4`),
       requestId,
     );
-    // Untuk pemilik sendiri, id-nya boleh ikut - itu yang membuat UI bisa
-    // menjawab "ini permintaan saya".
-    expect(pemilik?.requesterId).toBe(userId);
+    expect(pemilik?.isMine).toBe(true);
+    expect(pemilik?.canManage).toBe(true);
+    // Meski pemanggilnya pemilik, id akunnya TIDAK ikut keluar.
+    expect(pemilik).not.toHaveProperty("requesterId");
   });
 });
 

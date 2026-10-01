@@ -475,11 +475,39 @@ akun, dan pengguna terautentikasi tidak mendapat field tambahan.
 
 ### Yang sengaja dibiarkan
 
-`community:listRequests` (publik) masih mengembalikan `requesterId`. Klien
-memang membutuhkannya untuk menampilkan "permintaan saya" di papan warga.
-Menghilangkan field itu berarti mengganti bentuk respons dan audit logika
-pemilik di klien - pekerjaan tersendiri, bukan perbaikan kecil. Dilaporkan,
-tidak diubah diam-diam.
+`community:listRequests` (publik) masih mengembalikan `requesterName`. Papan
+permintaan tanpa nama pembuat kehilangan gunanya. Nama itu sudah melewati
+`resolvePublicName` (koreksi pengguna, lalu tebakan dari email, lalu fallback),
+dan `email` mentah tidak pernah ikut keluar.
+
+> **CATATAN VERSI.** Sampai Fase 3, `requesterId` dan `offeredBy` sengaja
+> dibiarkan keluar ke pembaca yang punya sesi. Itu **tidak lagi berlaku**: dua
+> pengenal akun internal itu sekarang tidak punya jalan keluar sama sekali.
+> Jawaban papan dibentuk daftar putih di `src/lib/request-dto.ts`, dan
+> kebutuhan UI digantikan tiga boolean yang dihitung server: `isMine`,
+> `canManage`, `canOffer`. Jangan menambahkan kembali `requesterId`/
+> `offeredBy` ke DTO - test regresi di `src/lib/request-dto.test.ts` akan
+> menolaknya. Lihat `docs/security/SECURITY-HARDENING-REPORT.md` bagian 2.1.
+
+### Hardening keamanan (Fase 0-9)
+
+Ringkasan lengkapnya beserta sisa risiko ada di
+`docs/security/SECURITY-HARDENING-REPORT.md`. Yang sudah tayang di kode:
+
+| Perubahan | Bukti |
+|---|---|
+| `requesterId`/`offeredBy` tidak lagi keluar dari papan permintaan; diganti `isMine`/`canManage`/`canOffer` | `src/lib/request-dto.ts` + 13 test |
+| Otorisasi terpusat - lima salinan aturan di `community.ts` dan `vendors.ts` dihapus | `src/convex/revoked-session-coverage.test.ts` (10 test) |
+| Sesi yang dicabut ditolak di seluruh pintu pengelola, termasuk dua berkas yang dulu melewatkannya | idem |
+| `ensureCatalogSeeded` berhenti menulis ke baris milik orang lain; penyelarasan koordinat jadi `internalMutation` | idem |
+| Tabel `securityIncidents` + sembilan aturan deteksi + panel Security Desk | `src/lib/security-rules.ts`, `src/convex/securityIncidents.ts` (21 + 11 test) |
+| Telemetri rute tidak lagi memakai penanda bintang `postMessage` | `src/lib/postmessage-origin.test.ts` (6 test) |
+| `.gitignore` memblokir `.env.keys` dan seluruh dump rahasia | `.gitignore` |
+
+**Yang BELUM selesai dan tidak boleh dianggap selesai:** rotasi rahasia dan
+pemindaian riwayat Git (bagian 6 laporan), privasi nomor WhatsApp (bagian
+5.2), security header (bagian 9.3), dan enam dari sembilan pemicu deteksi
+(bagian 5.1).
 
 ## Backlog 17 requirement (Fase 1-6)
 
@@ -538,7 +566,7 @@ dicatat terpisah di sini.
 | Listing discovery `/v/:slug` | `e2e/discovery.spec.ts` | ya | ya | `PASS` |
 | Sitemap/robots di deployment | `src/convex/http.ts:413-414` | ya | **404 di origin** | `BLOCKED` |
 | Proyeksi data publik regresi | `src/convex/public-data-surface.test.ts` | ya | ya | `PASS` |
-| `community:listRequests` `requesterId` | `src/convex/community.ts:265` | - | ya (terbaca live) | `DEFERRED BY DESIGN` |
+| `community:listRequests` `requesterId` | `src/lib/request-dto.ts` | ya (13 test) | diperbaiki di Fase 3 | `RESOLVED - NO LONGER DEFERRED` |
 
 ### Item 11 - gap test yang ditutup di Fase 7
 

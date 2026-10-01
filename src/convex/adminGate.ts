@@ -34,6 +34,8 @@ import { isOwnerAccount } from "../lib/owner-account";
 import { v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getStaffAccess, requireManagementViewer, requireStaff, requireUser } from "./access";
+import { recordIncidentWithin } from "./securityIncidents";
+import { SECURITY_RULES } from "../lib/security-rules";
 import {
   GLOBAL_ATTEMPT_CEILING,
   LOCKOUT_MS,
@@ -280,7 +282,86 @@ export const recordAttempt = internalMutation({
     attemptNumber: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await ctx.db.insert("adminPasscodeAttempts", { ...args, createdAt: Date.now() });
+    const now = Date.now();
+    await ctx.db.insert("adminPasscodeAttempts", { ...args, createdAt: now });
+
+    /*
+     * FASE 7 - MENGUBAH PENCATATAN MENJADI DETEKSI.
+     *
+     * Sampai di sini tabel `adminPasscodeAttempts` sudah menyimpan setiap
+     * percobaan sejak lama, tetapi tidak ada satu pun tempat yang MENYIMPULKAN
+     * apa pun darinya. Akibatnya nyata: gerbang ini tahu sebuah sumber sudah
+     * gagal lima kali dalam lima belas menit, tetapi tidak ada yang memberi
+     * tahu manusia - dan operator tidak menebak dari daftar mentah.
+     *
+     * Penghitungan di bawah memakai indeks komposit (key, createdAt) yang
+     * sudah ada, jadi ini SATU pembacaan pada rentang jendelanya, bukan
+     * pemindaian tabel. Karena `recordIncidentWithin` menggabungkan kejadian
+     * berulang menjadi satu baris, percobaan beruntun tidak pernah membuat
+     * tabel insiden tumbuh secepat serangannya.
+     *
+     * DIBUNGKUS try/catch, DAN ITU BUKAN KELALAIAN.
+     * Mutation Convex bersifat transaksional: satu error di sini akan
+     * membatalkan SELURUH handler, termasuk baris percobaan yang baru saja
+     * disimpan. Artinya bug di jalur deteksi bisa MENGHAPUS bukti serangan -
+     * persis kebalikan dari tujuan fitur ini. Jadi kegagalan deteksi dicatat ke
+     * log server lalu dihentikan; yang penting, percobaannya tetap tersimpan.
+     *
+     * Tidak ada satu pun keputusan izin yang berubah di sini.
+     */
+    try {
+      const subjectRef = args.ipHash ?? args.key;
+      const identitas = {
+        ...(args.userId === undefined ? {} : { userId: args.userId }),
+        ...(args.ipHash === undefined ? {} : { ipHash: args.ipHash }),
+        ...(args.ipMasked === undefined ? {} : { ipMasked: args.ipMasked }),
+        ...(args.sessionFingerprint === undefined
+          ? {}
+          : { sessionFingerprint: args.sessionFingerprint }),
+      };
+      const rute = args.route ?? "/admin";
+
+      if (args.outcome === "failed") {
+        const jendela = SECURITY_RULES.admin_passcode_failures.windowMs;
+        const rows = await ctx.db
+          .query("adminPasscodeAttempts")
+          .withIndex("byKeyCreatedAt", (q) =>
+            q.eq("key", args.key).gte("createdAt", now - jendela),
+          )
+          .collect();
+        await recordIncidentWithin(ctx, {
+          ruleKey: "admin_passcode_failures",
+          count: rows.filter((row) => row.outcome === "failed").length,
+          subjectRef,
+          route: rute,
+          method: "POST",
+          ...identitas,
+          evidence: [
+            `passcode ditolak: ${args.failureReason ?? "tanpa alasan tercatat"}`,
+          ],
+        });
+      }
+
+      if (args.outcome === "locked") {
+        // Ambangnya satu. Kunci penuh berarti percobaan sudah melewati batas
+        // yang ditetapkan; tidak ada alasan sah untuk mencapai titik ini, jadi
+        // satu kejadian sudah cukup untuk dicatat.
+        await recordIncidentWithin(ctx, {
+          ruleKey: "admin_lockout_threshold",
+          count: 1,
+          subjectRef,
+          route: rute,
+          method: "POST",
+          ...identitas,
+          evidence: [
+            `gerbang terkunci setelah percobaan ke-${args.attemptNumber ?? "?"}`,
+          ],
+        });
+      }
+    } catch (error) {
+      console.warn("[SECURITY_INCIDENT] gagal mencatat insiden gerbang admin:", error);
+    }
+
     return null;
   },
 });

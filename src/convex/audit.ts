@@ -29,7 +29,13 @@ export type AuditAction =
   | "admin.passcode_changed"
   | "admin.session_revoked"
   | "admin.security_viewed"
-  | "admin.security_detail_viewed";
+  | "admin.security_detail_viewed"
+  // FASE 7. Menutup insiden keamanan juga harus meninggalkan jejak: tanpa dua
+  // baris ini, satu-satunya bukti bahwa sebuah insiden sudah ditangani adalah
+  // kolom `status` di tabel insiden itu sendiri - dan kolom itu bisa berubah
+  // tanpa ada yang tahu siapa yang mengubahnya.
+  | "security.incident_acknowledged"
+  | "security.incident_resolved";
 
 /**
  * Potret pelaku untuk satu baris audit.

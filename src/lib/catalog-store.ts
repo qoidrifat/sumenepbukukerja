@@ -33,7 +33,21 @@ export type VendorRecord = Vendor & {
 
 export type ServiceRequest = {
   _id: string;
-  requesterId?: string;
+  //
+  // FASE 3: `requesterId` SENGAJA tidak ada di sini lagi.
+  //
+  // Pengenal akun internal tidak pernah dikirim server ke papan publik, jadi
+  // menaruhnya di tipe klien hanya menciptakan field yang selalu `undefined`
+  // dan mengundang kode baru untuk memakainya. Yang dipakai UI sekarang
+  // adalah tiga kemampuan yang dihitung server.
+  //
+  // `isMine`    - permintaan ini dibuat oleh pengguna yang sedang masuk
+  // `canManage` - pengguna boleh mengubah statusnya (pemilik atau pengelola)
+  // `canOffer`  - pengguna boleh mengirim tawaran; ini PETUNJUK TAMPILAN,
+  //               otorisasi sebenarnya tetap di mutation `claimRequest`.
+  isMine?: boolean;
+  canManage?: boolean;
+  canOffer?: boolean;
   requesterName: string;
   title: string;
   description: string;
@@ -71,7 +85,10 @@ export type RequestOffer = {
   _id: string;
   requestId: string;
   vendorId: string;
-  offeredBy?: string;
+  // FASE 3: `offeredBy` diganti `isMine`. Pengenal akun penawar tidak lagi
+  // meninggalkan server; yang dibutuhkan klien hanya "ini tawaran saya atau
+  // bukan", dan itu dijawab satu boolean.
+  isMine?: boolean;
   vendorName?: string;
   message?: string;
   status: "offered" | "accepted" | "withdrawn" | "expired";

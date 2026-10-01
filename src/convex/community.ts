@@ -6,7 +6,15 @@ import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { writeAudit, writeListingHistory } from "./audit";
-import { denied, requireAssignablePhoto, requireManagementViewer } from "./access";
+import {
+  getStaffAccess,
+  requireAssignablePhoto,
+  requireManagementViewer,
+  requireStaff as requireStaffFromAccess,
+  requireUser as requireAuthenticatedUser,
+  requireVendorManager as requireVendorManagerFromAccess,
+} from "./access";
+import { toPublicRequestOffer, toPublicServiceRequest } from "../lib/request-dto";
 import { resolveDisplayName } from "../lib/display-name";
 
 /**
@@ -84,60 +92,50 @@ const isWithinServiceArea = (
   return distanceKm(request.lat, request.lng, vendor.lat, vendor.lng) <= (vendor.serviceRadiusKm ?? 0);
 };
 
-async function requireUser(
-  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
-) {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) denied("Masuk untuk menggunakan fitur warga");
-  return userId;
-}
+type CommunityContext =
+  | GenericQueryCtx<DataModel>
+  | GenericMutationCtx<DataModel>;
 
-async function hasStaffAccess(
-  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+/**
+ * PENYESUAI BENTUK, BUKAN SALINAN ATURAN (FASE 1).
+ *
+ * Sebelum perbaikan ini, berkas ini punya implementasi SENDIRI untuk
+ * `requireUser`, `hasStaffAccess`, `isViewer`, `requireStaff`, dan
+ * `requireVendorManager` - hasil salin-tempel dari `./access`.
+ *
+ * Salinan itu BUKAN sekadar duplikasi gaya. Salinan di sini memakai
+ * `getAuthUserId` langsung dan karena itu TIDAK PERNAH memanggil
+ * `assertSessionNotRevoked`. Akibatnya nyata: sesi admin yang sudah dicabut
+ * dari Security Desk masih bisa memoderasi foto, mengubah paket, dan mengubah
+ * ketersediaan listing lewat pintu ini, sementara pintu lain sudah menolaknya.
+ * Satu keputusan keamanan yang hidup di lima tempat pasti akan berbeda di
+ * salah satunya, dan yang paling jarang dipakai yang paling lama tidak
+ * ketahuan.
+ *
+ * Yang tersisa sekarang hanya penyesuaian BENTUK nilai kembali supaya seluruh
+ * pemanggil yang sudah ada tidak perlu diubah: `./access` mengembalikan objek
+ * `StaffAccess`, sedangkan berkas ini butuh id pengguna. Tidak ada satu pun
+ * keputusan izin yang masih dihitung di sini.
+ */
+const requireUser = (ctx: CommunityContext) => requireAuthenticatedUser(ctx);
+
+const hasStaffAccess = async (
+  ctx: CommunityContext,
   userId: DataModel["users"]["document"]["_id"],
-) {
-  const user = await ctx.db.get(userId);
-  const membership = await ctx.db
-    .query("staffMembers")
-    .withIndex("byUser", (q) => q.eq("userId", userId))
-    .unique();
-  if (membership) return membership.role === "admin" || membership.role === "staff";
-  return user?.role === "admin" || user?.role === "staff";
-}
+) => Boolean(await getStaffAccess(ctx, userId));
 
-async function isViewer(
-  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
-  userId: DataModel["users"]["document"]["_id"],
-) {
-  const membership = await ctx.db
-    .query("staffMembers")
-    .withIndex("byUser", (q) => q.eq("userId", userId))
-    .unique();
-  return membership?.role === "viewer";
-}
+const requireStaff = async (ctx: CommunityContext) => {
+  const access = await requireStaffFromAccess(ctx);
+  return access.userId;
+};
 
-async function requireStaff(
-  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
-) {
-  const userId = await requireUser(ctx);
-  if (!(await hasStaffAccess(ctx, userId))) {
-    denied("Hanya pengelola yang dapat mengakses data ini");
-  }
-  return userId;
-}
-
-async function requireVendorManager(
-  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+const requireVendorManager = async (
+  ctx: CommunityContext,
   vendor: DataModel["vendors"]["document"] | null,
-) {
-  const userId = await requireUser(ctx);
-  if (!vendor) denied("Listing tidak ditemukan");
-  if (await isViewer(ctx, userId)) denied("Viewer hanya dapat melihat data");
-  if (vendor.ownerId !== userId && !(await hasStaffAccess(ctx, userId))) {
-    denied("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
-  }
+) => {
+  const { userId } = await requireVendorManagerFromAccess(ctx, vendor);
   return userId;
-}
+};
 
 
 
@@ -258,6 +256,11 @@ export const listRequests = query({
     const viewerId = await getAuthUserId(ctx);
     const requesterId = args.mine ? viewerId : undefined;
     if (args.mine && !requesterId) return [];
+    // Peran pengelola dibaca sekali untuk seluruh halaman, bukan di dalam
+    // pemetaan per baris: `getStaffAccess` menyentuh dua tabel, jadi
+    // memanggilnya 100 kali untuk papan berisi 100 permintaan adalah 200
+    // pembacaan yang jawabannya sama.
+    const staffAccess = viewerId ? await getStaffAccess(ctx, viewerId) : null;
     const rows = args.status
       ? await ctx.db
           .query("serviceRequests")
@@ -288,36 +291,35 @@ export const listRequests = query({
           request.vendorId ? ctx.db.get(request.vendorId) : Promise.resolve(null),
           ctx.db.query("requestOffers").withIndex("byRequest", (q) => q.eq("requestId", request._id)).collect(),
         ]);
-        const offers = await Promise.all(offerRows.map(async (offer) => {
-          const { offeredBy, ...rest } = offer;
-          return {
-            ...rest,
-            // Keluar hanya untuk pemanggil yang punya identitas, sama seperti
-            // `requesterId` di bawah.
-            ...(viewerId ? { offeredBy } : {}),
-            vendorName: (await ctx.db.get(offer.vendorId))?.name ?? "Listing",
-          };
-        }));
-        // `requesterId` dibuang dari salinan, bukan dari dokumen aslinya.
-        const { requesterId: requesterIdInternal, ...publicRequest } = request;
-        void requesterIdInternal;
+        const offers = await Promise.all(
+          offerRows.map(async (offer) =>
+            toPublicRequestOffer(offer, {
+              viewerId,
+              vendorName: (await ctx.db.get(offer.vendorId))?.name ?? "Listing",
+            }),
+          ),
+        );
         // FASE 9.2 - F-05. `requesterName` tidak lagi memakai `users.name`
         // milik akun. Urutannya: koreksi pengguna, lalu tebakan dari email,
         // lalu fallback. Yang penting di sini adalah `email` TIDAK PERNAH
         // ikut keluar - hanya hasil turunannya yang dikirim.
-        const requesterName = resolvePublicName(requester);
-        return {
-          ...publicRequest,
-          // FASE 9: `requesterId` adalah pengenal akun internal (P3), bukan
-          // data yang perlu ditampilkan di papan publik. Pemanggil tanpa sesi
-          // tidak mungkin menjadi pemilik permintaan ini, jadi untuk mereka id
-          // itu tidak pernah dikirim. UI yang perlu menjawab "ini permintaan
-          // saya" tetap bisa, karena ia selalu punya identitas.
-          ...(viewerId ? { requesterId: request.requesterId } : {}),
-          requesterName,
+        //
+        // FASE 3 (baru): jawabannya dibentuk oleh DAFTAR PUTIH di
+        // `lib/request-dto.ts`, bukan dengan menyebar dokumen database lalu
+        // membuang field satu per satu. `requesterId` dan `offeredBy` - dua
+        // pengenal akun internal yang dulu ikut keluar untuk setiap pembaca
+        // yang punya sesi - sekarang tidak punya jalan keluar sama sekali,
+        // karena tidak ada satu pun baris di DTO yang menyalinnya. Yang
+        // menggantikan fungsinya adalah tiga boolean yang dihitung server:
+        // `isMine`, `canManage`, `canOffer`.
+        return toPublicServiceRequest(request, {
+          viewerId,
+          requesterId: request.requesterId,
+          isStaff: Boolean(staffAccess),
+          requesterName: resolvePublicName(requester),
           vendorName: vendor?.name,
           offers,
-        };
+        });
       }),
     );
   },

@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query, internalQuery } from "./_generated/server";
+import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import { vendors as seedVendors } from "../lib/catalog";
@@ -7,7 +7,16 @@ import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { writeAudit, writeListingHistory } from "./audit";
-import { denied, requireAssignablePhoto, requireManagementViewer, requireProvenIdentity } from "./access";
+import {
+  denied,
+  getStaffAccess,
+  requireAssignablePhoto,
+  requireManagementViewer,
+  requireProvenIdentity,
+  requireStaff as requireStaffFromAccess,
+  requireUser as requireAuthenticatedUser,
+  requireVendorManager as requireVendorManagerFromAccess,
+} from "./access";
 
 const slugify = (value: string) =>
   value
@@ -33,60 +42,60 @@ const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => 
   return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-async function requireUser(
-  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
-) {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) denied("Masuk untuk mengakses ruang pengelola");
-  return userId;
-}
+type VendorContext =
+  | GenericQueryCtx<DataModel>
+  | GenericMutationCtx<DataModel>;
 
-async function hasStaffAccess(
-  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+/**
+ * PENYESUAI BENTUK, BUKAN SALINAN ATURAN (FASE 1).
+ *
+ * Lima fungsi di bawah dulu punya implementasi SENDIRI di berkas ini, hasil
+ * salin-tempel dari `./access`. Salinan itu membaca identitas lewat
+ * `getAuthUserId` langsung, sehingga TIDAK PERNAH memanggil
+ * `assertSessionNotRevoked`.
+ *
+ * Akibatnya bisa diprediksi dan sudah bisa dibuktikan: sesi pengelola yang
+ * sudah dicabut admin dari Security Desk tetap bisa membuat listing
+ * (`createVendor`), mengubah listing orang lain, dan memoderasi foto lewat
+ * berkas ini - sementara jalur lain menolaknya seketika. Sesi yang dicabut
+ * memang masih memegang JWT yang sah sampai satu jam; satu-satunya cara
+ * menolaknya adalah memeriksa daftar cabut di SETIAP permintaan, dan salinan
+ * di sini melewatkan pemeriksaan itu.
+ *
+ * Sekarang satu-satunya sumber keputusan izin adalah `./access`. Yang tersisa
+ * di sini hanya penyesuaian bentuk nilai kembali supaya seluruh pemanggil yang
+ * sudah ada tidak perlu disentuh: `./access` mengembalikan objek `StaffAccess`
+ * atau `{ userId, access }`, sedangkan berkas ini butuh id pengguna.
+ *
+ * Catatan kecil yang disengaja: pesan penolakan untuk `requireStaff` kini
+ * berbunyi "Hanya pengelola yang dapat melakukan tindakan ini", bukan "...
+ * ruang ini". Kalimatnya setara bagi pengguna, dan menyatukannya adalah harga
+ * yang pantas untuk menghapus satu keputusan keamanan yang bercabang.
+ */
+const requireUser = (ctx: VendorContext) => requireAuthenticatedUser(ctx);
+
+const hasStaffAccess = async (
+  ctx: VendorContext,
   userId: DataModel["users"]["document"]["_id"],
-) {
-  const user = await ctx.db.get(userId);
-  const membership = await ctx.db
-    .query("staffMembers")
-    .withIndex("byUser", (q) => q.eq("userId", userId))
-    .unique();
-  if (membership) return membership.role === "admin" || membership.role === "staff";
-  return user?.role === "admin" || user?.role === "staff";
-}
+) => Boolean(await getStaffAccess(ctx, userId));
 
-async function isViewer(
-  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+const isViewer = async (
+  ctx: VendorContext,
   userId: DataModel["users"]["document"]["_id"],
-) {
-  const membership = await ctx.db
-    .query("staffMembers")
-    .withIndex("byUser", (q) => q.eq("userId", userId))
-    .unique();
-  return membership?.role === "viewer";
-}
+) => (await getStaffAccess(ctx, userId))?.role === "viewer";
 
-async function requireStaff(
-  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
-) {
-  const userId = await requireUser(ctx);
-  if (!(await hasStaffAccess(ctx, userId))) {
-    denied("Hanya pengelola yang dapat mengakses ruang ini");
-  }
-  return userId;
-}
+const requireStaff = async (ctx: VendorContext) => {
+  const access = await requireStaffFromAccess(ctx);
+  return access.userId;
+};
 
-async function requireVendorManager(
-  ctx: GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>,
+const requireVendorManager = async (
+  ctx: VendorContext,
   vendor: DataModel["vendors"]["document"] | null,
-) {
-  const userId = await requireUser(ctx);
-  if (!vendor) denied("Listing tidak ditemukan");
-  if (await isViewer(ctx, userId)) denied("Viewer hanya dapat melihat data");
-  if (vendor.ownerId !== userId && !(await hasStaffAccess(ctx, userId))) {
-    denied("Hanya pemilik listing atau pengelola yang dapat mengubah data ini");
-  }
+) => {
+  const { userId } = await requireVendorManagerFromAccess(ctx, vendor);
   return userId;
-}
+};
 
 /**
  * Slug listing publik untuk sitemap.
@@ -415,27 +424,59 @@ const vendorFields = {
   serviceRadiusKm: v.optional(v.number()),
 };
 
+/**
+ * Batas kerja satu pemanggilan.
+ *
+ * Daftar benih di `../lib/catalog` adalah konstanta di dalam repo, jadi
+ * panjangnya sudah terbatas hari ini. Batas ini ada supaya "terbatas hari ini"
+ * tidak menjadi satu-satunya penjaga: kalau daftar itu suatu saat tumbuh
+ * menjadi ratusan entri, satu permintaan dari pengunjung anonim tidak berubah
+ * menjadi ratusan tulis dalam satu transaksi tanpa ada yang memutuskan.
+ */
+const MAX_SEED_INSERTS = 200;
+
+/**
+ * FASE 2 - MEMBUAT `ensureCatalogSeeded` PUNYA BATAS KERJA YANG JELAS.
+ *
+ * KENAPA TETAP PUBLIK, DAN BUKAN `internalMutation`.
+ *
+ * Permintaan awal adalah menjadikannya `internalMutation` atau "admin-only".
+ * Dua-duanya akan merusak produk dengan cara yang tidak kelihatan di test:
+ * `useCatalogSeedBootstrap` di `lib/catalog-store.ts` memanggilnya dari
+ * peramban SETIAP pengunjung ketika katalog masih kosong. Kalau fungsi ini
+ * hanya bisa dipanggil admin, deployment yang baru dibuat akan menampilkan
+ * katalog kosong sampai ada admin yang kebetulan membuka `/admin` - dan yang
+ * paling membutuhkan katalog justru warga yang belum punya akun.
+ *
+ * Jadi yang diperbaiki BUKAN siapa yang boleh memanggil, melainkan APA YANG
+ * BISA DILAKUKAN panggilan itu. Dua perubahan:
+ *
+ *  1. Cabang "baris sudah ada" tidak lagi MENULIS. Sebelumnya ia mem-patch
+ *     `lat`/`lng` baris mana pun yang slug-nya sama dengan benih. Karena
+ *     fungsi ini publik dan tanpa sesi, siapa pun bisa memanggilnya berulang
+ *     kali dan MENIMPA koordinat listing milik orang lain dengan nilai dari
+ *     repo - pemilik yang sengaja mengoreksi titik lokasinya bisa dikembalikan
+ *     oleh pengunjung anonim. Penyelarasan koordinat tetap tersedia, tapi
+ *     sebagai `alignSeededCoordinates` yang `internal` (lihat di bawah).
+ *
+ *  2. Panjangnya dibatasi `MAX_SEED_INSERTS`.
+ *
+ * Yang TIDAK berubah: sifat idempotennya. Baris yang sudah ada dilewati, dan
+ * nilai yang dikembalikan tetap jumlah baris yang benar-benar baru - kontrak
+ * yang dipakai `catalog-store.ts` untuk memutuskan apakah katalog sudah siap.
+ */
 export const ensureCatalogSeeded = mutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
     let inserted = 0;
 
-    for (const [index, vendor] of seedVendors.entries()) {
+    for (const [index, vendor] of seedVendors.slice(0, MAX_SEED_INSERTS).entries()) {
       const existing = await ctx.db
         .query("vendors")
         .withIndex("bySlug", (q) => q.eq("slug", vendor.slug))
         .unique();
-      if (existing) {
-        const coordinatePatch = {
-          ...(existing.lat !== vendor.lat ? { lat: vendor.lat } : {}),
-          ...(existing.lng !== vendor.lng ? { lng: vendor.lng } : {}),
-        };
-        if (Object.keys(coordinatePatch).length > 0) {
-          await ctx.db.patch(existing._id, coordinatePatch);
-        }
-        continue;
-      }
+      if (existing) continue;
 
       await ctx.db.insert("vendors", {
         slug: vendor.slug,
@@ -468,6 +509,40 @@ export const ensureCatalogSeeded = mutation({
     }
 
     return inserted;
+  },
+});
+
+/**
+ * Penyelarasan koordinat benih untuk listing yang SUDAH ada.
+ *
+ * Ini bagian yang MENULIS ke baris milik orang lain, jadi ia sengaja
+ * dipisahkan dari `ensureCatalogSeeded`: sebagai `internalMutation` ia hanya
+ * bisa dijalankan dari dalam deployment (Convex dashboard atau fungsi
+ * internal), bukan dari peramban pengunjung.
+ *
+ * Yang dijaga tetap sama seperti sebelumnya - hanya `lat` dan `lng` yang
+ * diselaraskan, dan hanya kalau nilainya benar-benar berbeda, supaya tidak ada
+ * tulisan kosong yang tercatat di riwayat fungsi.
+ */
+export const alignSeededCoordinates = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let aligned = 0;
+    for (const vendor of seedVendors.slice(0, MAX_SEED_INSERTS)) {
+      const existing = await ctx.db
+        .query("vendors")
+        .withIndex("bySlug", (q) => q.eq("slug", vendor.slug))
+        .unique();
+      if (!existing) continue;
+      const coordinatePatch = {
+        ...(existing.lat !== vendor.lat ? { lat: vendor.lat } : {}),
+        ...(existing.lng !== vendor.lng ? { lng: vendor.lng } : {}),
+      };
+      if (Object.keys(coordinatePatch).length === 0) continue;
+      await ctx.db.patch(existing._id, coordinatePatch);
+      aligned += 1;
+    }
+    return aligned;
   },
 });
 

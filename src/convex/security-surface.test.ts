@@ -347,13 +347,43 @@ describe("Fase 9: papan permintaan publik tidak membawa id akun warga", () => {
     }
   });
 
-  test("pemilik permintaan tetap menerima requesterId untuk UI", async () => {
+  /**
+   * FASE 3 - KONTRAK DIPERKETAT.
+   *
+   * Versi sebelumnya test ini bernama "pemilik permintaan tetap menerima
+   * requesterId untuk UI" dan MENGUNCI kebocoran itu sebagai perilaku yang
+   * benar. Alasannya waktu itu masuk akal: UI membandingkan id akun untuk
+   * memutuskan "ini permintaan saya".
+   *
+   * Tapi jawaban atas pertanyaan itu tidak butuh id akun siapa pun. Sekarang
+   * server menghitungnya sendiri dan mengirim tiga boolean. Jadi yang
+   * diperiksa di sini bukan lagi "id-nya sampai ke pemilik", melainkan
+   * "jawabannya sampai ke pemilik, TANPA id-nya ikut". Kalau suatu saat ada
+   * yang mengembalikan `requesterId` ke DTO, test ini gagal - dan memang
+   * seharusnya gagal.
+   */
+  test("pemilik permintaan menerima kemampuan, bukan id akunnya", async () => {
     const t = convexTest(schema, modules);
     const { owner, requestId } = await seedRequest(t);
     const rows = await owner.identity.query(api.community.listRequests, { mine: true });
     expect(rows).toHaveLength(1);
     expect(rows[0]?._id).toBe(requestId);
-    expect(rows[0]?.requesterId).toBe(owner.id);
+    expect(rows[0]?.isMine).toBe(true);
+    expect(rows[0]?.canManage).toBe(true);
+    expect(rows[0], "id akun pemilik tidak boleh ikut meski pemanggilnya pemilik")
+      .not.toHaveProperty("requesterId");
+    expect(JSON.stringify(rows)).not.toContain(owner.id);
+  });
+
+  test("penawaran mengirim isMine, bukan id akun penawar", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, requestId } = await seedRequest(t);
+    const rows = await owner.identity.query(api.community.listRequests, { mine: true });
+    for (const offer of rows[0]?.offers ?? []) {
+      expect(offer, "id akun penawar bocor lewat tawaran").not.toHaveProperty("offeredBy");
+      expect(typeof offer.isMine).toBe("boolean");
+    }
+    void requestId;
   });
 });
 

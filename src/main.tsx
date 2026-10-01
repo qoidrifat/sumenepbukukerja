@@ -155,21 +155,90 @@ function CatalogBootstrap() {
   return null;
 }
 
+/**
+ * Origin yang benar-benar boleh menerima telemetri rute dari iframe ini.
+ *
+ * SEBELUM PERBAIKAN (FASE 9): satu baris `window.parent.postMessage(
+ * { rute }, "*")` mengirimkan setiap perpindahan rute ke SIAPA PUN yang
+ * membuka halaman ini di dalam iframe. Pemilik situs luar cukup memasang
+ * iframe yang menunjuk ke aplikasi ini dan secara pasif menerima seluruh
+ * jejak navigasi pengunjung - termasuk rute profil listing yang sedang
+ * dibuka warga, dan rute undangan sebelum tautannya dikonsumsi.
+ *
+ * Penanda bintang juga berarti pesan yang sama terkirim ke popup/opener mana
+ * pun yang kebetulan memegang referensi window ini.
+ *
+ * Yang dipakai sekarang bukan daftar hitam, melainkan daftar putih eksplisit:
+ *
+ *  1. DEV - panel pratinjau Freebuff memang butuh telemetri ini untuk
+ *     menyinkronkan bilah rutenya, dan origin induknya berasal dari
+ *     `VITE_PREVIEW_PARENT_ORIGIN`. Kalau variabel itu tidak diisi, DEV memakai
+ *     origin halaman sendiri sehingga pesannya tidak sampai ke induk lintas
+ *     origin - dan itu memang perilaku yang benar.
+ *  2. PROD - tidak ada nilai bawaan. Telemetri hanya aktif kalau operator
+ *     secara eksplisit mengisi `VITE_PREVIEW_PARENT_ORIGIN`. Tanpa itu, tidak
+ *     ada satu pun pesan keluar.
+ *
+ * Sisi masuk (perintah `navigate` dari induk) memakai daftar yang sama, jadi
+ * situs luar tidak bisa memerintahkan `history.back()`/`forward()` pada
+ * aplikasi ini - itu bukan sekadar kebocoran data, itu manipulasi navigasi.
+ */
+function trustedParentOrigins(): string[] {
+  const configured = (
+    import.meta.env.VITE_PREVIEW_PARENT_ORIGIN as string | undefined
+  )
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (configured && configured.length > 0) {
+    // Dinormalkan ke bentuk origin supaya variasi garis miring di ujung tetap
+    // cocok, tapi jalur lain tidak pernah cocok.
+    return configured
+      .map((value) => {
+        try {
+          return new URL(value).origin;
+        } catch {
+          return "";
+        }
+      })
+      .filter(Boolean);
+  }
+  // DEV tanpa konfigurasi: halaman sendiri. Tidak ada induk lintas origin yang
+  // bisa menerima, jadi tidak ada kebocoran - dan tidak ada perintah masuk
+  // yang diterima.
+  if (import.meta.env.DEV && typeof window !== "undefined") {
+    return [window.location.origin];
+  }
+  return [];
+}
+
 function RouteSyncer() {
   const location = useLocation();
   useEffect(() => {
-    window.parent.postMessage(
-      { type: "iframe-route-change", path: location.pathname },
-      "*",
-    );
+    // `window.parent === window` berarti halaman ini TIDAK berjalan di dalam
+    // iframe. Mengirim pesan ke diri sendiri tidak berguna, jadi dilewati.
+    if (window.parent === window) return;
+    const allowed = trustedParentOrigins();
+    if (allowed.length === 0) return;
+    for (const origin of allowed) {
+      window.parent.postMessage(
+        { type: "iframe-route-change", path: location.pathname },
+        origin,
+      );
+    }
   }, [location.pathname]);
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
-      if (event.data?.type === "navigate") {
-        if (event.data.direction === "back") window.history.back();
-        if (event.data.direction === "forward") window.history.forward();
-      }
+      if (event.data?.type !== "navigate") return;
+      // Perintah navigasi hanya diterima dari induk langsung dan hanya dari
+      // origin yang ada di daftar putih. Tanpa dua syarat itu, perintah dari
+      // jendela mana pun bisa menggeser riwayat pengguna.
+      if (event.source !== window.parent) return;
+      const allowed = trustedParentOrigins();
+      if (allowed.length === 0 || !allowed.includes(event.origin)) return;
+      if (event.data.direction === "back") window.history.back();
+      if (event.data.direction === "forward") window.history.forward();
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);

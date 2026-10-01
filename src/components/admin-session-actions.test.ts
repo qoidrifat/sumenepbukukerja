@@ -20,7 +20,11 @@ const component = readFileSync(
 const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
 
 test("dialog passcode memakai scope admin-dialog-content", () => {
-  expect(component).toContain('className="admin-dialog-content"');
+  // Satu komponen untuk semua dialog admin. Dengan begitu tidak ada dialog
+  // yang bisa terlupa memakai scope-nya, dan test cukup satu import.
+  expect(component).toContain('from "@/components/admin-dialog"');
+  expect(component).toContain("<AdminDialogContent");
+  expect(component).not.toContain("<DialogContent");
   // Scope itu harus benar-benar ada di CSS, lengkap dengan gaya-portalnya.
   expect(css).toContain(".admin-dialog-overlay");
   expect(css).toContain(".admin-dialog-content {");
@@ -82,17 +86,24 @@ test("gated admin.css ikut hormati reduced motion", () => {
   expect(css).toContain(".admin-dialog-overlay {");
 });
 
-test("dialog tidak memakai transform untuk memusatkan diri", () => {
-  // `DialogContent` shadcn sudah memusatkan lewat `translate-x/y -50%` dan
-  // menskalakan lewat `zoom-in-95`. Menambahkan `transform: translate(-50%,-50%)`
-  // di sini membuat dialog bergeser DUA KALI begitu animasi selesai — diukur
-  // di browser, pusatnya meleset 263px ke kiri. Pemusatan harus pakai
-  // `inset` + `margin: auto`, dan `transform` dibebaskan untuk animasi.
+test("dialog dipusatkan oleh overlay, bukan positioning absolut", () => {
+  // Dua kesalahan yang sudah pernah nyata di sini:
+  //   a) `transform: translate(-50%,-50%)`+dengan utility translate shadcn
+  //      membuat dialog bergeser DUA KALI, pusatnya meleset 263px ke kiri.
+  //   b) Penggantinya, `position: fixed; inset: 0; height: max-content;
+  //      margin: auto`, juga salah: untuk abspos yang sepenuhnya ter-constraint
+  //      (top, bottom, dan height bukan auto), margin `auto` dihitung nol dan
+  //      `bottom` diabaikan, sehingga dialog menempel di `top: 0` dan pita
+  //      judulnya terpotong di luar layar.
+  //
+  // Pola yang dipakai sekarang tidak memakai positioning absolut sama sekali.
   const block = css.slice(css.indexOf(".admin-dialog-content {"), css.indexOf("}", css.indexOf(".admin-dialog-content {")));
-  expect(block).toContain("inset: 0");
+  expect(block).toContain("position: relative");
+  expect(block).toContain("inset: auto");
   expect(block).toContain("margin: auto");
   expect(block).toContain("translate: none");
   expect(block).not.toContain("transform: translate(-50%");
+  expect(block).not.toContain("position: fixed");
 });
 
 test("latar dialog diburam dan ikut teranimasi", () => {

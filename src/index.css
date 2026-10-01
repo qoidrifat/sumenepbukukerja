@@ -668,6 +668,12 @@
   position: fixed;
   inset: 0;
   z-index: 80;
+  /* Wadah flex yang sama dengan dialog: pemusatan aman terhadap overflow. */
+  display: flex;
+  padding: 1rem;
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: rgb(18 18 18 / 68%);
 }
 
@@ -683,9 +689,18 @@
   inset: 0;
   z-index: 80;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* `align-items: center` SENGAJA TIDAK dipakai di sini. Pada flexbox, item
+     yang lebih tinggi dari container akan terpotong di sisi atas dan bagian
+     yang terpotong itu tidak bisa di-scroll sampai ke sana - persis yang
+     terjadi pada dialog passcode di layar Android yang pendek. Pemusatan
+     dilakukan oleh `margin: auto` pada item-nya, yang aman terhadap
+     overflow. */
   padding: 1rem;
+  /* Android dengan navigasi gesture punya bilah di bawah; tanpa padding ini,
+     baris tombol paling bawah berakhir di dalam area gestur. */
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: rgb(18 18 18 / 55%);
   -webkit-backdrop-filter: blur(10px) saturate(115%);
   backdrop-filter: blur(10px) saturate(115%);
@@ -697,32 +712,53 @@
 }
 
 /*
-  Pemusatan tanpa transform.
+  Pemusatan: overlay yang flexion, dialog yang ikut.
 
-  `DialogContent` bawaan memusatkan lewat `top-1/2 translate-y-[-50%]` dan
-  sekaligus menskalakan lewat `zoom-in-95`. Keduanya memakai property yang
-  saling berebut: `translate` untuk memusatkan, `transform`/`scale` untuk
-  animasi. Menambahkan `transform: translate(-50%, -50%)` sendiri ternyata membuat
-  dialog BERGESER DUA KALI setelah animasi selesai — diukur di browser, pusatnya
-  meleset 263px ke kiri, hampir keluar layar.
+  Dua kesalahan lama dicatat di sini supaya tidak diulang.
 
-  `inset: 0` + `margin: auto` memusatkan tanpa transform sama sekali. Efeknya:
-  transform bebas dipakai animasi, dan dialog yang lebih tinggi dari layar tetap
-  utuh di tengah (bukan terpotong bagian atasnya seperti pada pola top-50%).
+  1. `DialogContent` bawaan memusatkan lewat `top-1/2 translate-y-[-50%]` dan
+     sekaligus menskalakan lewat `zoom-in-95`. Keduanya memakai property yang
+     saling berebut: `translate` untuk memusatkan, `transform`/`scale` untuk
+     animasi. Menambahkan `transform: translate(-50%, -50%)` sendiri membuat
+     dialog BERGESER DUA KALI setelah animasi selesai - diukur di browser,
+     pusatnya meleset 263px ke kiri, hampir keluar layar.
+
+  2. Penggantinya, `position: fixed; inset: 0; height: max-content; margin:
+     auto`, terdengar benar tetapi TIDAK. Untuk positioning absolut yang
+     sepenuhnya ter-constraint - `top`, `bottom`, dan `height` semuanya bukan
+     `auto` - aturan CSS 2.1 menyatakan margin `auto` dihitung sebagai nol dan
+     `bottom` diabaikan. Dialog lalu menempel di `top: 0` dan bagian atasnya
+     (pita judul kuning) terpotong di luar layar. Itu yang terlihat pada
+     tangkapan layar dialog passcode, dan bukan soal kebetulan.
+
+  Pola yang dipakai sekarang tidak memakai positioning absolut sama sekali:
+  overlay jadi wadah flex, dialog jadi flex item dengan `margin: auto`, dan
+  `inset: auto` menetralkan `top-1/2`/`left-1/2` bawaan. Konsekuensinya:
+  transform bebas dipakai animasi, tinggi melebihi layar tetap bisa di-scroll
+  sampai ujungnya, dan keyboard Android yang mengubah tinggi viewport tidak
+  membuat dialog melompat keluar layar.
 */
 .admin-dialog-content {
-  position: fixed;
-  inset: 0;
+  position: relative;
+  inset: auto;
   z-index: 90;
   display: flex;
-  height: max-content;
-  width: calc(100% - 2rem);
-  max-width: 32rem;
-  max-height: calc(100dvh - 2rem);
-  margin: auto;
   flex-direction: column;
   gap: 0;
+  width: 100%;
+  max-width: 32rem;
+  /* DvH mengikuti viewport yang benar-benar terlihat: ketika keyboard Android
+     naik, tinggi ini ikut mengecil, jadi dialog tidak pernah lebih tinggi dari
+     area yang tersisa. */
+  max-height: calc(100dvh - 2rem);
+  max-height: 100%;
+  margin: auto;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Keyboard Android memunculkan isian ke area yang terlihat saat difokuskan.
+     Tanpa jarak aman ini, isian bisa menempel tepat di tepi scroll dan sebagian
+     peramban tidak menampilkannya sama sekali. */
+  scroll-padding-block: 1rem;
   translate: none;
   transform: none;
   border: 2px solid #121212 !important;
@@ -943,7 +979,14 @@
 
 /* Gerak dialog: masuk pelan dan tenang, bukan menari. Skala kecil dan
    pendek supaya terasa seperti panel yang masuk ke tempat, bukan seperti
-   jendela yang memantul. */
+   jendela yang memantul.
+
+   `backwards` (bukan `both`) dipilih dengan sengaja: fill mode `both` akan
+   menahan `transform` hasil animasi di property `animation`, dan property itu
+   menang atas aturan biasa - termasuk `transform` milik `admin-btn:hover`.
+   Efeknya tombol di dalam dialog berhenti terangkat saat kursor lewat.
+   Dengan `backwards`, keadaan sebelum animasi hanya berlaku selama jeda,
+   lalu elemen kembali ke gaya naturalnya sendiri. */
 @keyframes admin-dialog-in {
   from {
     opacity: 0;
@@ -993,7 +1036,7 @@
 }
 
 .admin-dialog-content[data-state="open"] {
-  animation: admin-dialog-in 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: admin-dialog-in 340ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   will-change: transform, opacity;
 }
 
@@ -1002,17 +1045,60 @@
   will-change: transform, opacity;
 }
 
+/* Isi dialog menyusul setelah panelnya, berurutan dan sangat pelan. Ini yang
+   membuat dialog terasa "tampil penuh" alih-alih muncul mendadak: mata
+   mengikuti bagian yang masuk, bukan melompat ke seluruh isi sekaligus.
+
+   Hanya anak LANGSUNG yang dianimasikan, dan jeda paling lama 120ms, supaya
+   pada dialog yang isinya sudah banyak, jeda stagger tidak akan
+   membuat pengguna menunggu lama. */
+@keyframes admin-dialog-part-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .admin-dialog-content[data-state="open"] > * {
+    animation: admin-dialog-part-in 300ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  .admin-dialog-content[data-state="open"] > *:nth-child(1) {
+    animation-delay: 40ms;
+  }
+
+  .admin-dialog-content[data-state="open"] > *:nth-child(2) {
+    animation-delay: 80ms;
+  }
+
+  .admin-dialog-content[data-state="open"] > *:nth-child(3) {
+    animation-delay: 120ms;
+  }
+}
+
 .admin-confirm-content {
-  position: fixed;
-  top: 50%;
-  left: 50%;
+  /* Pola pemusatan yang sama dengan `.admin-dialog-content`: flex item dengan
+     `margin: auto`, bukan `top-1/2 translate(-50%)`. Pada dialog yang lebih
+     tinggi dari layar, pola lama membuat bagian atasnya tidak terjangkau
+     oleh scroll. */
+  position: relative;
+  inset: auto;
   z-index: 90;
   display: grid;
-  width: calc(100% - 2rem);
+  width: 100%;
   max-width: 34rem !important;
   max-height: calc(100dvh - 2rem);
+  max-height: 100%;
+  margin: auto;
   overflow-y: auto;
-  transform: translate(-50%, -50%);
+  overscroll-behavior: contain;
+  translate: none;
+  transform: none;
   border: 2px solid #121212 !important;
   border-radius: 2px !important;
   color: #1a1a1a;

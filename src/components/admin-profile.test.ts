@@ -57,8 +57,13 @@ test("tombol profil memakai token admin, bukan gaya tombol generik", () => {
 });
 
 test("dialog profil memakai scope admin-dialog yang sama dengan form passcode", () => {
-  expect(profile).toContain("admin-dialog-content");
-  expect(profile).toContain('overlayClassName="admin-dialog-overlay"');
+  // Semua dialog admin lewat SATU komponen. Scope admin melekat pada
+  // komponennya, jadi tidak ada dialog yang bisa lupa memakainya - dan test
+  // cukup memeriksa satu import, bukan tiga penulisan className.
+  expect(profile).toContain('from "@/components/admin-dialog"');
+  expect(profile).toContain("<AdminDialogContent");
+  // `DialogContent` polos tidak boleh langsung dipakai di mana pun.
+  expect(profile).not.toContain("<DialogContent");
   expect(profile).toContain("admin-input");
   expect(profile).toContain("admin-btn admin-btn-primary");
   // Warnanya memakai token admin, bukan palet baru.
@@ -71,16 +76,45 @@ test("tombol tutup bawaan disembunyikan supaya tidak menimpa header", () => {
   // itu mendarat di atas judul dan teksnya. Footer sudah punya tombol "Tutup",
   // jadi tombol kedua hanya menambah satu jalan keluar yang tidak perlu, dan
   // membuat header terlihat berantakan.
-  expect(profile).toContain("showCloseButton={false}");
+  //
+  // Nilai defaultnya sekarang ada di `AdminDialogContent`, jadi tidak ada satu
+  // pun dialog admin yang perlu mengingatinya.
+  const wrapper = readFileSync(
+    new URL("./admin-dialog.tsx", import.meta.url),
+    "utf8",
+  );
+  expect(wrapper).toContain("showCloseButton = false");
+  expect(profile).not.toContain("showCloseButton");
 });
 
-test("dialog profil dipusatkan oleh margin otomatis", () => {
-  // Pemusatan di `.admin-dialog-content` memakai `inset: 0` + `margin: auto`.
-  // `mx-auto` di sini hanya penguat; yang penting class itu ada dan dialog tidak
-  // memakai `translate` yang bentrok dengan animasi zoom bawaan.
-  expect(profile).toContain("mx-auto");
-  expect(css).toContain("margin: auto");
-  expect(css).toContain("translate: none");
+test("dialog profil dipusatan oleh overlay, bukan oleh abspos", () => {
+  // Pola lama (`position: fixed; inset: 0; height: max-content; margin: auto`)
+  // sebenarnya salah: untuk abspos yang sepenuhnya ter-constraint, margin
+  // `auto` dihitung nol dan dialog menempel di atas sampai pita judulnya
+  // terpotong. Sekarang overlay yang jadi wadah flex dan dialog jadi flex item.
+  const overlay = css.slice(
+    css.indexOf(".admin-dialog-overlay {"),
+    css.indexOf("}", css.indexOf(".admin-dialog-overlay {")),
+  );
+  expect(overlay).toContain("display: flex");
+  // `align-items: center` justru membuat item yang tinggi terpotong di atas.
+  expect(overlay).not.toMatch(/^\s*align-items:/m);
+  expect(overlay).toContain("overflow-y: auto");
+  // Bilah gestur Android tidak boleh menimpa baris tombol paling bawah.
+  expect(overlay).toContain("padding-bottom: calc(1rem + env(safe-area-inset-bottom))");
+
+  const block = css.slice(
+    css.indexOf(".admin-dialog-content {"),
+    css.indexOf("}", css.indexOf(".admin-dialog-content {")),
+  );
+  expect(block).toContain("position: relative");
+  expect(block).toContain("inset: auto");
+  expect(block).toContain("margin: auto");
+  expect(block).toContain("translate: none");
+  // Tinggi mengikuti viewport yang benar-benar terlihat: keyboard Android
+  // yang naik harus ikut memperkecil area dialog.
+  expect(block).toContain("100dvh");
+  expect(block).toContain("max-height: 100%");
 });
 
 test("email sengaja tidak bisa diedit di panel profil", () => {

@@ -4,10 +4,10 @@ import { Camera, Trash2, UserRound } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { AdminDialogContent } from "@/components/admin-dialog";
 import { staffRoleLongLabel } from "@/lib/select-options";
 import {
   MAX_IMAGE_LABEL,
@@ -202,11 +202,12 @@ export function AdminProfile({
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent
-          className="admin-dialog-content mx-auto"
-          overlayClassName="admin-dialog-overlay"
-          showCloseButton={false}
-        >
+        {/* `AdminDialogContent`, bukan `DialogContent` polos. Besides automatically
+            bringing the admin theme, this is also what prevents the dialog from
+            closing itself on Android: Radix otherwise focuses the name field,
+            the keyboard appears, and the focus shift is read as an interaction
+            from outside. See `src/components/admin-dialog.tsx`. */}
+        <AdminDialogContent>
           <div className="border-b-2 border-[#121212] bg-[#FFE662] px-4 py-4 sm:px-5">
             <p className="text-[0.7rem] font-black uppercase tracking-[0.14em] text-[#525252]">
               Akun pengelola
@@ -335,7 +336,7 @@ export function AdminProfile({
               </button>
             </div>
           </div>
-        </DialogContent>
+        </AdminDialogContent>
       </Dialog>
     </>
   );

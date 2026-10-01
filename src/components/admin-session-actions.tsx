@@ -13,11 +13,11 @@ import { UNKNOWN_LABEL, describeIpSource } from "@/lib/security-context";
 import { TimeStampLabel } from "@/components/admin-workspace";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { AdminDialogContent } from "@/components/admin-dialog";
 import { inputClass } from "@/components/admin-workspace";
 import { AdminLoadingSkeleton } from "@/components/admin-loading-skeleton";
 import { OWNER_ACCOUNT_TITLE } from "@/lib/owner-account";
@@ -428,7 +428,7 @@ export function AdminSessionActions() {
       ) : null}
 
       <Dialog open={passcodeOpen} onOpenChange={setPasscodeOpen}>
-        <DialogContent className="admin-dialog-content" overlayClassName="admin-dialog-overlay">
+        <AdminDialogContent>
           <div className="border-b-2 border-[#121212] bg-[#FFE662] px-4 py-4 sm:px-5">
             <p className="text-[0.7rem] font-black uppercase tracking-[0.14em] text-[#525252]">
               Keamanan ruang admin
@@ -514,7 +514,7 @@ export function AdminSessionActions() {
               </button>
             </DialogFooter>
           </form>
-        </DialogContent>
+        </AdminDialogContent>
       </Dialog>
     </article>
   );

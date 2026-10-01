@@ -98,17 +98,37 @@ test("hex yang dipakai di luar palet admin sudah habis", () => {
   expect(offenders).toEqual([]);
 });
 
-test("semua dialog admin berada di dalam scope tema admin", () => {
-  // Dialog tanpa `admin-dialog-content` adalah temuan audit yang paling jelas:
-  // isinya berada di luar `.admin-workspace`, jadi setiap kelas admin di
-  // dalamnya tidak punya aturan yang berlaku.
+test("semua dialog admin melewati satu komponen", () => {
+  // Dialog tanpa scope admin adalah temuan audit yang paling jelas: isinya
+  // berada di luar `.admin-workspace`, jadi setiap kelas admin di dalamnya
+  // tidak punya aturan yang berlaku.
   for (const file of ADMIN_SOURCES) {
     const text = source(file);
-    const dialogs = text.match(/<DialogContent\b/g) ?? [];
-    if (dialogs.length === 0) continue;
-    expect(text, file).toContain("admin-dialog-content");
-    expect(text, file).toContain("admin-dialog-overlay");
+    expect(text, file).not.toContain("<DialogContent");
   }
+  // Semua pemakai wajib ambil dari modul bersama.
+  for (const file of [
+    "../components/admin-profile.tsx",
+    "../components/admin-session-actions.tsx",
+    "../components/admin-session-revoke.tsx",
+  ]) {
+    expect(source(file), file).toContain("<AdminDialogContent");
+    expect(source(file), file).toContain('from "@/components/admin-dialog"');
+  }
+});
+
+test("dialog admin tidak bisa menutup dirinya sendiri di Android", () => {
+  // Bug yang nyata hanya di Android: Radix memfokuskan isian pertama, keyboard
+  // muncul, dan pergeseran fokus itu dibaca Radix sebagai interaksi luar.
+  const wrapper = source("../components/admin-dialog.tsx");
+  expect(wrapper).toContain("onOpenAutoFocus");
+  expect(wrapper).toContain("onFocusOutside");
+  expect(wrapper).toContain("onInteractOutside");
+  // Ketiganya harus membatalkan perilaku bawaan, bukan hanya ada.
+  expect((wrapper.match(/event\.preventDefault\(\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  // Fokus diarahkan ke panel dialog, bukan ke isian: kalau ke isian, keyboard
+  // tetap muncul otomatis dan bugnya kembali.
+  expect(wrapper).toContain("panel?.focus({ preventScroll: true })");
 });
 
 test("scope portal membawa token dan primitive yang sebelumnya hilang", () => {
@@ -122,15 +142,54 @@ test("scope portal membawa token dan primitive yang sebelumnya hilang", () => {
   expect(css).toContain(".admin-dialog-content .admin-status");
 });
 
-test("dialog admin dipusatkan tanpa transform, bukan dengan translate-50%", () => {
+test("dialog admin dipusatkan oleh overlay, bukan positioning absolut", () => {
   const block = css.slice(
     css.indexOf(".admin-dialog-content {"),
     css.indexOf("}", css.indexOf(".admin-dialog-content {")),
   );
-  expect(block).toContain("inset: 0");
+  expect(block).toContain("position: relative");
+  expect(block).toContain("inset: auto");
   expect(block).toContain("margin: auto");
   expect(block).toContain("translate: none");
   expect(block).not.toContain("transform: translate(-50%");
+  // `position: fixed` + `inset: 0` + `height` definite = margin auto jadi nol
+  // menurut aturan abspos CSS, dan dialog menempel di atas sampai terpotong.
+  expect(block).not.toContain("position: fixed");
+
+  const overlay = css.slice(
+    css.indexOf(".admin-dialog-overlay {"),
+    css.indexOf("}", css.indexOf(".admin-dialog-overlay {")),
+  );
+  expect(overlay).toContain("display: flex");
+  expect(overlay).toContain("overflow-y: auto");
+  // `align-items: center` membuat item yang lebih tinggi dari layar terpotong
+  // di sisi atas dan tidak bisa di-scroll ke sana.
+  expect(overlay).not.toMatch(/^\s*align-items:/m);
+});
+
+test("animasi masuk dialog halus, bertahap, dan hormati reduced motion", () => {
+  expect(css).toContain("@keyframes admin-dialog-in");
+  expect(css).toContain("@keyframes admin-dialog-out");
+  expect(css).toContain("@keyframes admin-overlay-in");
+  expect(css).toContain("@keyframes admin-overlay-out");
+  // Isi dialog menyusul panelnya secara berurutan.
+  expect(css).toContain("@keyframes admin-dialog-part-in");
+  expect(css).toContain('.admin-dialog-content[data-state="open"] > *:nth-child(1)');
+  expect(css).toContain(".admin-dialog-content[data-state=\"open\"] > *:nth-child(3)");
+  // Jeda stagger berada di dalam blok no-preference, jadi tidak pernah jalan
+  // untuk pengguna yang meminta gerakan minimal.
+  const stagger = css.slice(
+    css.indexOf("@media (prefers-reduced-motion: no-preference)"),
+  );
+  expect(stagger).toContain("admin-dialog-part-in");
+  // `both` menahan transform hasil animasi dan menang atas `admin-btn:hover`.
+  // `backwards` tidak: gaya natural tombol kembali berlaku setelah animasi.
+  const open = css.slice(
+    css.indexOf('.admin-dialog-content[data-state="open"] {'),
+    css.indexOf("}", css.indexOf('.admin-dialog-content[data-state="open"] {')),
+  );
+  expect(open).toContain("backwards");
+  expect(open).not.toContain("both");
 });
 
 test("token baru dipakai di markup, bukan hanya ada di CSS", () => {
@@ -152,11 +211,10 @@ test("tombol keluar dari daftar undangan memakai tombol admin, bukan tautan mera
   expect(governance).not.toContain("text-red-700");
 });
 
-test("dialog cabut sesi memakai tema admin, termasuk tombol Bahal", () => {
+test("dialog cabut sesi memakai tema admin, termasuk tombol danger", () => {
   const revoke = source("../components/admin-session-revoke.tsx");
-  expect(revoke).toContain('className="admin-dialog-content mx-auto"');
-  expect(revoke).toContain('overlayClassName="admin-dialog-overlay"');
-  expect(revoke).toContain("showCloseButton={false}");
+  expect(revoke).toContain("<AdminDialogContent");
+  expect(revoke).toContain('from "@/components/admin-dialog"');
   // Detail perangkat tidak boleh memakai kotak melengkung gaya aplikasi.
   expect(revoke).not.toContain("rounded-xl");
 });

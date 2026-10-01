@@ -2,11 +2,11 @@ import { api } from "@/convex/_generated/api";
 import { TimeStampLabel } from "@/components/admin-workspace";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { AdminDialogContent } from "@/components/admin-dialog";
 import { useMutation } from "convex/react";
 import { LogOut, ShieldCheck, ShieldOff, TriangleAlert, UserCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -34,8 +34,8 @@ import { useEffect, useRef, useState } from "react";
  * yang berlaku. Hasilnya: tombol merah dan tombol batal tampil seperti tombol
  * aplikasi biasa, dengan kotak putih melengkung di tengah panel kuning -
  * satu-satunya dialog admin yang benar-benar terlihat seperti sisipan dari
- * luar. Sekarang dialog ini memakai scope yang sama dengan dialog passcode dan
- * panel profil, jadi seluruhnya sekeluarga.
+ * luar. Sekarang semua dialog memakai `AdminDialogContent`, jadi seluruhnya
+ * sekeluarga dan tidak ada yang bisa lupa.
  */
 
 export type SessionState =
@@ -231,10 +231,7 @@ function RevokeButton({
       ) : null}
 
       <Dialog open={open} onOpenChange={(next) => (busy ? undefined : setOpen(next))}>
-        <DialogContent
-          className="admin-dialog-content mx-auto"
-          overlayClassName="admin-dialog-overlay"
-          showCloseButton={false}
+        <AdminDialogContent
           aria-labelledby={headingId}
           aria-describedby={descriptionId}
         >
@@ -303,7 +300,7 @@ function RevokeButton({
             </button>
           </DialogFooter>
           </div>
-        </DialogContent>
+        </AdminDialogContent>
       </Dialog>
     </>
   );

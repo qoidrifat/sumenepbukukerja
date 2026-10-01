@@ -28,13 +28,13 @@ import { errorReportStatusSelectOptions } from "@/lib/select-options";
 const SEVERITY_STYLE: Record<string, { label: string; className: string; icon: typeof Bug }> = {
   info: { label: "Info", className: "bg-[#F1EDE3] text-[#525252]", icon: Bug },
   warning: { label: "Warning", className: "bg-[#FFE662] text-[#1A1A1A]", icon: CircleAlert },
-  error: { label: "Error", className: "bg-[#FFD9A8] text-[#7C2D12]", icon: AlertTriangle },
+  error: { label: "Error", className: "bg-[#E9B4A7] text-[#7C2D12]", icon: AlertTriangle },
   critical: { label: "Critical", className: "bg-[#E9B4A7] text-[#7C2D12]", icon: OctagonAlert },
 };
 
 const STATUS_STYLE: Record<string, string> = {
   open: "bg-[#FFE662] text-[#1A1A1A]",
-  acknowledged: "bg-[#DBEAFE] text-[#1E3A8A]",
+  acknowledged: "bg-[#F1EDE3] text-[#525252]",
   resolved: "bg-[#DCEBD7] text-[#24533A]",
   ignored: "bg-[#F1EDE3] text-[#525252]",
 };
@@ -58,7 +58,7 @@ function AlertCell({ report }: { report: AdminErrorReport }) {
   // punya webhook, jadi tidak ada bukti apa pun yang bisa ditampilkan di sini.
   if (report.alertStatus === "handoff") {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-black text-[#1E3A8A]">
+      <span className="inline-flex items-center gap-1 text-xs font-black text-[#FF5A26]">
         <ExternalLink className="size-3.5" aria-hidden="true" /> Siap dibuka
         {report.alertAt ? <TimeStampLabel timestamp={report.alertAt} withSeconds /> : null}
         <span className="block font-bold text-[#525252]">

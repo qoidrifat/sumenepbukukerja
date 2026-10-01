@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
 
 /**
- * Uji render statis untuk VendorActionArea.
+ * Uji render statis untuk VendorActionArea dan header ruang pengelola.
  *
  * Komponen ini murni presentasi, jadi yang dijaga di sini adalah: setiap aksi
  * benar-benar punya target yang bisa diklik (href/label), tidak ada tombol
@@ -17,9 +17,20 @@ vi.mock("@/lib/catalog-store", () => ({
   useVendorPackages: () => [],
 }));
 
+// Header memanggil dua hal yang butuh konteks: profil (query Convex) dan
+// alur keluar (mutasi + router). Keduanya dimock supaya yang diuji benar-benar
+// markup header, bukan integrasi jaringan.
+vi.mock("@/components/admin-profile", () => ({
+  AdminProfile: () =>
+    createElement("button", { type: "button", role: "menuitem" }, "Profil"),
+}));
+vi.mock("@/lib/admin-logout", () => ({
+  useAdminLogout: () => ({ logoutAdmin: () => {}, logoutBusy: false }),
+}));
+
 // `AdminMetricsBoard` pindah ke berkasnya sendiri pada Fase 9.1 Pekerjaan 6.
 // Yang diuji tetap sama: render papan metrik dan breakdown per area.
-const { VendorActionArea } = await import("./admin-workspace");
+const { AdminHeader, VendorActionArea } = await import("./admin-workspace");
 const { AdminMetricsBoard } = await import("./admin-metrics-board");
 
 const item = {
@@ -187,4 +198,77 @@ test("papan metrik: angka kategori tetap utuh dan didesain dengan maskot", () =>
   // Judul seksi dan breakdown area tidak hilang.
   expect(html).toContain("Listing aktif per kategori");
   expect(html).toContain("Listing aktif per area");
+});
+
+/* ------------------------------------------------------------------ */
+/* Header ruang pengelola                                              */
+/* ------------------------------------------------------------------ */
+
+const renderHeader = (props: Record<string, unknown> = {}) =>
+  renderToStaticMarkup(
+    createElement(
+      MemoryRouter,
+      null,
+      createElement(AdminHeader, { role: "admin", ...props } as never),
+    ),
+  );
+
+test("header tidak lagi memakai tombol Beranda yang memenuhi layar", () => {
+  const html = renderHeader();
+  // Ini keluhan yang jadi pemicu perubahan: di Android, tombol ini memakan
+  // hampir separuh lebar header dan mendorong kotak peran sampai gepeng.
+  expect(html).not.toContain("Kembali ke katalog");
+  // Identitas tetap di kiri, mepet.
+  expect(html.indexOf("Sumenep Buku Kerja")).toBeGreaterThan(-1);
+  expect(html.indexOf("Ruang MANAGER")).toBe(-1);
+  expect(html.indexOf("Ruang pengelola")).toBeGreaterThan(-1);
+  expect(html.indexOf("logo-mark.svg")).toBeGreaterThan(-1);
+});
+
+test("kotak peran ada di sisi kiri dan tidak pernah gepeng", () => {
+  const html = renderHeader({ role: "staff" });
+  expect(html).toContain("admin-status");
+  expect(html).toContain("Staff");
+  // `shrink-0` adalah penjaga yang sebenarnya: tanpa itu kotak peran ikut
+  // menyusut bersama judul pada layar sempit.
+  expect(html).toContain("shrink-0");
+  // Urutan di DOM: peran muncul sebelum tombol menu di kanan.
+  expect(html.indexOf("admin-status")).toBeLessThan(html.indexOf("admin-menu-icon"));
+});
+
+test("ikon menu dibuat sendiri dan punya kontrak aksesibilitas", () => {
+  const html = renderHeader();
+  expect(html).toContain('aria-haspopup="menu"');
+  expect(html).toContain('aria-expanded="false"');
+  expect(html).toContain("Buka menu ruang pengelola");
+  // Tiga garis, bukan aset eksternal. State `data-open` inilah yang dipakai CSS
+  // untuk mengubahnya menjadi tanda silang.
+  expect(html).toContain('data-open="false"');
+  expect((html.match(/<span><\/span>/g) ?? []).length).toBe(3);
+});
+
+test("menu tertutup sampai tombol ditekan", () => {
+  // State awal harus benar-benar tertutup: panel yang ikut ter-render sejak
+  // awal akan menutupi konten di ponsel.
+  const html = renderHeader();
+  expect(html).not.toContain("Keluar");
+  expect(html).not.toContain('role="menu"');
+});
+
+test("akun pemilik memakai gelar singkatnya, bukan gelar lengkap", () => {
+  // Gelar lengkap terlalu panjang untuk chip 48px dan akan mendorong ikon
+  // menu ke luar layar.
+  expect(renderHeader({ isOwner: true })).toContain("SuperAdmin");
+  expect(renderHeader()).not.toContain("SuperAdmin");
+  expect(renderHeader()).toContain("Admin");
+});
+
+test("antrean review tetap terlihat meski dipersempit di ponsel", () => {
+  const html = renderHeader({
+    reviewQueue: { claims: 1, photos: 2, reports: 3, total: 6 },
+  });
+  expect(html).toContain("6");
+  expect(html).toContain("perlu direview");
+  // Angka rinci hanya untuk pembaca layar, bukan teks yang menumpuk.
+  expect(html).toContain("klaim listing");
 });

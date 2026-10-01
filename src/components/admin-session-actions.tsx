@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAction, useConvex, useMutation } from "convex/react";
 import { ERROR_CODES } from "@/lib/error-reporting";
-import { useNavigate } from "react-router";
 import { Activity, Eye, EyeOff, KeyRound, LogOut, Monitor, Radio, ShieldCheck } from "lucide-react";
 
 import { useCurrentAdminSession } from "@/lib/catalog-store";
-import { useAuth } from "@/hooks/use-auth";
+import { useAdminLogout } from "@/lib/admin-logout";
 import { useErrorReporter } from "@/lib/error-reporter";
 import { api } from "@/convex/_generated/api";
 import { assessPasscode, PASSCODE_MIN_LENGTH } from "@/lib/admin-passcode";
@@ -241,12 +240,17 @@ function useAdminSessionBeacon() {
 
 export function AdminSessionActions() {
   const session = useCurrentAdminSession();
-  const logout = useMutation(api.adminGate.logoutAdmin);
+  // `logoutAdmin` TIDAK dipanggil dari sini. Pencabutan sesi hidup di
+  // `@/lib/admin-logout` supaya menu header dan panel ini memakai satu
+  // implementasi; menyalinnya ke sini akan membuat dua jalan keluar yang
+  // bisa berbeda satu langkah saja.
   // `changeAdminPasscode` adalah action: workhorse-nya PBKDF2, bukan write
   // langsung, karena ctx action tidak punya akses database.
   const changePasscode = useAction(api.adminGate.changeAdminPasscode);
-  const { signOut } = useAuth();
-  const navigate = useNavigate();
+  // Alur keluar milik modul bersama, bukan milik komponen ini. Menu header
+  // memanggil fungsi yang sama persis, jadi tidak ada dua jalan keluar yang
+  // bisa berbeda satu langkah saja.
+  const { logoutAdmin, logoutBusy } = useAdminLogout();
   const report = useErrorReporter();
 
   useAdminSessionBeacon();
@@ -264,41 +268,12 @@ export function AdminSessionActions() {
   const assessment = next ? assessPasscode(next, current) : null;
 
   const handleLogout = useCallback(async () => {
-    setBusy(true);
-    try {
-      // Jejak dulu, selesaikan sesi belakangan. Kalau pencatatan gagal, sesi
-      // tetap harus dicabut — yang penting admin benar-benar keluar.
-      try {
-        await logout({ route: "/admin" });
-      } catch (caught) {
-        await report({
-          kind: "operation",
-          code: ERROR_CODES.adminLogoutAudit,
-          feature: "Admin Security Desk",
-          operation: "admin.logout.audit",
-          route: "/admin",
-          severity: "warning",
-          message: "Jejak audit logout gagal dicatat; sesi tetap dicabut.",
-          context: { reason: caught instanceof Error ? caught.message : "unknown" },
-        });
-      }
-      await signOut();
-      navigate("/auth?returnTo=%2Fadmin", { replace: true });
-    } catch (caught) {
-      setBusy(false);
-      setNotice("");
-      await report({
-        kind: "operation",
-        code: ERROR_CODES.adminLogout,
-        feature: "Admin Security Desk",
-        operation: "admin.logout",
-        route: "/admin",
-        severity: "error",
-        message: "Sesi admin tidak dapat dicabut dari panel ini.",
-        context: { reason: caught instanceof Error ? caught.message : "unknown" },
-      });
+    setNotice("");
+    const ok = await logoutAdmin();
+    if (!ok) {
+      setNotice("Sesi tidak dapat dicabut. Coba lagi sebentar.");
     }
-  }, [logout, signOut, navigate, report]);
+  }, [logoutAdmin]);
 
   const handleChangePasscode = useCallback(
     async (event: React.FormEvent) => {
@@ -430,12 +405,12 @@ export function AdminSessionActions() {
           ) : null}
           <button
             type="button"
-            disabled={busy}
             onClick={() => void handleLogout()}
+            disabled={busy || logoutBusy}
             className="admin-btn admin-btn-danger inline-flex min-h-12"
           >
             <LogOut className="size-5" aria-hidden="true" />
-            {busy ? "Mengakhiri sesi..." : "Logout"}
+            {busy || logoutBusy ? "Mengakhiri sesi..." : "Logout"}
           </button>
         </div>
         <p className="mt-2 flex items-start gap-2 text-xs leading-6 text-[#525252]">

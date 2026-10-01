@@ -33,7 +33,7 @@ const adminMetricTone: Record<AdminMetric["tone"], string> = {
   yellow: "bg-[#FFE662] text-[#1A1A1A]",
   white: "bg-white text-[#1A1A1A]",
   mint: "bg-[#DCEBD7] text-[#24533A]",
-  stone: "bg-[#E7E5E4] text-[#44403C]",
+  stone: "bg-[#E7E5E4] text-[#525252]",
   terracotta: "bg-[#E9B4A7] text-[#7C2D12]",
 };
 

@@ -400,6 +400,89 @@
   box-shadow: none;
 }
 
+/* Hijau "berhasil / setujui". Semula setiap tombolnya menulis `#DCEBD7` dan
+   `#24533A` sendiri di empat tempat; setiap penggalinan warna menulis ulang
+   palet admin di tempat yang berbeda, dan itulah alasan beberapa tombol terlihat
+   sedikit beda satu sama lain. */
+.admin-workspace .admin-btn-success,
+.admin-dialog-content .admin-btn-success,
+.admin-confirm-content .admin-btn-success {
+  color: #24533a;
+  background: var(--admin-mint);
+}
+
+/* Tautan sebaris di dalam panel admin. Tautan yang diklik harus tetap terlihat
+   seperti tautan, tapi warna biru bawaan aplikasi tidak ada di palet
+   Warm Brutalism: yang dipakai adalah oranye + garis bawah tebal. */
+.admin-workspace .admin-link {
+  color: var(--admin-orange);
+  font-weight: 900;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 2px;
+}
+
+.admin-workspace .admin-link:hover {
+  color: var(--admin-ink);
+}
+
+/* Panel lipat (`<details>`) untuk daftar yang jarang dibuka, misalnya
+   undangan yang masih aktif. Tanpa ini, `<summary>` tampil sebagai teks biru
+   bawaan peramban - satu-satunya sisa gaya aplikasi di dalam meja kerja. */
+.admin-workspace .admin-disclosure {
+  border: 2px solid var(--admin-line);
+  border-radius: 2px;
+  background: var(--admin-surface);
+  box-shadow: 3px 3px 0 0 var(--admin-line);
+}
+
+.admin-workspace .admin-disclosure > summary {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  color: var(--admin-ink);
+  font-weight: 900;
+  list-style: none;
+  cursor: pointer;
+}
+
+.admin-workspace .admin-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-workspace .admin-disclosure > summary::after {
+  content: "+";
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--admin-line);
+  border-radius: 2px;
+  background: var(--admin-yellow);
+  font-size: 1.125rem;
+  line-height: 1;
+}
+
+.admin-workspace .admin-disclosure[open] > summary::after {
+  content: "\2212";
+  background: var(--admin-orange);
+  color: #ffffff;
+}
+
+.admin-workspace .admin-disclosure > summary:hover {
+  background: var(--admin-yellow);
+}
+
+.admin-workspace .admin-disclosure-body {
+  border-top: 2px solid var(--admin-line);
+  padding: 0.75rem 0.85rem;
+}
+
 .admin-workspace .admin-btn:disabled,
 .admin-workspace .admin-icon-btn:disabled,
 .admin-confirm-content .admin-btn:disabled {
@@ -482,7 +565,7 @@
 }
 
 .admin-workspace .admin-status-unclaimed {
-  color: #44403c;
+  color: var(--admin-muted);
   background: var(--admin-stone);
 }
 
@@ -729,6 +812,107 @@
   outline-offset: 4px;
 }
 
+/* --- Cakupan portal: satu sumber token untuk semua pop-up admin ------- */
+
+/*
+  Setiap portal Radix (dialog, konfirmasi) dirender ke `document.body`, jadi
+  ia berada DI LUAR `.admin-workspace`. Akibatnya dua hal hilang sekalian:
+  variabel `--admin-*` dan seluruh aturan primitif admin yang hanya berlaku
+  di dalam workspace. Gejalanya sangat khas dan sudah nyata di aplikasi: di dalam
+  dialog, `admin-btn` kehilangan seluruh gayanya dan tombol muncul seperti
+  tombol aplikasi biasa, sementara warna Danger tidak pernah ada di scope
+  dialog sama sekali.
+
+  Dua perbaikan di bawah menutup SEMUA kebocoran tema di masa depan, bukan
+  hanya dialog yang kebetulan dilaporkan:
+
+  1. Variabel `--admin-*` dideklarasikan di scope portal juga, sehingga
+     `var(--admin-line)` dan `var(--admin-yellow)` selalu punya nilai di
+     mana pun dialog berada.
+  2. Primitive yang tadinya tidak ada di scope portal ikut dicakup di sini,
+     termasuk `admin-btn-danger` yang memang belum pernah ada.
+*/
+.admin-dialog-overlay,
+.admin-dialog-content,
+.admin-confirm-overlay,
+.admin-confirm-content {
+  --admin-canvas: #faf7ee;
+  --admin-surface: #fdfbf7;
+  --admin-white: #ffffff;
+  --admin-ink: #1a1a1a;
+  --admin-muted: #525252;
+  --admin-line: #121212;
+  --admin-orange: #ff5a26;
+  --admin-yellow: #ffe662;
+  --admin-mint: #dcebd7;
+  --admin-stone: #e7e5e4;
+  --admin-terracotta: #e9b4a7;
+}
+
+.admin-dialog-content .admin-btn-danger,
+.admin-confirm-content .admin-btn-danger {
+  color: #7c2d12;
+  background: #ffffff;
+}
+
+.admin-confirm-content .admin-btn-primary {
+  color: #ffffff;
+  background: #ff5a26;
+}
+
+.admin-confirm-content .admin-btn-highlight {
+  color: #1a1a1a;
+  background: #ffe662;
+}
+
+.admin-confirm-content .admin-btn-quiet {
+  color: #1a1a1a;
+  background: #f1ede3;
+  box-shadow: none;
+}
+
+.admin-confirm-content .admin-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  border: 2px solid #121212;
+  border-radius: 2px;
+  color: #1a1a1a;
+  background: #ffffff;
+  padding: 0.7rem 0.8rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  outline: none;
+  box-shadow: 2px 2px 0 0 #121212;
+}
+
+.admin-confirm-content .admin-input:focus {
+  border-color: #ff5a26;
+  box-shadow: 4px 4px 0 0 #121212;
+}
+
+/* Pill status dipakai di dalam dialog juga (mis. gelar peran pada panel
+   profil), jadi bentuk dasarnya ikut dibawa ke scope portal. */
+.admin-dialog-content .admin-status,
+.admin-confirm-content .admin-status {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  border: 1.5px solid var(--admin-line);
+  border-radius: 2px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.875rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.admin-dialog-content .admin-status-confirmed,
+.admin-confirm-content .admin-status-confirmed {
+  color: var(--admin-ink);
+  background: var(--admin-yellow);
+}
+
 /* Tombol tutup bawaan (shadcn) terlihat seperti komponen aplikasi lain.
    Di dalam pita kuning dialog admin, ia dijadikan kotak admin yang rata
    dengan header. */
@@ -852,6 +1036,140 @@
     opacity: 0;
     transform: scale(1.45);
   }
+}
+
+/* --- Menu header meja kerja ------------------------------------------ */
+
+/*
+  Ikon menu digambar sendiri dari tiga garis, lalu berubah menjadi tanda
+  silang ketika panelnya terbuka. Alasannya bukan sekadar rasa: aset ikon
+  eksternal harus dimuat lewat jaringan, sedangkan tiga garis bisa memakai
+  token garis admin yang sama dan ikut berubah bersama tema.
+
+  Geraknya memakai `transform` dan `opacity` saja, jadi tidak memicu
+  layout, dan otomatis ikut dihentikan oleh blok reduced-motion di bawah.
+*/
+.admin-menu-icon {
+  position: relative;
+  display: block;
+  width: 22px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.admin-menu-icon > span {
+  position: absolute;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--admin-line);
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    top 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 150ms ease;
+}
+
+.admin-menu-icon > span:nth-child(1) {
+  top: 0;
+}
+
+.admin-menu-icon > span:nth-child(2) {
+  top: 7.5px;
+  width: 66%;
+}
+
+.admin-menu-icon > span:nth-child(3) {
+  top: 15px;
+}
+
+.admin-menu-icon[data-open="true"] > span:nth-child(1) {
+  top: 7.5px;
+  transform: rotate(45deg);
+}
+
+.admin-menu-icon[data-open="true"] > span:nth-child(2) {
+  opacity: 0;
+  transform: scaleX(0.2);
+}
+
+.admin-menu-icon[data-open="true"] > span:nth-child(3) {
+  top: 7.5px;
+  width: 100%;
+  transform: rotate(-45deg);
+}
+
+/* Panelnya dirender DI DALAM header, bukan lewat portal. Itu keputusan
+   sadar: portal Radix berada di luar `.admin-workspace`, jadi setiap kelas
+   admin di dalamnya harus dicakup satu per satu. Panel ini tetap di dalam,
+   sehingga seluruh tema admin berlaku otomatis dan tidak ada duplikasi
+   gaya yang harus dirawat dua kali. */
+.admin-menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 60;
+  width: min(17rem, calc(100vw - 1.5rem));
+  overflow: hidden;
+  border: 2px solid var(--admin-line);
+  border-radius: 2px;
+  background: var(--admin-surface);
+  box-shadow: 4px 4px 0 0 var(--admin-line);
+}
+
+.admin-menu-head {
+  padding: 0.6rem 0.85rem;
+  border-bottom: 2px solid var(--admin-line);
+  background: var(--admin-yellow);
+  color: #525252;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.admin-menu-item {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.6rem 0.85rem;
+  border: 0;
+  background: transparent;
+  color: var(--admin-ink);
+  font-size: 1rem;
+  font-weight: 800;
+  text-align: left;
+  text-decoration: none;
+  transition:
+    background-color 90ms ease,
+    padding-left 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.admin-menu-item:hover,
+.admin-menu-item:focus-visible {
+  background: var(--admin-yellow);
+  padding-left: 1.05rem;
+}
+
+.admin-menu-item + .admin-menu-item {
+  border-top: 1.5px solid var(--admin-line);
+}
+
+.admin-menu-item-danger {
+  color: #7c2d12;
+}
+
+.admin-menu-item-danger:hover {
+  background: var(--admin-terracotta);
+}
+
+.admin-menu-separator {
+  height: 2px;
+  background: var(--admin-line);
 }
 
 @media (min-width: 1024px) {

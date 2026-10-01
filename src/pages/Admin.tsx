@@ -206,6 +206,10 @@ export default function Admin() {
 
 function AdminWorkspace() {
   const access = useCurrentAccess();
+  // Nama akun sendiri hanya untuk menu header. Diambil dari `useAuth` yang
+  // sudah ada, bukan query tambahan, supaya header tidak menambah permintaan
+  // jaringan hanya untuk satu kalimat.
+  const { user } = useAuth();
   // Menandai sesi ini sebagai aktif supaya panel audit bisa menampilkan
   // "Aktif sekarang" pada baris dengan sidik jari yang sama.
   useAdminPresence();
@@ -794,7 +798,12 @@ function AdminWorkspace() {
 
   return (
     <div className="admin-workspace min-h-dvh min-h-[100svh] pb-[calc(2rem+env(safe-area-inset-bottom))] text-[#1A1A1A]">
-      <AdminHeader role={access?.role ?? undefined} reviewQueue={reviewQueue ?? undefined} />
+      <AdminHeader
+        role={access?.role ?? undefined}
+        isOwner={access?.isOwner ?? false}
+        accountName={user?.name ?? null}
+        reviewQueue={reviewQueue ?? undefined}
+      />
       <main className="admin-shell-frame mx-auto max-w-[1600px] px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10">
         {previewContent}
 
@@ -1364,7 +1373,7 @@ function AdminWorkspace() {
               return (
                 <article
                   key={item._id}
-                  className="grid gap-4 bg-white p-4 transition-colors hover:bg-[#FFFCF5] sm:p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(21rem,.9fr)] lg:px-6"
+                  className="grid gap-4 bg-white p-4 transition-colors hover:bg-[#FAF7EE] sm:p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(9rem,.65fr)_minmax(21rem,.9fr)] lg:px-6"
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div

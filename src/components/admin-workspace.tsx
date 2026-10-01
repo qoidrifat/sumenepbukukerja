@@ -1,9 +1,10 @@
-import { type ElementType, type ReactNode } from "react";
+import { type ElementType, type ReactNode, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
   Check,
   Inbox,
+  LogOut,
   MessageCircle,
   Pencil,
   Sparkles,
@@ -11,12 +12,15 @@ import {
   X,
 } from "lucide-react";
 import { Link } from "react-router";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type VendorRecord } from "@/lib/catalog-store";
 import { formatDateTime, formatRelativeTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import { AdminProfile } from "@/components/admin-profile";
+import { OWNER_SHORT_TITLE } from "@/lib/owner-account";
+import { useAdminLogout } from "@/lib/admin-logout";
 
 /*
  * Tiga panel (paket, metrik, tinjauan laporan) sudah pindah ke berkasnya
@@ -172,67 +176,185 @@ export function vendorUpdatePayload(
   };
 }
 
+/**
+ * Header ruang pengelola.
+ *
+ * Bentuknya ditentukan oleh layar yang paling sempit, bukan yang paling
+ * lebar. Di Android, header lama berisi lima hal sekaligus: tombol kembali
+ * ke katalog yang selebar separuh layar, logo, dua baris judul, kotak peran,
+ * dan tombol profil. Semuanya berebut ruang yang sama, jadi yang
+ * pertama terpangkas adalah kotak peran - informasi yang justru paling
+ * penting untuk pengelola tahu hak aksesnya apa.
+ *
+ * Tiga aturan yang dipakai di sini:
+ *  1. hanya ada dua kelompok: identitas di kiri (logo, judul, peran) dan
+ *     kendali di kanan (antrean review, menu). Tidak ada tombol Beranda di
+ *     header; ia pindah ke menu, karena satu tombol selebar setengah layar
+ *     untuk satu tujuan saja adalah tempat yang paling mahal.
+ *  2. Kotak peran memakai `shrink-0` supaya tidak pernah gepeng, dan judul
+ *     yang boleh dipangkas - dia punya `truncate`, kotak peran tidak.
+ *  3. Menu dirender DI DALAM header, bukan lewat portal. Portal berada di
+ *     luar `.admin-workspace`, jadi panel di dalamnya harus dicakup satu
+ *     per satu; dengan tetap di dalam, seluruh tema admin berlaku otomatis.
+ */
 export function AdminHeader({
   role = "admin",
+  isOwner = false,
+  accountName,
   reviewQueue,
 }: {
   role?: string;
+  /** Dari `users.currentAccess`, bukan ditebak di klien. */
+  isOwner?: boolean;
+  accountName?: string | null;
   reviewQueue?: { claims: number; photos: number; reports: number; total: number };
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { logoutAdmin, logoutBusy } = useAdminLogout();
+  const reduceMotion = useReducedMotion();
+
+  // Panel menutup saat diklik di luar dan saat Escape, dengan fokus dikembalikan
+  // ke pemicunya. Tanpa dua hal itu, menu yang terbuka di ponsel tetap
+  // menggantung di layar dan menutupi isi panel tanpa ada yang memicunya.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
+  const roleLabel = isOwner
+    ? OWNER_SHORT_TITLE
+    : role === "admin"
+      ? "Admin"
+      : role === "staff"
+        ? "Staff"
+        : "Viewer";
+
   return (
     <header className="sticky top-0 z-40 border-b-2 border-[#121212] bg-[#FAF7EE] pt-[env(safe-area-inset-top)]">
-      <div className="admin-shell-frame mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-3 px-3 sm:px-6 lg:px-10">
-        <Link
-          to="/"
-          className="admin-btn admin-btn-secondary min-h-12 shrink-0 px-3 sm:px-4"
-          aria-label="Kembali ke katalog publik"
-        >
-          <ArrowLeft className="size-5 shrink-0" />
-          <span className="hidden sm:inline">Kembali ke katalog</span>
-          <span className="sm:hidden">Beranda</span>
-        </Link>
-
-        <div className="flex min-w-0 items-center justify-end gap-3 text-right">
+      <div className="admin-shell-frame mx-auto flex min-h-16 max-w-[1600px] items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:px-10">
+        {/* Identitas: semua orang menumpuk ke sisi kiri. */}
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
           <img
             src="/brand/logo-mark.svg"
             alt=""
             width={40}
             height={40}
-            className="size-10 shrink-0 rounded-lg border-2 border-[#121212] bg-white object-contain shadow-[2px_2px_0_#121212]"
+            className="size-9 shrink-0 rounded-[2px] border-2 border-[#121212] bg-white object-contain shadow-[2px_2px_0_#121212] sm:size-10"
             aria-hidden="true"
           />
           <div className="min-w-0">
-            <p className="truncate text-base font-black uppercase tracking-[-0.035em] text-[#1A1A1A] sm:text-lg">
+            <p className="truncate text-sm font-black uppercase tracking-[-0.035em] text-[#1A1A1A] sm:text-lg">
               Sumenep Buku Kerja
             </p>
-            <p className="mt-0.5 text-sm font-bold text-[#525252]">Ruang pengelola</p>
+            <p className="truncate text-xs font-bold text-[#525252] sm:text-sm">
+              Ruang pengelola
+            </p>
           </div>
+          <span className="admin-status admin-status-confirmed ml-1 shrink-0 text-xs sm:text-sm">
+            <span className="mr-1.5 size-2 rounded-full bg-[#1A1A1A]" aria-hidden="true" />
+            {roleLabel}
+          </span>
         </div>
 
-        <span className="admin-status admin-status-confirmed shrink-0">
-          <span className="mr-1.5 size-2 rounded-full bg-[#1A1A1A]" />
-          {role === "admin" ? "Admin" : role === "staff" ? "Staff" : "Viewer"}
-        </span>
-        {/* Ikon orang untuk pengaturan profil, persis di sebelah label peran.
-            `shrink-0` dipakai karena header ini `justify-between`: tanpa itu,
-            tombol ini ikut gepeng dan target sentuhnya mengecil — persis di
-            layar yang paling sering dipakai, yaitu ponsel. */}
-        <AdminProfile />
-        {reviewQueue && reviewQueue.total > 0 ? (
-          <a
-            href="#governance-title"
-            aria-label="Lompat ke panel Role & Audit untuk menangani antrean review"
-            className="admin-status shrink-0 border-[#121212] bg-[#FF5A26] text-white"
-            title={`${reviewQueue.claims} klaim · ${reviewQueue.photos} foto · ${reviewQueue.reports} laporan menunggu ditinjau`}
+        {/* Kendali: satu kelompok, tidak ditulis ke seluruh lebar. */}
+        <div className="relative flex shrink-0 items-center gap-2" ref={menuRef}>
+          {reviewQueue && reviewQueue.total > 0 ? (
+            <a
+              href="#governance-title"
+              aria-label="Lompat ke panel Governance untuk menangani antrean review"
+              className="admin-status shrink-0 border-[#121212] bg-[#FF5A26] text-xs text-white sm:text-sm"
+              title={`${reviewQueue.claims} klaim · ${reviewQueue.photos} foto · ${reviewQueue.reports} laporan menunggu ditinjau`}
+            >
+              <Inbox className="mr-1.5 size-4" aria-hidden="true" />
+              {reviewQueue.total}
+              <span className="hidden sm:inline"> perlu direview</span>
+              <span className="sr-only">
+                : {reviewQueue.claims} klaim listing, {reviewQueue.photos} foto,{" "}
+                {reviewQueue.reports} laporan
+              </span>
+            </a>
+          ) : null}
+
+          <button
+            ref={triggerRef}
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            className="admin-icon-btn"
+            aria-label={menuOpen ? "Tutup menu ruang pengelola" : "Buka menu ruang pengelola"}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-controls="admin-workspace-menu"
           >
-            <Inbox className="mr-1.5 size-4" aria-hidden="true" />
-            {reviewQueue.total} perlu direview
-            <span className="sr-only">
-              : {reviewQueue.claims} klaim listing, {reviewQueue.photos} foto,{" "}
-              {reviewQueue.reports} laporan
+            <span className="admin-menu-icon" data-open={menuOpen} aria-hidden="true">
+              <span />
+              <span />
+              <span />
             </span>
-          </a>
-        ) : null}
+          </button>
+
+          <AnimatePresence>
+            {menuOpen ? (
+              <motion.div
+                id="admin-workspace-menu"
+                role="menu"
+                aria-label="Menu ruang pengelola"
+                className="admin-menu"
+                initial={reduceMotion ? false : { opacity: 0, y: -10, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.98 }}
+                transition={
+                  reduceMotion
+                    ? { duration: 0 }
+                    : { type: "spring", stiffness: 420, damping: 32, mass: 0.7 }
+                }
+              >
+                <p className="admin-menu-head">
+                  {isOwner ? OWNER_SHORT_TITLE : roleLabel}
+                  {accountName ? ` · ${accountName}` : ""}
+                </p>
+                <Link
+                  to="/"
+                  role="menuitem"
+                  className="admin-menu-item"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <ArrowLeft className="size-5 shrink-0" aria-hidden="true" />
+                  Beranda
+                </Link>
+                <AdminProfile variant="menu" onOpenChange={setMenuOpen} />
+                <div className="admin-menu-separator" aria-hidden="true" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="admin-menu-item admin-menu-item-danger"
+                  disabled={logoutBusy}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void logoutAdmin();
+                  }}
+                >
+                  <LogOut className="size-5 shrink-0" aria-hidden="true" />
+                  {logoutBusy ? "Keluar..." : "Keluar"}
+                </button>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </div>
       </div>
       <div
         className="h-2 border-t-2 border-[#121212] bg-[linear-gradient(90deg,#FF5A26_0_38%,#FFE662_38%_72%,#121212_72%_100%)]"

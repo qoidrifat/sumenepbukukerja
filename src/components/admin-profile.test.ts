@@ -28,13 +28,22 @@ const community = readFileSync(
 );
 
 test("ikon orang ada di sebelah label peran di header", () => {
-  const roleIndex = workspace.indexOf("admin-status admin-status-confirmed shrink-0");
-  const profileIndex = workspace.indexOf("<AdminProfile />");
+  // `shrink-0` pada kotak peran adalah load-bearing: header ini memakai
+  // `justify-between` di dalam grup kiri yang boleh menyusut, jadi tanpa itu
+  // kotak peran ikut gepeng persis di layar ponsel yang paling menyebalkan.
+  const roleIndex = workspace.indexOf("admin-status admin-status-confirmed ml-1 shrink-0");
+  // Pemicunya pindah ke menu header (Fase 9.2), jadi yang dicari di
+  // `admin-workspace.tsx` adalah pemanggilan dengan variant menu. Yang tetap
+  // dijaga: panel peran dan pemicu profil ada di header yang sama, dan
+  // keduanya bukan sekadar teks.
+  const profileIndex = workspace.indexOf("<AdminProfile variant=\"menu\"");
   expect(roleIndex).toBeGreaterThan(-1);
   expect(profileIndex).toBeGreaterThan(-1);
   // Aksesibel lewat nama, bukan hanya ikon.
   expect(profile).toContain('aria-label="Atur profil"');
   expect(profile).toContain("<UserRound");
+  // Bentuk menu harus menyamar sebagai baris menu, bukan tombol avatar.
+  expect(profile).toContain('className="admin-menu-item"');
 });
 
 test("tombol profil memakai token admin, bukan gaya tombol generik", () => {

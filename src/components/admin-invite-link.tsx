@@ -22,7 +22,7 @@ import { staffRoleLongLabel } from "@/lib/select-options";
  * ulang: yang dipakai hanya padanan admin yang sudah ada.
  *
  * Isi pesannya ditampilkan, bukan hanya tersembunyi di balik tombol WhatsApp.
- * SuperAdmin bisa membagikan lewat kanal apa pun, dan sebelum mengirim ia
+ * Akun pemilik bisa membagikan lewat kanal apa pun, dan sebelum mengirim ia
  * berhak melihat persis apa yang akan diterima penerima.
  */
 export function InviteLinkResult({

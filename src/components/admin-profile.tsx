@@ -38,7 +38,24 @@ import {
 
 const MAX_NAME_LENGTH = 80;
 
-export function AdminProfile() {
+/**
+ * Pemicu pengaturan profil.
+ *
+ * Dua bentuk, satu dialog. `header` adalah tombol avatar yang lama; `menu`
+ * adalah baris menu yang lebarnya penuh. Keduanya memanggil `openProfile`
+ * yang sama persis, jadi tidak ada dua keadaan form yang bisa berbeda.
+ *
+ * `onOpenChange` dipakai pemanggil menu header untuk menutup panelnya sendiri
+ * saat dialog dibuka. Tanpa itu, panel menu tetap menutupi separuh layar
+ * di atas dialog yang baru terbuka.
+ */
+export function AdminProfile({
+  variant = "header",
+  onOpenChange,
+}: {
+  variant?: "header" | "menu";
+  onOpenChange?: (open: boolean) => void;
+} = {}) {
   const profile = useQuery(api.users.myProfile, {});
   const updateProfile = useMutation(api.users.updateMyProfile);
   const generateUploadUrl = useMutation(api.users.generateProfileUploadUrl);
@@ -80,6 +97,7 @@ export function AdminProfile() {
     setError("");
     setNotice("");
     setOpen(true);
+    onOpenChange?.(false);
   };
 
   const displayName = profile?.name?.trim() || profile?.email?.split("@")[0] || "Profil";
@@ -152,23 +170,36 @@ export function AdminProfile() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={openProfile}
-        className="flex shrink-0 items-center gap-2 rounded-[2px] border-2 border-[#121212] bg-white px-2 py-1.5 shadow-[2px_2px_0_0_#121212] transition-transform hover:bg-[#FFE662] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#FF5A26]"
-        aria-label="Atur profil"
-        title="Atur profil"
-      >
-        <span className="flex size-8 items-center justify-center overflow-hidden rounded-[2px] border-2 border-[#121212] bg-[#FFE662] text-xs font-black text-[#121212]">
-          {profile?.imageUrl ? (
-            <img src={profile.imageUrl} alt="" className="size-full object-cover" />
-          ) : (
-            initials || <UserRound className="size-4" />
-          )}
-        </span>
-        <UserRound className="size-5 shrink-0 text-[#121212]" aria-hidden="true" />
-        <span className="hidden text-sm font-black text-[#1A1A1A] sm:inline">Profil</span>
-      </button>
+      {variant === "menu" ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={openProfile}
+          className="admin-menu-item"
+          aria-label="Atur profil"
+        >
+          <UserRound className="size-5 shrink-0" aria-hidden="true" />
+          Profil
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={openProfile}
+          className="flex shrink-0 items-center gap-2 rounded-[2px] border-2 border-[#121212] bg-white px-2 py-1.5 shadow-[2px_2px_0_0_#121212] transition-transform hover:bg-[#FFE662] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#FF5A26]"
+          aria-label="Atur profil"
+          title="Atur profil"
+        >
+          <span className="flex size-8 items-center justify-center overflow-hidden rounded-[2px] border-2 border-[#121212] bg-[#FFE662] text-xs font-black text-[#121212]">
+            {profile?.imageUrl ? (
+              <img src={profile.imageUrl} alt="" className="size-full object-cover" />
+            ) : (
+              initials || <UserRound className="size-4" />
+            )}
+          </span>
+          <UserRound className="size-5 shrink-0 text-[#121212]" aria-hidden="true" />
+          <span className="hidden text-sm font-black text-[#1A1A1A] sm:inline">Profil</span>
+        </button>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent

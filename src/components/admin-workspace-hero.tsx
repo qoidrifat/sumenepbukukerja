@@ -79,7 +79,7 @@ export function AdminWorkspaceHero<TQueue extends string = string>({
               <dt className="text-sm font-bold text-[#525252]">
                 Butuh tindakan
               </dt>
-              <dd className="mt-1 text-3xl font-black tracking-[-0.05em] text-[#C73E16]">
+              <dd className="mt-1 text-3xl font-black tracking-[-0.05em] text-[#FF5A26]">
                 {actionableCount}
               </dd>
               {/*

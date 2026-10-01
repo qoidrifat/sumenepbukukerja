@@ -126,7 +126,7 @@ export function AdminAccessDenied({
               alt=""
               width={40}
               height={40}
-              className="size-10 shrink-0 rounded-lg border-2 border-[#121212] bg-white object-contain shadow-[2px_2px_0_#121212]"
+              className="size-10 shrink-0 rounded-[2px] border-2 border-[#121212] bg-white object-contain shadow-[2px_2px_0_#121212]"
               aria-hidden="true"
             />
             <div className="min-w-0">
@@ -146,7 +146,7 @@ export function AdminAccessDenied({
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-4 py-10 sm:px-6 sm:py-14">
         <section className="admin-card p-6 sm:p-10">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
-            <span className="flex size-16 shrink-0 items-center justify-center rounded-2xl border-2 border-[#121212] bg-[#FFE662] shadow-[4px_4px_0_#121212]">
+            <span className="flex size-16 shrink-0 items-center justify-center rounded-[2px] border-2 border-[#121212] bg-[#FFE662] shadow-[4px_4px_0_#121212]">
               <Lock className="size-8" aria-hidden="true" />
             </span>
             <div className="min-w-0">
@@ -187,7 +187,7 @@ export function AdminAccessDenied({
         {signedIn && bootstrapAvailable ? (
           <section aria-labelledby="pulihkan-akses" className="admin-card p-6 sm:p-10">
             <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
-              <span className="flex size-16 shrink-0 items-center justify-center rounded-2xl border-2 border-[#121212] bg-[#DCEBD7] shadow-[4px_4px_0_#121212]">
+              <span className="flex size-16 shrink-0 items-center justify-center rounded-[2px] border-2 border-[#121212] bg-[#DCEBD7] shadow-[4px_4px_0_#121212]">
                 <ShieldCheck className="size-8" aria-hidden="true" />
               </span>
               <div className="min-w-0 flex-1">
@@ -210,13 +210,13 @@ export function AdminAccessDenied({
                       "Email akun yang sedang masuk tidak ada di daftar yang diizinkan.")}
                 </p>
                 {deployment ? (
-                  <p className="mt-4 break-all rounded-lg border-2 border-[#121212] bg-[#FAF7EE] p-3 text-xs leading-5 text-[#525252]">
+                  <p className="mt-4 break-all rounded-[2px] border-2 border-[#121212] bg-[#FAF7EE] p-3 text-xs leading-5 text-[#525252]">
                     <span className="font-black text-[#1A1A1A]">Backend yang dipakai: </span>
                     {deployment}
                   </p>
                 ) : null}
                 {error ? (
-                  <p className="mt-3 text-sm font-bold text-red-700" role="alert">
+                  <p className="mt-3 border-2 border-[#121212] bg-[#E9B4A7] px-3 py-2 text-sm font-black text-[#7C2D12]" role="alert">
                     {error}
                   </p>
                 ) : null}
@@ -233,7 +233,7 @@ export function AdminAccessDenied({
                     </button>
                   ) : accountEmail ? (
                     <>
-                      <p className="min-w-0 flex-1 break-all rounded-lg border-2 border-[#121212] bg-[#FAF7EE] p-3 text-sm font-bold text-[#1A1A1A]">
+                      <p className="min-w-0 flex-1 break-all rounded-[2px] border-2 border-[#121212] bg-[#FAF7EE] p-3 text-sm font-bold text-[#1A1A1A]">
                         {accountEmail}
                       </p>
                       <button
@@ -266,7 +266,7 @@ export function AdminAccessDenied({
             {STAFF_ROLE_CARDS.map((card) => (
               <li key={card.role} className="admin-card flex flex-col p-5">
                 <span
-                  className={`inline-flex w-fit items-center rounded-lg border-2 border-[#121212] px-2.5 py-1 text-sm font-black uppercase tracking-[0.08em] shadow-[2px_2px_0_#121212] ${card.tone}`}
+                  className={`inline-flex w-fit items-center rounded-[2px] border-2 border-[#121212] px-2.5 py-1 text-sm font-black uppercase tracking-[0.08em] shadow-[2px_2px_0_#121212] ${card.tone}`}
                 >
                   {card.role}
                 </span>
@@ -325,7 +325,7 @@ export function AdminSetupRequired({ bootstrapAvailable }: { bootstrapAvailable:
               alt=""
               width={40}
               height={40}
-              className="size-10 shrink-0 rounded-lg border-2 border-[#121212] bg-white object-contain shadow-[2px_2px_0_#121212]"
+              className="size-10 shrink-0 rounded-[2px] border-2 border-[#121212] bg-white object-contain shadow-[2px_2px_0_#121212]"
               aria-hidden="true"
             />
             <div className="min-w-0">
@@ -344,7 +344,7 @@ export function AdminSetupRequired({ bootstrapAvailable }: { bootstrapAvailable:
 
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6 px-4 py-10 sm:px-6">
         <section className="admin-card p-6 sm:p-10">
-          <span className="inline-flex size-16 items-center justify-center rounded-2xl border-2 border-[#121212] bg-[#FFE662] shadow-[4px_4px_0_#121212]">
+          <span className="inline-flex size-16 items-center justify-center rounded-[2px] border-2 border-[#121212] bg-[#FFE662] shadow-[4px_4px_0_#121212]">
             <UserRound className="size-8" aria-hidden="true" />
           </span>
           <p className="mt-6 text-sm font-black uppercase tracking-[0.18em] text-[#FF5A26]">
@@ -361,12 +361,12 @@ export function AdminSetupRequired({ bootstrapAvailable }: { bootstrapAvailable:
 
           {bootstrapAvailable ? (
             <>
-              <p className="mt-5 rounded-lg border-2 border-[#121212] bg-[#DCEBD7] p-4 text-sm font-bold leading-6 text-[#24533A]">
+              <p className="mt-5 rounded-[2px] border-2 border-[#121212] bg-[#DCEBD7] p-4 text-sm font-bold leading-6 text-[#24533A]">
                 Bootstrap admin aktif dan akun ini terdaftar di allowlist. Klik
                 tombol di bawah untuk menetapkan diri sebagai admin awal.
               </p>
               {error ? (
-                <p className="mt-3 text-sm font-bold text-red-700" role="alert">
+                <p className="mt-3 border-2 border-[#121212] bg-[#E9B4A7] px-3 py-2 text-sm font-black text-[#7C2D12]" role="alert">
                   {error}
                 </p>
               ) : null}
@@ -400,7 +400,7 @@ export function AdminSetupRequired({ bootstrapAvailable }: { bootstrapAvailable:
             </>
           ) : (
             <>
-              <p className="mt-5 rounded-lg border-2 border-[#121212] bg-[#E9B4A7] p-4 text-sm font-bold leading-6 text-[#7C2D12]">
+              <p className="mt-5 rounded-[2px] border-2 border-[#121212] bg-[#E9B4A7] p-4 text-sm font-bold leading-6 text-[#7C2D12]">
                 Bootstrap admin belum aktif, jadi belum ada cara untuk masuk
                 sebagai pengelola. Tambahkan environment berikut di tab
                 Keys/API keys, nilainya email yang sedang Anda pakai untuk

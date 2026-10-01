@@ -181,11 +181,18 @@ export const currentAccess = query({
   args: {},
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
-    if (!userId) return { role: null, isStaff: false, ...permissionsFor(null) };
+    if (!userId) return { role: null, isStaff: false, isOwner: false, ...permissionsFor(null) };
     const access = await getStaffAccess(ctx, userId);
+    // `isOwner` dihitung di server, bukan ditebak di klien dari email yang
+    // ada di state. Alasannya bukan gaya penulisan: panel "Peran pengelola"
+    // hanya boleh muncul untuk akun pemilik, dan setiap mutasi yang melindungi
+    // peran sudah menolak sendiri di server. Menyediakan jawabannya dari satu
+    // query membuat dua pihak selalu sepakat tanpa ada tebakan di peramban.
+    const user = await ctx.db.get(userId);
     return {
       role: access?.role ?? null,
       isStaff: access?.role === "admin" || access?.role === "staff",
+      isOwner: isOwnerAccount(user?.email),
       ...permissionsFor(access?.role ?? null),
     };
   },

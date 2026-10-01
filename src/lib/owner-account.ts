@@ -25,6 +25,16 @@ export const OWNER_ACCOUNT_EMAILS: ReadonlySet<string> = new Set([OWNER_ACCOUNT_
 export const OWNER_ACCOUNT_TITLE = "SuperAdmin · Developer";
 
 /**
+ * Gelar untuk permukaan yang paling sempit: kotak peran di header.
+ *
+ * `OWNER_ACCOUNT_TITLE` terlalu panjang untuk chip 48px di ponsel - kolomnya
+ * akan melebar dan mendorong ikon menu ke luar layar, persis masalah yang
+ * membuat header terasa menumpuk di Android. Bentuk pendek ini hidup di
+ * modul yang sama supaya tidak ada tempat lain yang mengarang gelar sendiri.
+ */
+export const OWNER_SHORT_TITLE = "SuperAdmin";
+
+/**
  * Gelar singkat untuk permukaan yang sempit — chip peran pada baris audit log.
  *
  * Versi lengkapnya (`OWNER_ACCOUNT_TITLE`) terlalu panjang untuk chip kecil,

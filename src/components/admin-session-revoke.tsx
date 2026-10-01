@@ -5,7 +5,6 @@ import {
   DialogContent,
   DialogDescription,
   DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useMutation } from "convex/react";
@@ -28,6 +27,15 @@ import { useEffect, useRef, useState } from "react";
  *
  * Default-nya "tidak tampil" untuk state yang belum dikenal, supaya state
  * baru suatu hari tidak muncul diam-diam sebagai tombol yang tak pernah bekerja.
+ *
+ * CATATAN TEMA: dialog ini dulu memakai `DialogContent` polos. Karena dialog
+ * dirender lewat portal Radix, isinya berada DI LUAR `.admin-workspace`, jadi
+ * `admin-btn` dan `admin-btn-danger` di dalamnya tidak punya satu pun aturan
+ * yang berlaku. Hasilnya: tombol merah dan tombol batal tampil seperti tombol
+ * aplikasi biasa, dengan kotak putih melengkung di tengah panel kuning -
+ * satu-satunya dialog admin yang benar-benar terlihat seperti sisipan dari
+ * luar. Sekarang dialog ini memakai scope yang sama dengan dialog passcode dan
+ * panel profil, jadi seluruhnya sekeluarga.
  */
 
 export type SessionState =
@@ -223,19 +231,29 @@ function RevokeButton({
       ) : null}
 
       <Dialog open={open} onOpenChange={(next) => (busy ? undefined : setOpen(next))}>
-        <DialogContent className="max-w-md" aria-labelledby={headingId} aria-describedby={descriptionId}>
-          <DialogHeader>
-            <DialogTitle id={headingId}>
+        <DialogContent
+          className="admin-dialog-content mx-auto"
+          overlayClassName="admin-dialog-overlay"
+          showCloseButton={false}
+          aria-labelledby={headingId}
+          aria-describedby={descriptionId}
+        >
+          <div className="border-b-2 border-[#121212] bg-[#FFE662] px-4 py-4 sm:px-5">
+            <p className="text-[0.7rem] font-black uppercase tracking-[0.14em] text-[#525252]">
+              Keamanan ruang admin
+            </p>
+            <DialogTitle id={headingId} className="mt-1 text-xl font-black text-[#121212]">
               {isCurrentSession ? "Keluar dari sesi ini?" : "Cabut akses sesi ini?"}
             </DialogTitle>
-            <DialogDescription id={descriptionId}>
+            <DialogDescription id={descriptionId} className="mt-2 text-sm leading-6 text-[#1A1A1A]">
               {isCurrentSession
                 ? "Ini adalah sesi yang sedang Anda gunakan. Melanjutkan akan mengakhiri akses admin pada perangkat ini, lalu Anda diarahkan kembali ke halaman masuk. Sesi di perangkat lain tidak tersentuh."
                 : "Perangkat tersebut akan langsung dikeluarkan dari ruang admin. Sesi di perangkat ini berakhir saat itu juga; perangkat lain milik Anda tidak tersentuh."}
             </DialogDescription>
-          </DialogHeader>
+          </div>
 
-          <dl className="rounded-xl border border-[#E5E2D9] bg-[#FDFBF7] p-3 text-left text-sm">
+          <div className="px-4 py-4 sm:px-5">
+          <dl className="border-2 border-[#121212] bg-[#F5F0E5] p-3 text-left text-sm">
             <DetailRow label="Perangkat" value={deviceLabel} />
             <DetailRow
               label="Waktu login"
@@ -246,14 +264,14 @@ function RevokeButton({
           </dl>
 
           {isCurrentSession ? (
-            <p className="flex items-start gap-2 text-sm font-bold text-[#7C2D12]">
+            <p className="mt-3 flex items-start gap-2 border-2 border-[#121212] bg-[#E9B4A7] px-3 py-2 text-sm font-bold text-[#7C2D12]">
               <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               Anda akan langsung keluar dari ruang admin setelah melanjutkan.
             </p>
           ) : null}
 
           {error ? (
-            <p className="text-sm font-bold text-[#7C2D12]" role="alert">
+            <p className="mt-3 border-2 border-[#121212] bg-white px-3 py-2 text-sm font-black text-[#7C2D12]" role="alert">
               {error}
             </p>
           ) : null}
@@ -262,12 +280,12 @@ function RevokeButton({
             {busy ? "Sedang mencabut sesi" : ""}
           </p>
 
-          <DialogFooter>
+          <DialogFooter className="mt-4 gap-2 sm:gap-2">
             <button
               type="button"
               onClick={() => setOpen(false)}
               disabled={busy}
-              className="admin-btn admin-btn-quiet"
+              className="admin-btn admin-btn-quiet order-2 w-full sm:order-1 sm:w-auto"
             >
               Batal
             </button>
@@ -275,7 +293,7 @@ function RevokeButton({
               type="button"
               onClick={() => void handleRevoke()}
               disabled={busy}
-              className="admin-btn admin-btn-danger"
+              className="admin-btn admin-btn-danger order-1 w-full sm:order-2 sm:w-auto"
             >
               {busy
                 ? "Mengcabut..."
@@ -284,6 +302,7 @@ function RevokeButton({
                   : "Ya, cabut sesi ini"}
             </button>
           </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </>

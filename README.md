@@ -502,6 +502,7 @@ Ringkasan lengkapnya beserta sisa risiko ada di
 | `ensureCatalogSeeded` berhenti menulis ke baris milik orang lain; penyelarasan koordinat jadi `internalMutation` | idem |
 | Tabel `securityIncidents` + sembilan aturan deteksi + panel Security Desk + cron retensi | `src/lib/security-rules.ts`, `src/convex/securityIncidents.ts` (21 + 21 test) |
 | Token undangan yang ditebak berulang tercatat sebagai insiden (`invite_token_invalid`) | `src/convex/access-denial-contract.test.ts` (10 test) |
+| `bun audit`: 46 -> 15 kerentanan, 0 critical, 0 dependensi langsung rentan; `axios` tak terpakai dihapus; satu lockfile | bagian 8 laporan |
 | Telemetri rute tidak lagi memakai penanda bintang `postMessage` | `src/lib/postmessage-origin.test.ts` (6 test) |
 | Panel "Sesi Anda" tidak lagi menampilkan angka yang diklaim peramban | `src/convex/session-context-authority.test.ts` (8 test) |
 | Route konteks ditutup saat allowlist kosong, dan dibatasi 30 permintaan/menit per IP | `src/convex/context-route-hardening.test.ts` (11 test) |
@@ -527,6 +528,13 @@ Ringkasan lengkapnya beserta sisa risiko ada di
 pemindaian riwayat Git (bagian 6 laporan), privasi nomor WhatsApp (bagian
 5.2), security header (bagian 9.3), dan lima dari sembilan pemicu deteksi
 (bagian 5.1).
+
+> **CATATAN VERSI, Fase 16.** `@convex-dev/auth` naik ke 0.0.96 dan
+> `@auth/core` kini jadi dependensi langsung di 0.41.3. Keduanya satu paket:
+> `@auth/core` adalah *peer dependency* yang versinya kita kendalikan, dan
+> 0.0.96 adalah versi yang memperlebar peer ke `^0.41.1` - bukan dinaikkan paksa
+> sendiri. `package-lock.json` juga dihapus: `bun.lock` sekarang satu-satunya
+> lockfile, dan `bun install --frozen-lockfile` lulus tanpa perubahan.
 
 > **CATATAN VERSI, Fase 10.** Dua aturan deteksi lain - pola penolakan hak
 > khusus dan storage id yang disisir - **tidak bisa** dipasang dari dalam

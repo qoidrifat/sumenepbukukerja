@@ -24,7 +24,7 @@ Deployment dev: `qualified-chameleon-491` | Deployment prod: `focused-lemur-389`
 
 ### 1.1 Yang berubah di commit ini
 
-Sembilan kelompok perubahan, semuanya terverifikasi:
+Sepuluh kelompok perubahan, semuanya terverifikasi:
 
 **A. Kebocoran pengenal akun dari papan permintaan publik (P1, sudah bocor).**
 
@@ -107,6 +107,18 @@ mengaktifkan `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS=true`. Route yang sama kini
 dibatasi 30 permintaan per menit per sumber IP, dihitung dari IP yang diamati
 server. Rincian di 2.7 dan 2.8.
 
+**I. Postur dependensi diperbaiki dari data, bukan dari daftar (P1, baru commit ini).**
+
+`bun audit` menemukan 46 kerentanan, termasuk satu **critical** di `@auth/core`
+(normalizer email Auth.js membolehkan bypass lewat tanda `@` homoglif) dan
+sebelas advisory high di `axios` yang **tidak pernah diimpor berkas pun**.
+`axios` dihapus, semua paket diperbarui dalam rentang yang sudah
+dideklarasikan, `@auth/core` + `@convex-dev/auth` dinaikkan ke kombinasi yang
+didukung vendor, dan `package-lock.json` yang sudah menyimpang (lima dependensi
+langsung hilang dari sana) dihapus supaya `bun.lock` jadi satu-satunya sumber
+kebenaran. Hasil: 46 -> 15 kerentanan, **0 critical**, **0 dependensi langsung
+yang rentan**. Rinciannya di bagian 8.
+
 **H. Bukti bahwa pola penolakan tidak bisa dicatat dari dalam gerbang (P1, baru commit ini).**
 
 Dua aturan deteksi (`privileged_call_denied`, `storage_reference_invalid`) hidup
@@ -143,7 +155,7 @@ retensinya sudah dijadwalkan. Rinciannya di 2.9 dan 5.1.
 | 13 | Integritas tombol | BELUM | |
 | 14 | Sinkronisasi rute | BELUM | |
 | 15 | Performa | BELUM | |
-| 16 | Dependency / lockfile | BELUM | |
+| 16 | Dependency / lockfile | SELESAI | 46 -> 15 kerentanan, 0 critical, `axios` dihapus, satu lockfile |
 | 17-19 | Test / unit / e2e | SEBAGIAN | 973 test hijau, termasuk 10 test kontrak penolakan Fase 10; E2E belum disentuh (tidak ada peramban) |
 | 20 | Urutan pengerjaan | SEBAGIAN | Urutan diikuti untuk yang dikerjakan |
 | 21 | Laporan ini | SELESAI | |
@@ -448,6 +460,9 @@ sumber peristiwanya sendiri.
 | `src/convex/users.ts` | Penolakan klaim undangan dicatat sebagai pola (`invite_token_invalid`) |
 | `src/convex/crons.ts` | Cron harian "retensi Security Desk" |
 | `src/convex/access-denial-contract.test.ts` (baru) | 10 test: batasan transaksi Convex, gerbang tetap menolak, jalur return-only terdeteksi |
+| `package.json` | `axios` (dependensi tak terpakai, 8 advisory high) dihapus; `@convex-dev/auth` 0.0.90 -> 0.0.96; `@auth/core` 0.41.3 ditambahkan eksplisit |
+| `bun.lock` | `bun update` dalam rentang + lockfile yang sudah bersih |
+| `package-lock.json` | **Dihapus.** Sudah menyimpang (lima dependensi langsung tidak ada di sana) dan tidak dipakai satu pun script; `bun.lock` jadi satu-satunya sumber kebenaran |
 
 ### 3.2 Alasan tiap keputusan yang bisa dipertanyakan
 
@@ -679,9 +694,11 @@ deployment prod (bagian 9.1). Tanpa itu, panel "Sesi Anda" menampilkan
   `community.listRequests`, metrik admin, pencarian penerima notifikasi.
 - **QA responsif (bagian 12), integritas tombol (13), sinkronisasi rute (14).**
   Butuh peramban. Lihat bagian 10 di bawah.
-- **Dependency (bagian 16).** `bun install --frozen-lockfile`,
-  `bunx audit`, `npm audit --omit=dev`. Ada drift lockfile antara Bun dan npm
-  yang harus diselesaikan dengan memilih satu sumber kebenaran.
+- **Dependency (bagian 16).** **SELESAI** - lihat bagian 8. Yang tersisa hanya
+  dua rantai transitif (`@grpc/grpc-js` lewat lapisan compat Firebase yang
+  tidak diimpor, dan `undici` lewat `@vly-ai/integrations`), keduanya tidak
+  ditutup paksa karena butuh lompatan major pada rantai yang tidak bisa
+  diuji dari lingkungan ini.
 
 ---
 
@@ -768,24 +785,77 @@ deploy-prod.env` dan publish ulang, kedua FAIL itu akan hilang.
 
 ## 8. Postur Dependensi
 
-**Belum diaudit.** Perintah yang harus dijalankan:
+Sudah diaudit pada commit ini. Bukti mentahnya: `tmp/qa-p10-bun-audit.txt`
+(Sebelum), `tmp/qa-p16-bun-audit-final.txt` (sesudah).
+
+### 8.1 Angka
+
+| | Sebelum | Sesudah |
+|---|---:|---:|
+| Total kerentanan | 46 | **15** |
+| Critical | 1 | **0** |
+| High | 26 | 4 |
+| Moderate | 17 | 7 |
+| Low | 2 | 4 |
+| Dependensi langsung yang rentan | 3 (`axios`, `react-router`, `hono`) | **0** |
+
+### 8.2 Yang dikerjakan
+
+1. **`axios` dihapus dari `package.json`.** Ia adalah dependensi langsung dengan
+   sebelas advisory (delapan high), tapi **tidak diimpor satu pun berkas pun** di
+   `src/`, `e2e/`, atau `scripts/`. Dependensi yang tidak dipakai bukan hanya
+   repot: ia tetap masuk audit, menarik pohon transitifnya, dan memberi kesan
+   ada jalur HTTP yang tidak ada.
+2. **`bun update` dalam rentang yang sudah dideklarasikan.** Semua paket
+   diperbarui ke versi tertinggi yang masih diizinkan `^` di `package.json` -
+   tidak ada lompatan major. Ini yang menutup `react-router` (CSRF RSC),
+   `postcss`, `nanoid`, `brace-expansion`, `js-yaml`, dan `baseline-browser-mapping`.
+3. **`@auth/core` dinaikkan ke 0.41.3 dan `@convex-dev/auth` ke 0.0.96.** Ini
+   satu-satunya advisory **critical** di daftar awal: normalizer email Auth.js
+   memvalidasi alamat sebelum normalisasi Unicode, sehingga tanda `@` homoglif
+   bisa melewati validasi. Yang penting di sini: `@auth/core` adalah **peer
+   dependency** `@convex-dev/auth`, jadi versinya memang dikontrol kita -
+   tetapi rentang peer `@convex-dev/auth@0.0.90` hanya menerima `^0.37.0`.
+   `@convex-dev/auth@0.0.96` memperlebar peer itu ke `^0.41.1`, jadi kombinasi
+   di atas adalah kombinasi yang didukung vendor, bukan Dipaksa. Jalur auth
+   tetap terverifikasi: `invites.test.ts` menerbitkan sesi sungguhan lewat
+   `auth:store` dengan kunci RSA asli, dan `firebase-auth-security.test.ts`
+   menguji provider-nya.
+4. **`package-lock.json` dihapus.** Dua lockfile adalah dua sumber kebenaran,
+   dan yang ini memang sudah menyimpang: lima dependensi langsung yang ada di
+   `package.json` (`firebase`, `@playwright/test`, `convex-test`, `vitest`,
+   `@edge-runtime/vm`) tidak ada di dalamnya. Tidak ada script, workflow, atau
+   berkas yang memanggil `npm ci`/`npm install`, dan `bun install
+   --frozen-lockfile` sekarang lulus tanpa perubahan. Sumber kebenaran:
+   `bun.lock`.
+
+### 8.3 Yang tersisa, dan kenapa tidak ditutup paksa
+
+| Paket | Advisory | Asal | Alasan tidak ditutup |
+|---|---|---|---|
+| `@grpc/grpc-js@1.9.16` | 1 high, 1 low | `firebase > @firebase/firestore-compat > @firebase/firestore` | Lapisan *compat*, dan `src/` tidak mengimpor `firebase/compat/*` sama sekali - paket ini tidak masuk bundel peramban. Memaksa versi lewat `overrides` berisiko merusak pemuatan modul Firebase yang sedang dipakai. |
+| `undici@5.29.0` | 4 high, 7 moderate, 1 low | `@vly-ai/integrations > ai > @ai-sdk/provider-utils` | Integrasi toolbar Freebuff. `bun update` sudah mengambil versi `@vly-ai/integrations` tertinggi dalam rentang; sisanya butuh lompatan major pada rantai `ai`/`undici`, dan toolbar itu tidak bisa diuji dari lingkungan ini. |
+
+### 8.4 Dependensi tidak terpakai yang lain
+
+Dicek dengan pencarian impor di `src/`, `e2e/`, `scripts/`, dan berkas akar:
+`hono` (dipakai hanya `main.ts`, skrip Deno untuk menyajikan `dist/`),
+`@jridgewell/trace-mapping`, `@oslojs/crypto` (sekarang ikut `@convex-dev/auth`),
+dan `react-intersection-observer` tidak diimpor berkas mana pun. Semuanya tidak punya
+advisory, jadi tidak dihapus pada commit ini: memangkasnya adalah kebersihan
+manifest, bukan perbaikan keamanan, dan tidak perlu downtime.
+
+### 8.5 Perintah yang dipakai
 
 ```bash
-bun install --frozen-lockfile
-bunx audit
-npm audit --omit=dev
+bun install --frozen-lockfile   # lulus, tanpa perubahan
+bun update                      # dalam rentang, tidak ada major
+bun audit                       # sebelum vs sesudah, tersimpan di tmp/
+bun run test && bun run lint && bun tsc -b --noEmit
 ```
 
-Yang perlu diperiksa: pohon dependensi, dependensi yang tidak dipakai, React
-ganda, konsistensi `bun.lock`, dan konsistensi `package-lock.json`.
-
-Ada drift lockfile antara representasi Bun dan npm. Keputusan yang harus
-diambil lebih dulu: **package manager mana yang jadi sumber kebenaran.**
-Proyek ini memakai Bun untuk script, jadi `bun.lock` adalah jawaban yang
-paling masuk akal, dan `package-lock.json` sebaiknya dihapus daripada
-dipelihara sebagai bayangan yang menyimpang.
-
-Jangan menambahkan paket hanya untuk membungkam `audit`.
+**Tidak ada paket yang ditambahkan untuk membungkam `audit`.** Perbaikan yang
+benar adalah memperbarui atau menghapus, bukan menambal.
 
 ---
 
@@ -856,6 +926,8 @@ Dijalankan pada commit ini, semuanya lulus:
 | `bunx tsc -b --noEmit` | 0 error |
 | `bun run test` | **70 berkas / 973 test / 0 gagal** (naik dari 62/883) |
 | `bun run lint` | **0 error / 26 warning** (sama dengan baseline) |
+| `bun install --frozen-lockfile` | Lulus, tanpa perubahan |
+| `bun audit` | **15 kerentanan, 0 critical**, 0 dependensi langsung rentan (sebelumnya 46 / 1 critical) |
 | `node tmp/qa-p91-leakscan.mjs <29 berkas yang disentuh>` | CLEAN |
 
 Uji naik dari 883 ke 973 bersih. Berkas test baru:
@@ -956,6 +1028,11 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
       pemicu tersambung**; dua sisanya terbukti mustahil dari dalam gerbang
       yang melempar (bagian 2.9), tiga sisanya menunggu pekerjaan tersendiri.
 - [ ] Security header aktif - **BELUM** (bagian 9.3).
+- [x] Postur dependensi diperbaiki - `bun audit`: 46 -> 15 kerentanan,
+      **0 critical**, 0 dependensi langsung rentan. `axios` tak terpakai
+      dihapus, `@auth/core` 0.41.3 + `@convex-dev/auth` 0.0.96 (kombinasi
+      peer yang didukung vendor), `package-lock.json` yang menyimpang dihapus,
+      `bun install --frozen-lockfile` lulus.
 
 ### Keandalan
 

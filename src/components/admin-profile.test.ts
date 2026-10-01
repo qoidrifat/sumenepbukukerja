@@ -121,8 +121,11 @@ test("dialog profil memusatkan dirinya sendiri, bukan lewat overlay", () => {
   // setengah layar di produksi. Lihat kontrak tema untuk catatan lengkapnya.
   expect(block).toContain("translate: 0");
   expect(block).not.toContain("translate: none");
-  // Inilah yang menentukan: `height` yang definite membuat margin auto nol.
-  expect(block).not.toMatch(/^\s*height:/m);
+  // Tinggi wajib DEFINITE mengikuti isi. Tanpa itu kotak abspos dengan
+  // top/bottom non-auto merentang mengisi viewport (aturan abspos 10.6.4) dan
+  // margin auto hanya membagi sisa ruang - dialog jadi setinggi layar dengan
+  // ruang kosong besar di bawah isinya.
+  expect(block).toContain("height: fit-content");
   // Bilah gestur Android tidak boleh menimpa baris tombol paling bawah.
   expect(block).toContain("env(safe-area-inset-bottom");
   // Tinggi mengikuti viewport yang benar-benar terlihat: keyboard Android

@@ -239,8 +239,7 @@ test("tinggi dialog mengikuti isi, bukan viewport", () => {
     // blok juga menyebut nama property, dan itu akan menyesatkan urutan.
     const moz = block.match(/^\s*height: -moz-fit-content;/m);
     const std = block.match(/^\s*height: fit-content;/m);
-    expect(moz, selector).not.toBeNull();
-    expect(std, selector).not.toBeNull();
+    if (!moz || !std) throw new Error(`${selector}: deklarasi fit-content hilang`);
     expect(block.indexOf(moz[0]), selector).toBeLessThan(block.indexOf(std[0]));
     // max-height tetap wajib sebagai batas atas ketika isi melebihi layar.
     expect(block, selector).toContain("max-height: calc(100dvh");
@@ -253,15 +252,17 @@ test("dialog satu-keputusan lebih sempit dari dialog form", () => {
   // Konfirmasi keluar/cabut akses hanya berisi satu peringatan dan dua tombol.
   // Lebarnya 26rem, bukan 32rem milik dialog form, supaya terlihat seperti
   // pertanyaan, bukan formulir.
-  const marker = '.admin-dialog-content[data-dialog-width="confirm"]';
-  const narrow = css.slice(css.indexOf(marker), css.indexOf("}", css.indexOf(marker)));
+  const cssMarker = '.admin-dialog-content[data-dialog-width="confirm"]';
+  const narrow = css.slice(css.indexOf(cssMarker), css.indexOf("}", css.indexOf(cssMarker)));
   expect(narrow).toContain("max-width: 26rem");
-  // Pemakainya: konfirmasi keluar dan dialog cabut akses sesi.
-  expect(source("../components/admin-logout-button.tsx")).toContain(marker);
-  expect(source("../components/admin-session-revoke.tsx")).toContain(marker);
+  // Pemakainya: konfirmasi keluar dan dialog cabut akses sesi. Di sisi
+  // komponen yang ditulis adalah atribut polosnya.
+  const attrMarker = 'data-dialog-width="confirm"';
+  expect(source("../components/admin-logout-button.tsx")).toContain(attrMarker);
+  expect(source("../components/admin-session-revoke.tsx")).toContain(attrMarker);
   // Dialog form tidak boleh ikut menyempit.
-  expect(source("../components/admin-profile.tsx")).not.toContain(marker);
-  expect(source("../components/admin-session-actions.tsx")).not.toContain(marker);
+  expect(source("../components/admin-profile.tsx")).not.toContain(attrMarker);
+  expect(source("../components/admin-session-actions.tsx")).not.toContain(attrMarker);
   // Attribute selector dipakai justru karena utility Tailwind kalah urutan
   // layer terhadap max-width di blok dialog - className tidak berpengaruh.
   expect(source("../components/admin-logout-button.tsx")).not.toContain("max-w-[");

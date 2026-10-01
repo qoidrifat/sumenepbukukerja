@@ -112,8 +112,11 @@ test("dialog memusatkan dirinya sendiri, bukan lewat overlay", () => {
   expect(block).toContain("translate: 0");
   expect(block).not.toContain("translate: none");
   expect(block).not.toContain("transform: translate(-50%");
-  // `height` definite akan mematikan margin auto dan mengembalikan pola (b).
-  expect(block).not.toMatch(/^\s*height:/m);
+  // Tinggi wajib DEFINITE mengikuti isi (`fit-content`). Tanpa itu kotak
+  // abspos dengan top/bottom non-auto merentang mengisi viewport (aturan
+  // abspos 10.6.4), dan dialog jadi setinggi layar dengan ruang kosong besar
+  // di bawah isinya.
+  expect(block).toContain("height: fit-content");
   // Overlay hanya latar; kalau ia jadi wadah lagi, tidak ada yang memusatkan.
   const overlay = css.slice(css.indexOf(".admin-dialog-overlay {"), css.indexOf("}", css.indexOf(".admin-dialog-overlay {")));
   expect(overlay).not.toContain("display: flex");

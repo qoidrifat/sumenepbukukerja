@@ -36,6 +36,15 @@ type FirebaseClientConfig = {
   projectId: string;
 };
 
+/**
+ * Awalan nilai yang disandikan pipeline build.
+ *
+ * Dipakai sebagai deteksi, bukan sebagai sekadar formalitas. Tanpa cek ini,
+ * konfigurasi terenkripsi lolos sebagai "terisi" dan kegagalannya baru
+ *ketahuan di sisi Firebase dengan pesan yang tidak menunjuk ke build.
+ */
+const ENCRYPTED_PREFIX_PATTERN = /^encrypted:/i;
+
 let cached: { auth: Auth; projectId: string } | null = null;
 
 /**
@@ -45,11 +54,37 @@ let cached: { auth: Auth; projectId: string } | null = null;
  * pernah ada di sini: private key, service account, atau kredensial admin.
  */
 function readConfig(): FirebaseClientConfig | null {
-  const env = import.meta.env as Record<string, string | undefined>;
-  const apiKey = env.VITE_FIREBASE_API_KEY?.trim();
-  const authDomain = env.VITE_FIREBASE_AUTH_DOMAIN?.trim();
-  const projectId = env.VITE_FIREBASE_PROJECT_ID?.trim();
+  // WAJIB dibaca sebagai anggota statik, bukan lewat objek `import.meta.env`.
+  //
+  // Alasannya sudah dibuktikan di hasil build. Pipeline build menyandikan nilai
+  // environment lalu menyuntikkannya ke dalam objek `import.meta.env` sebagai
+  // "encrypted:...". Akses statik `import.meta.env.NAMA` diganti compiler
+  // dengan nilai aslinya; akses lewat objek `const env = import.meta.env`
+  // lalu `env.NAMA` justru menerima yang terenkripsi.
+  //
+  // Buktinya ada di bundle yang sama: `import.meta.env.VITE_CONVEX_URL` di
+  // `src/main.tsx` muncul sebagai teks biasa, sementara objek `import.meta.env`
+  // di situ memuat `VITE_FIREBASE_API_KEY: "encrypted:..."`.
+  //
+  // Gejalanya kalau salah baca murahan sekali dan menyesatkan: string
+  // terenkripsi itu BUKAN string kosong, jadi tombol Google tetap muncul dan
+  // `firebaseAvailable()` tetap true - tapi API key yang sampai ke Firebase
+  // salah, ditolak, dan satu-satunya yang tampil adalah "gagal masuk". Tidak
+  // ada satu pun permintaan yang menyentuh server, sehingga log tidak pernah
+  // menunjukkan apa pun.
+  const apiKey = (import.meta.env.VITE_FIREBASE_API_KEY as string | undefined)?.trim();
+  const authDomain = (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined)?.trim();
+  const projectId = (import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined)?.trim();
   if (!apiKey || !authDomain || !projectId) return null;
+  if (ENCRYPTED_PREFIX_PATTERN.test(apiKey) || ENCRYPTED_PREFIX_PATTERN.test(authDomain)) {
+    // Tombol yang tahu pasti tidak bisa dipakai lebih baik disembunyikan
+    // daripada ditampilkan lalu gagal tanpa penjelasan. Keluhan ke operator
+    // masuk ke console, bukan ke layar pengunjung.
+    console.error(
+      "[FIREBASE_AUTH] nilai VITE_FIREBASE_* masuk terenkripsi. Baca sebagai anggota statik import.meta.env, jangan lewat objek.",
+    );
+    return null;
+  }
   return { apiKey, authDomain, projectId };
 }
 

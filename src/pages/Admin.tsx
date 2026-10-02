@@ -139,7 +139,10 @@ const minNextAvailableAtLocal = () => {
     .slice(0, 16);
 };
 
-const emptyDraft = (): Vendor => ({
+// `phone` selalu ada di draft - untuk listing baru nilainya string kosong,
+// bukan `undefined`. Itu yang membuat `draft.phone.trim()` di bawah selalu
+// aman dipanggil tanpa rantai `?? ""` di setiap tempat.
+const emptyDraft = (): Vendor & { phone: string } => ({
   slug: "",
   name: "",
   category: "Jasa Umum",
@@ -230,7 +233,12 @@ function AdminWorkspace() {
     updateReport,
   } = useCatalogActions();
   const uploadImageFile = useImageUpload();
-  const [draft, setDraft] = useState<(Vendor & { _id?: string }) | null>(null);
+  // `phone` WAJIB di draft, karena `/admin` bekerja di atas `listForAdmin` -
+// listing milik orang lain yang memang perlu nomor mentah untuk dikelola.
+  // Sifat wajib itu sengaja: kalau suatu saat sumbernya berubah jadi katalog
+  // publik, build gagal di sini alih-alih diam-diam mengirim nomor mentah
+  // ke antarmuka pengelola.
+  const [draft, setDraft] = useState<(Vendor & { phone: string; _id?: string }) | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [notice, setNotice] = useState("");

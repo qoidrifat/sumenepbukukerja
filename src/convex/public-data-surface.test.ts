@@ -26,6 +26,13 @@ const RAHASIA = {
   ownerEmail: "pemilik-rahasia@sumenep.co.id",
   businessId: "RAHASIA-BISNIS-999",
   storageId: "storage_internal_abc123",
+  // Nomor usaha. FASE 10: ini tidak boleh muncul di respons publik mana pun -
+  // hanya bentuk tersamarnya. Uji ini yang menjaganya tetap begitu.
+  phone: "628123456789",
+  // Hanya huruf, sengaja: nilai sentinel di bawah ini ("1234", "8901", dan
+  // digit terakhir nomor) harus tidak muncul di respons publik. Kalau ref ini
+  // memakai angka, ia akan menabrak sentinel dan test jadi salah positives.
+  contactRef: "cr1_abcdefabcdefabcdefabcdefabcdefab",
 };
 
 async function seedVendor(t: ReturnType<typeof convexTest>, overrides: Record<string, unknown> = {}) {
@@ -52,7 +59,8 @@ async function seedVendor(t: ReturnType<typeof convexTest>, overrides: Record<st
       lng: 113.86,
       price: "Mulai Rp50.000",
       hours: "Setiap hari",
-      phone: "628000000000",
+      phone: RAHASIA.phone,
+      contactRef: RAHASIA.contactRef,
       rating: "4.8",
       reviewsCount: 3,
       accent: "from-blue-500 to-blue-700",
@@ -151,7 +159,6 @@ describe("permukaan data publik", () => {
       "lng",
       "price",
       "hours",
-      "phone",
       "rating",
       "accent",
       "mark",
@@ -159,10 +166,47 @@ describe("permukaan data publik", () => {
     ]) {
       expect(row, `field publik ${field} hilang`).toHaveProperty(field);
     }
+    // FASE 10: yang wajib ada bukan `phone`, melainkan pegangan kontak opaque
+    // dan bentuk tersamarnya. Keduanya menggantikan nomor mentah.
+    expect(row).toHaveProperty("contactRef");
+    expect(row).toHaveProperty("phoneMasked");
     // Turunan server, bukan field database.
     expect(row).toHaveProperty("openNow");
     expect(row).toHaveProperty("reviews");
     expect(row?.slug).toBe("usaha-rahasia");
+  });
+
+  // Test B2 - regresi FASE 10: nomor mentah tidak boleh kembali ke katalog.
+  test("B2: nomor mentah tidak pernah keluar di katalog publik mana pun", async () => {
+    const t = convexTest(schema, modules);
+    await seedVendor(t);
+
+    const anonymous = t.withIdentity({});
+    const catalog = await anonymous.query(api.vendors.listActive, {});
+    const profile = await anonymous.query(api.vendors.getBySlug, {
+      slug: "usaha-rahasia",
+    });
+
+    for (const [label, row] of [
+      ["listActive", catalog[0]],
+      ["getBySlug", profile],
+    ] as const) {
+      expect(row, label).toBeTruthy();
+      const keys = Object.keys(row ?? {});
+      // Field phone TIDAK BOLEH ada. Inilah kebocoran yang dihapus: satu
+      // permintaan anonim cukup untuk memanen seluruh direktori.
+      expect(keys, `${label} masih mengirim field phone`).not.toContain("phone");
+      // Dan tidak boleh menyamarkannya di bawah nama lain.
+      const json = JSON.stringify(row);
+      expect(json, `${label} membocorkan digit nomor`).not.toContain(
+        RAHASIA.phone.slice(-6),
+      );
+    }
+
+    // Pegangan kontak harus opaque: bukan nomor, bukan id listing.
+    const contactRef = catalog[0]?.contactRef;
+    expect(contactRef).toBe(RAHASIA.contactRef);
+    expect(contactRef).not.toContain(RAHASIA.phone);
   });
 
   // Test C - katalog memang harus bisa dibaca tanpa akun.

@@ -84,15 +84,21 @@ export function listingStructuredData(
     address: {
       "@type": "PostalAddress",
       addressLocality: areaLabel(listing.landmark),
-      addressRegion: "Jawa Timur",
-      addressCountry: "ID",
-      ...(listing.address ? { streetAddress: listing.address } : {}),
+      addressRegion: "Jawa Timur",addressCountry: "ID",
+          ...(listing.address ? { streetAddress: listing.address } : {}),
     },
     areaServed: areaLabel(listing.landmark),
     ...(listing.hours ? { openingHours: listing.hours } : {}),
-    // Nomor usaha memang sudah tampil publik di halaman listing, jadi
-    // memuatnya di sini tidak menambah kebocoran. Email akun TIDAK pernah.
-    ...(listing.phone ? { telephone: listing.phone } : {}),
+    // FASE 10 - `telephone` DIHAPUS dari JSON-LD, bukan disembunyikan.
+    //
+    // Argumen lamanya "nomor usaha sudah tampil publik di halaman" benar
+    // tentang layar, tapi salah tentang mesin. Structured data dibaca
+    // crawler, bukan orang: memuat nomor di sini berarti setiap URL listing
+    // jadi titik panen yang bisa diambil tanpa membuka halaman sama sekali -
+    // persis yang dihapus oleh handoff kontak.
+    //
+    // Nomor tetap tampil di halaman, jadi SEO-nya tidak berkurang: schema
+    // `Organization` tetap valid tanpa `telephone`.
     ...(listing.photoUrl ? { image: listing.photoUrl } : {}),
     ...(listing.reviewsCount && listing.rating
       ? {

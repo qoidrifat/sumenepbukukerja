@@ -59,22 +59,16 @@ export const generateWhatsAppMessage = ({
   return `${intro} ${context} Saya berada di ${location}.`;
 };
 
-export const generateWhatsAppLink = ({
-  phone,
-  vendorName,
-  category,
-  landmark,
-  intent,
-  reference,
-}: {
-  phone: string;
-  vendorName: string;
-  category: string;
-  landmark: string;
-  intent?: WhatsAppIntent;
-  reference?: string;
-}) => {
-  const sanitizedNumber = sanitizePhoneNumber(phone);
-  const message = generateWhatsAppMessage({ vendorName, category, landmark, intent, reference });
-  return `https://wa.me/${sanitizedNumber}?text=${encodeURIComponent(message)}`;
-};
+/**
+ * FASE 10 - `generateWhatsAppLink` DIHAPUS, bukan di-deprecate.
+ *
+ * Fungsi ini menuntut nomor mentah ada di peramban, dan itulah akar
+ * kebocorannya: memakainya berarti katalog publik harus mengirim `phone`,
+ * yang berarti satu permintaan anonim cukup untuk memanen seluruh direktori.
+ *
+ * Menghapusnya lebih berguna daripada menandainya deprecated, karena tidak
+ * ada lagi satu pun tempat di repo ini yang bisa memanggilnya secara tidak
+ * sengaja. Teks pesan (`generateWhatsAppMessage`) tetap hidup dan sekarang
+ * dipanggil SERVER di `vendors:getContactHandoff`, yang juga menyusun
+ * `wa.me`-nya. Nomor tidak pernah menyeberang ke klien.
+ */

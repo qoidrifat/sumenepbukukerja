@@ -12,7 +12,20 @@ export type Vendor = {
   distanceKm?: number;
   price: string;
   hours: string;
-  phone: string;
+  /**
+   * FASE 10 - hanya diisi pada data yang memang berhak: listing milik sendiri
+   * (`vendors:listForOwner`) dan listing yang sedang dikelola pengelola
+   * (`vendors:listForAdmin`). Katalog PUBLIK tidak pernah mengirimnya lagi.
+   *
+   * Karena itu field ini opsional, bukan wajib. Kalau dipaksakan wajib,
+   * setiap tempat yang membaca `vendor.phone` di peramban akan tetap
+   * terkompilasi dan tidak ada yang memberi tahu ada jalur yang salah.
+   */
+  phone?: string;
+  /** Pegangan opaque hasil FASE 10; ada pada listing publik. */
+  contactRef?: string | null;
+  /** Nomor tersamar untuk tampilan, mis. `0812 xxxx 345`. */
+  phoneMasked?: string;
   rating: string;
   reviews: number;
   featured?: boolean;

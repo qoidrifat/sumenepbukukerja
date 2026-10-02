@@ -25,7 +25,8 @@ import {
   useVendorPhoto,
   useVendorPhotos,
 } from "@/lib/catalog-store";
-import { generateWhatsAppLink } from "@/lib/whatsapp";
+import { useContactHandoff } from "@/lib/contact-handoff";
+import type { WhatsAppIntent } from "@/lib/whatsapp";
 import { useListingMetadata } from "@/lib/use-listing-metadata";
 import { BlurText, GlassSurface, ScrollReveal } from "@/components/react-bits";
 import { AvailabilityBadge, ClaimListingPanel, PackageList, ReportListingButton } from "@/components/community-widgets";
@@ -170,31 +171,20 @@ function VendorProfileContent() {
     return () => window.clearTimeout(timeout);
   }, [ctaNotice]);
 
+  // FASE 10: profil publik tidak pernah menerima nomor mentah. Tiga tombol
+  // WhatsApp di bawah semuanya memakai `contactRef` yang sama; server menyusun
+  // URL-nya sendiri setelah memeriksa listing, kuota, dan mencatat jejak.
+  //
+  // Hook ini HARUS di sini, di atas `return` loading/404. Meletakkannya di
+  // bawah early return membuat jumlah hook berbeda antar render - render
+  // pertama memuat data, render berikutnya tidak - dan React melempar
+  // "Rendered fewer hooks than expected". Aturan react-hooks menangkap ini.
+  const { openContactWithFeedback, callContact } = useContactHandoff();
+
   if (vendor === undefined) return <ProfileLoading />;
   if (vendor === null) return <NotFound />;
 
   const landmark = landmarkLabel(vendor.landmark);
-  const waHref = generateWhatsAppLink({
-    phone: vendor.phone,
-    vendorName: vendor.name,
-    category: vendor.category,
-    landmark,
-    intent: "availability",
-  });
-  const priceHref = generateWhatsAppLink({
-    phone: vendor.phone,
-    vendorName: vendor.name,
-    category: vendor.category,
-    landmark,
-    intent: "price",
-  });
-  const estimateHref = generateWhatsAppLink({
-    phone: vendor.phone,
-    vendorName: vendor.name,
-    category: vendor.category,
-    landmark,
-    intent: "estimate",
-  });
   const saved = favorites.isSaved(vendor.slug);
   const reviewItems = vendor.reviewItems ?? [];
 
@@ -213,6 +203,14 @@ function VendorProfileContent() {
       // Analytics must never block WhatsApp.
     }
     setCtaNotice({ tone: "success", text: "WhatsApp siap dibuka. Lihat tab atau aplikasi WhatsApp Anda." });
+  };
+
+  // FASE 10: satu pintasan untuk ketiga tombol WhatsApp di halaman ini.
+  // Analytics tetap jalan seperti sebelumnya; yang berubah hanya dari mana
+  // URL-nya datang - sekarang dari server lewat handoff yang dibatasi kuota.
+  const openWhatsApp = (intent: WhatsAppIntent) => {
+    trackWhatsApp();
+    openContactWithFeedback({ contactRef: vendor.contactRef, intent });
   };
 
   const trackCall = () => {
@@ -393,7 +391,9 @@ function VendorProfileContent() {
                   <Info reduceMotion={reduceMotion} icon={MapPin} label="Alamat" value={`${vendor.address} · dekat ${landmark}`} />
                   <Info reduceMotion={reduceMotion} icon={Clock3} label="Jam kerja" value={vendor.hours} />
                   <Info reduceMotion={reduceMotion} icon={Store} label="Mulai dari" value={vendor.price} />
-                  <Info reduceMotion={reduceMotion} icon={Phone} label="Kontak" value={vendor.phone.replace(/^62/, "0")} />
+                  {/* FASE 10: yang ditampilkan hanya bentuk tersamar. Angka penuhnya hanya
+                    lahir di server saat pengguna menekan tombol di atas. */}
+                  <Info reduceMotion={reduceMotion} icon={Phone} label="Kontak" value={vendor.phoneMasked ?? "Belum diisi"} />
                 </div>
                 {vendor.availabilityNote ? <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold leading-6 text-amber-900">{vendor.availabilityNote}</p> : null}
                 {vendor.nextAvailableAt ? <p className="mt-3 text-sm font-bold text-slate-700">Perkiraan tersedia lagi: {formatNextAvailable(vendor.nextAvailableAt)}</p> : null}
@@ -415,7 +415,11 @@ function VendorProfileContent() {
                   </section>
                 ) : null}
                 <PackageList vendorId={vendor._id} />
-                {vendor._id && !vendor.ownerId ? <ClaimListingPanel vendorId={vendor._id} vendorName={vendor.name} phone={vendor.phone} address={vendor.address} /> : null}
+                {/* Formulir klaim diisi KOSONG dengan sengaja. Claimant harus mengetik
+                    nomornya sendiri: itulah bukti bahwa dia menguasai nomor itu.
+                    Mengisi otomatis dari listing justru membatalkan bukti itu -
+                    dan juga berarti server harus mengirim nomor ke anonim. */}
+                {vendor._id && !vendor.ownerId ? <ClaimListingPanel vendorId={vendor._id} vendorName={vendor.name} phone="" address={vendor.address} /> : null}
                 <div className="mt-5"><ReportListingButton vendorId={vendor._id} /></div>
               </div>
             </motion.section>
@@ -568,14 +572,13 @@ function VendorProfileContent() {
               <p className="mt-3 text-base leading-7 text-slate-600">
                 Pesan sudah disiapkan otomatis supaya Anda tidak perlu mengetik dari awal.
               </p>
-              <motion.a
-                href={waHref}
-                target="_blank"
-                rel="noreferrer"
-                onClick={trackWhatsApp}
+              <motion.button
+                type="button"
+                disabled={!vendor.contactRef}
+                onClick={() => openWhatsApp("availability")}
                 whileHover={reduceMotion ? undefined : { y: -2, scale: 1.01 }}
                 whileTap={reduceMotion ? undefined : { scale: 0.98 }}
-                className={`mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 py-3 text-base font-extrabold text-[#082f1e] shadow-sm hover:shadow-md ${focusRing}`}
+                className={`mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 py-3 text-base font-extrabold text-[#082f1e] shadow-sm hover:shadow-md disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 ${focusRing}`}
               >
                 <motion.span
                   whileHover={reduceMotion ? undefined : { scale: 1.12, rotate: -6 }}
@@ -584,21 +587,25 @@ function VendorProfileContent() {
                   <MessageCircle className="size-5" />
                 </motion.span>
                 {categoryActionLabel[vendor.category]}
-              </motion.a>
+              </motion.button>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <motion.a href={priceHref} target="_blank" rel="noreferrer" onClick={trackWhatsApp} whileHover={reduceMotion ? undefined : { y: -2 }} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 ${focusRing}`}><span>💰</span>Tanya harga</motion.a>
-                <motion.a href={estimateHref} target="_blank" rel="noreferrer" onClick={trackWhatsApp} whileHover={reduceMotion ? undefined : { y: -2 }} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 ${focusRing}`}><Clock3 className="size-4" />Tanya estimasi</motion.a>
+                <motion.button type="button" disabled={!vendor.contactRef} onClick={() => openWhatsApp("price")} whileHover={reduceMotion ? undefined : { y: -2 }} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}><span>💰</span>Tanya harga</motion.button>
+                <motion.button type="button" disabled={!vendor.contactRef} onClick={() => openWhatsApp("estimate")} whileHover={reduceMotion ? undefined : { y: -2 }} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}><Clock3 className="size-4" />Tanya estimasi</motion.button>
               </div>
               <div className="mt-3 grid grid-cols-[1fr_3rem] gap-2">
-                <motion.a
-                  href={`tel:${vendor.phone}`}
-                  onClick={trackCall}
+                <motion.button
+                  type="button"
+                  disabled={!vendor.contactRef}
+                  onClick={() => {
+                    trackCall();
+                    callContact({ contactRef: vendor.contactRef });
+                  }}
                   whileHover={reduceMotion ? undefined : { y: -2 }}
                   whileTap={reduceMotion ? undefined : { scale: 0.98 }}
-                  className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-base font-extrabold text-slate-800 hover:border-blue-300 hover:bg-blue-50 ${focusRing}`}
+                  className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-base font-extrabold text-slate-800 hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
                 >
                   <Phone className="size-5 text-blue-600" />Telepon mitra
-                </motion.a>
+                </motion.button>
                 <motion.button
                   type="button"
                   onClick={() => favorites.save(vendor.slug, vendor._id)}
@@ -659,20 +666,19 @@ function VendorProfileContent() {
           >
             <Bookmark className={`size-5 ${saved ? "fill-blue-600 text-blue-600" : "text-slate-600"}`} />
           </motion.button>
-          <motion.a
-            href={waHref}
-            target="_blank"
-            rel="noreferrer"
-            onClick={trackWhatsApp}
+          <motion.button
+            type="button"
+            disabled={!vendor.contactRef}
+            onClick={() => openWhatsApp("availability")}
             whileHover={reduceMotion ? undefined : { scale: 1.01 }}
             whileTap={reduceMotion ? undefined : { scale: 0.98 }}
-            className={`flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 py-3 text-base font-extrabold text-[#082f1e] ${focusRing}`}
+            className={`flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 py-3 text-base font-extrabold text-[#082f1e] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 ${focusRing}`}
           >
             <motion.span whileHover={reduceMotion ? undefined : { scale: 1.12 }} className="inline-flex">
               <MessageCircle className="size-5" />
             </motion.span>
             {categoryActionLabel[vendor.category]}
-          </motion.a>
+          </motion.button>
         </div>
       </div>
     </div>

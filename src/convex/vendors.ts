@@ -3,6 +3,7 @@ import { mutation, query, internalMutation, internalQuery } from "./_generated/s
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import { vendors as seedVendors } from "../lib/catalog";
+import { generateWhatsAppMessage } from "../lib/whatsapp";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
@@ -30,6 +31,42 @@ const normalizeWhatsAppPhone = (phone: string) => {
   const normalized = digits.startsWith("0") ? `62${digits.slice(1)}` : digits;
   return normalized.length >= 10 && normalized.length <= 15 ? normalized : undefined;
 };
+
+/**
+ * Bentuk tersamar dari nomor USAHA, untuk ditampilkan di katalog publik.
+ *
+ * FASE 10. Risiko sebenarnya bukan nomor yang tampil di layar - nomor usaha
+ * memang SHOULD publik, itu produknya. Risiko sebenarnya adalah nomor
+ * ASLI yang bisa disalin, karena begitu ada di respons API ia bisa dipanen
+ * tanpa membuka halaman sama sekali. Jadi yang ditampilkan ke pengguna
+ * cukup bentuk tersamar; angka penuh hanya lahir di server saat handoff
+ * yang sudah dibatasi lajunya.
+ *
+ * Jumlah digit yang dibiarkan kecil dan tetap: empat di depan, tiga di
+ * belakang. Gunanya supaya warga bisa mengenali nomornya sendiri, bukan
+ * supaya nomor itu berguna untuk dipanen ulang.
+ */
+export const maskVendorPhone = (phone: string) => {
+  const normalized = normalizeWhatsAppPhone(phone);
+  if (!normalized) return "";
+  const national = normalized.startsWith("62") ? `0${normalized.slice(2)}` : normalized;
+  if (national.length <= 7) return `${national.slice(0, 2)} xxxx`;
+  return `${national.slice(0, 4)} xxxx ${national.slice(-3)}`;
+};
+
+/**
+ * Pegangan kontak opaque untuk satu listing.
+ *
+ * 128 bit dari `crypto.randomUUID()`, jadi mustahil ditebak dan mustahil
+ * dipanen lewat pemindaian. TIDAK diturunkan dari nomor: kalau diturunkan,
+ * `contactRef` berubah setiap kali nomor diubah dan tautan yang sudah
+ * dibagikan orang ke-which listing lama ikut mati.
+ *
+ * Sifat penting: pegangan ini adalah KAPABILITAS, bukan identitas. Ia tidak
+ * memberi akses apa pun sampai `getContactHandoff` memeriksa status listing,
+ * membatasi laju, dan mencatat permintaannya.
+ */
+export const newContactRef = () => `cr1_${crypto.randomUUID().replace(/-/g, "")}`;
 
 const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
   const earthRadiusKm = 6371;
@@ -176,7 +213,17 @@ type PublicCatalogVendor = {
   lng?: number;
   price: string;
   hours: string;
-  phone: string;
+  /**
+   * FASE 10. Nomor mentah TIDAK pernah ada di field ini.
+   *
+   * Sebelumnya DTO katalog publik mengembalikan `phone` penuh, jadi satu
+   * permintaan anonim ke `listActive` cukup untuk memanen SEMUA nomor usaha
+   * tanpa membuka halaman, tanpa JavaScript, tanpa interaksi. `contactRef`
+   * menggantikan nomor itu sebagai pegangan opaque, dan `phoneMasked`
+   * memenuhi kebutuhan tampilan yang wajar.
+   */
+  contactRef: string | null;
+  phoneMasked: string;
   rating: string;
   reviewsCount?: number;
   accent: string;
@@ -207,7 +254,8 @@ const toPublicCatalogVendor = (vendor: VendorDoc, derived: {
   ...(vendor.lng === undefined ? {} : { lng: vendor.lng }),
   price: vendor.price,
   hours: vendor.hours,
-  phone: vendor.phone,
+  contactRef: vendor.contactRef ?? null,
+  phoneMasked: maskVendorPhone(vendor.phone),
   rating: vendor.rating,
   ...(vendor.reviewsCount === undefined ? {} : { reviewsCount: vendor.reviewsCount }),
   accent: vendor.accent,
@@ -505,7 +553,10 @@ export const ensureCatalogSeeded = mutation({
         lng: vendor.lng,
         price: vendor.price,
         hours: vendor.hours,
-        phone: vendor.phone,
+        // Seed listing selalu punya nomor; `phone` pada tipe `Vendor` opsional
+        // karena katalog publik tidak lagi meneruskannya.
+        phone: vendor.phone ?? "",
+        contactRef: newContactRef(),
         rating: vendor.rating,
         reviewsCount: vendor.reviews,
         accent: vendor.accent,
@@ -857,6 +908,188 @@ const overPublicCounterCeiling = async (
   // Jendela waktu: baris terbaru bisa saja sudah lebih dari satu jam lalu.
   return (recent[0]?._creationTime ?? 0) > Date.now() - PUBLIC_COUNTER_WINDOW_MS;
 };
+
+/**
+ * Jendela dan kuota handoff kontak.
+ *
+ * Satu orang dalam satu jam tidak mungkin butuh lebih dari ini: satu klik
+ * per listing, beberapa listing, mungkin klik ulang karena tab tertutup
+ * terlambat. Angkanya sengaja longgar supaya warga yang memakai produknya
+ * secara wajar tidak pernah mendapat error,
+ * tapi cukup rapat untuk membuat pemanenan massal lewat endpoint ini mahal.
+ */
+const HANDOFF_WINDOW_MS = 60 * 60 * 1000;
+/** Kuota untuk pemanggil yang punya identitas (akun, termasuk anonim Convex). */
+const HANDOFF_PER_WINDOW = 20;
+/**
+ * Kuota untuk pemanggil yang BELUM punya identitas.
+ *
+ * Lebih longgar dari kuota akun, bukan lebih ketat, karena yang di hadapi
+ * adalah pengunjung biasa yang kebetulan membuka halaman sebelum sesinya
+ * terbentuk. Syaratnya tetap - `contactRef` tidak bisa ditebak - jadi
+ * longgarnya tidak membuka jalan baru.
+ */
+const HANDOFF_ANON_PER_WINDOW = 30;
+
+/**
+ * FASE 10 - satu-satunya jalan nomor mentah keluar dari server.
+ *
+ * SEBELUMNYA: `listActive` dan `getBySlug` mengembalikan `phone` penuh, jadi
+ * satu permintaan anonim cukup untuk memanen seluruh direktori tanpa membuka
+ * halaman. HTTPS tidak menolong di sini - pemanggilnya memang dialing
+ * sendiri, lewat endpoint yang memang publik.
+ *
+ * SEKARANG: peramban hanya memegang `contactRef` opaque 128-bit. Nomor penuh
+ * lahir DI SINI, setelah semua pemeriksaan lolos, dan langsung menjadi URL
+ * `wa.me` yang jadi milik pengguna yang menekan tombol. Nomor itu tidak pernah
+ * mendarat di state React, localStorage, analitik, atau laporan error.
+ *
+ * Empat pemeriksaan, berurutan dari yang paling murah:
+ *
+ * 1. Bentuk `contactRef` - menolak input rusak sebelum menyentuh database.
+ * 2. Listing masih `active`. Listing yang diarsipkan atau masih draft tidak
+ *    boleh dibagikan lewat mana pun, termasuk lewat tautan yang sudah diedarkan.
+ * 3. Pembatasan laju per akun. `getAuthUserId` juga memberi identitas pada
+ *    pengunjung tanpa akun, jadi batas ini berlaku untuk anonim - bukan
+ *    sekadar "tidak masuk", yang di sini hampir tidak pernah benar.
+ * 4. Jejak audit, ditulis setelah nomor benar-benar
+ *    dikirim ke pengguna.
+ *
+ * Catatan desain: teks pesan disusun SERVER dari data listing, tidak dari
+ * argumen pemanggil. Kalau teksnya datang dari klien, endpoint ini jadi
+ * amplifier open-redirect wa.me danirmation alat spam - pemanggil bisa
+ * menempelkan pesan apa saja ke nomor siapa saja.
+ */
+export const getContactHandoff = mutation({
+  args: {
+    contactRef: v.string(),
+    intent: v.optional(
+      v.union(
+        v.literal("general"),
+        v.literal("availability"),
+        v.literal("price"),
+        v.literal("estimate"),
+        v.literal("request"),
+      ),
+    ),
+    reference: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const contactRef = args.contactRef.trim();
+    // 1. Bentuk. Menolak di sini berarti database tidak pernah tersentuh
+    //    oleh input asal-asalan.
+    if (!/^cr1_[0-9a-f]{32}$/.test(contactRef)) {
+      throw new Error("Tautan kontak tidak valid.");
+    }
+
+    // Identitas bersifat OPSIONAL, bukan syarat. Pengunjung yang sesinya belum
+    // terbentuk harus tetap bisa menekan tombol WhatsApp - menolak mereka
+    // demi "batas laju" adalah tukar-menukar yang salah: tombol mati jauh lebih
+    // mahal daripada risiko yang sebenarnya dilindungi aturan ini.
+    const userId = await getAuthUserId(ctx);
+
+    const now = Date.now();
+    const windowStart = now - HANDOFF_WINDOW_MS;
+    const limit = userId ? HANDOFF_PER_WINDOW : HANDOFF_ANON_PER_WINDOW;
+
+    // 3. Kuota, DAN pembersihan baris kedaluwarsa milik pemanggil ini saja.
+    //    Kedua langkahnya memakai indeks majemuk, jadi readership terbatas
+    //    pada satu akun (atau satu listing) dalam satu jendela - bukan
+    //    pemindaian tabel. `take(limit + 1)` berhenti begitu batas terlampaui.
+    const recent = userId
+      ? await ctx.db
+          .query("contactHandoffs")
+          .withIndex("byUserCreatedAt", (q) => q.eq("userId", userId))
+          .take(limit + 1)
+      : await ctx.db
+          .query("contactHandoffs")
+          .withIndex("byContactRefCreatedAt", (q) => q.eq("contactRef", contactRef))
+          .take(limit + 1);
+
+    const expired = recent.filter((row) => row.createdAt < windowStart);
+    for (const row of expired) await ctx.db.delete(row._id);
+    if (recent.length - expired.length >= limit) {
+      throw new Error("Terlalu banyak permintaan kontak baru saja. Coba lagi nanti.");
+    }
+
+    const vendor = await ctx.db
+      .query("vendors")
+      .withIndex("byContactRef", (q) => q.eq("contactRef", contactRef))
+      .unique();
+
+    // 2. Listing harus benar-benar tayang. Tanpa ini, `contactRef` yang bocor
+    //    (mis. dari tangkapan layar atau log) tetap bisa membuka
+    //    membuka nomor listing yang sudah diarsipkan.
+    if (!vendor || vendor.status !== "active") {
+      throw new Error("Listing ini sudah tidak tersedia.");
+    }
+
+    const phone = normalizeWhatsAppPhone(vendor.phone);
+    if (!phone) throw new Error("Nomor WhatsApp usaha ini belum valid.");
+
+    await ctx.db.insert("contactHandoffs", {
+      ...(userId ? { userId } : {}),
+      contactRef,
+      createdAt: now,
+    });
+
+    // 4. Jejak. Yang dicatat: jenis permintaan dan listing mana. Bukan nomor,
+    //    bukan teks pesan.
+    await recordEvent(ctx, {
+      event: "contact_handoff",
+      ...(userId ? { userId } : {}),
+      vendorId: vendor._id,
+      metadata: { intent: args.intent ?? "general" },
+    });
+
+    const message = generateWhatsAppMessage({
+      vendorName: vendor.name,
+      category: vendor.category,
+      landmark: vendor.landmark,
+      intent: args.intent,
+      reference: args.reference?.slice(0, 120),
+    });
+
+    // `telUrl` sengaja ikut dikembalikan, bukan dibiarkan peramban menyusunnya
+    // sendiri. schemes `tel:` harus sudah ada sebelum diklik, jadi nomor tetap
+    // sampai ke peramban - tapi hanya SESUDAH pengguna menekan tombol, lewat
+    // jalur yang sudah dibatasi kuotanya dan tercatat jejaknya. Yang bisa
+    // dipanen adalah respons katalog, dan itu tidak lagi memuat nomor.
+    return {
+      url: `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,
+      telUrl: `tel:+${phone}`,
+    };
+  },
+});
+
+/**
+ * FASE 10 - isi `contactRef` untuk listing yang dibuat sebelum migrasi.
+ *
+ * Idempoten dan additive: hanya menyentuh listing `active` yang `contactRef`-nya
+ * masih kosong, jadi menjalankannya berkali-kali tidak mengubah apa pun dan
+ * listing yang sudah punya pegangan tidak pernah kehilangan tautan yang sudah
+ * dibagikan orang.
+ *
+ * Batas kerjanya dipotong per admin batch supaya satu panggilan tidak menulis
+ * tak terbatas.
+ */
+export const backfillContactRefs = internalMutation({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 200, 1), 1000);
+    const rows = await ctx.db
+      .query("vendors")
+      .withIndex("byStatus", (q) => q.eq("status", "active"))
+      .take(limit);
+    let updated = 0;
+    for (const vendor of rows) {
+      if (vendor.contactRef) continue;
+      await ctx.db.patch(vendor._id, { contactRef: newContactRef() });
+      updated += 1;
+    }
+    return { scanned: rows.length, updated };
+  },
+});
 
 export const incrementClick = mutation({
   args: {

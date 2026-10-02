@@ -19,6 +19,17 @@ export type VendorReview = {
 export type VendorRecord = Vendor & {
   _id: string;
   _creationTime: number;
+  /**
+   * Wajib di sini, opsional di `Vendor`.
+   *
+   * `VendorRecord` hanya dibentuk dari `vendors:listForOwner` dan
+   * `vendors:listForAdmin`, yang keduanya mengembalikan dokumen listing utuh
+   * kepada pemiliknya sendiri atau pengelola. Katalog publik tidak pernah
+   * membentuk tipe ini - jadi mewajibkan `phone` justru memperkuat pemisahan
+   * itu: kalau suatu saat listing publik bocor ke jalur pemilik, build gagal
+   * alih-alih diam-diam mengirim nomor mentah ke anonim.
+   */
+  phone: string;
   status: "draft" | "active" | "archived";
   featured?: boolean;
   verified?: boolean;

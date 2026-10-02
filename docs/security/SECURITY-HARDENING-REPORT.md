@@ -175,7 +175,7 @@ bagi pemanggilan anonim. Rinciannya di 2.10, 2.11, dan 2.12.
 | 1 | Otorisasi terpusat | SELESAI | 2 berkas, 5 fungsi, 2 salinan dihapus |
 | 2 | Audit fungsi publik | SEBAGIAN | `ensureCatalogSeeded` selesai; 30+ fungsi lain belum didokumentasikan |
 | 3 | Minimisasi data | SELESAI | Daftar putih + 13 test regresi |
-| 4 | Privasi WhatsApp | BELUM | Rencana migrasi di bagian 9 |
+| 4 | Privasi WhatsApp | SEBAGIAN | Nomor USAHA publik selesai lewat handoff opaque + kuota; nomor pribadi warga masih polos (bagian 5.2) |
 | 5 | Integritas Security Desk | SELESAI | `reportSessionContext` sekarang server-authoritative; 8 test regresi |
 | 6 | CORS / HTTP | SELESAI | Fail-closed saat allowlist kosong + batas 30 permintaan/menit per IP; 11 test |
 | 7 | Deteksi serangan | SEBAGIAN | Model + katalog + pencatat + panel + retensi SELESAI; 4 dari 9 pemicu tersambung dan diuji |
@@ -188,7 +188,7 @@ bagi pemanggilan anonim. Rinciannya di 2.10, 2.11, dan 2.12.
 | 14 | Sinkronisasi rute | BELUM | |
 | 15 | Performa | SEBAGIAN | Plafon pemindaian pada dua query publik terberat; sisanya butuh pagination di UI |
 | 16 | Dependency / lockfile | SELESAI | 46 -> 15 kerentanan, 0 critical, `axios` dihapus, satu lockfile |
-| 17-19 | Test / unit / e2e | SEBAGIAN | 980 test hijau, termasuk 10 test kontrak penolakan Fase 10; E2E belum disentuh (tidak ada peramban) |
+| 17-19 | Test / unit / e2e | SEBAGIAN | 995 test hijau, termasuk 15 test handoff kontak baru; E2E belum disentuh (tidak ada peramban) |
 | 20 | Urutan pengerjaan | SEBAGIAN | Urutan diikuti untuk yang dikerjakan |
 | 21 | Laporan ini | SELESAI | |
 | 22 | Definition of Done | SEBAGIAN | Lihat bagian 11 |
@@ -747,7 +747,111 @@ Tiga pilihan yang tersisa, semuanya mengubah kontrak pemanggil:
 3. Membiarkan dua aturan itu tidak aktif, dengan batasnya tertulis di sini dan
    dikunci test agar tidak ada yang mengira ia sudah berjalan.
 
-### 5.2 Privasi nomor WhatsApp (P1, "harder to scrape")
+### 5.2 Privasi nomor WhatsApp (P1, "harder to scrape") - SEBAGIAN SELESAI
+
+> **Status setelah commit ini.** Bagian nomor USAHA sudah dikerjakan dan
+> diuji: katalog publik tidak lagi mengirim nomor mentah sama sekali. Bagian
+> nomor pribadi warga (`notificationPreferences.whatsappPhone`,
+> `listingClaims.whatsappPhone`, `whatsappThreads.phone`) MASIH tersimpan polos
+> dan itu sengaja dicatat sebagai belum selesai di bagian 11, bukan
+> disembunyikan. Rincian yang sudah jadi ada di bawah; yang belum jadi ada di
+> 5.2b.
+
+#### 5.2a Yang sudah dikerjakan: nomor usaha tidak lagi bocor
+
+**Bukti kebocorannya.** `toPublicCatalogVendor` di `src/convex/vendors.ts`
+mengembalikan `phone` mentah, dan dipanggil oleh `listActive` serta
+`getBySlug` - keduanya query publik tanpa login. Satu permintaan anonim ke
+`listActive` mengembalikan nomor SETIAP listing aktif. HTTPS tidak menolong:
+yang meminta memang dialing sendiri ke endpoint yang memang publik.
+
+**Yang diganti.**
+
+| Sebelum | Sesudah |
+|---|---|
+| `phone` (penuh) di DTO publik | `contactRef` (opaque 128 bit) + `phoneMasked` |
+| `<a href={generateWhatsAppLink({phone})}>` | `<button>` yang meminta handoff ke server |
+| `tel:${vendor.phone}` di DOM | `telUrl` dari handoff, hanya setelah diklik |
+| `telephone` di JSON-LD | dihapus |
+| `generateWhatsAppLink` | dihapus dari repo |
+
+**Alur baru.**
+
+```
+katalog publik  -> contactRef (cr1_ + 128 bit acak)
+tekan tombol    -> vendors:getContactHandoff
+                      1. bentuk contactRef (regex, sebelum sentuh DB)
+                      2. listing masih `active`
+                      3. kuota laju (per akun; per contactRef bila tanpa identitas)
+                      4. jejak di analyticsEvents (tanpa nomor, tanpa teks pesan)
+                   -> URL wa.me + telUrl
+peramban        -> membuka URL; nomor tidak pernah mendarat di state
+```
+
+**Kenapa `contactRef` dan bukan HMAC nomor.** Rancangan awal menyebut HMAC
+dengan kunci server. Yang dipakai sebenarnya 128 bit dari
+`crypto.randomUUID()`.
+Alasannya: pegangan acak memberi sifat anti-panen yang sama (tidak bisa
+ditebak, tidak bisa dipetakan tanpa memegang respons yang sah) TANPA
+menambah satu pun rahasia yang harus diisi operator. Kunci HMAC yang belum
+diisi akan mematikan tombol WhatsApp untuk semua orang; pegangan acak tidak
+pernah punya keadaan gagal seperti itu. Pegangan juga sengaja TIDAK
+diturunkan dari nomor: kalau begitu, mengganti nomor mematikan semua tautan
+yang sudah dibagikan orang.
+
+**Kuota tidak mematikan produk.** `getAuthUserId` bersifat OPSIONAL di
+handoff. Pengunjung yang sesinya belum terbentuk tetap bisa menekan tombol.
+Menolak mereka demi "batas laju" menukar risiko kecil dengan tombol mati -
+regresi yang jauh lebih mahal. Tanpa identitas, kuota ditegakkan per
+`contactRef`, yang cukup karena pegangan itu sendiri tidak bisa ditebak.
+
+**Jejak.** `recordEvent({ event: "contact_handoff" })` mencatat intent dan
+listing. Nomor dan teks pesan TIDAK masuk apa pun - termasuk ke
+`analyticsEvents`, yang dibaca dashboard admin.
+
+**Migrasi.** `vendors:backfillContactRefs` (internal, idempoten) mengisi
+listing aktif yang `contactRef`-nya kosong. Listing yang sudah punya
+pegangan tidak pernah disentuh, jadi tautan yang sudah dibagikan tetap
+hidup. Bekerjaannya dipotong 200 baris per panggilan.
+
+**Yang masih jujur untuk disebut:** skema `tel:` tidak punya jalur
+server-side - URL-nya harus sudah ada sebelum diklik. Jadi nomor tetap
+sampai ke peramban untuk tombol TELEPON, tapi hanya setelah pengguna
+menekan, lewat jalur yang sudah dibatasi kuotanya dan tercatat jejaknya.
+Yang bisa dipanen adalah respons katalog, dan itu tidak lagi memuat nomor.
+
+**Regresi:** 15 test di `src/convex/contact-handoff.test.ts` (happy path,
+anonymous, bentuk salah, ref tak dikenal, draft/archived, tanpa ref, nomor
+tidak valid, kuota, pembersihan otomatis, anti-spam, jejak, backfill
+idempoten) plus `public-data-surface.test.ts` B2 yang mengunci `phone`
+tidak boleh muncul di `listActive` maupun `getBySlug`, dan
+`listing-metadata.test.ts` yang mengunci `telephone` tidak boleh muncul di
+JSON-LD.
+
+**Yang TIDAK terverifikasi:** apakah tombolnya masih bisa ditekan setelah
+mengubah `<a>` menjadi `<button>`. Analisisnya cocok, tapi
+lingkungan ini tidak punya peramban (bagian 1.3). Inilah refaktor yang
+sebelumnya ditolak karena tidak bisa diverifikasi - sekarang dikerjakan
+dengan pengaman yang berbeda: galat handoff selalu jadi toast, tab kosong
+selalu ditutup, dan tidak ada jalur yang kembali diam-diam ke nomor di
+klien.
+
+#### 5.2b Yang BELUM: nomor pribadi warga
+
+ Tiga field ini masih tersimpan polos di database:
+
+- `notificationPreferences.whatsappPhone` (punya indeks `byPhone`)
+- `listingClaims.whatsappPhone`
+- `whatsappThreads.phone` (punya indeks `byPhone`)
+
+Butuh: enkripsi application-layer dengan kunci server, HMAC untuk lookup
+sehingga indeks `byPhone` pindah ke indeks kunci HMAC, tampilan tersamar
+untuk admin, dan migrasi baris lama. Tidak dikerjakan pada commit ini -
+sifatnya berbeda dari nomor usaha (tidak bisa dihilangkan dari respons,
+hanya bisa disamarkan), jadi jadwalnya harus menyertakan keputusan kunci dan
+rotasinya.
+
+#### 5.2c Catatan lama (rencana sebelum dikerjakan)
 
 **Ini permintaan yang paling langsung menjawab "harder to scrape", dan yang
 paling belum tersentuh.**
@@ -1160,9 +1264,19 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
       fungsi yang dulu bocor.
 - [x] Tidak ada pengenal internal yang tidak perlu terekspos - `requesterId`
       dan `offeredBy` sekarang tidak punya jalur keluar.
-- [ ] Nomor telepon pribadi tidak ada di DTO publik - **BELUM.** Ini temuan
-      terbuka terbesar; rencananya di bagian 5.2.
-- [ ] Nomor telepon pribadi dilindungi saat disimpan - **BELUM.**
+- [x] Nomor telepon USAHA tidak ada di DTO publik - `listActive` dan
+      `getBySlug` tidak lagi mengirim `phone`; yang dikirim `contactRef` opaque
+      dan bentuk tersamar. Nomor penuh hanya lahir di
+      `vendors:getContactHandoff` setelah empat pemeriksaan lulus. `telephone`
+      juga dihapus dari JSON-LD. 15 test baru di
+      `src/convex/contact-handoff.test.ts` plus regresi di
+      `public-data-surface.test.ts` dan `listing-metadata.test.ts`
+      (bagian 5.2a).
+- [ ] Nomor telepon pribadi tidak bocor ke DTO - **BELUM untuk nomor
+      pribadi.** `notificationPreferences.whatsappPhone`,
+      `listingClaims.whatsappPhone`, dan `whatsappThreads.phone` masih polos
+      (bagian 5.2b).
+- [ ] Nomor telepon pribadi dilindungi saat disimpan - **BELUM** (bagian 5.2b).
 - [x] Bukti Security Desk otoritatif dari server - `reportSessionContext`
       mengonsumsi token konteks, kolom jaringan diambil dari
       `adminSecurityContexts`, dan klasifikasi perangkat diturunkan server;
@@ -1208,11 +1322,12 @@ keyboard, safe-area, reduced-motion, teks besar/kontras tinggi.
 
 ### Verifikasi
 
-- [x] Lint - 0 error / 26 warning.
+- [x] Lint - 0 error / 26 warning (warning sama seperti sebelum commit ini).
 - [x] Typecheck - 0 error.
-- [x] Test unit - 930 lulus di 66 berkas.
-- [x] Test Convex baru - 10 test, termasuk empat untuk sesi tercabut dan
-      empat untuk `ensureCatalogSeeded`.
+- [x] Test unit - 995 lulus di 71 berkas.
+- [x] Test Convex baru - 15 test handoff kontak di
+      `src/convex/contact-handoff.test.ts`, termasuk kuota, penolakan
+      listing non-aktif, dan backfill idempoten.
 - [ ] E2E - belum dijalankan; tidak ada peramban.
 - [ ] Pemindaian dependensi - belum dijalankan (bagian 8).
 - [ ] Peninjauan diff akhir - sebagian, `git diff` diblokir.

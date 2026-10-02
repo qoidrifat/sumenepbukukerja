@@ -61,8 +61,12 @@ describe("JSON-LD LocalBusiness", () => {
     const data = listingStructuredData(LISTING, "https://contoh.test");
     expect(data["@type"]).toBe("LocalBusiness");
     expect(data.name).toBe("Karya Jaya");
-    expect(data.telephone).toBe("081234567890");
     expect(data.areaServed).toBe("Banda");
+    // FASE 10 - regresi: `telephone` dihapus dari JSON-LD dengan sengaja.
+    // Structured data dibaca crawler, bukan orang; memuat nomor di sini
+    // berarti setiap URL listing jadi titik panen tanpa membuka halaman.
+    expect(data.telephone).toBeUndefined();
+    expect(JSON.stringify(data)).not.toContain("081234567890");
     // Yang TIDAK boleh muncul: identitas pemilik, akun, atau alamat email.
     const serialized = JSON.stringify(data);
     expect(serialized).not.toContain("ownerId");

@@ -28,7 +28,8 @@ import { categoryOptions, landmarkLabel, landmarks, type Category, type Vendor }
 import { useCatalogActions, useCatalogVendors, useFavorites } from "@/lib/catalog-store";
 import { categoryActionLabel, distanceFilterOptions, distanceKmBetween, distanceLabel, isOpenNow, needSuggestions, searchByNeed } from "@/lib/catalog-data";
 import { useUserLocation, type UserLocation, type UserLocationStatus } from "@/hooks/use-user-location";
-import { generateWhatsAppLink, recommendedWhatsAppIntent } from "@/lib/whatsapp";
+import { recommendedWhatsAppIntent } from "@/lib/whatsapp";
+import { useContactHandoff } from "@/lib/contact-handoff";
 import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
 import { CategoryMascot, CategoryMascotStage } from "@/components/category-mascot";
 import { BrandMascot } from "@/components/brand-mascot";
@@ -76,21 +77,24 @@ function Brand({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function WhatsAppButton({ vendor, landmark, className = "" }: { vendor: Vendor; landmark: string; className?: string }) {
-  const href = generateWhatsAppLink({
-    phone: vendor.phone,
-    vendorName: vendor.name,
-    category: vendor.category,
-    landmark,
-    intent: recommendedWhatsAppIntent(vendor.category),
-  });
+// `landmark` tidak lagi jadi argumen: sejak FASE 10 teks pesan WhatsApp
+// disusun server dari data listing, bukan di peramban. Parameternya dihapus,
+// bukan dibiarkan tidak terpakai, supaya tidak menyesatkan pembaca kode.
+function WhatsAppButton({ vendor, className = "" }: { vendor: Vendor; className?: string }) {
+  // FASE 10: tombol ini tidak lagi tahu nomor usaha. Ia hanya memegang
+  // `contactRef` opaque; server yang menyusun URL `wa.me`-nya setelah
+  // memeriksa status listing, kuota laju, dan mencatat jejak.
+  const { openContactWithFeedback } = useContactHandoff();
   const { click, interaction } = useCatalogActions();
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
+    <button
+      type="button"
+      disabled={!vendor.contactRef}
       onClick={() => {
+        openContactWithFeedback({
+          contactRef: vendor.contactRef,
+          intent: recommendedWhatsAppIntent(vendor.category),
+        });
         if ("_id" in vendor) {
           void click({ id: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
           void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
@@ -101,10 +105,10 @@ function WhatsAppButton({ vendor, landmark, className = "" }: { vendor: Vendor; 
           // Analytics must never block the direct WhatsApp handoff.
         }
       }}
-      className={`flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 py-3 text-center text-base font-extrabold text-[#082f1e] shadow-sm transition-[filter,box-shadow] duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${className}`}
+      className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 py-3 text-center text-base font-extrabold text-[#082f1e] shadow-sm transition-[filter,box-shadow] duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 ${className}`}
     >       <MessageCircle className="size-5 shrink-0" aria-hidden="true" />
        <ShinyText text={categoryActionLabel[vendor.category]} color="#082f1e" shineColor="#ffffff" speed={4.5} className="font-extrabold" />
-    </a>
+    </button>
   );
 }
 
@@ -155,7 +159,9 @@ function BottomNav() {
   );
 }
 
-function VendorCard({ vendor, landmark, saved, onSave, onCompare }: { vendor: Vendor; landmark: string; saved: boolean; onSave: () => void; onCompare: () => void }) {
+// `landmark` dihapus sebagai argumen (FASE 10): teks pesan WhatsApp kini
+// disusun server dari data listing, jadi kartu tidak lagi membangunnya sendiri.
+function VendorCard({ vendor, saved, onSave, onCompare }: { vendor: Vendor; saved: boolean; onSave: () => void; onCompare: () => void }) {
   const { click, interaction } = useCatalogActions();
   const share = async () => {
     const text = `${vendor.name} — ${vendor.description}`;
@@ -241,7 +247,7 @@ function VendorCard({ vendor, landmark, saved, onSave, onCompare }: { vendor: Ve
            {vendor.distanceKm !== undefined ? <span className="inline-flex items-center gap-1.5 font-bold text-emerald-700"><LocateFixed className="size-4" aria-hidden="true" />{distanceLabel(vendor.distanceKm)} dari Anda</span> : null}
            <span className="font-extrabold text-slate-800">{vendor.price}</span>
         </div>
-        <WhatsAppButton vendor={vendor} landmark={landmark} />
+        <WhatsAppButton vendor={vendor} />
       </div>
         </article>
       </GlareHover>
@@ -560,7 +566,7 @@ function Catalog({
           animationKey={`${activeLandmark}-${category}-${openNow}-${distanceLimit ?? "all"}-${query}-${filtered.length}`}
           className="mt-6"
         >
-          {filtered.length > 0 ? <AnimatedList items={filtered.map((vendor) => <VendorCard key={vendor.slug} vendor={vendor} landmark={landmarkLabel(vendor.landmark)} saved={favorites.isSaved(vendor.slug)} onSave={() => favorites.save(vendor.slug, vendor._id)} onCompare={() => setCompare((current) => current.includes(vendor.slug) ? current.filter((item) => item !== vendor.slug) : current.length < 3 ? [...current, vendor.slug] : current)} />)} ariaLabel="Daftar usaha" itemClassName="h-full" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 2xl:grid-cols-4" /> : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><BrandMascot state="empty" size="md" className="mx-auto" /><h3 className="mt-4 text-xl font-black text-slate-950">{location && distanceLimit !== null ? "Belum ada usaha dalam radius ini" : "Belum ada jasa yang cocok"}</h3><p className="mx-auto mt-2 max-w-md text-base leading-7 text-slate-600">{location && distanceLimit !== null ? "Coba pilih radius yang lebih jauh, atau matikan filter lokasi." : "Belum ada jasa di sekitar sini. Coba pilih patokan lain atau kata kunci yang lebih umum."}</p></div>}
+          {filtered.length > 0 ? <AnimatedList items={filtered.map((vendor) => <VendorCard key={vendor.slug} vendor={vendor} saved={favorites.isSaved(vendor.slug)} onSave={() => favorites.save(vendor.slug, vendor._id)} onCompare={() => setCompare((current) => current.includes(vendor.slug) ? current.filter((item) => item !== vendor.slug) : current.length < 3 ? [...current, vendor.slug] : current)} />)} ariaLabel="Daftar usaha" itemClassName="h-full" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 2xl:grid-cols-4" /> : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><BrandMascot state="empty" size="md" className="mx-auto" /><h3 className="mt-4 text-xl font-black text-slate-950">{location && distanceLimit !== null ? "Belum ada usaha dalam radius ini" : "Belum ada jasa yang cocok"}</h3><p className="mx-auto mt-2 max-w-md text-base leading-7 text-slate-600">{location && distanceLimit !== null ? "Coba pilih radius yang lebih jauh, atau matikan filter lokasi." : "Belum ada jasa di sekitar sini. Coba pilih patokan lain atau kata kunci yang lebih umum."}</p></div>}
         </AnimatedContent>
       </div>
     </section>

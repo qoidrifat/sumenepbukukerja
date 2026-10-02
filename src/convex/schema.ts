@@ -120,6 +120,17 @@ const schema = defineSchema(
       nextAvailableAt: v.optional(v.number()),
       responseMinutes: v.optional(v.number()),
       serviceRadiusKm: v.optional(v.number()),
+      // FASE 10 - Privasi nomor.
+      //
+      // `phone` TIDAK LAGI dikirim ke peramban lewat katalog publik. Yang
+      // dikirim adalah `contactRef` (pegangan opaque 128-bit) dan bentuk
+      // tersamar. Nomor mentah hanya keluar lewat `vendors:getContactHandoff`,
+      // yang memeriksa status listing, membatasi laju, dan mencatat jejak.
+      //
+      // Optional selama migrasi: baris lama belum punya nilai sampai
+      // `vendors:backfillContactRefs` dijalankan. Selama itu, listing lama
+      // tampil tanpa tombol WhatsApp alih-alih memuntahkan nomor.
+      contactRef: v.optional(v.string()),
       createdAt: v.number(),
       updatedAt: v.number(),
     })
@@ -127,7 +138,9 @@ const schema = defineSchema(
       .index("byStatus", ["status"])
       .index("byLandmark", ["landmark"])
       .index("byOwner", ["ownerId"])
-      .index("byPhotoId", ["photoId"]),
+      .index("byPhotoId", ["photoId"])
+      // Resolusi `contactRef` -> listing harus lewat indeks, bukan pindai.
+      .index("byContactRef", ["contactRef"]),
       // Indeks ini ditambah di Fase 9 untuk satu alasan: `vendors:getImageUrl`
       // harus bisa MEMBUKTIKAN bahwa sebuah storage id adalah foto publik
       // listing aktif, bukan sekadar memercayai pemanggil yang mengetahuinya.
@@ -415,6 +428,44 @@ const schema = defineSchema(
       count: v.number(),
       updatedAt: v.number(),
     }).index("byKey", ["key"]),
+
+    // Buku besar handoff kontak publik (FASE 10).
+    //
+    // Satu baris per permintaan tautan wa.me yang DITERIMA server. Baris ini
+    // tidak pernah menyimpan nomor: hanya siapa yang meminta, pegangan mana,
+    // dan kapan. Gunanya murni pembatasan laju + jejak audit.
+    //
+    // Sifat throttle: `userId` adalah userId Convex Auth, yang juga diberikan
+    // kepada pengunjung tanpa akun. Jadi batas ini bekerja untuk anonim -
+    // Unlike "tidak masuk", yang hampir tidak pernah benar di sini karena
+    // penyedia anonymous selalu memberi identitas. Yang bisa disalahgunakan
+    // adalah satu akun/peramban, bukan status masuknya.
+    //
+    // TABEL INI SENGAJA TIDAK DISIMPAN LAMA. `getContactHandoff` menghapus
+    // baris miliknya sendiri yang sudah melewati jendela di awal setiap
+    // panggilan, jadi volumenya terikat oleh kuota per akun, bukan oleh
+    // uptime. Tidak perlu cronton untuk membersihkannya.
+    contactHandoffs: defineTable({
+      // OPSIONAL dengan sengaja.
+      //
+      // Dulu skrip ini mewajibkan `userId` dengan alasan "identity selalu
+      // ada". Itu benar secara teknis dan salah secara produk: pengunjung yang
+      // baru membuka halaman belum tentu punya sesi Convex Auth, dan tombol
+      // WhatsApp yang menolak mereka karena belum "teridentifikasi" adalah
+      // tombol mati - regresi yang jauh lebih mahal daripada risiko yang
+      // dipikirkannya dilindungi.
+      //
+      // Jadi kuota ditegakkan dua jalur. Kalau identitas ada, batasnya per
+      // akun. Kalau tidak, batasnya per `contactRef` - dan itu cukup, karena
+      // `contactRef` sendiri tidak bisa ditebak.
+      userId: v.optional(v.id("users")),
+      contactRef: v.string(),
+      createdAt: v.number(),
+    })
+      // Rentang (userId, createdAt) untuk bounded read: satu akun per jendela.
+      .index("byUserCreatedAt", ["userId", "createdAt"])
+      // Jalur tanpa identitas: satu listing per jendela.
+      .index("byContactRefCreatedAt", ["contactRef", "createdAt"]),
 
     whatsappDeliveries: defineTable({
       deliveryKey: v.string(),

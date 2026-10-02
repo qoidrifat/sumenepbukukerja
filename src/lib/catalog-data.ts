@@ -27,14 +27,28 @@ export const isOpenNow = (
   return minutes >= start && minutes <= end;
 };
 
+/**
+ * Apakah listing punya kontak yang bisa dihubungi.
+ *
+ * FASE 10: dulu ini `Boolean(vendor.phone)`. Sekarang peramban publik tidak
+ * pernah menerima nomor, jadi yang dicek adalah ADA atau TIDAKNYA pegangan
+ * kontak - bentuk yang sama secara makna ("nomor ini bisa dihubungi") tanpa
+ * pernah memegang digitnya.
+ *
+ * Dipakai bersama untuk data publik (memakai `contactRef`) dan data
+ * pemilik/pengelola (memakai `phone`), jadi kedua jalur stays konsisten.
+ */
+export const hasContact = (vendor: Vendor) =>
+  Boolean(vendor.contactRef) || Boolean(vendor.phone?.replace(/\D/g, "").length);
+
 export const profileCompleteness = (vendor: Vendor) => {
-  const fields = [vendor.name, vendor.category, vendor.description, vendor.address, vendor.landmark, vendor.price, vendor.hours, vendor.phone, vendor.tags.length ? "tags" : "", vendor.availability ?? "available"];
+  const fields = [vendor.name, vendor.category, vendor.description, vendor.address, vendor.landmark, vendor.price, vendor.hours, hasContact(vendor) ? "contact" : "", vendor.tags.length ? "tags" : "", vendor.availability ?? "available"];
   return Math.round((fields.filter(Boolean).length / fields.length) * 100);
 };
 
 export const qualityIssues = (vendor: Vendor) => {
   const issues: string[] = [];
-  if (!vendor.phone || vendor.phone.replace(/\D/g, "").length < 10) issues.push("Nomor WhatsApp belum valid");
+  if (!hasContact(vendor)) issues.push("Nomor WhatsApp belum valid");
   if (!vendor.address.trim()) issues.push("Alamat belum lengkap");
   if (!vendor.price.trim()) issues.push("Harga awal belum diisi");
   if (vendor.description.trim().length < 40) issues.push("Deskripsi terlalu pendek");
@@ -47,7 +61,10 @@ export const qualityIssues = (vendor: Vendor) => {
 export const duplicateScore = (a: Vendor, b: Vendor) => {
   const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
   const name = normalize(a.name) === normalize(b.name) ? 0.6 : 0;
-  const phone = a.phone === b.phone ? 0.3 : 0;
+  // FASE 10: nomor tidak lagi bisa dibandingkan di peramban karena tidak pernah
+  // dikirim ke sana. Skor ini sekarang hanya memakai nama dan alamat, jadi
+  // bobotnya dijumlahkan ulang ke 0,7 supaya rentang tetap 0..1.
+  const phone = 0;
   const address = a.address.toLowerCase() === b.address.toLowerCase() ? 0.1 : 0;
   return name + phone + address;
 };

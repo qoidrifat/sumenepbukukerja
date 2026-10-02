@@ -529,9 +529,35 @@ Ringkasan lengkapnya beserta sisa risiko ada di
 > `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS=true`, tapi tidak disarankan.
 
 **Yang BELUM selesai dan tidak boleh dianggap selesai:** rotasi rahasia dan
-pemindaian riwayat Git (bagian 6 laporan), privasi nomor WhatsApp (bagian
-5.2), security header (bagian 9.3), dan lima dari sembilan pemicu deteksi
+pemindaian riwayat Git (bagian 6 laporan), enkripsi-at-rest nomor pribadi
+warga (bagian 5.2 laporan -nomor USAHA sudah selesai, lihat di bawah),
+security header (bagian 9.3), dan lima dari sembilan pemicu deteksi
 (bagian 5.1).
+
+### Fase 12 - nomor usaha tidak lagi keluar di katalog publik
+
+Katalog dan halaman profil **tidak pernah mengirim nomor mentah** lagi.
+Respons publik membawa `contactRef` (pegangan opaque 128-bit, tidak bisa
+ditebak) dan `phoneMasked` (`0812 xxxx 345`). Nomor penuh hanya lahir di
+server, di `vendors:getContactHandoff`, yang memeriksa bentuk pegangan,
+status listing, membatasi laju, lalu mengembalikan URL `wa.me` siap pakai.
+
+Konsekuensi yang harus diketahui saat mengembangkan:
+
+- `vendors.listActive` / `vendors.getBySlug` TIDAK punya `phone`. Jangan
+  menambahkannya kembali "sementara saja" - itulah kebocorannya.
+- `vendors.listForOwner` dan `vendors.listForAdmin` tetap memakai `phone`
+  mentah; itu memang Listing milik sendiri / yang sedang dikelola.
+- Teks pesan WhatsApp disusun SERVER dari data listing. Argumen `text`
+  atau `to` sengaja tidak ada di validator.
+- Tombol WhatsApp DI KLIEN adalah `<button>`, bukan `<a>`, karena URL-nya
+  baru ada setelah server menjawab. `window.open` dipanggil sinkron di
+  dalam handler klik agar tidak kena popup blocker.
+- Listing yang dibuat sebelum migrasi belum punya `contactRef`. Jalankan
+  `vendors:backfillContactRefs` dari CLI; sampai itu listing lama tampil
+  dengan tombol WhatsApp nonaktif, bukan dengan nomor yang bocor.
+- `generateWhatsAppLink` di `src/lib/whatsapp.ts` sudah DIHAPUS. Jangan
+  dibuat ulang; itulah fungsi yang membuat nomor harus ada di peramban.
 
 > **CATATAN VERSI, Fase 10-11.** Aturan unggahan foto berubah dari "awalan
 > MIME `image/`" menjadi allowlist format raster. Kalau produk nanti perlu

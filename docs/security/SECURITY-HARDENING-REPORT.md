@@ -175,7 +175,7 @@ bagi pemanggilan anonim. Rinciannya di 2.10, 2.11, dan 2.12.
 | 1 | Otorisasi terpusat | SELESAI | 2 berkas, 5 fungsi, 2 salinan dihapus |
 | 2 | Audit fungsi publik | SELESAI | Semua 113 fungsi publik diaudit; 106 bergerbang, 7 pengecualian tertulis. Audit jadi tripwire (`public-surface-audit.test.ts`), bukan dokumen |
 | 3 | Minimisasi data | SELESAI | Daftar putih + 13 test regresi |
-| 4 | Privasi WhatsApp | SELESAI | Nomor USAHA lewat handoff opaque + kuota; nomor pribadi warga terenkripsi (AES-GCM) + lookup HMAC. Sisa: migrasi dijalankan pemilik (9.2) |
+| 4 | Privasi WhatsApp | SELESAI | Nomor USAHA lewat handoff opaque + kuota; nomor pribadi warga terenkripsi (AES-GCM) + lookup HMAC. **Migrasi produksi sudah dijalankan** - `remainingLegacy: 0` dan kolom polos sudah dikosongkan (bagian 9.4) |
 | 5 | Integritas Security Desk | SELESAI | `reportSessionContext` sekarang server-authoritative; 8 test regresi |
 | 6 | CORS / HTTP | SELESAI | Fail-closed saat allowlist kosong + batas 30 permintaan/menit per IP; 11 test |
 | 7 | Deteksi serangan | SEBAGIAN | Model + katalog + pencatat + panel + retensi + penghitung laju SELESAI; 7 dari 9 pemicu tersambung dan diuji |
@@ -1371,6 +1371,32 @@ yang gagal dienkripsi (biasanya karena data rusak, bukan format nomor), dan
 menghapus kolom polos sekarang akan membuang nomor yang tidak punya salinan
 aman.
 
+#### 9.2c Yang sudah dijalankan di produksi
+
+Rangkaian di atas sudah dijalankan di `focused-lemur-389` pada 2 Oktober 2026.
+Dicatat di sini supaya hasilnya tidak perlu ditebak ulang.
+
+Sebelum deploy, `PHONE_DATA_KEY` sengaja dipasang lebih dulu. Bukan urutan
+kebetulan: kode yang dideploy memanggil `phoneKeyMaterial()` pada SETIAP
+penulisan nomor, dan fungsi itu melempar kalau kuncinya kosong. Tanpa langkah
+itu, `claims.submitClaim` dan `community.createRequest` akan langsung mati di
+produksi begitu kode=tayang. Membaca tidak terpengaruh - `readStoredPhone`
+baru membutuhkan kunci untuk baris yang sudah terenkripsi, dan saat itu seluruh
+baris masih polos.
+
+Hasil akhirnya:
+
+| Langkah | Hasil |
+|---|---|
+| Deploy ke `focused-lemur-389` | Berhasil; schema dan indeks tidak berubah |
+| `phoneMigration:report` (sebelum) | `keyConfigured: true`, `remainingLegacy: 1` |
+| `migratePreferences` | `migrated: 1` |
+| `migrateClaims` / `migrateThreads` | `migrated: 0` (belum ada data) |
+| `phoneMigration:report` (sesudah) | `encrypted: 1`, `legacy: 0`, `remainingLegacy: 0` |
+| `clearLegacyPlainPhones` | `cleared: 1`, `done: true` |
+
+Tidak ada nomor warga yang tersimpan polos di produksi sekarang.
+
 ### 9.3 Security header (bagian 8)
 
 Belum dipasang. Lokasi yang benar adalah lapisan deployment, bukan kode
@@ -1513,7 +1539,9 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
       kunci turunan HKDF dari `PHONE_DATA_KEY`, pencarian lewat HMAC 128-bit
       berprefiks `bkp1.`, `listClaimStatus` tersamar. Jalur tulis gagal
       terbuka tanpa kunci. 15 test di `src/convex/phone-encryption.test.ts`
-      (bagian 5.2b). Sisa: migrasi data lama dijalankan pemilik (9.2b).
+      (bagian 5.2b). **Migrasi produksi sudah dijalankan** - 1 baris dienkripsi,
+      lalu kolom polos dikosongkan setelah `remainingLegacy` terverifikasi nol
+      (bagian 9.4).
 - [x] Setiap fungsi publik bergerbang atau punya pengecualian tertulis -
       113 fungsi publik dipindai dari kode; 106 bergerbang, 7 pengecualian
       terdokumentasi. Audit berjalan sebagai test, jadi endpoint publik baru

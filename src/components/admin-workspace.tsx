@@ -18,7 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { type VendorRecord } from "@/lib/catalog-store";
 import { formatDateTime, formatRelativeTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
-import { AdminProfile } from "@/components/admin-profile";
+import { AdminProfileDialog, AdminProfileTrigger } from "@/components/admin-profile";
 import { AdminLogoutConfirm } from "@/components/admin-logout-button";
 import { OWNER_SHORT_TITLE } from "@/lib/owner-account";
 
@@ -214,6 +214,9 @@ export function AdminHeader({
   // begitu item dipilih supaya tidak menutupi dialog, dan kalau dialognya ikut
   // terpasang di dalam panel itu, konfirmasi tidak akan pernah terlihat.
   const [logoutOpen, setLogoutOpen] = useState(false);
+  // Keadaan dialog profil hidup DI HEADER, bukan di dalam komponen pemicunya.
+  // Pemicunya boleh ikut tercabut bersama panel menu; dialog tidak boleh.
+  const [profileOpen, setProfileOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const reduceMotion = useReducedMotion();
@@ -339,7 +342,7 @@ export function AdminHeader({
                   <ArrowLeft className="size-5 shrink-0" aria-hidden="true" />
                   Beranda
                 </Link>
-                <AdminProfile variant="menu" onOpenChange={setMenuOpen} />
+                <AdminProfileTrigger variant="menu" onOpen={() => setProfileOpen(true)} />
                 <div className="admin-menu-separator" aria-hidden="true" />
                 <button
                   type="button"
@@ -358,6 +361,23 @@ export function AdminHeader({
           </AnimatePresence>
         </div>
       </div>
+
+      {/* Dialog profil DI LUAR `AnimatePresence` dan di luar `menuRef` - ini
+          satu-satunya tempat yang aman, dan alasannya ada di
+          `admin-profile.tsx`. Ringkasnya: begitu panel menu ditutup,
+          `AnimatePresence` mencabut seluruh anaknya, dan dialog yang dirender
+          dari dalam akan ikut tercabut beserta portalnya.
+
+          Dua hal lain ikut terperangkap di sini. `pointerdown` di luar header
+          menutup menu, dan portal dialog berada di `document.body` - yaitu di
+          luar header. Jadi tanpa pemisahan ini, ketukan pertama di dalam
+          dialog akan menutup menu, dan dialog ikut hilang. Di Android itu
+          terlihat sebagai "terbuka sebentar lalu menutup sendiri".
+
+          Letak di DOM sebenarnya tidak berpengaruh karena dialog dirender
+          lewat portal; yang menentukan adalah posisi di POHON React. */}
+      <AdminProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
+
       <AdminLogoutConfirm open={logoutOpen} onOpenChange={setLogoutOpen} />
       <div
         className="h-2 border-t-2 border-[#121212] bg-[linear-gradient(90deg,#FF5A26_0_38%,#FFE662_38%_72%,#121212_72%_100%)]"

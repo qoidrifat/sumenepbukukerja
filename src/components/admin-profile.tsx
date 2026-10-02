@@ -49,18 +49,17 @@ const MAX_NAME_LENGTH = 80;
  * saat dialog dibuka. Tanpa itu, panel menu tetap menutupi separuh layar
  * di atas dialog yang baru terbuka.
  */
-export function AdminProfile({
-  variant = "header",
+export function AdminProfileDialog({
+  open,
   onOpenChange,
 }: {
-  variant?: "header" | "menu";
-  onOpenChange?: (open: boolean) => void;
-} = {}) {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const profile = useQuery(api.users.myProfile, {});
   const updateProfile = useMutation(api.users.updateMyProfile);
   const generateUploadUrl = useMutation(api.users.generateProfileUploadUrl);
   const recordBlob = useMutation(api.storage.recordUploadedBlob);
-  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [pending, setPending] = useState<string | null>(null);
   // sha berkas yang dipilih, sementara menunggu jawaban peta blob.
@@ -86,19 +85,33 @@ export function AdminProfile({
   const nameId = "admin-profile-name";
   const hintId = "admin-profile-hint";
 
-  // Formulir diisi ulang tepat saat dialog DIBUKA, bukan lewat efek.
-  // Efek yang memanggil setState secara sinkron dipanggil ulang dua kali
-  // dalam render, dan yang kedua sering membuat panel berkedip.
-  const openProfile = () => {
-    setName(profile?.name ?? "");
-    setPending(null);
-    setRemovePhoto(false);
-    setPicked(null);
-    setError("");
-    setNotice("");
-    setOpen(true);
-    onOpenChange?.(false);
-  };
+  // Formulir diisi ulang tepat saat dialog DIBUKA.
+  //
+  // Dulu ini terjadi di dalam pemicu klik, jadi pemicunya HARUS berada di
+  // komponen yang sama dengan dialognya. Setelah keduanya dipisah (lihat
+  // `AdminProfileTrigger`), pengisian ulang harus hidup di sini.
+  //
+  // BUKAN `useEffect`. Aturan lint proyek melarang pemanggilan setState secara
+  // sinkron di dalam efek, dan risikonya memang nyata: efek berjalan SETELAH
+  // render, jadi dialog sempat tampil satu frame dengan isi formulir lama -
+  // persis kedipan yang dikeluhkan komentar lama.
+  //
+  // Yang dipakai di sini adalah pola "menyesuaikan state saat render" dari
+  // dokumentasi React: render membandingkan `open` dengan nilai sebelumnya,
+  // dan bila berubah, state disesuaikan SEKALI pada render yang sama. Tidak
+  // ada efek, tidak ada render tambahan, dan tidak ada kedipan.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setName(profile?.name ?? "");
+      setPending(null);
+      setRemovePhoto(false);
+      setPicked(null);
+      setError("");
+      setNotice("");
+    }
+  }
 
   const displayName = profile?.name?.trim() || profile?.email?.split("@")[0] || "Profil";
   const initials = displayName
@@ -169,39 +182,7 @@ export function AdminProfile({
   };
 
   return (
-    <>
-      {variant === "menu" ? (
-        <button
-          type="button"
-          role="menuitem"
-          onClick={openProfile}
-          className="admin-menu-item"
-          aria-label="Atur profil"
-        >
-          <UserRound className="size-5 shrink-0" aria-hidden="true" />
-          Profil
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={openProfile}
-          className="flex shrink-0 items-center gap-2 rounded-[2px] border-2 border-[#121212] bg-white px-2 py-1.5 shadow-[2px_2px_0_0_#121212] transition-transform hover:bg-[#FFE662] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#FF5A26]"
-          aria-label="Atur profil"
-          title="Atur profil"
-        >
-          <span className="flex size-8 items-center justify-center overflow-hidden rounded-[2px] border-2 border-[#121212] bg-[#FFE662] text-xs font-black text-[#121212]">
-            {profile?.imageUrl ? (
-              <img src={profile.imageUrl} alt="" className="size-full object-cover" />
-            ) : (
-              initials || <UserRound className="size-4" />
-            )}
-          </span>
-          <UserRound className="size-5 shrink-0 text-[#121212]" aria-hidden="true" />
-          <span className="hidden text-sm font-black text-[#1A1A1A] sm:inline">Profil</span>
-        </button>
-      )}
-
-      <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
         {/* `AdminDialogContent`, bukan `DialogContent` polos. Besides automatically
             bringing the admin theme, this is also what prevents the dialog from
             closing itself on Android: Radix otherwise focuses the name field,
@@ -322,7 +303,7 @@ export function AdminProfile({
               <button
                 type="button"
                 className="admin-btn admin-btn-secondary order-2 w-full sm:order-1 sm:w-auto"
-                onClick={() => setOpen(false)}
+                onClick={() => onOpenChange(false)}
               >
                 Tutup
               </button>
@@ -337,7 +318,122 @@ export function AdminProfile({
             </div>
           </div>
         </AdminDialogContent>
-      </Dialog>
+    </Dialog>
+  );
+}
+
+/**
+ * Pemicu pengaturan profil - tombolnya SAJA, tanpa dialog.
+ *
+ * KENAPA INI HARUS DIPISAH DARI DIALOGNYA
+ *
+ * Ini bukan pemecahan gaya. Ini memperbaiki bug yang memblokir fitur:
+ * dialog profil tidak pernah bisa terbuka.
+ *
+ * Masalahnya begini. Di `admin-workspace.tsx`, pemicu ini pernah hidup DI DALAM
+ * panel menu, dan `AnimatePresence` yang membungkus panel itu akan MENCABUT
+ * seluruh anaknya begitu `menuOpen` jadi false. Dialog-nya ikut tercabut,
+ * karena di pohon React dia anak dari elemen yang dihapus - portal Radix
+ * yang nempel di `document.body` ikut hilang bersama-sama.
+ *
+ * Dua kejadian yang dilaporkan punya satu sebab:
+ *
+ *  1. Pemicunya sendiri memanggil `onOpenChange(false)` supaya panel menu
+ *     menutup. Panel menutup, animasi keluar, lalu React MENCABUT
+ *     `AdminProfile` - dan bersama dengannya dialog yang baru saja dibuka.
+ *     Di desktop itu terjadi sebelum mata bisa menangkapnya: popup tidak
+ *     pernah terlihat sama sekali.
+ *
+ *  2. `admin-workspace.tsx` memasang penutup menu pada setiap
+ *     `pointerdown` di luar panel header. Dialog profil dirender lewat PORTAL
+ *     ke `document.body`, jadi secara DOM ia di luar header - ketukan di
+ *     dalam dialog terbaca sebagai "di luar". Ketukan pertama pengguna
+ *     menutup menu, menu mencabut dialog, dialog hilang.
+ *     Di Android ini yang terlihat: terbuka sebentar, lalu hilang sendiri -
+ *     persis gejala yang dilaporkan.
+ *
+ * Jadi selama dialog dirender dari dalam subtree yang bisa dicabut, tidak ada
+ * perbaikan di atas yang akan tahan. Pemicunya boleh hidup di panel menu;
+ * dialognya HARUS hidup di luar. Itu satu-satunya alasan pemisahan ini ada.
+ */
+export function AdminProfileTrigger({
+  variant = "header",
+  onOpen,
+}: {
+  variant?: "header" | "menu";
+  onOpen: () => void;
+}) {
+  const profile = useQuery(api.users.myProfile, {});
+  const displayName = profile?.name?.trim() || profile?.email?.split("@")[0] || "Profil";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.slice(0, 1).toUpperCase())
+    .join("");
+
+  if (variant === "menu") {
+    return (
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onOpen}
+        className="admin-menu-item"
+        aria-label="Atur profil"
+      >
+        <UserRound className="size-5 shrink-0" aria-hidden="true" />
+        Profil
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex shrink-0 items-center gap-2 rounded-[2px] border-2 border-[#121212] bg-white px-2 py-1.5 shadow-[2px_2px_0_0_#121212] transition-transform hover:bg-[#FFE662] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#FF5A26]"
+      aria-label="Atur profil"
+      title="Atur profil"
+    >
+      <span className="flex size-8 items-center justify-center overflow-hidden rounded-[2px] border-2 border-[#121212] bg-[#FFE662] text-xs font-black text-[#121212]">
+        {profile?.imageUrl ? (
+          <img src={profile.imageUrl} alt="" className="size-full object-cover" />
+        ) : (
+          initials || <UserRound className="size-4" />
+        )}
+      </span>
+      <UserRound className="size-5 shrink-0 text-[#121212]" aria-hidden="true" />
+      <span className="hidden text-sm font-black text-[#1A1A1A] sm:inline">Profil</span>
+    </button>
+  );
+}
+
+/**
+ * Pemicu dan dialog dalam satu komponen.
+ *
+ * Bentuk ini tetap dipertahankan untuk pemanggil yang tidak punya alasan
+ * untuk memisahkannya. Yang WAJIB berlaku di mana pun: `AdminProfileDialog`
+ * tidak boleh dirender di dalam subtree yang bisa dicabut - lihat catatan di
+ * `AdminProfileTrigger`.
+ */
+export function AdminProfile({
+  variant = "header",
+  onOpenChange,
+}: {
+  variant?: "header" | "menu";
+  onOpenChange?: (open: boolean) => void;
+} = {}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <AdminProfileTrigger
+        variant={variant}
+        onOpen={() => {
+          setOpen(true);
+          onOpenChange?.(false);
+        }}
+      />
+      <AdminProfileDialog open={open} onOpenChange={setOpen} />
     </>
   );
 }

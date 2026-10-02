@@ -20,9 +20,15 @@ vi.mock("@/lib/catalog-store", () => ({
 // Header memanggil dua hal yang butuh konteks: profil (query Convex) dan
 // alur keluar (mutasi + router). Keduanya dimock supaya yang diuji benar-benar
 // markup header, bukan integrasi jaringan.
+//
+// `admin-profile` diekspor sebagai DUA komponen sejak dialognya dipisah dari
+// pemicunya - pemicu boleh ikut tercabut bersama panel menu, dialog tidak.
+// Mock di sini harus mencerminkan permukaan itu persis, kalau tidak `vi.mock`
+// meledak begitu header diimpor.
 vi.mock("@/components/admin-profile", () => ({
-  AdminProfile: () =>
+  AdminProfileTrigger: () =>
     createElement("button", { type: "button", role: "menuitem" }, "Profil"),
+  AdminProfileDialog: () => null,
 }));
 vi.mock("@/lib/admin-logout", () => ({
   useAdminLogout: () => ({ logoutAdmin: () => {}, logoutBusy: false }),

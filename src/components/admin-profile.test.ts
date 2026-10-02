@@ -36,7 +36,11 @@ test("ikon orang ada di sebelah label peran di header", () => {
   // `admin-workspace.tsx` adalah pemanggilan dengan variant menu. Yang tetap
   // dijaga: panel peran dan pemicu profil ada di header yang sama, dan
   // keduanya bukan sekadar teks.
-  const profileIndex = workspace.indexOf("<AdminProfile variant=\"menu\"");
+  //
+  // Namanya `AdminProfileTrigger`, bukan `AdminProfile`: pemicu dan dialognya
+  // sudah dipisah. Alasannya ada di test berikutnya - pemisahan itu yang
+  // membuat dialog bisa dibuka sama sekali.
+  const profileIndex = workspace.indexOf("<AdminProfileTrigger variant=\"menu\"");
   expect(roleIndex).toBeGreaterThan(-1);
   expect(profileIndex).toBeGreaterThan(-1);
   // Aksesibel lewat nama, bukan hanya ikon.
@@ -44,6 +48,47 @@ test("ikon orang ada di sebelah label peran di header", () => {
   expect(profile).toContain("<UserRound");
   // Bentuk menu harus menyamar sebagai baris menu, bukan tombol avatar.
   expect(profile).toContain('className="admin-menu-item"');
+});
+
+test("dialog profil dirender DI LUAR subtree menu yang bisa dicabut", () => {
+  // REGRESI. Ini mengunci bug yang memblokir fitur: dialog profil tidak pernah
+  // muncul.
+  //
+  // Panel menu dibungkus `AnimatePresence`, yang MENCABUT seluruh anaknya begitu
+  // `menuOpen` jadi false. Ketika dialog ikut dirender dari dalam panel itu,
+  // menutup panel ikut mencabut dialog - beserta portal Radix-nya di
+  // `document.body`. Gejalanya dua-duanya berasal dari sini:
+  //
+  //   - Desktop: popup tidak pernah terlihat, karena klik pembuka sekaligus
+  //     menutup menu yang memuatnya.
+  //   - Android: terbuka sebentar, lalu ketukan pertama di dalam dialog
+  //     memicu penutup menu berbasis `pointerdown`, dan dialog ikut hilang.
+  //
+  // Pemeriksaan ini sengaja membandingkan POSISI, bukan hanya keberadaan: test
+  // yang hanya mengecek "dialognya ada" akan tetap hijau kalau seseorang
+  // memindahkannya kembali ke dalam `AnimatePresence`.
+  const animateStart = workspace.indexOf("<AnimatePresence>");
+  const animateEnd = workspace.indexOf("</AnimatePresence>");
+  const triggerIndex = workspace.indexOf("<AdminProfileTrigger variant=\"menu\"");
+  const dialogIndex = workspace.indexOf("<AdminProfileDialog");
+
+  expect(animateStart).toBeGreaterThan(-1);
+  expect(animateEnd).toBeGreaterThan(animateStart);
+  // Pemicunya BOLEH hidup di dalam menu - di situ pengguna mengetuknya.
+  expect(triggerIndex).toBeGreaterThan(animateStart);
+  expect(triggerIndex).toBeLessThan(animateEnd);
+  // Dialognya HARUS di luar. Inilah satu-satunya aturan yang menjaga bug ini.
+  expect(dialogIndex).toBeGreaterThan(-1);
+  expect(
+    dialogIndex,
+    "AdminProfileDialog harus dirender DI LUAR <AnimatePresence>. Di dalam sana, "
+      + "menutup panel menu akan mencabut dialognya sendiri.",
+  ).toBeGreaterThan(animateEnd);
+
+  // Berkas yang sama harus tetap mengekspos keduanya terpisah, supaya
+  // penggabungan ulang tidak mungkin terjadi diam-diam.
+  expect(profile).toContain("export function AdminProfileDialog");
+  expect(profile).toContain("export function AdminProfileTrigger");
 });
 
 test("tombol profil memakai token admin, bukan gaya tombol generik", () => {

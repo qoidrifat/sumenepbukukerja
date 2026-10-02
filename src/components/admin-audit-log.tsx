@@ -126,7 +126,7 @@ export function AdminAuditLog({
                 <p className="font-black text-[#1A1A1A]">{auditActionLabel(entry.action)}</p>
                 <p className="mt-0.5 font-mono text-[0.65rem] text-[#525252]">{entry.action}</p>
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-1.5">
+              <div className="flex min-w-0 flex-col items-end gap-1.5">
                 <span
                   className={auditActionChipClass(entry.action)}
                   title={entry.actorIsOwnerAccount ? "Gelar khusus akun pemilik sistem" : undefined}

@@ -299,7 +299,7 @@ export function AdminSecurityLog() {
           </p>
         </div>
         {summary?.lastEventAt ? (
-          <span className="inline-flex shrink-0 items-center gap-2 border-2 border-[#121212] bg-[#F1EDE3] px-2.5 py-1 text-xs font-black">
+          <span className="inline-flex min-w-0 flex-wrap items-center gap-2 border-2 border-[#121212] bg-[#F1EDE3] px-2.5 py-1 text-xs font-black">
             <Clock3 className="size-4" aria-hidden="true" />
             Percobaan terakhir {formatRelativeTime(summary.lastEventAt)}
           </span>
@@ -759,13 +759,30 @@ export function AdminSecurityLog() {
         </section>
       ) : null}
 
+      {/*
+        Seluruh kalimat ini HARUS satu flex item.
+
+        Sebelumnya `<code>` di tengah kalimat memecahnya menjadi tiga item:
+        teks - code - teks. Di kontainer `flex` tanpa `flex-wrap`, setiap potongan
+        berdiri sendiri dan tidak bisa saling mengalir, jadi lebar minimum
+        paragraf = jumlah kata terpanjang ketiga potongan + gap (~248px),
+        bukan satu kata terpanjang (~83px). Pada kartu ponsel yang tinggal
+        ~249px, angka itu pas-pasan sampai 1px, dan begitu perangkat lebih
+        sempit teksnya keluar dari kotak.
+
+        Pola yang sama di tempat lain (`AdminAuthNotice`, dan catatan
+        `ADMIN_PASSCODE_HASH` di halaman masuk) sudah membungkus kalimatnya dalam
+        satu elemen; paragraf ini yang tertinggal.
+      */}
       <p className="mt-3 flex items-start gap-2 text-xs leading-6 text-[#525252]">
         <Globe className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-        Alamat IP dibaca di server dari header yang ditulis edge/CDN, bukan dari browser
-        dan bukan dari layanan pihak ketiga. Sumber yang tidak bisa dipercaya
-        ditulis <code className="font-black">Tidak terdeteksi</code>, tidak pernah ditebak.
-        Lokasi hanya terisi bila operator mengonfigurasi penyedia geolokasi, dan
-        menandai perkiraan jaringan, bukan lokasi GPS.
+        <span className="min-w-0">
+          Alamat IP dibaca di server dari header yang ditulis edge/CDN, bukan dari browser
+          dan bukan dari layanan pihak ketiga. Sumber yang tidak bisa dipercaya
+          ditulis <code className="font-black">Tidak terdeteksi</code>, tidak pernah ditebak.
+          Lokasi hanya terisi bila operator mengonfigurasi penyedia geolokasi, dan
+          menandai perkiraan jaringan, bukan lokasi GPS.
+        </span>
       </p>
     </article>
   );

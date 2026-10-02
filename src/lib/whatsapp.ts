@@ -11,6 +11,11 @@ export const sanitizePhoneNumber = (phone: string) => phone.replace(/\D/g, "").r
 export const formatConvexError = (caught: unknown, fallback: string) => {
   const raw = caught instanceof Error ? caught.message : typeof caught === "string" ? caught : "";
   const cleaned = raw
+    // Nama kelas error di depan pesan. `err.message` dari Convex tidak
+    // memuatnya (itu bagian dari `err.stack`), tapi teks yang dicatat di
+    // laporan sering disalin dari stack, jadi bentuk ini ikut dibersihkan
+    // supaya kedua bentuk menghasilkan pesan yang sama.
+    .replace(/^\s*ConvexError:\s*/i, "")
     // Amplop yang ditambahkan klien Convex: nama fungsi, Request ID, dan
     // penanda "Server Error". Semuanya jejak internal, bukan untuk pengguna.
     .replace(/^\s*\[CONVEX[^\]]*\]\s*/i, "")

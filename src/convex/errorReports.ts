@@ -32,6 +32,7 @@ import {
   buildAdminAlertMessage,
   normalizeErrorReport,
   reportIdFor,
+  resolveEnvironment,
   shouldAlert,
   type ErrorAlertStatus,
   type ErrorReportInput,
@@ -59,7 +60,7 @@ import {
 /** Pengaman anti-spam kalau ada klien yang salah atau penyerang. */
 const MAX_NEW_REPORTS_PER_HOUR = 500;
 
-const environment = () => process.env.CONVEX_DEPLOYMENT ?? "development";
+const environment = () => resolveEnvironment(process.env);
 
 type ReportDocument = DataModel["errorReports"]["document"];
 

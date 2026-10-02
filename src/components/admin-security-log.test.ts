@@ -214,10 +214,48 @@ test("ringkasan memakai angka 24 jam dan memisahkan total tercatat", () => {
   expect(html).toContain("Terkunci");
 });
 
+test("badge \"Percobaan terakhir\" boleh menyusut dan membungkus", () => {
+  const html = render([fullEvent], {
+    total: 40,
+    last24h: 27,
+    succeeded24h: 21,
+    failed24h: 4,
+    locked24h: 2,
+    lastEventAt: CREATED_AT,
+  });
+
+  // Badge ini duduk di baris `justify-between` di samping judul kartu.
+  // Dengan `shrink-0` lebarnya selalu max-content, jadi di layar ponsel ia
+  // meluber keluar kartu alih-alih ikut menyusut.
+  const textAt = html.indexOf("Percobaan terakhir");
+  expect(textAt).toBeGreaterThan(-1);
+  const badge = html.slice(html.lastIndexOf("<span class=", textAt), textAt);
+
+  expect(badge).toContain("flex-wrap");
+  expect(badge).toContain("min-w-0");
+  expect(badge).not.toContain("shrink-0");
+});
+
 test("empty state menjelaskan apa yang akan muncul, bukan tabel kosong", () => {
   const html = render([], { total: 0, last24h: 0, succeeded24h: 0, failed24h: 0, locked24h: 0, lastEventAt: null });
 
   expect(html).toContain("Belum ada percobaan masuk.");
   expect(html).toContain("Aktivitas akses admin akan muncul di sini.");
   expect(html).not.toContain("Lihat detail keamanan");
+});
+
+test("keterangan alamat IP dibungkus satu elemen, tidak dipecah jadi beberapa flex item", () => {
+  const html = render([fullEvent]);
+  const start = html.indexOf('class="mt-3 flex items-start gap-2 text-xs leading-6 text-[#525252]"');
+  expect(start).toBeGreaterThan(-1);
+  const kalimat = html.slice(start, html.indexOf("</p>", start));
+
+  // Kalimat ini memuat `<code>` di tengahnya. Di kontainer `flex` tanpa
+  // `flex-wrap`, teks sebelum dan sesudah `<code>` jadi flex item terpisah,
+  // sehingga lebar minimumnya = jumlah kata terpanjang tiap potongan, bukan
+  // satu kata terpanjang. Di ponsel sempit itu membuat teksnya keluar dari
+  // kotak. Karena itu seluruh kalimat harus berada dalam satu elemen.
+  expect(kalimat).toMatch(/<\/svg><span class="min-w-0">/);
+  expect(kalimat).toContain("Tidak terdeteksi");
+  expect(kalimat).not.toMatch(/<\/svg>[^<]*Alamat IP/);
 });

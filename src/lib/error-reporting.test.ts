@@ -5,6 +5,7 @@ import {
   DEDUPE_WINDOW_MS,
   ERROR_CODES,
   buildAdminAlertMessage,
+  convexErrorEnvelope,
   errorFingerprint,
   formatUtc,
   formatWib,
@@ -15,6 +16,7 @@ import {
   redactText,
   redactValue,
   reportIdFor,
+  resolveEnvironment,
   safeUserRef,
   shouldAlert,
   whatsappRecommendedAction,
@@ -172,6 +174,103 @@ describe("isExpectedMessage", () => {
   test("tidak menangkap kegagalan integrasi", () => {
     expect(isExpectedMessage("Meta menolak pesan teks di luar jendela layanan 24 jam.")).toBe(false);
     expect(isExpectedMessage("Server tidak dapat menghubungi provider WhatsApp.")).toBe(false);
+  });
+});
+
+/**
+ * Pesan error server yang sudah diredaksi Convex di produksi.
+ *
+ * Dua laporan produksi nyata (ERR-20261001-0O72S0A dan ERR-20261002-0O72S0A)
+ * berisi persis bentuk ini, dan keduanya menggumpal jadi satu laporan karena
+ * pesan yang tersisa sama-sama "Called by client". Nama fungsi dan Request ID
+ * di bawah ini disalin apa adanya dari laporan tersebut.
+ */
+const REDACTED_VENDORS =
+  "ConvexError: [CONVEX Q(vendors:listForAdmin)] [Request ID: fdef7197fd99914a] Server Error\n  Called by client";
+const REDACTED_ADMIN_GATE =
+  "ConvexError: [CONVEX Q(adminGate:currentAdminSession)] [Request ID: 0941b51b1a88c5ed] Server Error\n  Called by client";
+
+describe("convexErrorEnvelope", () => {
+  test("mengambil nama fungsi dan Request ID dari amplop Convex", () => {
+    expect(convexErrorEnvelope(REDACTED_VENDORS)).toEqual({
+      udf: "vendors:listForAdmin",
+      requestId: "fdef7197fd99914a",
+    });
+  });
+
+  test("tidak mengarang isi untuk pesan biasa", () => {
+    expect(convexErrorEnvelope("Koneksi terputus")).toEqual({ udf: undefined, requestId: undefined });
+  });
+});
+
+describe("resolveEnvironment", () => {
+  test("APP_ENV menang atas tebakan apa pun", () => {
+    expect(resolveEnvironment({ APP_ENV: "staging", CONVEX_DEPLOYMENT: "prod:focused-lemur-389" })).toBe("staging");
+  });
+
+  test("awalan CONVEX_DEPLOYMENT diterjemahkan", () => {
+    expect(resolveEnvironment({ CONVEX_DEPLOYMENT: "prod:focused-lemur-389" })).toBe("production");
+    expect(resolveEnvironment({ CONVEX_DEPLOYMENT: "dev:quirky-otter-123" })).toBe("development");
+    expect(resolveEnvironment({ CONVEX_DEPLOYMENT: "local:local-qoid_rif_at-sumenepbukukerja_fdbe7" })).toBe("development");
+  });
+
+  test("deployment produksi Convex dikenali dari CONVEX_SITE_URL", () => {
+    // Inilah kasus yang dulu salah: di produksi CONVEX_DEPLOYMENT tidak diset,
+    // jadi semua laporan produksi dicap "development".
+    expect(resolveEnvironment({ CONVEX_SITE_URL: "https://focused-lemur-389.convex.site" })).toBe("production");
+    expect(resolveEnvironment({ CONVEX_SITE_URL: "http://127.0.0.1:3211" })).toBe("development");
+    expect(resolveEnvironment({ CONVEX_SITE_URL: "http://localhost:3211" })).toBe("development");
+  });
+
+  test("tidak menebak \"development\" ketika tidak ada petunjuk", () => {
+    expect(resolveEnvironment({})).toBe("unknown");
+    expect(resolveEnvironment({ CONVEX_SITE_URL: "https://contoh.test" })).toBe("unknown");
+  });
+});
+
+describe("laporan error server yang diredaksi Convex", () => {
+  const input = {
+    kind: "critical" as const,
+    feature: "Application Shell",
+    operation: "RootErrorBoundary",
+    severity: "critical" as const,
+    source: "client" as const,
+    message: REDACTED_VENDORS,
+  };
+
+  test("pesannya menyebut fungsi yang gagal, bukan hanya \"Called by client\"", () => {
+    const report = normalizeErrorReport(input);
+    expect(report).not.toBeNull();
+    expect(report?.message).not.toBe("Called by client");
+    expect(report?.message).toContain("vendors:listForAdmin");
+    expect(report?.message).toContain("fdef7197fd99914a");
+    // Kalimatnya harus terbaca, bukan amplop mentah yang disalin apa adanya.
+    expect(report?.message).not.toContain("ConvexError:");
+    expect(report?.message).not.toContain("[CONVEX");
+  });
+
+  test("Request ID ikut tersimpan sebagai field sendiri", () => {
+    expect(normalizeErrorReport(input)?.requestId).toBe("fdef7197fd99914a");
+  });
+
+  test("Request ID dari pemanggil tidak ditimpa amplop", () => {
+    const report = normalizeErrorReport({ ...input, requestId: "req-dari-klien" });
+    expect(report?.requestId).toBe("req-dari-klien");
+  });
+
+  test("dua fungsi yang gagal tidak lagi menggumpal jadi satu laporan", () => {
+    const vendors = normalizeErrorReport(input);
+    const adminGate = normalizeErrorReport({ ...input, message: REDACTED_ADMIN_GATE });
+    expect(vendors?.fingerprint).not.toBe(adminGate?.fingerprint);
+  });
+
+  test("pesan asli yang utuh tidak ikut diubah", () => {
+    const utuh = normalizeErrorReport({
+      ...input,
+      kind: "integration",
+      message: "Meta menolak pesan teks di luar jendela layanan 24 jam.",
+    });
+    expect(utuh?.message).toBe("Meta menolak pesan teks di luar jendela layanan 24 jam.");
   });
 });
 

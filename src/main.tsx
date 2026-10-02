@@ -14,6 +14,7 @@ import { ErrorReportDialog, ErrorReportProvider } from "@/components/error-repor
 import { getErrorReporter } from "@/lib/error-report-bus";
 import { reportErrorToServer } from "@/lib/error-reporter";
 import { ERROR_CODES } from "@/lib/error-reporting";
+import { isStaleChunkError, recoverFromStaleChunk } from "@/lib/chunk-recovery";
 import "./index.css";
 
 // Lazy load route components for better code splitting
@@ -89,6 +90,18 @@ class RootErrorBoundary extends React.Component<
   }
   componentDidCatch(err: Error) {
     console.error("[Preview] Root crash:", err);
+    // Chunk basi dipulihkan dulu: satu muat ulang, dibatasi `sessionStorage`
+    // supaya tidak berputar tanpa henti kalau asetnya memang benar-benar tidak
+    // ada. Kalau ini berhasil, layar gangguan hanya sempat berkedip.
+    const recovery = recoverFromStaleChunk(err.message, {
+      reload: () => window.location.reload(),
+    });
+    // Muat ulang langsung mematikan konteks JS ini, jadi laporan Critical yang
+    // dikirim sekarang hampir pasti tidak sampai ke server. Peristiwa yang
+    // memulihkan dirinya sendiri pun bukan gangguan yang perlu ditindak admin:
+    // jejaknya cukup di console. Jalur lain (bukan chunk basi, atau penjaga
+    // anti-putar sudah kena sehingga muat ulang ditahan) tetap dilaporkan.
+    if (recovery === "reloaded") return;
     // Crash total dilaporkan, tapi popup sengaja tidak dibuka: dialog-nya ada
     // di dalam provider yang justru ikut tumbang. ID laporan ditampilkan
     // inline supaya pengguna bisa menyebutkannya.
@@ -105,18 +118,28 @@ class RootErrorBoundary extends React.Component<
       message: err.message,
       stack: err.stack,
       userMessage: "Aplikasi mengalami gangguan total dan dimuat ulang.",
-      context: { boundary: "root" },
+      context: { boundary: "root", staleChunkRecovery: recovery },
     }).then((outcome) => {
       if (outcome.reportId) this.setState({ reportId: outcome.reportId });
     });
   }
   render() {
     if (this.state.hasError) {
+      // Chunk basi bukan kerusakan data, jadi pengguna tidak perlu diberi tahu
+      // bahwa aplikasinya "mengalami gangguan total" — cukup bahwa halaman
+      // sedang menyegarkan versi asetnya.
+      const staleChunk = isStaleChunkError(this.state.message);
       return (
         <div className="flex min-h-dvh min-h-[100svh] items-center justify-center bg-background p-6 text-foreground">
           <div className="max-w-lg rounded-2xl border border-border bg-background p-6 text-center shadow-lg" role="alert">
-            <p className="text-lg font-black">Buku Kerja sedang mengalami gangguan</p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">Data Anda tidak diubah. Muat ulang halaman atau kembali ke katalog untuk melanjutkan.</p>
+            <p className="text-lg font-black">
+              {staleChunk ? "Menyegarkan versi terbaru" : "Buku Kerja sedang mengalami gangguan"}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {staleChunk
+                ? "Aplikasi sudah diperbarui sejak tab ini dibuka, jadi versi aset di halaman ini sudah tidak cocok lagi. Muat ulang halaman sekali untuk melanjutkan."
+                : "Data Anda tidak diubah. Muat ulang halaman atau kembali ke katalog untuk melanjutkan."}
+            </p>
             <p className="mt-3 break-words text-xs text-muted-foreground">{this.state.message}</p>
             {this.state.reportId ? (
               <p className="mt-2 font-mono text-xs font-bold text-muted-foreground">

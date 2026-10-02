@@ -464,6 +464,63 @@ const providerFields = (input: ErrorReportInput) => ({
 });
 
 /**
+ * Bongkar amplop error Convex: nama fungsi dan Request ID.
+ *
+ * Di deployment produksi, Convex TIDAK mengirim pesan error yang tidak
+ * tertangkap ke klien. Yang tersisa hanya amplopnya:
+ *
+ *   [CONVEX Q(vendors:listForAdmin)] [Request ID: fdef7197fd99914a] Server Error
+ *     Called by client
+ *
+ * `formatConvexError` membuang amplop itu — memang benar untuk pesan yang
+ * ditujukan ke pengguna, tapi salah untuk laporan error: setelah dibersihkan,
+ * seluruh isi pesannya tinggal "Called by client", dan nama fungsi serta
+ * Request ID yang justru satu-satunya petunjuk hilang. Karena sidik jari
+ * laporan ikut memakai pesan, kegagalan dari fungsi mana pun menyusut jadi
+ * kalimat yang sama dan MENGGUMPAL menjadi satu laporan.
+ *
+ * Fungsi ini mengembalikan bagian yang berguna itu supaya bisa disimpan utuh.
+ */
+export const convexErrorEnvelope = (message: string) => {
+  const udf = /\[CONVEX\s+[A-Za-z]+\(([^)\]]+)\)\]/.exec(message)?.[1]?.trim();
+  const requestId = /\[Request ID:\s*([A-Za-z0-9_-]+)\s*\]/i.exec(message)?.[1]?.trim();
+  return { udf: udf || undefined, requestId: requestId || undefined };
+};
+
+/**
+ * Label lingkungan untuk laporan error.
+ *
+ * Sebelumnya cuma `process.env.CONVEX_DEPLOYMENT ?? "development"`. Di
+ * deployment produksi variabel itu tidak diset, jadi SETIAP laporan produksi
+ * dicap "development" — dan gangguan produksi terbaca seperti artefak lokal.
+ * Operator yang memercayai label itu bisa mengabaikan insiden sungguhan.
+ *
+ * Urutannya sekarang: `APP_ENV` kalau operator menyetelnya secara eksplisit,
+ * lalu awalan `CONVEX_DEPLOYMENT`, lalu `CONVEX_SITE_URL` (Convex selalu
+ * menyetelnya; jalur auth aplikasi ini memang bergantung padanya). Kalau tidak
+ * ada satu pun yang bisa dipercaya, jawabannya "unknown" — bukan menebak
+ * "development".
+ */
+export const resolveEnvironment = (env: Record<string, string | undefined>): string => {
+  const explicit = env.APP_ENV?.trim();
+  if (explicit) return explicit;
+
+  const deployment = env.CONVEX_DEPLOYMENT?.trim();
+  if (deployment) {
+    const prefix = deployment.split(":")[0]?.toLowerCase();
+    if (prefix === "prod") return "production";
+    if (prefix === "dev" || prefix === "local") return "development";
+    if (prefix === "staging" || prefix === "preview") return prefix;
+  }
+
+  const site = env.CONVEX_SITE_URL?.trim() ?? "";
+  if (/^https:\/\/[a-z0-9-]+\.convex\.site\/?$/i.test(site)) return "production";
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(site)) return "development";
+
+  return "unknown";
+};
+
+/**
  * Satu-satunya pintu masuk pelaporan. Semua sumber error -- klien, server,
  * webhook -- dinormalisasi di sini supaya tidak ada dua definisi "apa itu
  * laporan bug" di dalam kode.
@@ -472,7 +529,21 @@ export const normalizeErrorReport = (
   input: ErrorReportInput,
   now: number = Date.now(),
 ): NormalizedErrorReport | null => {
-  const message = shortText(redactText(formatConvexError(input.message, "Terjadi kesalahan.")));
+  const envelope = convexErrorEnvelope(input.message);
+  const cleaned = formatConvexError(input.message, "");
+  // Sisa pembersihan yang isinya cuma penanda amplop Convex tidak memberi tahu
+  // apa pun. Kalau begitu, sebutkan fungsi yang gagal dan Request ID-nya,
+  // supaya laporannya bisa ditindaklanjuti alih-alih terbaca "Called by client".
+  const informative = cleaned.length > 0 && !/^called by client$/i.test(cleaned);
+  const message = shortText(
+    redactText(
+      informative
+        ? cleaned
+        : envelope.udf
+          ? `Error server pada ${envelope.udf} tanpa pesan${envelope.requestId ? ` (Request ID ${envelope.requestId})` : ""}`
+          : "Terjadi kesalahan.",
+    ),
+  );
   const policy = KIND_POLICY[input.kind] ?? KIND_POLICY.operation;
   if (!policy.reportable) return null;
   // Jaring pengaman teks: kalau kalimatnya jelas merupakan error yang
@@ -504,7 +575,11 @@ export const normalizeErrorReport = (
     source: input.source ?? "client",
     route: input.route ? shortText(input.route, 120) : undefined,
     component: input.component ? shortText(input.component, 60) : undefined,
-    requestId: input.requestId ? shortText(input.requestId, 40) : undefined,
+    requestId: input.requestId
+      ? shortText(input.requestId, 40)
+      : envelope.requestId
+        ? shortText(envelope.requestId, 40)
+        : undefined,
     ...provider,
     userRef: safeUserRef(input.userId),
     browser: input.browser ? shortText(input.browser, 60) : undefined,

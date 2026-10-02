@@ -140,7 +140,25 @@ export function AdminGovernance() {
         <h2 id="governance-title" className="mt-1 text-2xl font-black text-[#1A1A1A]">Kelola akses, moderasi, dan status provider</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#525252]">Semua keputusan di bawah diverifikasi ulang di server. Frontend hanya menampilkan aksi; bukan sumber kebenaran role.</p>
       </div>
-      <div className="grid gap-4 p-4 sm:p-6 xl:grid-cols-2">
+      {/*
+        Kartu-kartu di bawah dulu pernah terpotong di layar ponsel.
+
+        Penyebabnya kolom grid implisit: tanpa `grid-cols-1`, track tunggal
+        memakai `auto`, sehingga lebarnya ikut min-content anak terlebar (tabel
+        IP `min-w-[34rem]` di panel security log menaikkannya sampai ~787px).
+        Track itu lalu terpotong oleh `overflow-hidden` di `<section>` induk,
+        jadi isi kartu hilang di kanan pada Android maupun iOS.
+
+        Dua hal yang menahannya sekarang:
+        - `grid-cols-1` = `minmax(0, 1fr)`, jadi track boleh menyusut di bawah
+          min-content dan lebarnya mengikuti lebar layar.
+        - `[&>*]:min-w-0`, karena grid item punya `min-width: auto`; tanpa ini
+          track boleh menyusut tapi isinya tetap meluber keluar kartu.
+
+        Dua-duanya perlu. Mengganti salah satu saja hanya memindahkan
+        pemotongan dari kartu ke isinya.
+      */}
+      <div className="grid grid-cols-1 gap-4 p-4 sm:p-6 xl:grid-cols-2 [&>*]:min-w-0">
         <article className="border-2 border-[#121212] bg-white p-4">
           <h3 className="text-lg font-black text-[#1A1A1A]">Konfigurasi WhatsApp Business</h3>
           <p className="mt-2 text-sm leading-6 text-[#525252]">Masukkan key melalui tab Keys/API keys. Token tidak pernah ditampilkan atau disimpan di audit log.</p>

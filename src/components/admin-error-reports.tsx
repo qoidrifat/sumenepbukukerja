@@ -58,10 +58,10 @@ function AlertCell({ report }: { report: AdminErrorReport }) {
   // punya webhook, jadi tidak ada bukti apa pun yang bisa ditampilkan di sini.
   if (report.alertStatus === "handoff") {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-black text-[#FF5A26]">
+      <span className="flex flex-wrap items-center justify-end gap-1 text-xs font-black text-[#FF5A26]">
         <ExternalLink className="size-3.5" aria-hidden="true" /> Siap dibuka
         {report.alertAt ? <TimeStampLabel timestamp={report.alertAt} withSeconds /> : null}
-        <span className="block font-bold text-[#525252]">
+        <span className="font-bold text-[#525252]">
           Tautan handoff disiapkan. Pesan belum dikirim dari server.
         </span>
       </span>
@@ -69,7 +69,7 @@ function AlertCell({ report }: { report: AdminErrorReport }) {
   }
   if (report.alertStatus === "sent") {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-black text-[#24533A]">
+      <span className="flex flex-wrap items-center justify-end gap-1 text-xs font-black text-[#24533A]">
         <ShieldCheck className="size-3.5" aria-hidden="true" /> Terkirim
         {report.alertAt ? <TimeStampLabel timestamp={report.alertAt} withSeconds /> : null}
       </span>
@@ -166,7 +166,7 @@ export function AdminErrorReports() {
                       {report.occurrences > 1 ? ` · ${report.occurrences}× terjadi` : ""}
                     </span>
                   </span>
-                  <span className="flex shrink-0 flex-col items-end gap-1 text-right">
+                  <span className="flex min-w-0 flex-col items-end gap-1 text-right">
                     <TimeStampLabel timestamp={report.lastSeenAt} withSeconds />
                     <AlertCell report={report} />
                   </span>

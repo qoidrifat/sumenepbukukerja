@@ -135,3 +135,12 @@ test("kartu baris memakai token admin yang sama dengan panel lain", () => {
   expect(html).toContain("border-2 border-[#121212]");
   expect(html).toContain("rounded-[2px]");
 });
+
+test("kolom kanan baris audit boleh menyusut, bukan dikunci shrink-0", () => {
+  // Chip peran dan cap waktu duduk di kolom kanan berisi `justify-between`.
+  // Dengan `shrink-0` lebarnya selalu max-content, sehingga di layar ponsel
+  // baris ini meluber keluar kartu lalu terpotong oleh induknya.
+  const html = render([ENTRY]);
+  expect(html).toContain("flex min-w-0 flex-col items-end gap-1.5");
+  expect(html).not.toContain("shrink-0 flex-col items-end");
+});

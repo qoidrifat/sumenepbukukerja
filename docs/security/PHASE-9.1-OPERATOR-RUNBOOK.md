@@ -334,7 +334,13 @@ di Keys:
 
 2. Deploy kode ke `focused-lemur-389` lebih dulu. Selama deployment itu belum
    ada, frontend produksi akan menolak semua panggilan. Perintah:
-   `bunx convex deploy --prod`.
+   `npx convex deploy`.
+
+   CATATAN: `convex deploy` TIDAK punya flag `--prod`. Targetnya sudah
+   production sejak dulu - flag itu hanya ada di `convex data`, `convex run`,
+   dan `convex env`. Menjalankan `bunx convex deploy --prod` akan gagal dengan
+   "unknown option". Perintah yang benar sudah diperbaiki di baris ini pada
+   commit yang sama.
 3. Publish ulang (Preview dulu, baru Production). Perhatikan `age: 674` pada
    respons origin - halamannya di-cache CDN Vercel, jadi tunggu sekitar satu
    menit lalu hard refresh sebelum menyimpang.

@@ -631,13 +631,16 @@ yang membuat enkripsi bisa dilewati.
 Data lama masih polos sampai ini dijalankan. Dari Convex dashboard:
 
 ```bash
-1. internal/phoneMigration:report                # berapa polos vs terenkripsi
-2. internal/phoneMigration:migratePreferences   # ulangi sampai migrated: 0
-3. internal/phoneMigration:migrateClaims        # ulangi sampai migrated: 0
-4. internal/phoneMigration:migrateThreads       # ulangi sampai migrated: 0
-5. internal/phoneMigration:report                # remainingLegacy harus 0
-6. internal/phoneMigration:clearLegacyPlainPhones
+1. phoneMigration:report              # berapa polos vs terenkripsi
+2. phoneMigration:migratePreferences  # ulangi sampai migrated: 0
+3. phoneMigration:migrateClaims       # ulangi sampai migrated: 0
+4. phoneMigration:migrateThreads      # ulangi sampai migrated: 0
+5. phoneMigration:report              # remainingLegacy harus 0
+6. phoneMigration:clearLegacyPlainPhones
 ```
+
+Path di atas TIDAK diawali `internal/`: modulnya ada di
+`src/convex/phoneMigration.ts`, bukan `src/convex/internal/`.
 
 Langkah 2-4 dibatasi 500 baris per pemanggilan dan idempoten, jadi mengulangi
 sampai `migrated: 0` adalah hal yang diharapkan.

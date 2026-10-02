@@ -1343,13 +1343,19 @@ Pasang `PHONE_DATA_KEY` dulu (bagian 9.1), lalu jalankan dari Convex
 dashboard, berurutan:
 
 ```bash
-1. internal/phoneMigration:report          # berapa yang polos vs terenkripsi
-2. internal/phoneMigration:migratePreferences   # jalankan sampai migrated: 0
-3. internal/phoneMigration:migrateClaims        # jalankan sampai migrated: 0
-4. internal/phoneMigration:migrateThreads       # jalankan sampai migrated: 0
-5. internal/phoneMigration:report          # remainingLegacy harus 0
-6. internal/phoneMigration:clearLegacyPlainPhones   # HANYA setelah langkah 5 = 0
+1. phoneMigration:report              # berapa yang polos vs terenkripsi
+2. phoneMigration:migratePreferences  # jalankan sampai migrated: 0
+3. phoneMigration:migrateClaims       # jalankan sampai migrated: 0
+4. phoneMigration:migrateThreads      # jalankan sampai migrated: 0
+5. phoneMigration:report              # remainingLegacy harus 0
+6. phoneMigration:clearLegacyPlainPhones   # HANYA setelah langkah 5 = 0
 ```
+
+Path di atas sengaja TIDAK diawali `internal/`. Modulnya berada di
+`src/convex/phoneMigration.ts`, bukan di `src/convex/internal/`, jadi path CLI
+yang benar adalah `phoneMigration:*`. Path `internal/phoneMigration:*` tidak
+pernah ada - memakainya membuat CLI mencetak daftar seluruh fungsi dan berhenti,
+yaitu tanda command tidak ditemukan, bukan tanda database sudah aman.
 
 Langkah 2-4 dibatasi 500 baris per pemanggilan dan idempoten, jadi boleh
 dijalankan berulang kali sampai `migrated: 0`. Itu yang diharapkan, bukan

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "pretest": "node scripts/qa/ensure-convex-codegen.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "perf:catalog": "node scripts/qa/benchmark-catalog.mjs",

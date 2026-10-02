@@ -6,6 +6,15 @@ src/convex/_generated
 # Screenshot QA sementara (Phase 3), bukan aset repo
 tmp/
 
+# Artefak Playwright. Setiap `bun run test:e2e` yang gagal menulis screenshot,
+# video, dan trace ke sini - semuanya biner dan besar. `test-results/.last-run.json`
+# pernah ikut terlacak, jadi satu kali menjalankan e2e langsung menghasilkan
+# diff berisi binary yang tidak berguna di histori.
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
 # ---------------------------------------------------------------------------
 # RAHASIA - FASE 0
 # ---------------------------------------------------------------------------

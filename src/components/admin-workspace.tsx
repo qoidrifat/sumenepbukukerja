@@ -249,7 +249,17 @@ export function AdminHeader({
   useEffect(() => {
     if (!menuOpen) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+      const target = event.target as Node | null;
+      if (!target) return;
+      // Dialog admin dirender lewat PORTAL ke `document.body`, jadi isinya
+      // secara DOM berada DI LUAR header ini. Tanpa baris ini, ketukan apa pun
+      // di dalam dialog selalu terbaca sebagai "di luar" - termasuk ketukan
+      // pertama pengguna untuk menyentuh isian. `closest` juga menangkap
+      // dialog yang dirender di dalam portal lain.
+      if (target instanceof Element && target.closest("[data-admin-dialog]")) {
+        return;
+      }
+      if (!menuRef.current?.contains(target)) setMenuOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -386,7 +396,19 @@ export function AdminHeader({
                   <ArrowLeft className="size-5 shrink-0" aria-hidden="true" />
                   Beranda
                 </Link>
-                <AdminProfileTrigger variant="menu" onOpen={() => setProfileOpen(true)} />
+                <AdminProfileTrigger
+                  variant="menu"
+                  onOpen={() => {
+                    // Panel menu ditutup BERSAMAAN dialognya dibuka. Aman
+                    // sekarang karena dialognya hidup di luar `AnimatePresence`
+                    // (lihat catatan di bawah): panel boleh dicabut, dialog
+                    // tidak. Kalau panel dibiarkan terbuka, ia tetap menutupi
+                    // sebagian layar di belakang dialog dan muncul lagi begitu
+                    // dialog ditutup.
+                    setMenuOpen(false);
+                    setProfileOpen(true);
+                  }}
+                />
                 <div className="admin-menu-separator" aria-hidden="true" />
                 <button
                   type="button"
@@ -412,11 +434,14 @@ export function AdminHeader({
           `AnimatePresence` mencabut seluruh anaknya, dan dialog yang dirender
           dari dalam akan ikut tercabut beserta portalnya.
 
-          Dua hal lain ikut terperangkap di sini. `pointerdown` di luar header
-          menutup menu, dan portal dialog berada di `document.body` - yaitu di
-          luar header. Jadi tanpa pemisahan ini, ketukan pertama di dalam
-          dialog akan menutup menu, dan dialog ikut hilang. Di Android itu
-          terlihat sebagai "terbuka sebentar lalu menutup sendiri".
+          Dua hal lain dulu ikut terperangkap di sini. `pointerdown` di luar
+          header menutup menu, dan portal dialog berada di `document.body` -
+          yaitu di luar header. Jadi tanpa pemisahan ini, ketukan pertama di
+          dalam dialog akan menutup menu, dan dialog ikut hilang. Di Android
+          itu terlihat sebagai "terbuka sebentar lalu menutup sendiri". Dua
+          sisi lain sekarang ikut ditutup: pemicu menu menutup panelnya sendiri
+          di handler yang sama, dan penutup `pointerdown` di atas paling dulu
+          memeriksa `[data-admin-dialog]`.
 
           Letak di DOM sebenarnya tidak berpengaruh karena dialog dirender
           lewat portal; yang menentukan adalah posisi di POHON React. */}

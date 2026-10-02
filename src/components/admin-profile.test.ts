@@ -22,6 +22,21 @@ const profile = readFileSync(new URL("./admin-profile.tsx", import.meta.url), "u
 const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
 const adminPage = readFileSync(new URL("../pages/Admin.tsx", import.meta.url), "utf8");
 const dashboard = readFileSync(new URL("../pages/Dashboard.tsx", import.meta.url), "utf8");
+
+/**
+ * Indeks pemicu profil varian menu di header ruang pengelola.
+ *
+ * Format JSX boleh berubah - pemecah baris tidak boleh mengubah apa yang
+ * dicek test ini, jadi polanya dibuat tahan spasi. Versi lama memakai
+ * `indexOf("<AdminProfileTrigger variant=\"menu\"")` dan ikut merah begitu
+ * pemicunya ditulis ulang menjadi beberapa baris, padahal perilakunya tidak
+ * berubah sama sekali.
+ */
+function indexOfMenuTrigger(source: string): number {
+  const match = /<AdminProfileTrigger\s+variant="menu"/.exec(source);
+  return match ? match.index : -1;
+}
+
 const community = readFileSync(
   new URL("./community-widgets.tsx", import.meta.url),
   "utf8",
@@ -40,7 +55,7 @@ test("ikon orang ada di sebelah label peran di header", () => {
   // Namanya `AdminProfileTrigger`, bukan `AdminProfile`: pemicu dan dialognya
   // sudah dipisah. Alasannya ada di test berikutnya - pemisahan itu yang
   // membuat dialog bisa dibuka sama sekali.
-  const profileIndex = workspace.indexOf("<AdminProfileTrigger variant=\"menu\"");
+  const profileIndex = indexOfMenuTrigger(workspace);
   expect(roleIndex).toBeGreaterThan(-1);
   expect(profileIndex).toBeGreaterThan(-1);
   // Aksesibel lewat nama, bukan hanya ikon.
@@ -69,7 +84,7 @@ test("dialog profil dirender DI LUAR subtree menu yang bisa dicabut", () => {
   // memindahkannya kembali ke dalam `AnimatePresence`.
   const animateStart = workspace.indexOf("<AnimatePresence>");
   const animateEnd = workspace.indexOf("</AnimatePresence>");
-  const triggerIndex = workspace.indexOf("<AdminProfileTrigger variant=\"menu\"");
+  const triggerIndex = indexOfMenuTrigger(workspace);
   const dialogIndex = workspace.indexOf("<AdminProfileDialog");
 
   expect(animateStart).toBeGreaterThan(-1);
@@ -89,6 +104,57 @@ test("dialog profil dirender DI LUAR subtree menu yang bisa dicabut", () => {
   // penggabungan ulang tidak mungkin terjadi diam-diam.
   expect(profile).toContain("export function AdminProfileDialog");
   expect(profile).toContain("export function AdminProfileTrigger");
+});
+
+test("membuka dialog profil sekaligus menutup panel menu", () => {
+  // REGRESI, sisi kedua dari bug yang sama. Panel menu tidak boleh tetap
+  // terbuka di belakang dialog: overlay menutupinya, tapi begitu dialog
+  // ditutup panel itu muncul lagi sendirian dan menutupi layar. Menutupnya
+  // di handler yang sama aman justru KARENA dialognya hidup di luar
+  // `AnimatePresence` - panel boleh dicabut, dialog tidak.
+  //
+  // Pemeriksaan POSISI, bukan hanya keberadaan: dua pemanggilan yang salah
+  // urutan (atau salah tempat) akan lolos kalau test ini hanya `toContain`.
+  const start = indexOfMenuTrigger(workspace);
+  const end = workspace.indexOf("<AdminProfileDialog");
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+
+  const handler = workspace.slice(start, end);
+  const closeMenu = handler.indexOf("setMenuOpen(false)");
+  const openDialog = handler.indexOf("setProfileOpen(true)");
+  expect(closeMenu).toBeGreaterThan(-1);
+  expect(openDialog).toBeGreaterThan(closeMenu);
+});
+
+test("penutup menu mengabaikan ketukan yang jatuh di dalam dialog admin", () => {
+  // REGRESI, sisi ketiga. Menu menutup diri pada setiap `pointerdown` di luar
+  // headernya. Dialog admin dirender lewat PORTAL ke `document.body`, jadi
+  // secara DOM isinya berada di luar header - ketukan pengguna di dalam dialog
+  // selalu terbaca sebagai "di luar".
+  //
+  // Setelah dialog dipisah keluar `AnimatePresence`, sisa dari ketukan yang
+  // salah baca itu hanyalah panel menu ikut menutup - dan di Android itulah
+  // yang terbaca sebagai dialog menutup dirinya sendiri. Penjaga satu baris
+  // ini membuat kelas bug itu mustahil terjadi.
+  const start = workspace.indexOf("const onPointerDown");
+  const end = workspace.indexOf("const onKeyDown");
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+
+  const handler = workspace.slice(start, end);
+  const guard = handler.indexOf('closest("[data-admin-dialog]")');
+  const close = handler.indexOf("setMenuOpen(false)");
+  expect(guard).toBeGreaterThan(-1);
+  expect(close).toBeGreaterThan(guard);
+
+  // Atribut penjaganya harus benar-benar ada di dialog admin, kalau tidak
+  // `closest` ini tidak pernah cocok.
+  const wrapper = readFileSync(
+    new URL("./admin-dialog.tsx", import.meta.url),
+    "utf8",
+  );
+  expect(wrapper).toContain('data-admin-dialog=""');
 });
 
 test("tombol profil memakai token admin, bukan gaya tombol generik", () => {

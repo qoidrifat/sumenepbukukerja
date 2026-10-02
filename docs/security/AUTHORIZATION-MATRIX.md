@@ -98,6 +98,39 @@ pernah dipakai; `currentAccess` hanya melaporkan hasil pembacaan server.
 | `errorReports:reportError` | mutation | reportId | 500 laporan baru per jam |
 | `adminGate:verifyAdminPasscode` | action | tiket gerbang atau alasannya | rate limit per perangkat + plafon global |
 | `adminGate:verifyAdminTicket` | action | status tiket | tiket sekali pakai, 10 menit |
+| `vendors:ensureCatalogSeeded` | mutation | jumlah listing tersemai | **sudah ikut** `public_mutation_rate`; lihat catatan di bawah |
+
+Tujuh baris terakhir adalah SATU-SATUNYA permukaan publik tanpa gerbang
+otorisasi. Semuanya disengaja, dan setiap alasannya tertulis di test yang
+menjaga daftar ini - bukan hanya di dokumen.
+
+## 3b. Audit ini tidak bisa basi
+
+Daftar di atas adalah dokumen. Dokumen tidak gagal ketika ada `export const`
+baru yang ditambahkan tanpa gerbang. Karena itu pemindaiannya dipindah ke
+`src/convex/public-surface-audit.test.ts`, yang memindai `src/convex/*.ts`
+**pada saat test jalan** dan mensyaratkan setiap fungsi publik untuk
+menyentuh gerbang yang dikenal ATAU ada di daftar pengecualian yang
+alasannya ditulis di dalam test.
+
+Hasil pemindaian terakhir: **113 fungsi publik**, 106 bergerbang, 7
+pengecualian (tujuh baris terakhir di bagian 3).
+
+Empat pengaman di test tersebut:
+
+1. **Daftar basi ditolak.** Pengecualian untuk fungsi yang sudah dihapus
+   akan menggagalkan test, karena entri basi membuat angka audit terlihat
+   benar padahal permukaannya sudah berubah.
+2. **Alasan kosong ditolak.** Setiap pengecualian wajib punya penjelasan
+   nyata, bukan "kebetulan".
+3. **Mutasi publik wajib menyebut batasnya.** "Publik" untuk baca saja
+   wajar; "publik" tanpa batas adalah anonymous write primitive.
+4. **Audit diuji terhadap dirinya sendiri.** Menambahkan satu mutasi
+   publik sementara membuat test gagal dengan nama fungsi, jenis, berkas,
+   dan langkah pemulihannya.
+
+Jadi menambah endpoint publik tanpa memutuskan auditorsinya tidak akan menunggu
+temuan audit berikutnya - akan langsung menggagalkan CI.
 
 ---
 

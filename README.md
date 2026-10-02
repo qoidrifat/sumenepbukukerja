@@ -29,6 +29,24 @@ The convex server has a separate set of environment variables that are accessibl
 
 Currently, these variables include auth-specific keys: JWKS, JWT_PRIVATE_KEY, and SITE_URL.
 
+### `PHONE_DATA_KEY` (Fase 16-17)
+
+Nomor telepon warga disimpan terenkripsi. Satu variabel ini memegang kunci
+masternya, **32 byte base64**:
+
+```bash
+openssl rand -base64 32
+```
+
+Tanpa variabel ini, setiap mutasi yang menyentuh nomor warga MELEMPAR - bukan
+menyimpan nomor polos. Itu disengaja: kegagalan diam-diam di sini berarti
+database tetap polos sementara aplikasi terlihat normal.
+
+Jangan mengganti nilainya setelah data terenkripsi sudah ada. Mengganti kunci
+membuat semua ciphertext lama tidak terbaca, dan nomor yang sudah ada tidak
+punya salinan polos untuk dipulihkan. Pemulihan lewat kunci hanya mungkin
+selama kolom polos masih terisi.
+
 
 # Using Authentication (Important!)
 
@@ -584,6 +602,68 @@ Konsekuensi yang harus diketahui saat mengembangkan:
 > diuji, lalu ditarik kembali, dan alasannya dikunci test di
 > `src/convex/access-denial-contract.test.ts`. Jangan menuliskan "catat lalu
 > tolak" di dalam mutation; buktinya selalu hilang tanpa error apa pun.
+
+## Nomor warga terenkripsi & migrasinya (Fase 16-17)
+
+Semua penulisan nomor warga sekarang terenkripsi: AES-GCM-256 dengan kunci
+turunan HKDF dari `PHONE_DATA_KEY`, dan pencarian lewat HMAC 128-bit
+berprefiks `bkp1.`. Satu variabel kunci menghasilkan dua kunci turunan yang
+saling terpisah, jadi tidak ada yang bisa salah tukar diam-diam.
+
+Tiga tabel yang tersentuh: `notificationPreferences`, `listingClaims`, dan
+`whatsappThreads`. Semuanya mendapat kolom `...Enc` (ciphertext) dan
+`...Key` (kunci pencarian), plus indeks `byPhoneKey`.
+
+### Semua akses lewat `src/convex/phoneVault.ts`
+
+Berkas itu adalah satu-satunya pintu masuk untuk menulis dan membaca nomor
+warga. Jangan menulis langsung ke kolom nomor dari mutasi lain - itu jalur
+yang membuat enkripsi bisa dilewati.
+
+- `preparePhone(ctx, raw)` - untuk jalur tulis
+- `readStoredPhone(enc, plain)` - untuk jalur baca, dengan fallback ke kolom
+  polos untuk baris lama
+- `findByPhoneKey(ctx, target, raw)` - untuk mencari, memakai HMAC dulu lalu
+  indeks lama sebagai pengaman
+
+### Urutan migrasi (WAJIB, jangan dibalik)
+
+Data lama masih polos sampai ini dijalankan. Dari Convex dashboard:
+
+```bash
+1. internal/phoneMigration:report                # berapa polos vs terenkripsi
+2. internal/phoneMigration:migratePreferences   # ulangi sampai migrated: 0
+3. internal/phoneMigration:migrateClaims        # ulangi sampai migrated: 0
+4. internal/phoneMigration:migrateThreads       # ulangi sampai migrated: 0
+5. internal/phoneMigration:report                # remainingLegacy harus 0
+6. internal/phoneMigration:clearLegacyPlainPhones
+```
+
+Langkah 2-4 dibatasi 500 baris per pemanggilan dan idempoten, jadi mengulangi
+sampai `migrated: 0` adalah hal yang diharapkan.
+
+Langkah 6 **menolak** berjalan selama masih ada baris polos. Itu penjaga, bukan
+bug: mengosongkan kolom polos di langkah yang sama dengan mengenkripsi berarti
+satu keputusan menentukan apakah nomor warga masih ada atau tidak, dan nomor
+yang hilang tidak bisa dipulihkan. Jalankan hanya setelah langkah 5 nol.
+
+## Audit permukaan publik tidak bisa basi (Fase 3)
+
+Ada 113 fungsi publik di `src/convex/`. 106 memanggil gerbang otorisasi;
+7 sisanya disengaja dan alasannya tertulis (bagian 3 di
+`docs/security/AUTHORIZATION-MATRIX.md`).
+
+Yang menjaga angka itu adalah
+`src/convex/public-surface-audit.test.ts`, yang memindai
+`src/convex/*.ts` saat test jalan. Menambah fungsi publik tanpa gerbang
+menggagalkan test dan menyebut nama fungsi, jenis, berkas, dan langkah
+pemulihannya.
+
+Jadi kalau Anda menambah query atau mutasi baru: panggil gerbang yang
+sesuai (`requireUser`, `requireStaff`, `requireManagementViewer`,
+`requireVendorManager`, `requireProvenIdentity`), atau - kalau memang harus
+publik - tambahkan ke `INTENTIONAL_PUBLIC` di test itu dengan alasan spesifik,
+lalu perbarui matriks otorisasi.
 
 ## Backlog 17 requirement (Fase 1-6)
 

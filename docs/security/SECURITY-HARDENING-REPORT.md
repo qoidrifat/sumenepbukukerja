@@ -173,9 +173,9 @@ bagi pemanggilan anonim. Rinciannya di 2.10, 2.11, dan 2.12.
 |---|---|---|---|
 | 0 | Secret containment | SEBAGIAN | `.gitignore` diperbaiki; riwayat Git & rotasi tidak bisa dikerjakan dari sini |
 | 1 | Otorisasi terpusat | SELESAI | 2 berkas, 5 fungsi, 2 salinan dihapus |
-| 2 | Audit fungsi publik | SEBAGIAN | `ensureCatalogSeeded` selesai; 30+ fungsi lain belum didokumentasikan |
+| 2 | Audit fungsi publik | SELESAI | Semua 113 fungsi publik diaudit; 106 bergerbang, 7 pengecualian tertulis. Audit jadi tripwire (`public-surface-audit.test.ts`), bukan dokumen |
 | 3 | Minimisasi data | SELESAI | Daftar putih + 13 test regresi |
-| 4 | Privasi WhatsApp | SEBAGIAN | Nomor USAHA publik selesai lewat handoff opaque + kuota; nomor pribadi warga masih polos (bagian 5.2) |
+| 4 | Privasi WhatsApp | SELESAI | Nomor USAHA lewat handoff opaque + kuota; nomor pribadi warga terenkripsi (AES-GCM) + lookup HMAC. Sisa: migrasi dijalankan pemilik (9.2) |
 | 5 | Integritas Security Desk | SELESAI | `reportSessionContext` sekarang server-authoritative; 8 test regresi |
 | 6 | CORS / HTTP | SELESAI | Fail-closed saat allowlist kosong + batas 30 permintaan/menit per IP; 11 test |
 | 7 | Deteksi serangan | SEBAGIAN | Model + katalog + pencatat + panel + retensi + penghitung laju SELESAI; 7 dari 9 pemicu tersambung dan diuji |
@@ -186,9 +186,9 @@ bagi pemanggilan anonim. Rinciannya di 2.10, 2.11, dan 2.12.
 | 12 | QA responsif | BELUM | Tidak ada peramban di lingkungan ini |
 | 13 | Integritas tombol | BELUM | |
 | 14 | Sinkronisasi rute | BELUM | |
-| 15 | Performa | SEBAGIAN | Plafon pemindaian pada dua query publik terberat; sisanya butuh pagination di UI |
+| 15 | Performa | SEBAGIAN | Plafon pemindaian pada 7 query (2.13); N+1 dan agregat dashboard masih terbuka secara sadar |
 | 16 | Dependency / lockfile | SELESAI | 46 -> 15 kerentanan, 0 critical, `axios` dihapus, satu lockfile |
-| 17-19 | Test / unit / e2e | SEBAGIAN | 1007 test hijau, termasuk 15 test handoff kontak dan 12 test pemicu deteksi baru; E2E belum disentuh (tidak ada peramban) |
+| 17-19 | Test / unit / e2e | SEBAGIAN | 1027 test hijau, termasuk 15 test enkripsi nomor, 5 test audit permukaan publik, 15 test handoff kontak, 12 test pemicu deteksi; E2E belum disentuh (tidak ada peramban) |
 | 20 | Urutan pengerjaan | SEBAGIAN | Urutan diikuti untuk yang dikerjakan |
 | 21 | Laporan ini | SELESAI | |
 | 22 | Definition of Done | SEBAGIAN | Lihat bagian 11 |
@@ -556,6 +556,116 @@ mengubah produk - tombol "muat lagi" atau gulir tak hingga di katalog adalah
 keputusan pemilik, bukan hasil audit. Konsekuensinya dicatat di bagian 11:
 katalog masih satu permintaan penuh, hanya sekarang punya batas.
 
+### 2.13 Audit seluruh permukaan publik, dan pivotnya dari dokumen ke test
+
+Bagian 2 memuat temuan demi temuan. Yang belum pernah ada adalah
+jawaban untuk pertanyaan "berapa banyak permukaan publik yang ada, dan
+semuanya bergerbang?".-matrix di `docs/security/AUTHORIZATION-MATRIX.md`
+m menjawabnya, tapi jawabannya berupa dokumen - dan dokumen tidak gagal
+ketika ada `export const` baru yang ditambahkan tanpa gerbang. Audit berikutnya
+harus menemukan ulang semuanya dari nol.
+
+Hasil pemindaian kode: **113 fungsi publik**, 106 memanggil gerbang, 7 tidak.
+Tujuh itu semuanya disengaja dan ketujuhnya sudah tertulis di bagian 3
+matriks: tiga query baca katalog publik, satu bootstrap katalog, satu probe
+konfigurasi, satu penghitung klik, satu pencatat pencarian.
+
+Yang berubah adalah bentuk auditnya. `public-surface-audit.test.ts` memindai
+`src/convex/*.ts` **pada saat test jalan**, lalu mensyaratkan setiap fungsi
+publik untuk menyentuh gerbang yang dikenal ATAU ada di daftar pengecualian
+yang alasannya ditulis di dalam test. Menambah endpoint publik tanpa
+memperbarui audit sekarang menggagalkan CI, bukan menunggu temuan audit
+berikutnya.
+
+Empat pengaman tambahan di test yang sama: daftar pengecualian tidak boleh
+menyimpan entri untuk fungsi yang sudah dihapus (entri basi membuat angka
+audit terlihat benar padahal permukaannya berubah); setiap alasan wajib
+memiliki isi nyata; dan setiap mutasi publik tanpa gerbang wajib menyebut
+batasnya secara eksplisit, karena "publik" untuk baca saja wajar, sedangkan
+"publik" tanpa batas adalah primitive tulis anonim.
+
+Audit ini sudah diuji terhadap dirinya sendiri: sebuah mutasi publik tiruan
+ditambahkan sementara, dan test gagal dengan nama fungsi, jenisnya, berkasnya,
+langkah pemulihan, dan nomor baris yang harus diperbaiki.
+
+**Satu temuan nyata dari audit ini.** `vendors.ensureCatalogSeeded` adalah
+mutasi publik tanpa sesi yang dipanggil dari peramban SETIAP pengunjung saat
+katalog masih kosong, dan - ini yang terlewat - ia adalah satu-satunya mutasi
+publik di aplikasi ini yang TIDAK punya penjaga laju. Dia sudah punya idempotensi
+dan batas 200 baris, jadi tidak bisa menyalahgunakan, tapi ribuan permintaan
+anonim tetap membanjiri kuota baca/tulis deployment milik orang lain.
+Sistemnya tidak butuh satu akses tulis untuk halogenasi. Sekarang ikut
+`public_mutation_rate`, sama dengan mutasi publik lain.
+
+### 2.14 Plafon pemindaian pada lima query yang tumbuh tanpa batas
+
+Tujuh rantai `.collect()` tanpa batas ditemukan. Empat di antaranya adalah
+pola yang sama: hasil akhirnya dipotong di memori, tapi pemindaiannya dulu
+membaca SELURUH tabel. Tabel itu dipangkas cron atau tidak dipangkas sama
+sekali, jadi biayanya naik seiring waktu.
+
+| Fungsi | Tabel | interception | Plafon |
+|---|---|---|---|
+| `community.createRequest` | `vendors` | setiap request baru mencocokkan pemilik yang lokasinya cocok | 2.000 |
+| `community.listInteractions` | `vendorInteractions` | riwayat penuh per pengguna, lalu diurutkan dan dipotong 100 | 500 |
+| `vendors.listFavorites` | `favorites` | seluruh favorit, plus satu `db.get` per baris (N+1) | 500 |
+| `whatsapp.getWhatsappStatus` | `whatsappDeliveries` | seluruh kiriman, lalu dipotong 5 | 50 |
+| `vendors.listForAdmin` | `vendors` | seluruh katalog ke peramban pengelola | 2.000 |
+
+**Kenapa `.take()` dan bukan `.order("desc").take()`.** Ini jebakan yang mudah
+ditemukan. Indeks `byUser` pada tabel-tabel ini hanya memuat `userId`, tanpa
+field waktu. `.order("desc")` pada indeks itu berarti "urutan indeks", bukan
+"terbaru dulu". Menghapus `.collect()` lalu menambahkan `.order("desc")`terlihat
+seperti optimasi, padahal ia membalik urutan tampil tanpa mengurangi satu
+pun baris yang dibaca - biaya yang sama, hasil yang salah. Karena itu yang
+dipakai hanya `.take()`: urutan di dalam memori dipertahankan, dan biaya
+dibatasi.
+
+Untuk riwayat yang tumbuh, ini trade-off yang diketahui, dan trade-off-nya
+disengaja - di atas batas, hasil bisa lebih sedikit dari biasanya. Itu lebih
+baik daripada satu query membaca puluhan ribu baris demi mengembalikan
+ratusan.
+
+**Yang SENGAJA tidak diberi plafon, dan alasannya.** Tujuh pembacaan penuh
+tersisa adalah agregat dashboard admin (`community.listCommunityMetrics`,
+`analytics.adminMetrics`) yang menghitung angka dari seluruh tabel. Memotongnya
+dengan `.take()` tidak membuat halaman lebih cepat secara jujur - ia membuat
+angka di dashboard MENYATAKAN ANGKA YANG SALAH dengan percaya diri penuh.
+"K vastlyng" yang lebih lambat lebih baik daripada angka yang berbohong, dan
+mengganti hitungan penuh dengan penghitung berjalur (pola yang sudah dipakai
+`analyticsCounters` untuk peristiwa) adalah refactor lintas berkas yang
+tidak bisa diverifikasi tanpa membuka panel admin di peramban.
+
+Dua N+1 lain (`offers.listOwnerRequests`, `adminMetrics` yang menghitung
+permintaan per vendor lewat satu query per vendor) sengaja tidak diubah pada
+commit ini: menghilangkannya mengubah bentuk hasil atau jumlah dokumen yang
+dibaca, dan kedua-duanya butuh verifikasi visual yang tidak tersedia di
+lingkungan ini.
+
+### 2.15 Satu test yang gagal sesekali, dan penyebab sebenarnya
+
+`ciphertext yang dimanipulasi ditolak` gagal sekitar 1 dari 8 kali. Enkripsi
+tidak pernah salah - testnya yang salah.
+
+Test itu memutar karakter TERAKHIR dari ciphertext base64url. Pada base64,
+kelompok terakhir bisa lebih pendek dari tiga byte, dan bit-bit yang tidak
+terpakai di karakter terakhir dibuang saat dekode. Mengubah `A` menjadi `B` di
+sana karena itu bisa menghasilkan byte yang PERSIS SAMA: yang di
+"dimanipulasi" ternyata bukan manipulasi, dan dekripsi tetap berhasil - dengan
+benar.
+
+Terukur: dari 40 panjang ciphertext, 5 menghasilkan byte yang identik. Angka
+12,5% itu cocok persis dengan gejala "sekali-sekali". Karakter PERTAMA aman
+selalu, karena dia meng-encode 6 bit penuh yang langsung masuk ke byte
+pertama. Test sekarang memutar karakter pertama dan lolos 5 kali berturut-
+turut.
+
+Yang membuat ini layak dicatat bukan hanya perbaikannya, tapi risikonya kalau
+dibiarkan: test yang gagal sesekali melatih kita mengabaikan merah. Kalau
+demikian, test ini akan dibiarkan atau di-`skip` - dan bersama testnya,
+satu-satunya bukti bahwa GCM benar-benar menolak ciphertext yang diubah
+ikut hilang.
+
 ---
 
 ## 3. Berkas dan Rentang Baris
@@ -766,13 +876,12 @@ Tiga pilihan yang tersisa, semuanya mengubah kontrak pemanggil:
 
 ### 5.2 Privasi nomor WhatsApp (P1, "harder to scrape") - SEBAGIAN SELESAI
 
-> **Status setelah commit ini.** Bagian nomor USAHA sudah dikerjakan dan
-> diuji: katalog publik tidak lagi mengirim nomor mentah sama sekali. Bagian
-> nomor pribadi warga (`notificationPreferences.whatsappPhone`,
-> `listingClaims.whatsappPhone`, `whatsappThreads.phone`) MASIH tersimpan polos
-> dan itu sengaja dicatat sebagai belum selesai di bagian 11, bukan
-> disembunyikan. Rincian yang sudah jadi ada di bawah; yang belum jadi ada di
-> 5.2b.
+> **Status setelah commit ini.** KEDUA bagian sudah dikerjakan. Nomor USAHA
+> tidak lagi dikirim mentah ke katalog publik (lihat 5.2a), dan nomor pribadi
+> warga sekarang disimpan terenkripsi dengan kunci server, dicari lewat kunci
+> HMAC, dan ditampilkan tersamar ke admin (lihat 5.2b). Yang tersisa hanyalah
+> langkah operasional: pemilik harus memasang kunci, lalu menjalankan urutan
+> migrasi yang tertulis di 9.2.
 
 #### 5.2a Yang sudah dikerjakan: nomor usaha tidak lagi bocor
 
@@ -853,20 +962,71 @@ dengan pengaman yang berbeda: galat handoff selalu jadi toast, tab kosong
 selalu ditutup, dan tidak ada jalur yang kembali diam-diam ke nomor di
 klien.
 
-#### 5.2b Yang BELUM: nomor pribadi warga
+#### 5.2b Yang SUDAH: nomor pribadi warga terenkripsi
 
- Tiga field ini masih tersimpan polos di database:
+Tiga field yang tadinya polos sekarang menyimpan ciphertext:
 
-- `notificationPreferences.whatsappPhone` (punya indeks `byPhone`)
-- `listingClaims.whatsappPhone`
-- `whatsappThreads.phone` (punya indeks `byPhone`)
+- `notificationPreferences.whatsappPhoneEnc` + `whatsappPhoneKey`
+- `listingClaims.whatsappPhoneEnc` + `whatsappPhoneKey`
+- `whatsappThreads.phoneEnc` + `phoneKey`
 
-Butuh: enkripsi application-layer dengan kunci server, HMAC untuk lookup
-sehingga indeks `byPhone` pindah ke indeks kunci HMAC, tampilan tersamar
-untuk admin, dan migrasi baris lama. Tidak dikerjakan pada commit ini -
-sifatnya berbeda dari nomor usaha (tidak bisa dihilangkan dari respons,
-hanya bisa disamarkan), jadi jadwalnya harus menyertakan keputusan kunci dan
-rotasinya.
+Kolom polos lama (`whatsappPhone`, `phone`) **tidak dihapus** oleh migrasi.
+Pengosongannya adalah langkah terpisah yang dijaga, dan itu disengaja - lihat
+"kenapa kolom polos masih ada" di bawah.
+
+**Kunci.** Satu variabel, `PHONE_DATA_KEY`, berisi 32 byte base64
+(`openssl rand -base64 32`). Dari master key itu diturunkan dua kunci
+terpisah lewat HKDF-SHA256: satu untuk AES-GCM-256, satu untuk HMAC-SHA256
+untuk pencarian. Satu variabel env berarti satu rahasia yang harus dipasang,
+bukan dua yang bisa saling lupa.
+
+Dua kunci turunan itu tidak bisa saling menggantikan, dan itu diuji - kalau
+salah derivasi, `decryptPhone` dengan kunci HMAC akan gagal diam-diam pada
+semua baris, dan gejala yang muncul bukan "kunci salah" melainkan "semua nomor
+warga tidak terbaca".
+
+**Pencarian.** Indeks `byPhone` tidak lagi jadi jalur utama: `findByPhoneKey`
+mencari lewat HMAC 128-bit yang dipotong dan diberi prefiks `bkp1.`. Indeks
+`byPhone` lama dipakai sebagai jaring pengaman untuk baris yang belum
+dimigrasi, jadi urutan yang salah tidak langsung membuat nomor hilang.
+
+Formatnya `bk1.<iv>.<ciphertext>` (base64url). `isEncryptedPhone` mengenali
+format ini, sehingga `readStoredPhone` bisa membaca ciphertext dan jatuh ke
+kolom polos untuk baris lama tanpa menebak.
+
+**Kegagalan yang paling berbahaya, dan bagaimana bentuknya.** Kegagalan
+enkripsi yang paling umum bukan "dekripsi gagal", tapi "kunci tidak ada, jadi
+sistem menyimpan polos sambil mengaku sudah mengenkripsi". Owner akan melihat
+aplikasi normal, semua tes bisa lulus, dan database tetap polos. Karena itu
+jalur tulis di sini **gagal terbuka**: tanpa `PHONE_DATA_KEY`, setiap mutasi
+yang menyentuh nomor melempar, bukan menulis. Test `tanpa kunci, migrasi gagal
+terbuka` mengunci perilaku itu - ia menolak hasil `migrated: 1, failed: 0`,
+yang akan membuat pemilik yakin migrasi berjalan padahal tidak ada yang
+terjadi.
+
+**Kenapa kolom polos masih ada.** Migrasi menulis ciphertext di samping nomor
+lama dan tidak mengosongkan kolom itu. Alasannya: menghapus kolom polos di
+langkah yang sama dengan mengenkripsi berarti satu transaksi menentukan apakah
+data Anda masih ada atau tidak. Kalau migrasi gagal di tengah jalan, nomor
+warga hilang dan tidak bisa dipulihkan. `clearLegacyPlainPhones` karena itu
+adalah mutasi TERPISAH yang menolak berjalan selama masih ada baris polos, dan
+hanya pemilik yang menjalankannya setelah `report` menunjukkan nol. PII yang
+tidak bisa dipulihkan tidak boleh dihapus oleh skrip yang mungkin salah
+dipanggil.
+
+**Migrasi.** `src/convex/phoneMigration.ts`, semua fungsi `internal*` sehingga
+tidak terjangkau peramban. Semuanya dibatasi 500 baris per panggilan dan
+idempoten: baris yang sudah punya ciphertext dilewati, bukan dienkripsi ulang.
+Mengenkripsi ulang akan membakar kuota tulis dan, kalau kuncinya berganti,
+membuat baris lama tidak bisa terbaca. Urutan jalannya ada di 9.2.
+
+**Tampilan admin.** `listClaimStatus` sekarang mengembalikan DTO eksplisit
+(masked, tanpa ciphertext dan tanpa kunci) alih-alih baris mentah.
+Audit `submitClaim` mencatat `whatsappPhoneMasked`, bukan nomor mentah.
+
+15 test di `src/convex/phone-encryption.test.ts`, termasuk yang menguji bahwa
+ciphertext tidak memuat nomor, bahwa manipulasi DITOLAK, dan bahwa kunci
+yang salah tidak bisa mendekripsi.
 
 #### 5.2c Catatan lama (rencana sebelum dikerjakan)
 
@@ -1129,6 +1289,25 @@ benar adalah memperbarui atau menghapus, bukan menambal.
 | `ADMIN_CONTEXT_ALLOWED_ORIGINS` | Convex dev + prod | Ya untuk prod | Route konteks menutup lintas origin; panel "Sesi Anda" menampilkan "Tidak terdeteksi" untuk IP |
 | `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS` | Convex dev (opsional) | Tidak | Semua origin closing; biarkan kosong |
 | `WHATSAPP_APP_SECRET` | Convex prod | Sudah ada | Perlu rotasi (bagian 6) |
+| `PHONE_DATA_KEY` | Convex prod | **Ya** | Setiap mutasi yang menyentuh nomor warga MELEMPAR. Tidak ada nomor polos baru yang ditulis, tapi prefs/klaim/thread BARU akan gagal tersimpan |
+
+`PHONE_DATA_KEY` berisi **32 byte base64**. Buat dengan:
+
+```bash
+openssl rand -base64 32
+```
+
+Nilainya harus persis 32 byte setelah di-decode base64. Kunci yang lebih
+pendek atau lebih panjang akan ditolak `phoneKeyMaterial`, dan karena itu
+gagal dengan pesan yang menyebut panjangnya - bukan diam-diam memakai kunci
+yang terpotong.
+
+**Jangan ganti nilai ini setelah data terenkripsi sudah ada.** Kunci ini
+bukan sandi login yang bisa diganti kapan saja. Mengganti kunci membuat
+semua ciphertext lama menjadi tidak terbaca, dan nomor warga yang
+sudah ada tidak punya salinan polos yang bisa dipulihkan setelah kolom polos
+dikosongkan. Kalau kunci hilang, pemulihan harus lewat backup (bagian 9.2),
+bukan lewat kode.
 
 Nilai yang benar untuk frontend produksi:
 
@@ -1154,6 +1333,37 @@ npx convex deploy --env-file deploy-prod.env
 Setelah deploy, `alignSeededCoordinates` bisa dijalankan sekali dari Convex
 dashboard kalau koordinat benih memang perlu diselaraskan. Ia tidak lagi
 berjalan sendiri dari peramban.
+
+#### 9.2b Migrasi nomor warga (WAJIB, urutan tidak boleh dibalik)
+
+Nomor warga sudah terenkripsi untuk semua PENULISAN BARU begitu kode ini
+tayang. Data lama masih polos sampai migrasi ini dijalankan.
+
+Pasang `PHONE_DATA_KEY` dulu (bagian 9.1), lalu jalankan dari Convex
+dashboard, berurutan:
+
+```bash
+1. internal/phoneMigration:report          # berapa yang polos vs terenkripsi
+2. internal/phoneMigration:migratePreferences   # jalankan sampai migrated: 0
+3. internal/phoneMigration:migrateClaims        # jalankan sampai migrated: 0
+4. internal/phoneMigration:migrateThreads       # jalankan sampai migrated: 0
+5. internal/phoneMigration:report          # remainingLegacy harus 0
+6. internal/phoneMigration:clearLegacyPlainPhones   # HANYA setelah langkah 5 = 0
+```
+
+Langkah 2-4 dibatasi 500 baris per pemanggilan dan idempoten, jadi boleh
+dijalankan berulang kali sampai `migrated: 0`. Itu yang diharapkan, bukan
+tanda gagal.
+
+Langkah 6 menolak berjalan selama masih ada baris polos. Itu penjaga, bukan
+bug: mengosongkan kolom polos di langkah yang sama dengan mengenkripsi berarti
+satu transaksi menentukan apakah nomor warga Anda masih ada atau tidak.
+Nomor yang hilang tidak bisa dipulihkan - hanya ada di backup mingguan.
+
+Jangan lewati langkah 5. Kalau `remainingLegacy` belum nol, berarti ada baris
+yang gagal dienkripsi (biasanya karena data rusak, bukan format nomor), dan
+menghapus kolom polos sekarang akan membuang nomor yang tidak punya salinan
+aman.
 
 ### 9.3 Security header (bagian 8)
 
@@ -1289,11 +1499,19 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
       `src/convex/contact-handoff.test.ts` plus regresi di
       `public-data-surface.test.ts` dan `listing-metadata.test.ts`
       (bagian 5.2a).
-- [ ] Nomor telepon pribadi tidak bocor ke DTO - **BELUM untuk nomor
-      pribadi.** `notificationPreferences.whatsappPhone`,
-      `listingClaims.whatsappPhone`, dan `whatsappThreads.phone` masih polos
-      (bagian 5.2b).
-- [ ] Nomor telepon pribadi dilindungi saat disimpan - **BELUM** (bagian 5.2b).
+- [x] Nomor telepon pribadi tidak bocor ke DTO - `listClaimStatus`
+      sekarang mengembalikan DTO eksplisit dengan nomor tersamar, tanpa
+      ciphertext dan tanpa kunci pencarian; audit `submitClaim` mencatat
+      `whatsappPhoneMasked`, bukan nomor mentah (bagian 5.2b).
+- [x] Nomor telepon pribadi dilindungi saat disimpan - AES-GCM-256 dengan
+      kunci turunan HKDF dari `PHONE_DATA_KEY`, pencarian lewat HMAC 128-bit
+      berprefiks `bkp1.`, `listClaimStatus` tersamar. Jalur tulis gagal
+      terbuka tanpa kunci. 15 test di `src/convex/phone-encryption.test.ts`
+      (bagian 5.2b). Sisa: migrasi data lama dijalankan pemilik (9.2b).
+- [x] Setiap fungsi publik bergerbang atau punya pengecualian tertulis -
+      113 fungsi publik dipindai dari kode; 106 bergerbang, 7 pengecualian
+      terdokumentasi. Audit berjalan sebagai test, jadi endpoint publik baru
+      tanpa keputusan akan menggagalkan CI (bagian 2.13).
 - [x] Bukti Security Desk otoritatif dari server - `reportSessionContext`
       mengonsumsi token konteks, kolom jaringan diambil dari
       `adminSecurityContexts`, dan klasifikasi perangkat diturunkan server;
@@ -1334,7 +1552,9 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
       sekarang dibatasi. Enam permukaan baca publik lainnya juga dipotong di
       server: inbox notifikasi, penandaan terbaca, deduplikasi interaksi,
       kuota laporan, kuota ulasan anonim, dan fans-out notifikasi request.
-      Fungsi publik lain belum diaudit satu per satu (bagian 2).
+      Pemindaian menyeluruh menambah lima lagi: pencocokan listing di
+      `createRequest`, riwayat interaksi, favorit, status WhatsApp, dan
+      daftar admin (bagian 2.14).
 
 ### Responsif
 
@@ -1345,10 +1565,13 @@ keyboard, safe-area, reduced-motion, teks besar/kontras tinggi.
 
 - [x] Lint - 0 error / 26 warning (warning sama seperti sebelum commit ini).
 - [x] Typecheck - 0 error.
-- [x] Test unit - 1007 lulus di 72 berkas.
-- [x] Test Convex baru - 15 test handoff kontak di
-      `src/convex/contact-handoff.test.ts`, termasuk kuota, penolakan
-      listing non-aktif, dan backfill idempoten.
+- [x] Test unit - 1027 lulus di 74 berkas.
+- [x] Test Convex baru - 15 test enkripsi nomor di
+      `src/convex/phone-encryption.test.ts` (ciphertext tidak memuat nomor,
+      manipulasi ditolak, kunci salah ditolak, gagal terbuka tanpa kunci,
+      migrasi idempoten); 5 test audit permukaan publik di
+      `src/convex/public-surface-audit.test.ts`; 15 test handoff kontak di
+      `src/convex/contact-handoff.test.ts`.
 - [ ] E2E - belum dijalankan; tidak ada peramban.
 - [ ] Pemindaian dependensi - belum dijalankan (bagian 8).
 - [ ] Peninjauan diff akhir - sebagian, `git diff` diblokir.

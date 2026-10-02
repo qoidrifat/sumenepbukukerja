@@ -86,9 +86,22 @@ describe("phone-crypto: primitif", () => {
   test("ciphertext yang dimanipulasi ditolak, bukan mengembalikan sampah", async () => {
     const encrypted = await encryptPhone("6281234567890", master());
     const parts = encrypted.split(".");
-    // Putar satu karakter pada bagian ciphertext.
+    // Putar karakter PERTAMA pada bagian ciphertext, bukan yang terakhir.
+    //
+    // Kenapa bukan yang terakhir: pada base64, kelompok terakhir bisa lebih
+    // pendek dari tiga byte, dan bit-bit rendah yang tidak terpakai di karakter
+    // terakhir dibuang saat dekode. Mengubah 'A' jadi 'B' di sana bisa
+    // menghasilkan byte yang PERSIS SAMA - jadi "manipulasi"nya bukan
+    // manipulasi sama sekali, dan dekripsi tetap berhasil. Terbukti pada
+    // pengukuran: dari 40 panjang ciphertext, 5 di antaranya tidak berubah
+    // sama sekali kalau karakter terakhirnya diputar. Test seperti itu
+    // gagal sesekali tanpa alasan, dan test yang gagal sesekali melatih
+    // kita untuk mengabaikan merah, bukan untuk mencari penyebabnya.
+    //
+    // Karakter pertama selalu aman: dia men-encode 6 bit penuh yang langsung
+    // masuk ke byte pertama, jadi perubahan apa pun di sana mengubah byte.
     const body = parts[2];
-    const flipped = `${body.slice(0, -1)}${body.slice(-1) === "A" ? "B" : "A"}`;
+    const flipped = `${body[0] === "A" ? "B" : "A"}${body.slice(1)}`;
 
     await expect(
       decryptPhone(`${parts[0]}.${parts[1]}.${flipped}`, master()),

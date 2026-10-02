@@ -148,6 +148,21 @@ test("penutup menu mengabaikan ketukan yang jatuh di dalam dialog admin", () => 
   expect(guard).toBeGreaterThan(-1);
   expect(close).toBeGreaterThan(guard);
 
+  // Penjaganya harus benar-benar menghentikan handler, bukan sekadar
+  // memanggil closest. Hanya memeriksa posisi adalah contoh test yang hijau
+  // pada kode yang tidak menghasilkan apa pun: mutation yang mengganti
+  // return dengan void 0 tetap lolos kalau test ini hanya menatap letaknya.
+  // Karena itu statement return di dalam blok itu ikut diperiksa.
+  //
+  // Jendela 120 karakter cukup untuk blok penjaga dan masih jauh sebelum
+  // handler berikutnya, jadi return yang dihitung pasti milik penjaga ini.
+  const guardBlock = handler.slice(guard, guard + 120);
+  expect(
+    guardBlock,
+    "penjaga [data-admin-dialog] harus menghentikan handler "
+      + "(closest -> return), bukan sekadar memanggil closest",
+  ).toContain("return;");
+
   // Atribut penjaganya harus benar-benar ada di dialog admin, kalau tidak
   // `closest` ini tidak pernah cocok.
   const wrapper = readFileSync(
@@ -155,6 +170,30 @@ test("penutup menu mengabaikan ketukan yang jatuh di dalam dialog admin", () => 
     "utf8",
   );
   expect(wrapper).toContain('data-admin-dialog=""');
+});
+
+test("dialog profil dirender tanpa syarat, termasuk saat reduced-motion aktif", () => {
+  // REGRESI. Audit produksi mengukur umur dialog hanya 23 ms pada browser
+  // dengan `prefers-reduced-motion` aktif, karena `useReducedMotion()` membuat
+  // transition menjadi `{ duration: 0 }` sehingga `AnimatePresence` mencabut
+  // tanpa menunggu. Pemisahan struktural sudah menutup jalur itu - TETAPI
+  // hanya selama dialognya benar-benar dirender.
+  //
+  // Jadi ada jebakan yang belum ditutup: membungkus dialog di
+  // `{reduceMotion ? null : <AdminProfileDialog ... />}` akan membuatnya
+  // lenyap total di perangkat dengan reduced-motion - bukan 23 ms, tapi nol.
+  // Gejalanya lalu persis seperti bug aslinya dan sulit dikaitkan, karena
+  // desktop dengan animasi akan tetap terlihat benar.
+  const dialogIndex = workspace.indexOf("<AdminProfileDialog");
+  expect(dialogIndex).toBeGreaterThan(-1);
+
+  // Baris sebelum tag dialog - di situlah kondisi apa pun akan ditulis.
+  const sebelum = workspace.slice(Math.max(0, dialogIndex - 200), dialogIndex);
+  expect(sebelum).not.toMatch(/reduceMotion\s*[?&]{1,2}/);
+  expect(sebelum).not.toMatch(/[?&]{1,2}\s*!?\s*reduceMotion/);
+  // `AnimatePresence` di area sekitar dialog juga tidak boleh
+  // muncul: itu lifecycle menu yang tidak boleh ada di dekat sini.
+  expect(sebelum).not.toContain("AnimatePresence");
 });
 
 test("tombol profil memakai token admin, bukan gaya tombol generik", () => {

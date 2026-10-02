@@ -53,5 +53,19 @@ export default defineConfig({
   projects: [
     { name: "chromium-desktop", use: { ...devices["Desktop Chrome"] } },
     { name: "chromium-android", use: { ...devices["Pixel 5"] } },
+    // reducedMotion: "reduce" bukan sekadar pengulangan project desktop.
+    // Audit produksi menunjukkan kondisi ini membuat useReducedMotion()
+    // mengembalikan { duration: 0 }, sehingga AnimatePresence mencabut dialog
+    // dalam hitungan milidetik - 23 ms, hasil ukur langsung di halaman yang
+    // benar-benar berjalan. Bug yang sama karena itu bisa muncul SEPENUHNYA
+    // di desktop dan nyaris tak terlihat di Android, dan sebaliknya.
+    //
+    // testMatch sengaja membatasi project ini ke spec ruang kelola, supaya
+    // spec publik yang lain tidak ikut dijalankan tiga kali.
+    {
+      name: "chromium-desktop-reduced-motion",
+      testMatch: /admin-workspace.spec.ts/,
+      use: { ...devices["Desktop Chrome"], reducedMotion: "reduce" },
+    },
   ],
 });

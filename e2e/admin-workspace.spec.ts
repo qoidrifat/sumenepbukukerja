@@ -1,215 +1,230 @@
 import { expect, test, type Page } from "@playwright/test";
+import { SKIP_NO_CREDENTIALS, hasCredentials, openAdminWorkspace } from "./support/auth";
 
 /**
  * Dialog profil di menu ruang pengelola.
  *
- * Berkas ini lahir dari satu bug yang lolos DUA kali, dan alasannya sekarang
- * jelas. Dialog profil pernah dirender DI DALAM panel menu, sementara panel
- * itu dibungkus `AnimatePresence` yang mencabut seluruh anaknya begitu panel
- * menutup - dan klik pada pemicunya sendiri yang menutup panel, di handler
- * yang sama yang membuka dialog.
+ * Bug yang diuji di sini sudah lolos DUA kali, dan sekarang alasannya bisa
+ * dibuktikan. Dialog profil pernah dirender DI DALAM panel menu, sementara
+ * panel itu dibungkus `AnimatePresence` yang mencabut seluruh anaknya begitu
+ * panel menutup. Klik pada pemicunya sendiri yang menutup panel, di handler
+ * yang sama yang membuka dialog. Dialog karena itu hanya hidup selama
+ * animasi keluar panel.
  *
- * Gejalanya berbeda di dua perangkat, padahal sebabnya satu:
+ * Pengukuran langsung di produksi, memakai MutationObserver pada halaman
+ * yang benar-benar berjalan:
  *
- * - Desktop: dialog hanya hidup selama animasi keluar panel (spring
- * `stiffness 420, damping 32, mass 0.7`, sekitar 150-250 ms), sementara
- * animasi MASUK dialog sendiri berdurasi 200 ms. Durasinya nyaris sama,
- * jadi dialog mati tepat di detik ia baru selesai memudar masuk. Mata
- * sudah terikat di tombolhamburger: hasilnya "tidak muncul sama sekali".
- * - Pixel 5: siklus sentuh dan kompositor lebih lambat, jadi beberapa frame
- * sempat ter-render. Hasilnya "terbuka sebentar, lalu menutup sendiri" -
- * tanpa pengguna menyentuh Tutup, Escape, maupun latarnya.
+ *     dialog MASUK DOM  :  ~72 ms
+ *     dialog DICABUT    :  ~95 ms
+ *     umur dialog       :  ~23 ms
  *
- * Kenapa test di dalam `src/` tidak pernah menangkapnya: proyek ini tidak
- * punya @testing-library/react maupun jsdom, dan `vitest.config.ts` memakai
- * `environment: "edge-runtime"`. Semua 74 berkas test di `src/` karena itu
- * hanya MEMBACA TEKS sumber - termasuk test posisi untuk dialog ini, yang
- * membandingkan posisi string di dalam berkas dan tidak pernah menjalankan
- * React sama sekali. Test posisi itu berguna, tapi ia tidak bisa menyentuh
- * yang justru patah di sini: urutan waktu antara animasi keluar panel dan
- * proses unmount.
+ * 23 ms itu SEPERTINGYA tidak cukup untuk animasi masuk dialog sendiri yang
+ * berdurasi 200 ms. Dialog mati pada sekitar 11 persen pertama animasinya,
+ * sehingga di desktop ia terlihat tidak pernah muncul sama sekali, dan di
+ * Android beberapa frame sempat terlihat lalu hilang sendiri.
  *
- * Berkas ini menutup celah itu. Yang diuji adalah PERILAKU, di dua perangkat
- * yang memang berbeda (lihat `projects` di `playwright.config.ts`):
- * `chromium-desktop` dan `chromium-android` (Pixel 5).
+ * Angka 23 ms itu muncul karena `AdminHeader` memakai `useReducedMotion()`.
+ * Saat `prefers-reduced-motion: reduce` aktif, transition menjadi
+ * `{ duration: 0 }` sehingga `AnimatePresence` mencabut tanpa menunggu sama
+ * sekali. Observatory `chromium-desktop-reduced-motion` di
+ * `playwright.config.ts` sengaja mengunci kondisi itu.
  *
- * Kredensial TIDAK pernah ditulis di sini. Skenario yang butuh akun nyata
- * membaca dari environment (`E2E_*`) dan dilewati dengan pesan jelas kalau
- * kredensialnya belum diisi, supaya `test:e2e` tetap bisa dijalankan di
- * lingkungan tanpa secret. Konvensinya sama dengan `flows.spec.ts`.
- *
- * CATATAN Jujur soal batasnya: tanpa kredensial dan passcode admin, test ini
- * DILEWATI, jadi di CI tanpa secret ia tidak melindungi apa pun. Yang
- *Mélindungi tanpa kredensial adalah test posisi di `admin-profile.test.ts`.
- * Keduanya sengaja ada: yang satu menangkap urutan waktu, yang satu menangkap
- * perubahan struktur.
+ * Test-test di bawah menguji PRINSIP, bukan tampilan: menu boleh menutup,
+ * animasi boleh selesai, reduced-motion boleh aktif, dan dialog tetap harus
+ * hidup sampai pengguna yang menutupnya. Tidak ada satupun test di sini yang
+ * membaca teks source, dan tidak ada yang menunggu angka milidetik tertentu
+ * agar lolos - semuanya menunggu yang JELAS: dialog masih ada.
  */
-
-const authEmail = process.env.E2E_USER_EMAIL;
-const authPassword = process.env.E2E_USER_PASSWORD;
-const adminPasscode = process.env.E2E_ADMIN_PASSCODE;
 
 /**
- * Berapa lama dialog harus bertahan tanpaTnganpa campur tangan.
+ * Berapa lama dialog harus bertahan tanpa campur tangan.
  *
- * Nilainya sengaja jauh lebih besar dari durasi animasi yang tersangkut
- * (~250 ms). Kalau nilainya kecil, `toBeVisible()` pertama bisa menangkap
- * kilatan yang memang salah - dialog terlihat selama beberapa frame, lalu
- * hilang. Test yang hanya memeriksa "dialog terlihat" akan hijau persis di
- * device yang rusak. Yang diuji justru KETAHUANNYA: dialog harus masih
- * ada jauh setelah semua animasi selesai.
+ * Jauh lebih besar dari durasi animasi yang tersangkut (sekitar 250 ms).
+ * Kalau nilainya kecil, pemeriksaan pertama bisa sah-sah menangkap kilatan
+ * yang memang salah - dialog terlihat beberapa frame lalu hilang. Yang
+ * diuji adalah KETAHUANNYA, bukan kemunculan pertamanya.
  */
 const SETTLE_MS = 1_500;
+
+/** Jendela pengamatan untuk MutationObserver. */
+const WATCH_MS = 2_000;
 
 /** Dialog profil, diidentifikasi lewat penanda yang dipakai penjaga pointerdown. */
 const profileDialog = (page: Page) => page.locator("[data-admin-dialog]");
 
-/** Menu ruang pengelola. */
-const workspaceMenu = (page: Page) => page.getByRole("menu", { name: "Menu ruang pengelola" });
+const workspaceMenu = (page: Page) =>
+  page.getByRole("menu", { name: "Menu ruang pengelola" });
 
-async function signIn(page: Page): Promise<void> {
- await page.goto("/auth");
- await page.getByPlaceholder("nama@email.com").fill(authEmail!);
- // Kolom password memakai `type` bergantian, jadi labelnya yang dipakai -
- // bukan placeholder - supaya tidak ikut berubah saat komponennya berubah.
- await page.locator('input[type="password"]').first().fill(authPassword!);
- await page.getByRole("button", { name: /Masuk ke Buku Kerja/i }).click();
- await expect(page).toHaveURL(/\/(dashboard|admin)/);
+/** Buka panel menu ruang pengelola. */
+async function openWorkspaceMenu(page: Page): Promise<void> {
+  await page.getByRole("button", { name: /Buka menu ruang pengelola/i }).click();
+  await expect(workspaceMenu(page)).toBeVisible({ timeout: 10_000 });
 }
 
-/**
- * Buka ruang pengelola sampai panel header benar-benar ada.
- *
- * Gerbang passcode diperiksa dengan menunggu, bukan dengan `count()`.Jmban
- * `count()` dibaca seketika setelah `goto`, padahal `AnimatedContent` belum
- * sempat me-mount elemennya - di Desktop kebetulan sudah ada, di Pixel 5 belum.
- * Persis	 ketidakkonsistenan perangkat itu yang membuat test yang sama PASS
- * di satu perangkat dan SKIP di perangkat lain, dan skip seperti itu menghapus
- * seluruh pemeriksaan tanpa ada yang gagal. unpaid Lihat catatan panjang di
- * `flows.spec.ts`, "Skenario C".
- */
-async function openAdminWorkspace(page: Page): Promise<void> {
- await signIn(page);
- await page.goto("/admin");
-
- const passcodeField = page.locator('input[name="passcode"]');
- const passcodeVisible = await passcodeField
- .waitFor({ state: "visible", timeout: 5_000 })
- .then(() => true)
- .catch(() => false);
-
- if (passcodeVisible) {
- test.skip(
- !adminPasscode,
- "Gerbang passcode admin aktif, tapi E2E_ADMIN_PASSCODE belum diisi. "
- + "Dialog profil ada DI BALIK gerbang ini, jadi tanpa passcode test ini "
- + "hanya bisa memastikan gerbangnya ada - bukan menguji dialognya.",
- );
- await passcodeField.fill(adminPasscode!);
- await page.getByRole("button", { name: /Masuk|Buka/i }).first().click();
- }
-
- // Membuktikan ruang pengelola benar-benar terbuka. Header adalah tempat
- // menu dan dialog-nya hidup, jadi tanpa ini test bisa "hijau" hanya karena
- // sedang melihat halaman yang salah.
- await expect(
- page.getByRole("button", { name: /menu ruang pengelola/i }),
- "ruang pengelola harus terbuka sampai tombol menunya terlihat",
- ).toBeVisible({ timeout: 15_000 });
+/** Klik item "Profil" di dalam dropdown. */
+async function clickProfileItem(page: Page): Promise<void> {
+  await page.getByRole("menuitem", { name: "Atur profil" }).click();
 }
 
 test.describe("Dialog profil di menu ruang pengelola", () => {
- test.beforeEach(async ({ page }) => {
- test.skip(
- !authEmail || !authPassword,
- "Butuh E2E_USER_EMAIL + E2E_USER_PASSWORD (akun uji nyata di Keys/deployment)",
- );
- await openAdminWorkspace(page);
- });
+  test.beforeEach(async ({ page }) => {
+    test.skip(!hasCredentials(), SKIP_NO_CREDENTIALS);
+    await openAdminWorkspace(page);
+  });
 
- test("dialog profil bertahan jauh setelah menu ditutup", async ({ page }) => {
- // PEMBUKA menu. Labelnya berubah jadi "Tutup ..." saat terbuka, jadi
- // pemangkalnya tidak boleh menyertakan kata itu.
- await page.getByRole("button", { name: /Buka menu ruang pengelola/i }).click();
- await expect(workspaceMenu(page)).toBeVisible();
+  test("dialog terbuka dan bertahan jauh setelah animasi menu selesai", async ({ page }) => {
+    await openWorkspaceMenu(page);
+    await clickProfileItem(page);
 
- // PEMICU yang jadiIRESponsible atas bug ini.
- await page.getByRole("menuitem", { name: "Atur profil" }).click();
+    // Keberadaan pertama. Di desktop inilah yang gagal pada bug lama.
+    await expect(
+      profileDialog(page),
+      "dialog profil harus muncul setelah item Profil diklik",
+    ).toBeVisible({ timeout: 5_000 });
 
- // (1) Dialog harus benar-benar muncul. Ini yang gagal di desktop.
- await expect(
- profileDialog(page),
- "dialog profil harus muncul setelah menuitem Profil diklik",
- ).toBeVisible({ timeout: 5_000 });
+    // Keberadaan setelah semua animasi selesai. Inilah yang membedakannya
+    // dari kilatan 23 ms.
+    await page.waitForTimeout(SETTLE_MS);
+    await expect(
+      profileDialog(page),
+      "dialog profil harus masih ada 1,5 detik setelah dibuka",
+    ).toBeVisible();
+  });
 
- // (2) Menu harus ikut tertutup. Ini perilaku yang disengaja: panelnya
- // dicabut, dan itu aman HANYA karena dialognya hidup di luar
- // `AnimatePresence`. Kalau panel tetap terbuka, ia muncul lagi begitu
- // dialog ditutup dan menutupi layar.
- await expect(workspaceMenu(page)).toBeHidden();
+  test("dialog tidak pernah dicabut dari DOM setelah masuk", async ({ page }) => {
+    // MutationObserver dipasang DI HALAMAN, lalu aksi dijalankan, lalu
+    // hasilnya dikembalikan ke test. Dengan begitu rentang pengamatannya
+    // mencakup kliknya sendiri - yang justru titik dialog lahir.
+    await openWorkspaceMenu(page);
 
- // (3) Pemeriksaan yang benar-benar menangkap bug. `toBeVisible()` di (1)
- // bisa sah-sah hijau selama kilatan 200 ms; di sinilah kilatannya habis
- // dan kebenaranell's terlihat.
- await page.waitForTimeout(SETTLE_MS);
- await expect(
- profileDialog(page),
- "dialog profil harus masih ada 1,5 detik setelah dibuka. Kalau hilang "
- + "di sini, dialog masih ikut tercabut bersama panel menu.",
- ).toBeVisible();
- });
+    const hasil = await page.evaluate(async (waitMs) => {
+      const events: { t: number; type: string }[] = [];
+      const t0 = performance.now();
+      const isDialog = (node: Element) =>
+        node.matches("[data-admin-dialog]") || !!node.querySelector("[data-admin-dialog]");
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (node.nodeType === 1 && isDialog(node as Element)) {
+              events.push({ t: Math.round(performance.now() - t0), type: "added" });
+            }
+          }
+          for (const node of record.removedNodes) {
+            if (node.nodeType === 1 && isDialog(node as Element)) {
+              events.push({ t: Math.round(performance.now() - t0), type: "removed" });
+            }
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
 
- test("ketukan di dalam dialog tidak menutupnya", async ({ page }) => {
- // Jalur kedua yang reported user sebagai "menutup dengan sendirinya".
- //
- // Penutup menu adalah `document.addEventListener("pointerdown")` milik
- // `admin-workspace.tsx`, sedangkan dialog dirender lewat PORTAL ke
- // `document.body` - sehingga isinya berada DI LUAR header dan setiap
- // ketukan di dalamnya terbaca sebagai "di luar". Perhatikan bahwa
- // `preventDefault` milik Radix di `admin-dialog.tsx` tidak akan pernah
- // mencegah listener milik komponen lain: keduanya independen.
- //
- // Di Android, menyentuh isian adalah gesture paling natural kedua setelah
- // membuka dialog, jadi kalau jalur ini bocor, produk ini rusak di tangan
- // setiap pengguna ponsel.
- await page.getByRole("button", { name: /Buka menu ruang pengelola/i }).click();
- await page.getByRole("menuitem", { name: "Atur profil" }).click();
- await expect(profileDialog(page)).toBeVisible({ timeout: 5_000 });
- await page.waitForTimeout(SETTLE_MS);
+      const profil = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+        (el) => el.getAttribute("aria-label") === "Atur profil",
+      );
+      if (profil) (profil as HTMLElement).click();
 
- // Ketuk isian nama - sentuhan nyata, bukan klik sintetis. Di Pixel 5
- // inilah yang memunculkan keyboard.
- const nameField = page.locator("#admin-profile-name");
- await expect(nameField).toBeVisible();
- await nameField.click();
- await nameField.fill("");
+      await new Promise((done) => setTimeout(done, waitMs));
+      observer.disconnect();
+      return { events, stillPresent: !!document.querySelector("[data-admin-dialog]") };
+    }, WATCH_MS);
 
- // Ketuk lagi di area dialog yang bukan isian, untuk membuktikan bukan
- // cuma isian yang aman.
- await page.getByRole("heading", { name: "Atur profil" }).click();
- await page.waitForTimeout(500);
+    const removals = hasil.events.filter((e) => e.type === "removed");
+    expect(
+      removals,
+      "dialog dicabut dari DOM: " + JSON.stringify(hasil.events)
+        + ". Urutan masuk-lalu-keluar seperti inilah bug aslinya - dialog "
+        + "masuk sebentar lalu ikut tercabut bersama panel menu.",
+    ).toEqual([]);
+    expect(hasil.stillPresent, "dialog harus masih ada di DOM saat pengamatan berakhir").toBe(true);
+  });
 
- await expect(
- profileDialog(page),
- "ketukan di dalam dialog tidak boleh menutupnya. Dialognya masih hidup, "
- + "jadi yang menutup pastilah penutup menu milik header.",
- ).toBeVisible();
- });
+  test("menu menutup tanpa ikut menutup dialog", async ({ page }) => {
+    // Dua keadaan yang harus berdiri sendiri. Yang diuji bukan "dialog ada",
+    // tapi bahwa keduanya benar-benar independen: menu BOLEH menutup.
+    await openWorkspaceMenu(page);
+    await clickProfileItem(page);
+    await expect(profileDialog(page)).toBeVisible({ timeout: 5_000 });
 
- test("tombol Tutup tetap menutup dialog", async ({ page }) => {
- // Penjaga terhadap perbaikan yang berlebihan. Salah satu cara "memperbaiki"
- // gejala di atas adalah membuat dialog tidak bisa ditutup sama sekali -
- // dan itu produk yang lebih buruk, karena pengguna kehilangan jalan keluar
- // yang sengaja disediakan.
- await page.getByRole("button", { name: /Buka menu ruang pengelola/i }).click();
- await page.getByRole("menuitem", { name: "Atur profil" }).click();
- await expect(profileDialog(page)).toBeVisible({ timeout: 5_000 });
- await page.waitForTimeout(SETTLE_MS);
+    await expect(
+      workspaceMenu(page),
+      "menu harus menutup saat profil dibuka, supaya tidak muncul lagi "
+        + "sendiri begitu dialog ditutup",
+    ).toBeHidden({ timeout: 5_000 });
+    await expect(
+      profileDialog(page),
+      "menutup menu tidak boleh ikut menutup dialog",
+    ).toBeVisible();
+  });
 
- await profileDialog(page).getByRole("button", { name: "Tutup" }).click();
- await expect(
- profileDialog(page),
- "tombol Tutup harus menutup dialog",
- ).toBeHidden({ timeout: 5_000 });
- });
+  test("ketukan di dalam dialog tidak menutupnya", async ({ page }) => {
+    // Jalur kedua dari laporan user. Penutup menu adalah
+    // `document.addEventListener("pointerdown")` milik header, sedangkan
+    // dialog dirender lewat portal ke `document.body` - isinya berada DI LUAR
+    // header, jadi setiap ketukan di dalamnya bisa terbaca sebagai ketukan
+    // di luar. Perhatikan bahwa `preventDefault` milik Radix tidak akan
+    // pernah mencegah listener milik komponen lain.
+    await openWorkspaceMenu(page);
+    await clickProfileItem(page);
+    await expect(profileDialog(page)).toBeVisible({ timeout: 5_000 });
+    await page.waitForTimeout(SETTLE_MS);
+
+    // Empat target yang berbeda, bukan cuma isian nama.
+    await page.getByRole("heading", { name: "Atur profil" }).click();
+    await expect(profileDialog(page)).toBeVisible();
+
+    await profileDialog(page).getByRole("button", { name: /Pilih foto/i }).click();
+    await expect(profileDialog(page)).toBeVisible();
+
+    await page.locator("#admin-profile-name").click();
+    await expect(profileDialog(page)).toBeVisible();
+
+    // Pilih foto memunculkan dialog pilihan berkas native, jadi di sebagian
+    // peramban ia memblokir interaksi berikutnya.PAREN karena itu berkas
+    // native itu sengaja ditutup di sini, dan kelanjutannya memakai
+    // penginstalan ulang.
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(300);
+
+    await page.locator("#admin-profile-name").click();
+    await page.waitForTimeout(500);
+    await expect(
+      profileDialog(page),
+      "ketukan di dalam dialog tidak boleh menutupnya. Dialognya masih hidup, "
+        + "jadi yang menutup pastilah penutup menu milik header.",
+    ).toBeVisible();
+  });
+
+  test("mengetik di isian nama tidak menutup dialog", async ({ page }) => {
+    // Di Android, menyentuh isian memunculkan keyboard. Itu gesture paling
+    // natural kedua setelah membuka dialog, jadi kalau jalur ini bocor,
+    // produk ini rusak di tangan setiap pengguna ponsel.
+    await openWorkspaceMenu(page);
+    await clickProfileItem(page);
+    await expect(profileDialog(page)).toBeVisible({ timeout: 5_000 });
+    await page.waitForTimeout(SETTLE_MS);
+
+    const nameField = page.locator("#admin-profile-name");
+    await expect(nameField).toBeVisible();
+    const nilaiAwal = await nameField.inputValue();
+    await nameField.click();
+    await nameField.fill(`${nilaiAwal} X`);
+    await expect(nameField).toHaveValue(`${nilaiAwal} X`);
+    await expect(profileDialog(page)).toBeVisible();
+  });
+
+  test("tombol Tutup tetap menutup dialog", async ({ page }) => {
+    // Penjaga terhadap perbaikan yang berlebihan. Salah satu cara "memperbaiki"
+    // gejala di atas adalah membuat dialog tidak bisa ditutup sama sekali,
+    // dan itu produk yang lebih buruk: pengguna kehilangan jalan keluar yang
+    // sengaja disediakan.
+    await openWorkspaceMenu(page);
+    await clickProfileItem(page);
+    await expect(profileDialog(page)).toBeVisible({ timeout: 5_000 });
+    await page.waitForTimeout(SETTLE_MS);
+
+    await profileDialog(page).getByRole("button", { name: "Tutup" }).click();
+    await expect(profileDialog(page), "tombol Tutup harus menutup dialog").toBeHidden({
+      timeout: 5_000,
+    });
+  });
 });

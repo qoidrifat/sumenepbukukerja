@@ -8,6 +8,7 @@ import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { writeAudit, writeListingHistory } from "./audit";
+import { noteSecurityRate } from "./securitySignal";
 import {
   denied,
   getStaffAccess,
@@ -452,8 +453,8 @@ export const listForAdmin = query({
       ? await ctx.db
           .query("vendors")
           .withIndex("byStatus", (q) => q.eq("status", args.status!))
-          .collect()
-      : await ctx.db.query("vendors").collect();
+          .take(ADMIN_LISTING_SCAN)
+      : await ctx.db.query("vendors").take(ADMIN_LISTING_SCAN);
     return rows
       .map((vendor) => ({ ...vendor, reviews: vendor.reviewsCount ?? 0 }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -498,6 +499,26 @@ const vendorFields = {
  * menjadi ratusan tulis dalam satu transaksi tanpa ada yang memutuskan.
  */
 const MAX_SEED_INSERTS = 200;
+/**
+ * FASE 15 - pemindaian daftar favorit milik satu pengguna.
+ *
+ * Tabel `favorites` tidak dipangkas cron, dan `listFavorites` menjalankan satu
+ * `db.get` per baris di dalamnya (N+1). Satu akun dengan ribuan favorit
+ * menjalankan ribuan pembacaan dalam satu query reaktif. Memotong pemindaian
+ * ke 500 memotong N+1-nya jadi maksimal 500, dan 500 baris sudah jauh
+ * melebihi yang bisa ditampilkan di satu daftar.
+ */
+const FAVORITE_SCAN = 500;
+/**
+ * FASE 15 - pemindaian panel admin.
+ *
+ * `listForAdmin` mengembalikan SETIAP listing ke peramban pengelola. Tanpa
+ * plafon, panel admin jadi function yang paling cepat membuat halaman berat
+ * seiring bertambahnya katalog - justru di tempat yang paling tidak bisa
+ * di-tolerant lambatnya. 2.000 memakai angka yang sama dengan `CATALOG_SCAN`
+ * supaya batas katalog di dua tempat tidak berbeda tanpa disengaja.
+ */
+const ADMIN_LISTING_SCAN = 2_000;
 
 /**
  * FASE 2 - MEMBUAT `ensureCatalogSeeded` PUNYA BATAS KERJA YANG JELAS.
@@ -525,6 +546,14 @@ const MAX_SEED_INSERTS = 200;
  *
  *  2. Panjangnya dibatasi `MAX_SEED_INSERTS`.
  *
+ *  3. Panggilannya ikut dihitung lajunya (FASE 10, `public_mutation_rate`).
+ *     Ini satu-satunya mutasi publik di aplikasi ini yang sebelumnya TIDAK
+ *     punya penjaga laju. Tanpa itu, satu skrip anonim bisa memanggil fungsi
+ *     ini ribuan kali; setiap panggilan masih harmless karena baris yang ada
+ *     dilewati, tapi ribuan permintaan itu tetap membanjiri kuota baca/tulis
+ *     deployment milik orang lain. Sisteminya tidak butuh satu akses tulis
+ *     untuk halogenasi.
+ *
  * Yang TIDAK berubah: sifat idempotennya. Baris yang sudah ada dilewati, dan
  * nilai yang dikembalikan tetap jumlah baris yang benar-benar baru - kontrak
  * yang dipakai `catalog-store.ts` untuk memutuskan apakah katalog sudah siap.
@@ -532,6 +561,13 @@ const MAX_SEED_INSERTS = 200;
 export const ensureCatalogSeeded = mutation({
   args: {},
   handler: async (ctx) => {
+    await noteSecurityRate(ctx, {
+      ruleKey: "public_mutation_rate",
+      subjectRef: "vendors.ensureCatalogSeeded",
+      route: "vendors.ensureCatalogSeeded",
+      method: "POST",
+    });
+
     const now = Date.now();
     let inserted = 0;
 
@@ -1348,7 +1384,7 @@ export const listFavorites = query({
     const rows = await ctx.db
       .query("favorites")
       .withIndex("byUser", (q) => q.eq("userId", userId))
-      .collect();
+      .take(FAVORITE_SCAN);
     const favorites = await Promise.all(
       rows.map(async (favorite) => {
         const vendor = await ctx.db.get(favorite.vendorId);

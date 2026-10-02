@@ -1,6 +1,7 @@
 import { getAuthSessionId, getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
+import { readStoredPhone } from "./phoneVault";
 import type { DataModel } from "./_generated/dataModel";
 import { imageRejection } from "../lib/image-upload";
 
@@ -191,7 +192,9 @@ export async function requireProvenIdentity(
       "Ajukan klaim listing dengan bukti usaha di Dashboard, tunggu admin memverifikasi, lalu Anda boleh mengelola listing",
     );
   }
-  return approved.whatsappPhone;
+  // FASE 16 - nomor pada klaim sudah disimpan terenkripsi, jadi dibaca lewat
+  // vault. Kolom polos hanya mungkin masih terisi pada baris lama.
+  return await readStoredPhone(approved.whatsappPhoneEnc, approved.whatsappPhone);
 }
 
 /**

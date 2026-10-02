@@ -284,7 +284,17 @@ const schema = defineSchema(
     notificationPreferences: defineTable({
       userId: v.id("users"),
       whatsappUpdates: v.optional(v.boolean()),
+      // FASE 16 - nomor warga tidak lagi disimpan polos.
+      //
+      // `whatsappPhone` dipertahankan HANYA untuk membaca baris lama selama
+      // migrasi. Setelah `migrateResidentPhones` dijalankan, kolom ini kosong
+      // pada baris yang sudah dimigrasi dan tidak boleh ditulis lagi.
       whatsappPhone: v.optional(v.string()),
+      // Bentuk terenkripsi (`bk1.<iv>.<ciphertext>`). Yang sebenarnya disimpan.
+      whatsappPhoneEnc: v.optional(v.string()),
+      // HMAC satu arah, untuk pencarian lewat indeks. Tidak bisa dibalik
+      // menjadi nomor, jadi bocor storage tidak langsung berarti bocor PII.
+      whatsappPhoneKey: v.optional(v.string()),
       whatsappOptInAt: v.optional(v.number()),
       areaUpdates: v.optional(v.boolean()),
       requestUpdates: v.optional(v.boolean()),
@@ -293,7 +303,10 @@ const schema = defineSchema(
       .index("byUser", ["userId"])
       // Chat masuk dari webhook hanya membawa nomor, jadi nomor harus bisa
       // dicari tanpa scan seluruh tabel preferensi.
-      .index("byPhone", ["whatsappPhone"]),
+      .index("byPhone", ["whatsappPhone"])
+      // Indeks yang DIPAKAI setelah migrasi. Dipisah dari `byPhone` supaya
+      // kedua skema bisa hidup berdampingan tanpa saling menimpa.
+      .index("byPhoneKey", ["whatsappPhoneKey"]),
 
     staffMembers: defineTable({
       userId: v.id("users"),
@@ -348,7 +361,11 @@ const schema = defineSchema(
     listingClaims: defineTable({
       vendorId: v.id("vendors"),
       requesterId: v.id("users"),
-      whatsappPhone: v.string(),
+      // FASE 16 - lihat `notificationPreferences`. `whatsappPhone` hanya untuk
+      // baris lama; bentuk yang dipakai going forward adalah `...Enc` + `...Key`.
+      whatsappPhone: v.optional(v.string()),
+      whatsappPhoneEnc: v.optional(v.string()),
+      whatsappPhoneKey: v.optional(v.string()),
       email: v.string(),
       businessAddress: v.string(),
       evidenceStorageId: v.optional(v.string()),
@@ -572,7 +589,14 @@ const schema = defineSchema(
     // apakah ada yang belum dibalas, dan overwrite Latest membuat dashboard
     // tidak tumbuh tanpa batas.
     whatsappThreads: defineTable({
+      // FASE 16 - `phone` masih ada sebagai kolom dan sebagai pengenal baris,
+      // jadi migrasinya butuh perhatian lebih: baris diidentifikasi lewat
+      // nomor, jadi nomor tidak bisa hilang sebelum semua pembacaan dialihkan.
+      // Urutannya: tulis kolom baru dulu, alihkan pembacaan, baru kosongkan
+      // `phone` pada langkah terpisah yang dijalankan manual.
       phone: v.string(),
+      phoneEnc: v.optional(v.string()),
+      phoneKey: v.optional(v.string()),
       userId: v.optional(v.id("users")),
       providerMessageId: v.string(),
       lastInboundAt: v.number(),
@@ -583,6 +607,7 @@ const schema = defineSchema(
       updatedAt: v.number(),
     })
       .index("byPhone", ["phone"])
+      .index("byPhoneKey", ["phoneKey"])
       .index("byUser", ["userId"]),
 
     // Percobaan masuk ke ruang /admin lewat passcode. `key` adalah hash dari

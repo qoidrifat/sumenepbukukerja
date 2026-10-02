@@ -1,8 +1,9 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { GenericActionCtx, GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
+import { findByPhoneKey, preparePhone, readStoredPhone } from "./phoneVault";
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import type { DataModel } from "./_generated/dataModel";
+import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { buildTemplatePayload, buildTextPayload } from "../lib/whatsapp-payload";
 import {
@@ -211,7 +212,7 @@ export const getWhatsappStatus = query({
           await ctx.db
             .query("whatsappDeliveries")
             .withIndex("byUser", (q) => q.eq("userId", userId))
-            .collect()
+            .take(DELIVERY_STATUS_SCAN)
         )
           .sort((a, b) => b.createdAt - a.createdAt)
           .slice(0, 5)
@@ -344,11 +345,19 @@ export const notificationRecipients = internalQuery({
       }
       if (
         preference.whatsappUpdates !== true ||
-        !preference.whatsappOptInAt ||
-        !normalizePhone(preference.whatsappPhone ?? "")
+        !preference.whatsappOptInAt
       ) {
         continue;
       }
+      // FASE 16 - nomor dibaca lewat vault (dekripsi bila sudah dimigrasi,
+      // polos bila masih baris lama), bukan langsung dari kolom.
+      const preferencePhone = normalizePhone(
+        (await readStoredPhone(
+          preference.whatsappPhoneEnc,
+          preference.whatsappPhone,
+        )) ?? "",
+      );
+      if (!preferencePhone) continue;
       if (
         (args.kind === "request_created" && preference.requestUpdates !== true) ||
         ((args.kind === "vendor_created" || args.kind === "vendor_updated") &&
@@ -399,7 +408,7 @@ export const notificationRecipients = internalQuery({
       recipients.push({
         userId,
         name: user?.name ?? "Warga Sumenep",
-        phone: normalizePhone(preference.whatsappPhone ?? "")!,
+        phone: preferencePhone!,
         title,
         body,
         deliveryKey,
@@ -445,7 +454,12 @@ export const preferencesForUser = internalQuery({
     ]);
     return {
       name: user?.name ?? "warga",
-      phone: preference?.whatsappPhone,
+      phone: preference
+        ? await readStoredPhone(
+            preference.whatsappPhoneEnc,
+            preference.whatsappPhone,
+          )
+        : undefined,
       whatsappUpdates: preference?.whatsappUpdates ?? false,
       whatsappOptInAt: preference?.whatsappOptInAt,
     };
@@ -788,13 +802,33 @@ const phoneCandidates = (phone: string) => {
   return [phone, `+${phone}`, national];
 };
 
+/**
+ * Cari preferensi_notifikasi dari nomor yang masuk lewat webhook.
+ *
+ * FASE 16 - jalur ini yang paling diuntungkan dari HMAC: tanpa itu,
+ * satu pesan masuk berarti satu pemindaian seluruh tabel preferensi untuk
+ * mencocokkan nomor. Dengan `whatsappPhoneKey`, pencocokan cukup satu
+ * pembacaan indeks - persis di jalur yang dipanggil provider berulang kali.
+ *
+ * `findByPhoneKey` sudah menangani dua skema: baris yang sudah dimigrasi
+ * (cari lewat HMAC) dan baris lama (cari lewat kolom polos). Jaring
+ * pengaman kedua itu wajib ada selama migrasi belum selesai; tanpa itu,
+ * preferensi warga yang barisnya belum termigrasi akan berhenti terkirim
+ * tanpa satu pun tanda di log.
+ */
 const preferenceForPhone = async (ctx: GenericMutationCtx<DataModel>, phone: string) => {
   for (const candidate of phoneCandidates(phone)) {
-    const found = await ctx.db
-      .query("notificationPreferences")
-      .withIndex("byPhone", (q) => q.eq("whatsappPhone", candidate))
-      .first();
-    if (found) return found;
+    const found = await findByPhoneKey(
+      ctx,
+      {
+        table: "notificationPreferences",
+        keyField: "whatsappPhoneKey",
+        encField: "whatsappPhoneEnc",
+        plainField: "whatsappPhone",
+      },
+      candidate,
+    );
+    if (found) return found.row as Doc<"notificationPreferences">;
   }
   return null;
 };
@@ -814,6 +848,20 @@ const preferenceForPhone = async (ctx: GenericMutationCtx<DataModel>, phone: str
  * request yang sudah dibuang lalu diputar ulang oleh pihak ketiga.
  */
 const INBOUND_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * FASE 15 - pemindaian riwayat pengiriman milik satu pengguna.
+ *
+ * Yang ditampilkan hanya 5 kiriman terbaru, tapi pemindaiannya dulu membaca
+ * seluruh riwayat kiriman pengguna tersebut - dan `whatsappDeliveries` hanya
+ * dipangkas cron sampai 20.000 baris. Empat puluh baris pertama tidak ada
+ * bedanya dengan empat puluh ribu di layar, tapi sangat berbeda biayanya.
+ *
+ * Sengaja TIDAK memakai `.order("desc")`: indeks `byUser` hanya memuat
+ * `userId`, sehingga urutan database di dalamnya bukan "terbaru dulu".
+ * Menghapus `.collect()` dan menambahkan `.order("desc")` akan membalik urutan
+ * tanpa mengurangi biaya.
+ */
+const DELIVERY_STATUS_SCAN = 50;
 
 export const recordInboundMessage = internalMutation({
   args: {
@@ -884,8 +932,17 @@ export const recordInboundMessage = internalMutation({
       });
       return existing._id;
     }
+    // FASE 16 - thread baru menyimpan nomor dalam bentuk terenkripsi DAN kunci
+    // HMAC-nya. Kolom `phone` sengaja tetap terisi pada baris baru: dia masih
+    // jadi pengenal baris di beberapa jalur baca lama, dan mengosongkannya
+    // sebelum semua jalur dialihkan akan memutus pencarian thread yang ada.
+    // Pengosongan `phone` adalah langkah migrasi terpisah setelah audit
+    // konfirmasi tidak ada pembacaan polos yang tersisa.
+    const storedPhone = await preparePhone(phone);
     return await ctx.db.insert("whatsappThreads", {
       phone,
+      phoneEnc: storedPhone.enc,
+      phoneKey: storedPhone.key,
       userId: preference?.userId,
       providerMessageId: args.providerMessageId,
       lastInboundAt,

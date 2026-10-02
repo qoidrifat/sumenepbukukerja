@@ -6,6 +6,8 @@ import { recordEvent } from "./analytics";
 import { notifyReviewers } from "./community";
 import type { GenericMutationCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
+import { preparePhone, readStoredPhone } from "./phoneVault";
+import { maskPhoneForAdmin } from "../lib/phone-crypto";
 
 const MAX_EVIDENCE_BYTES = 1_000_000;
 
@@ -60,10 +62,17 @@ export const submitVendorClaim = mutation({
       return pending._id;
     }
     const now = Date.now();
+    // FASE 16 - nomor claimant adalah PII warga, jadi disimpan dalam bentuk
+    // terenkripsi dan TIDAK PERNAH masuk ke audit log polos. Yang masuk ke
+    // audit cuma bentuk tersamarnya: audit dibaca pengelola dan sering ikut
+    // diekspor, jadi nomor mentah di sana berarti PII bocor ke tempat yang
+    // justru paling lama menyimpannya.
+    const storedPhone = await preparePhone(phone);
     const claimId = await ctx.db.insert("listingClaims", {
       vendorId: args.vendorId,
       requesterId: userId,
-      whatsappPhone: phone,
+      whatsappPhoneEnc: storedPhone.enc,
+      whatsappPhoneKey: storedPhone.key,
       email,
       businessAddress: address,
       evidenceStorageId: args.evidenceStorageId,
@@ -76,7 +85,7 @@ export const submitVendorClaim = mutation({
       actorId: userId,
       vendorId: args.vendorId,
       entityId: claimId,
-      newValue: { email, whatsappPhone: phone },
+      newValue: { email, whatsappPhoneMasked: maskPhoneForAdmin(phone) },
     });
     // Kabari pengelola seketika: tanpa ini, klaim hanya diam di daftar sampai
     // admin kebetulan membuka tab tersebut.
@@ -225,7 +234,12 @@ export const listMyClaims = query({
           vendorId: claim.vendorId,
           status: claim.status,
           reviewNote: claim.reviewNote,
-          whatsappPhone: claim.whatsappPhone,
+          // Claimant berhak melihat nomornya sendiri; itu datanya. Yang
+          // kembali ke panel admin DISAMARK di `listClaimStatus` di bawah.
+          whatsappPhone: await readStoredPhone(
+            claim.whatsappPhoneEnc,
+            claim.whatsappPhone,
+          ),
           businessAddress: claim.businessAddress,
           createdAt: claim.createdAt,
           reviewedAt: claim.reviewedAt,
@@ -241,9 +255,45 @@ export const listClaimStatus = query({
   args: { claimStatus: claimStatusValidator },
   handler: async (ctx, args) => {
     await requireManagementViewer(ctx);
-    return await ctx.db
+    const claims = await ctx.db
       .query("listingClaims")
       .withIndex("byStatus", (q) => q.eq("status", args.claimStatus))
       .collect();
+
+    // FASE 16 - DTO EKSPLISIT, bukan spread baris utuh.
+    //
+    // Versi sebelumnya mengembalikan dokumen `listingClaims` apa adanya. Setelah
+    // kolom enkripsi ditambahkan, spread itu otomatis ikut membawa
+    // `whatsappPhoneEnc` (ciphertext) dan `whatsappPhoneKey` (kunci HMAC
+    // pencarian) ke peramban pengelola - dua-duanya tidak ada gunanya di sana dan
+    // keduanya tidak boleh masuk ke state klien.
+    //
+    // Nomor ditampilkan TERSAMAR. Admin melihat nomor penuh karena klaim
+    // memang butuh verifikasi; bentuk tersamar tetap memungkinkan verifikasi
+    // (pengelola bisa cocokkan dengan catatan offline) tanpa menjadikan panel
+    // admin sebagai tempat nomor warga menumpuk.
+    return await Promise.all(
+      claims.map(async (claim) => {
+        const requester = await ctx.db.get(claim.requesterId);
+        const vendor = await ctx.db.get(claim.vendorId);
+        const phone = await readStoredPhone(claim.whatsappPhoneEnc, claim.whatsappPhone);
+        return {
+          _id: claim._id,
+          vendorId: claim.vendorId,
+          requesterId: claim.requesterId,
+          status: claim.status,
+          reviewNote: claim.reviewNote,
+          businessAddress: claim.businessAddress,
+          evidenceStorageId: claim.evidenceStorageId,
+          email: claim.email,
+          createdAt: claim.createdAt,
+          updatedAt: claim.updatedAt,
+          whatsappPhone: phone ? maskPhoneForAdmin(phone) : "",
+          vendorName: vendor?.name ?? "Listing tidak ditemukan",
+          requesterName: requester?.name ?? "Warga",
+          requesterEmail: claim.email,
+        };
+      }),
+    );
   },
 });

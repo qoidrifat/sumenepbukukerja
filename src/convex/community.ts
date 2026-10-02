@@ -6,6 +6,7 @@ import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
 import { noteSecurityRate } from "./securitySignal";
+import { preparePhone, readStoredPhone } from "./phoneVault";
 import { writeAudit, writeListingHistory } from "./audit";
 import {
   getStaffAccess,
@@ -418,7 +419,7 @@ export const createRequest = mutation({
     const matchingVendors = await ctx.db
       .query("vendors")
       .withIndex("byStatus", (q) => q.eq("status", "active"))
-      .collect();
+      .take(MATCH_SCAN);
     const matchingOwners = new Set(
       matchingVendors
         .filter((vendor) => vendor.category === args.category && isWithinServiceArea({ landmark: args.landmark, lat: args.lat, lng: args.lng }, vendor))
@@ -931,10 +932,15 @@ export const listInteractions = query({
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) return [];
+    // Plafon pemindaian, bukan `.order("desc")`. Indeks `byUser` hanya memuat
+    // `userId`, jadi "descending" di sini berarti urutan indeks - bukan
+    // "terbaru dulu". Menghapus `.collect()` lalu menambahkan `.order("desc")`
+// akan terlihat seperti optimasi, padahal ia membalik urutan tampil tanpa
+// mengurangi baris yang dibaca.
     const rows = await ctx.db
       .query("vendorInteractions")
       .withIndex("byUser", (q) => q.eq("userId", userId))
-      .collect();
+      .take(INTERACTION_HISTORY_SCAN);
     const seen = new Set<string>();
     const visible = rows
       .filter((item) => item.kind === "whatsapp" || item.kind === "request")
@@ -1057,7 +1063,13 @@ export const setNotificationPreferences = mutation({
       .query("notificationPreferences")
       .withIndex("byUser", (q) => q.eq("userId", userId))
       .unique();
-    const previousPhone = current?.whatsappPhone ?? "";
+    // FASE 16 - nomor yang sudah tersimpan dibaca ulang (didekripsi kalau
+    // sudah dimigrasi), jadi preferensi yang tidak diubah pengguna tetap
+    // utuh tanpa pernah menyimpan ulang nomornya sebagai teks biasa.
+    const previousStored = current
+      ? await readStoredPhone(current.whatsappPhoneEnc, current.whatsappPhone)
+      : undefined;
+    const previousPhone = previousStored ?? "";
     const phone = (args.whatsappPhone ?? previousPhone)
       .replace(/\D/g, "")
       .replace(/^0/, "62");
@@ -1067,9 +1079,21 @@ export const setNotificationPreferences = mutation({
     if (whatsappUpdates && (phone.length < 10 || phone.length > 15)) {
       throw new Error("Masukkan nomor WhatsApp yang valid sebelum mengaktifkan notifikasi");
     }
+
+    // Nomor disimpan DALAM bentuk terenkripsi. Kolom polos hanya dipakai
+    // kalau baris ini belum dimigrasi dan nomornya belum pernah diubah -
+    // jalur itu sengaja dihapus, bukan disembunyikan.
+    const stored = phone ? await preparePhone(phone) : undefined;
+    const legacyStillPlain =
+      !stored && current && current.whatsappPhone && !current.whatsappPhoneEnc;
+
     const next = {
       whatsappUpdates,
-      whatsappPhone: phone || undefined,
+      ...(stored
+        ? { whatsappPhoneEnc: stored.enc, whatsappPhoneKey: stored.key }
+        : legacyStillPlain
+          ? { whatsappPhone: current?.whatsappPhone, whatsappPhoneEnc: undefined, whatsappPhoneKey: undefined }
+          : { whatsappPhone: undefined, whatsappPhoneEnc: undefined, whatsappPhoneKey: undefined }),
       whatsappOptInAt: whatsappUpdates
         ? current?.whatsappOptInAt && !phoneChanged
           ? current.whatsappOptInAt
@@ -1414,6 +1438,34 @@ const categoryOptionsForMetrics = [
  * paling dibutuhkan, yaitu saat laporan menumpuk.
  */
 const REPORT_SCAN = 50;
+/**
+ * FASE 15 - pemindaian untuk mencocokkan request dengan listing.
+ *
+ * `createRequest` memindai listing aktif untuk menemukan pemilik yang lokasinya
+ * cocok, dan pemindaian itu dijalankan untuk SETIAP request baru. Tanpa plafon,
+ * satu warga yang membuat banyak request membuat banyak pemindaian penuh, dan
+ * inilah jalur yang paling mudah dipakai untuk membuat halaman lambat.
+ *
+ * Kenapa 2.000, bukan `CATALOG_SCAN` milik `vendors.ts`: angka itu sengaja
+ * dideklarasikan ulang di sini, bukan diimpor. 갈at konstanta berarti angka
+ * pemindaian diam-diam berubah kalau satu sisi diedit, dan import lintas
+ * berkas untuk satu angka tidak sepadan.
+ */
+const MATCH_SCAN = 2_000;
+/**
+ * FASE 15 - pemindaian riwayat interaksi milik satu pengguna.
+ *
+ * Hasil akhir dipotong jadi maksimal 100 baris, tapi pemindaiannya dulu
+ * membaca SELURUH riwayat pengguna tersebut. Tabel `vendorInteractions` tidak
+ * pernah dipangkas oleh cron mana pun, jadi satu akun yang aktif lama membuat
+ * query ini membaca semakin banyak baris setiap kali dibuka.
+ *
+ * Plafon 500 dipilih supaya hasil di bawahnya tetap persis sama seperti
+ * sebelumnya. Di atas 500 baris, hasil bisa lebih sedikit dari 100 - dan itu
+ * trade-off yang benar: lebih baik menampilkan 80 interaksi terbaru daripada
+ * satu query terus membaca 40.000 baris demi mengambil 100.
+ */
+const INTERACTION_HISTORY_SCAN = 500;
 
 export const createReport = mutation({
   args: {

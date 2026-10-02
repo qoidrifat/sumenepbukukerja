@@ -34,12 +34,17 @@ async function seedUser(t: ReturnType<typeof convexTest>, name = "Warga") {
 
 /** Simpan blob gambar sungguhan (dengan metadata contentType di `_storage`). */
 async function storeImage(t: ReturnType<typeof convexTest>, bytes: number) {
+  return await storeBlobWithType(t, bytes, IMAGE_TYPE);
+}
+
+/** Simpan blob dengan jenis MIME yang dipilih pemanggil (untuk kasus tolak). */
+async function storeBlobWithType(t: ReturnType<typeof convexTest>, bytes: number, contentType: string) {
   return await t.run(async (ctx) => {
     const id = await ctx.storage.store(new Blob([new Uint8Array(bytes)]));
     const system = ctx.db as unknown as {
       patch: (id: never, value: { contentType: string }) => Promise<void>;
     };
-    await system.patch(id as never, { contentType: IMAGE_TYPE });
+    await system.patch(id as never, { contentType });
     return id as never;
   });
 }
@@ -110,6 +115,40 @@ describe("peta blob unggahan (dedup)", () => {
     await expect(
       asUser.mutation(api.storage.recordUploadedBlob, { sha256: "bukan-sha", storageId: png, size: 16 }),
     ).rejects.toThrow();
+  });
+
+  test("peta menolak foto yang melebihi batas ukuran, bukan hanya jenisnya", async () => {
+    // TEMUAN FASE 11: peta hanya memanggil `isStoredImage`, jadi foto
+    // sebesar 200 MB tetap masuk peta. Karena `pruneOrphanStorage`
+    // memperlakukan baris peta sebagai "pernah dipakai jalur kita", baris itu
+    // membuat blob yatim tidak pernah dipangkas - jadi ini bukan hanya
+    // soal kuota storage, tapi juga umur dari sampah.
+    const t = convexTest(schema, modules);
+    const { asUser } = await seedUser(t);
+    const huge = await storeImage(t, 1_000_001);
+    await expect(
+      asUser.mutation(api.storage.recordUploadedBlob, { sha256: sha("1"), storageId: huge, size: 1_000_001 }),
+    ).rejects.toThrow();
+    // Tepat di batas tetap diterima, jadi ini batas ukuran bukan sekadar tolak.
+    const atLimit = await storeImage(t, 1_000_000);
+    await expect(
+      asUser.mutation(api.storage.recordUploadedBlob, { sha256: sha("2"), storageId: atLimit, size: 1_000_000 }),
+    ).resolves.toBeNull();
+  });
+
+  test("peta menolak SVG meski awalan MIME-nya image/", async () => {
+    // SVG adalah dokumen, bukan gambar: ia boleh memuat <script> dan
+    // onload. Convex menyajikan berkas storage sebagai dokumen utuh, jadi
+    // SVG yang lolos bisa dieksekusi di origin storage. Aturannya sekarang
+    // allowlist, bukan `startsWith("image/")`.
+    const t = convexTest(schema, modules);
+    const { asUser } = await seedUser(t);
+    const svg = await storeBlobWithType(t, 64, "image/svg+xml");
+    await expect(
+      asUser.mutation(api.storage.recordUploadedBlob, { sha256: sha("3"), storageId: svg, size: 64 }),
+    ).rejects.toThrow();
+    const mapped = await t.run(async (ctx) => ctx.db.query("uploadedBlobs").collect());
+    expect(mapped).toHaveLength(0);
   });
 
   test("peta menolak identitas tanpa akun, meski anonim Convex Auth lolos dari requireUser", async () => {

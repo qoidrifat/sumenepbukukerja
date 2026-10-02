@@ -7,6 +7,7 @@ import {
   formatBytes,
   imageRejection,
   isStoredImage,
+  ALLOWED_IMAGE_TYPES,
   readUploadedStorageId,
   uploadWithDedup,
 } from "./image-upload";
@@ -111,6 +112,47 @@ describe("isStoredImage", () => {
     for (const type of ["application/pdf", "text/html", "video/mp4", "", undefined, null]) {
       expect(isStoredImage(type), String(type)).toBe(false);
     }
+  });
+
+  test("SVG ditolak walau awalan MIME-nya image/", () => {
+    // Ini perubahan kontrak yang disengaja, bukan biasanya saja: awalan
+    // `image/` dulu diterima semua. SVG bisa membawa <script>, dan Convex
+    // menyajikan berkas storage sebagai dokumen utuh, bukan sebagai <img>
+    // yang terisolasi.
+    for (const type of [
+      "image/svg+xml",
+      "image/svg",
+      "image/x-icon",
+      "image/x-xbitmap",
+      "image/png;charset=utf-8",
+    ]) {
+      if (type === "image/png;charset=utf-8") {
+        // Parameter MIME diabaikan, bukan ditolak: sebagian server tetap
+        // mengirimnya untuk berkas PNG yang sah.
+        expect(isStoredImage(type), type).toBe(true);
+        continue;
+      }
+      expect(isStoredImage(type), type).toBe(false);
+    }
+  });
+
+  test("huruf besar dan spasi tidak membuat berkas ditolak", () => {
+    for (const type of ["IMAGE/JPEG", "image/PNG", " image/webp "]) {
+      expect(isStoredImage(type), type).toBe(true);
+    }
+    expect(isStoredImage("; charset=binary")).toBe(false);
+  });
+
+  test("daftar allowlist hanya berisi format raster", () => {
+    for (const type of ALLOWED_IMAGE_TYPES) {
+      expect(type.startsWith("image/"), type).toBe(true);
+      expect(type.includes("svg"), type).toBe(false);
+      expect(type.includes("xml"), type).toBe(false);
+    }
+    // Tidak ada entri yang mungkin tidak bisa dirender sebagai gambar.
+    expect(ALLOWED_IMAGE_TYPES).toContain("image/jpeg");
+    expect(ALLOWED_IMAGE_TYPES).toContain("image/png");
+    expect(ALLOWED_IMAGE_TYPES).toContain("image/webp");
   });
 });
 

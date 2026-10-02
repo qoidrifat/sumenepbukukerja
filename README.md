@@ -507,6 +507,10 @@ Ringkasan lengkapnya beserta sisa risiko ada di
 | Panel "Sesi Anda" tidak lagi menampilkan angka yang diklaim peramban | `src/convex/session-context-authority.test.ts` (8 test) |
 | Route konteks ditutup saat allowlist kosong, dan dibatasi 30 permintaan/menit per IP | `src/convex/context-route-hardening.test.ts` (11 test) |
 | `.gitignore` memblokir `.env.keys` dan seluruh dump rahasia | `.gitignore` |
+| Unggahan hanya menerima format raster allowlist; `image/svg+xml` ditolak | `src/lib/image-upload.ts` + `src/convex/storage.test.ts` |
+| Peta blob ikut menegakkan batas ukuran, jadi sampah besar tidak pernah dipangkas | idem |
+| Enam permukaan baca publik dipotong di server (notifikasi, interaksi, laporan, ulasan anonim) | `src/convex/reviews-notifications.test.ts` + bagian 2.11 laporan |
+| `vendors.listActive` dan `community.listRequests` punya plafon pemindaian | bagian 2.12 laporan |
 
 > **CATATAN VERSI, Fase 6.** `POST /admin-gate/context` sebelumnya menjawab
 > `access-control-allow-origin: *` setiap kali allowlist origin kosong, jadi
@@ -528,6 +532,17 @@ Ringkasan lengkapnya beserta sisa risiko ada di
 pemindaian riwayat Git (bagian 6 laporan), privasi nomor WhatsApp (bagian
 5.2), security header (bagian 9.3), dan lima dari sembilan pemicu deteksi
 (bagian 5.1).
+
+> **CATATAN VERSI, Fase 10-11.** Aturan unggahan foto berubah dari "awalan
+> MIME `image/`" menjadi allowlist format raster. Kalau produk nanti perlu
+> menerima format lain (misalnya `image/tiff` hasil pindai), tambahkan ke
+> `ALLOWED_IMAGE_TYPES` di `src/lib/image-upload.ts` - **jangan** kembalikan ke
+> `startsWith("image/")`, karena itu menerima SVG yang bisa menjalankan skrip
+> dari origin storage. Tiga gerbang membaca aturan yang sama: peta blob
+> (`storage.recordUploadedBlob`) sekarang juga menolak berkas melebihi 1 MB,
+> dan itu disengaja - peta membuat `pruneOrphanStorage` menganggap blob itu
+> "pernah dipakai", jadi tanpa batas ukuran satu unggahan raksasa jadi sampah
+> permanen.
 
 > **CATATAN VERSI, Fase 16.** `@convex-dev/auth` naik ke 0.0.96 dan
 > `@auth/core` kini jadi dependensi langsung di 0.41.3. Keduanya satu paket:

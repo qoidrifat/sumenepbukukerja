@@ -3,7 +3,7 @@ import { internalAction, internalMutation, internalQuery, mutation, query } from
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireUser } from "./access";
-import { isStoredImage } from "../lib/image-upload";
+import { imageRejection } from "../lib/image-upload";
 
 /**
  * Pemeliharaan storage: dedup unggahan, pembersihan blob yatim, dan cadangan.
@@ -79,9 +79,17 @@ export const recordUploadedBlob = mutation({
     if (!/^[0-9a-f]{64}$/.test(sha)) throw new Error("Sidik berkas tidak valid");
     // Hanya blob gambar sah yang masuk peta — peta ini khusus jalur unggahan
     // foto, dan metadata yang diperiksa adalah milik STORAGE, bukan klaim klien.
+    //
+    // Ceknya sekarang `imageRejection`, bukan `isStoredImage` saja. Versi lama
+    // hanya menolak jenis, sehingga foto 200 MB tetap masuk peta; dan peta
+    // BERLAKU untuk selamanya bagi `pruneOrphanStorage`, jadi satu unggahan
+    // raksasa cukup untuk membuat blob sampah yang tidak pernah dipangkas.
+    // Batas ukuran di sini sama dengan batas yang dipakai `users` dan
+    // `community`, jadi tidak ada aturan kedua yang bisa berbeda pendapat.
     const metadata = await ctx.db.system.get("_storage", args.storageId as never);
     if (!metadata) throw new Error("Berkas unggahan tidak ditemukan");
-    if (!isStoredImage(metadata.contentType)) throw new Error("Berkas harus berupa foto");
+    const rejection = imageRejection({ size: metadata.size, contentType: metadata.contentType });
+    if (rejection) throw new Error(rejection);
     const now = Date.now();
     const mapped = await ctx.db
       .query("uploadedBlobs")
@@ -156,12 +164,14 @@ export const pruneOrphanStorage = internalMutation({
         skipped += 1;
         continue;
       }
-      // Referen 3: foto profil. Tabel `users` tidak punya indeks untuk field
-      // ini (satu akun punya paling banyak satu foto), jadi pemeriksaan ini
-      // memakai filter — bounded oleh batas kandidat, bukan pemindaian penuh.
+      // Referen 3: foto profil. Tabel `users` sudah punya indeks
+      // `byProfileImageStorageId`, jadi pemeriksaan ini satu pembacaan indeks
+      // penuh. Versi lama memakai `.filter()` di atas seluruh tabel: biayanya
+      // tumbuh seiring jumlah pengguna, dan tidak ada indeks yang bisa menahan
+      // itu saat tabel bertambah besar.
       const userRef = await ctx.db
         .query("users")
-        .filter((q) => q.eq(q.field("profileImageStorageId"), id))
+        .withIndex("byProfileImageStorageId", (q) => q.eq("profileImageStorageId", id))
         .first();
       if (userRef) {
         skipped += 1;

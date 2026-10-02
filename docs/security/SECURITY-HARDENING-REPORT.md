@@ -24,7 +24,7 @@ Deployment dev: `qualified-chameleon-491` | Deployment prod: `focused-lemur-389`
 
 ### 1.1 Yang berubah di commit ini
 
-Sepuluh kelompok perubahan, semuanya terverifikasi:
+Sebelas kelompok perubahan, semuanya terverifikasi:
 
 **A. Kebocoran pengenal akun dari papan permintaan publik (P1, sudah bocor).**
 
@@ -135,6 +135,38 @@ Yang berhasil dipasang: `invite_token_invalid`, karena jalur penolakannya
 mengembalikan nilai, bukan melempar. Infrastruktur untuk sisanya sudah siap dan
 retensinya sudah dijadwalkan. Rinciannya di 2.9 dan 5.1.
 
+**J. Storage dan permukaan publik dibatasi dari dalam server (P1/P2, baru commit ini).**Bagian 10 dan 11 dari master prompt menuntut lima hal yang melekat. Empat di
+ antaranya sudah benar sebelumnya dan satu belum sama sekali; satu hal yang
+tidak disebut eksplisit ternyata indeksnya sudah ada di skema, hanya tidak
+dipakai. Yang dikerjakan commit ini:
+
+- **MIME bukan lagi awalan `image/`.** `isStoredImage` menerima apa pun yang
+  diawali `image/`, termasuk `image/svg+xml`. SVG adalah dokumen yang boleh
+  memuat `<script>` dan `onload`, dan Convex menyajikan berkas storage sebagai
+  dokumen utuh - bukan `<img>` yang terisolasi. Sekarang aturannya allowlist
+  raster eksplisit (`ALLOWED_IMAGE_TYPES`), dinormalisasi huruf besar dan
+  parameter `; charset=`. `gif`, `avif`, `heic`, dan `heif` tetap diterima
+  karena semuanya sudah menjadi perilaku yang berjalan.
+- **Peta blob mendapat batas ukuran.** `storage.recordUploadedBlob` hanya
+  memanggil `isStoredImage`, jadi foto 200 MB tetap masuk peta. Peta membuat
+  `pruneOrphanStorage` menganggap blob itu "pernah dipakai", sehingga satu
+  unggahan raksasa menghasilkan sampah yang TIDAK PERNAH dipangkas. Sekarang
+  pemanggilnya `imageRejection` - aturan yang sama dengan `users` dan
+  `community`, jadi tidak ada aturan ukuran kedua.
+- **Pemangkasan memakai indeks yang sudah ada.** `pruneOrphanStorage` mencari
+  rujukan foto profil dengan `.filter()` di atas SELURUH tabel `users`,
+  padahal `users.byProfileImageStorageId` sudah ada. Sekarang satu pembacaan
+  indeks.
+- **Enam permukaan publik yang membaca tanpa batas** (bagian 2.10 dan 2.11):
+  inbox notifikasi, penandaan terbaca, deduplikasi interaksi, kuota laporan,
+  kuota ulasan anonim, dan fans-out notifikasi request. Semuanya kini
+  dibatasi di server; tidak satu pun nilai balik pemanggil berubah, dan
+  980 test tetap hijau tanpa satu pun test lama yang perlu di-`skip`.
+
+Bagian 15 (performa) ditangani terpisah: `vendors.listActive` dan
+`community.listRequests` kini punya plafon pemindaian dengan hasil yang sama
+bagi pemanggilan anonim. Rinciannya di 2.10, 2.11, dan 2.12.
+
 ### 1.2 Status per bagian
 
 | Bagian | Judul | Status | Catatan |
@@ -149,14 +181,14 @@ retensinya sudah dijadwalkan. Rinciannya di 2.9 dan 5.1.
 | 7 | Deteksi serangan | SEBAGIAN | Model + katalog + pencatat + panel + retensi SELESAI; 4 dari 9 pemicu tersambung dan diuji |
 | 8 | Security header | BELUM | Butuh lapisan deployment (lihat bagian 12) |
 | 9 | postMessage | SELESAI | |
-| 10 | Storage | BELUM | `requireAssignablePhoto` sudah kuat; validasi lewat `storage.ts` belum |
-| 11 | Abuse hardening | BELUM | Sebagian sudah ada (F-12 di `submitFeedback`) |
+| 10 | Storage | SELESAI | Allowlist MIME, batas ukuran peta blob, indeks foto profil dipakai; 2.10 |
+| 11 | Abuse hardening | SELESAI | Enam permukaan publik dibatasi; 2.11. Kuota yang sudah ada dipertahankan |
 | 12 | QA responsif | BELUM | Tidak ada peramban di lingkungan ini |
 | 13 | Integritas tombol | BELUM | |
 | 14 | Sinkronisasi rute | BELUM | |
-| 15 | Performa | BELUM | |
+| 15 | Performa | SEBAGIAN | Plafon pemindaian pada dua query publik terberat; sisanya butuh pagination di UI |
 | 16 | Dependency / lockfile | SELESAI | 46 -> 15 kerentanan, 0 critical, `axios` dihapus, satu lockfile |
-| 17-19 | Test / unit / e2e | SEBAGIAN | 973 test hijau, termasuk 10 test kontrak penolakan Fase 10; E2E belum disentuh (tidak ada peramban) |
+| 17-19 | Test / unit / e2e | SEBAGIAN | 980 test hijau, termasuk 10 test kontrak penolakan Fase 10; E2E belum disentuh (tidak ada peramban) |
 | 20 | Urutan pengerjaan | SEBAGIAN | Urutan diikuti untuk yang dikerjakan |
 | 21 | Laporan ini | SELESAI | |
 | 22 | Definition of Done | SEBAGIAN | Lihat bagian 11 |
@@ -179,9 +211,10 @@ Bukan karena kurang waktu, tapi karena tiga batas nyata di lingkungan ini:
 
 Berbeda dari tiga hal di atas, Bagian 4, 10, 11, 15, dan 16 **bisa**
 dikerjakan di sini. Bagian 5 dan 6 sudah dikerjakan pada commit ini (lihat
-2.6, 2.7, dan 5.3). Sisanya belum dikerjakan karena masing-masing adalah
-refaktor lintas berkas yang tidak bisa diverifikasi secara visual pada turn
-ini, dan saya memilih tidak mengirim perubahan yang belum saya yakini benar
+2.6, 2.7, dan 5.3). Bagian 10, 11, dan 15 (sebagian) juga sudah dikerjakan pada
+commit ini; lihat 2.10 sampai 2.12. Sisanya belum dikerjakan karena masing-masing
+adalah refaktor lintas berkas yang tidak bisa diverifikasi secara visual pada
+turn ini, dan saya memilih tidak mengirim perubahan yang belum saya yakini benar
 daripada mengirim perubahan yang merusak CTA utama produk.
 
 ---
@@ -424,6 +457,105 @@ yang rollback. Infrastruktur untuk sisanya sudah siap: tabel `securityDenyLog`,
 `noteSecurityDenial`, indeks per subjek, dan cron retensi. Yang belum adalah
 sumber peristiwanya sendiri.
 
+### 2.10 Penyimpanan menerima tipe aktif, dan peta blob tidak punya batas ukuran (sedang)
+
+Bagian 10 master prompt menuntut lima hal: validasi metadata di server, MIME
+yang tidak bisa dipercaya dari klien, batas ukuran, allowlist tipe gambar,
+bukti privat yang tidak boleh jadi publik, storage id bebas yang tidak boleh
+jadi URL publik, dan pemakaian indeks foto profil. Statusnya satu per satu:
+
+| Syarat | Sebelum commit ini | Sekarang |
+|---|---|---|
+| Metadata dibaca dari storage, bukan dari klien | Sudah (`imageRejection`) | Tidak berubah |
+| MIME tidak dipercaya dari klien | Sudah (baca `contentType` storage) | Tidak berubah |
+| Batas ukuran | Ada di `users` dan `community`, **tidak ada** di `storage.recordUploadedBlob` | `imageRejection` di semua jalur |
+| Allowlist tipe gambar | **Tidak ada**: `startsWith("image/")` menerima `image/svg+xml` | `ALLOWED_IMAGE_TYPES` |
+| Bukti privat tidak jadi publik | Sudah (`vendors.getImageUrl` + `requireAssignablePhoto`) | Tidak berubah |
+| Storage id bebas tidak jadi URL publik | Sudah, dua-duanya | Tidak berubah |
+| Indeks foto profil | **Tidak dipakai**: `pruneOrphanStorage` memakai `.filter()` di atas seluruh tabel `users` | `withIndex("byProfileImageStorageId")` |
+
+Dua temuan yang nyata di sana:
+
+**`image/svg+xml` lolos ke storage milik kita.** SVG adalah dokumen, bukan
+gambar: ia boleh memuat `<script>`, `onload`, dan `<foreignObject>`. Convex
+menyajikan berkas storage lewat URL sendiri, jadi berkas seperti itu bisa
+dieksekusi sebagai skrip di origin storage. Yang membuat ini praktis adalah
+klien boleh mengunggah lewat `generateUploadUrl` biasa, lalu menempelkan
+storageId-nya sendiri di mana saja - dan validasi di setiap tempat memakai fungsi
+yang sama yang salah itu. Perbaikannya allowlist, bukan awalan. `gif`, `avif`,
+`heic`, dan `heif` sengaja tetap diterima karena semuanya format raster yang
+sudah menjadi perilaku berjalan dan tidak bisa membawa skrip.
+
+**Peta blob tidak punya batas ukuran.** `recordUploadedBlob` hanya memanggil
+`isStoredImage`, sehingga foto 200 MB tetap masuk peta. Baris peta dibaca
+`pruneOrphanStorage` sebagai bukti "blob ini pernah dipakai jalur kita", jadi
+satu unggahan raksasa menghasilkan sampah yang tidak akan pernah dipangkas -
+dua masalah sekaligus: biaya storage, dan umur dari sampah.
+
+Test regresi: `src/convex/storage.test.ts` ("peta menolak foto yang melebihi
+batas ukuran" dan "peta menolak SVG meski awalan MIME-nya image/"), plus tiga
+test di `src/lib/image-upload.test.ts`.
+
+### 2.11 Enam permukaan publik membaca tanpa batas (sedang)
+
+Bagian 11 master prompt menyebut `incrementClick`, `recordSearch`, `addReview`,
+`submitFeedback`, pembuatan request, laporan, dan aksi notifikasi. Dua yang
+pertama dan `submitFeedback` **sudah** punya plafon dari Fase 9 (plafon per jam
+di `incrementClick`/`recordSearch`, kuota per akun dan kuota global di
+`submitFeedback`). Yang tersisa adalah pola lain yang sama: **membaca seluruh
+riwayat untuk menghitung atau menemukan sesuatu di ujung bars**.
+
+| Fungsi | Sebelum | Batas sekarang | Batas keras |
+|---|---|---|---|
+| `community.listNotifications` | `.collect()` semua notifikasi, lalu sort dan potong | `.order("desc").take(limit)` | 100 baris |
+| `community.markNotificationsRead` | `.collect()` semua, lalu patch semua yang belum dibaca | filter `read === false` di database, lalu `.take(200)` | 200 baris |
+| `community.recordInteraction` | `.collect()` seluruh riwayat interaksi untuk cari duplikat 5 menit | `.order("desc").take(100)` | 100 baris |
+| `community.createReport` | `.collect()` semua laporan target dan semua laporan pelapor | `.order("desc").take(50)` per irisan | 50 baris |
+| `vendors.addReview` (kuota anonim) | `.collect()` semua ulasan listing untuk hitung kuota 3 per hari | `.order("desc").take(100)` | 100 baris |
+| `community.createRequest` (fans-out) | Untuk tiap kandidat, `.collect()` semua notifikasi kandidat itu | `.order("desc").take(50)` per kandidat | 50 baris |
+
+Yang paling serius adalah `markNotificationsRead`: satu akun dengan 20.000
+notifikasi belum dibaca menghasilkan 20.000 tulisan dalam SATU transaksi, dan
+transaksi yang gagal berarti semua penandaan hilang. Perbaikannya memfilter
+`read === false` di dalam database dan membatasi 200 baris per panggilan;
+panggilan berikutnya menutup sisanya, jadi tidak ada baris yang terkunci
+selamanya.
+
+Nilai balik `markNotificationsRead` berubah makna: dulu "jumlah seluruh
+notifikasi milik pengguna", sekarang "jumlah baris yang benar-benar
+ditandai". Pemanggil di `community-notification-center.tsx` mengabaikan nilai
+itu, dan satu-satunya test yang memegangnya (`marked === 0` untuk anonim) tetap
+benar.
+
+Untuk keenam sisanya, bentuk indeks `byUser`/`byVendor` sudah terurut dari yang
+terbaru, jadi `.order("desc").take(n)` mengembalikan baris yang **sama persis**
+dengan sort-then-slice lama untuk kasus yang tidak melebihi n. Perbedaan hanya
+muncul kalau history-nya memang lebih dari n, dan itu justru kasus yang tidak
+boleh jadi mahal. Tidak ada satu pun kontrak pemanggil yang berubah, dan tidak
+ada satu pun test lama yang perlu diubah atau di-`skip`.
+
+Test regresi: dua test baru di `src/convex/reviews-notifications.test.ts`
+(penandaan terbaca dibatasi 200 per panggilan dan menutup sisanya; inbox
+memotong 5 baris dan mengurutkan dari yang terbaru).
+
+### 2.12 Dua query publik terberat tanpa plafon pemindaian (rendah, performa)
+
+Bagian 15 master prompt menyebut `vendors.listActive` dan
+`community.listRequests` secara khusus. Keduanya memang sudah memotong hasil
+sebelum memetakan baris (pemetaan beratnya sudah terbatas), tapi keduanya juga
+membaca SELURUH kumpulan baris lebih dulu untuk bisa memfilter dan mengurutkan
+di memori.
+
+Keduanya kini punya plafon pemindaian: 2.000 listing aktif untuk katalog, dan
+500 permintaan terbaru untuk papan. Angka 500 dipilih karena papan menampilkan
+paling banyak 100 baris dan 500 baris terbaru selalu lebih dari cukup untuk
+menghasilkan 30 hasil teratas yang sama.
+
+Yang SENGAJA tidak dikerjakan: paginasi sungguhan. Menambahkannya berarti
+mengubah produk - tombol "muat lagi" atau gulir tak hingga di katalog adalah
+keputusan pemilik, bukan hasil audit. Konsekuensinya dicatat di bagian 11:
+katalog masih satu permintaan penuh, hanya sekarang punya batas.
+
 ---
 
 ## 3. Berkas dan Rentang Baris
@@ -463,6 +595,13 @@ sumber peristiwanya sendiri.
 | `package.json` | `axios` (dependensi tak terpakai, 8 advisory high) dihapus; `@convex-dev/auth` 0.0.90 -> 0.0.96; `@auth/core` 0.41.3 ditambahkan eksplisit |
 | `bun.lock` | `bun update` dalam rentang + lockfile yang sudah bersih |
 | `package-lock.json` | **Dihapus.** Sudah menyimpang (lima dependensi langsung tidak ada di sana) dan tidak dipakai satu pun script; `bun.lock` jadi satu-satunya sumber kebenaran |
+| `src/lib/image-upload.ts` | `ALLOWED_IMAGE_TYPES` baru (allowlist raster); `isStoredImage` memakai allowlist + normalisasi MIME, bukan awalan `image/` |
+| `src/lib/image-upload.test.ts` | Tiga test baru: SVG ditolak, normalisasi huruf besar/spasi, allowlist hanya raster |
+| `src/convex/storage.ts` | `recordUploadedBlob` memakai `imageRejection` (batas ukuran ikut ditegakkan); `pruneOrphanStorage` memakai indeks `byProfileImageStorageId` |
+| `src/convex/storage.test.ts` | Dua test baru: batas ukuran peta blob, SVG ditolak |
+| `src/convex/community.ts` | `listNotifications` dan `markNotificationsRead` dibatasi (filter di database); `recordInteraction`, `createReport`, `createRequest` memakai pemindaian terpotong; `listRequests` punya plafon `REQUEST_BOARD_SCAN` |
+| `src/convex/reviews-notifications.test.ts` | Dua test baru: penandaan terbaca dibatasi, inbox terpotong dan terurut |
+| `src/convex/vendors.ts` | `addReview` memakai pemindaian terpotong untuk kuota anonim; `listActive` punya plafon `CATALOG_SCAN` |
 
 ### 3.2 Alasan tiap keputusan yang bisa dipertanyakan
 
@@ -924,13 +1063,13 @@ Dijalankan pada commit ini, semuanya lulus:
 |---|---|
 | `bunx convex dev --once` | Convex functions ready |
 | `bunx tsc -b --noEmit` | 0 error |
-| `bun run test` | **70 berkas / 973 test / 0 gagal** (naik dari 62/883) |
+| `bun run test` | **70 berkas / 980 test / 0 gagal** (naik dari 62/883) |
 | `bun run lint` | **0 error / 26 warning** (sama dengan baseline) |
 | `bun install --frozen-lockfile` | Lulus, tanpa perubahan |
 | `bun audit` | **15 kerentanan, 0 critical**, 0 dependensi langsung rentan (sebelumnya 46 / 1 critical) |
 | `node tmp/qa-p91-leakscan.mjs <29 berkas yang disentuh>` | CLEAN |
 
-Uji naik dari 883 ke 973 bersih. Berkas test baru:
+Uji naik dari 883 ke 980 bersih. Berkas test baru:
 
 | Berkas | Test | Isi |
 |---|---:|---|
@@ -942,6 +1081,15 @@ Uji naik dari 883 ke 973 bersih. Berkas test baru:
 | `src/convex/session-context-authority.test.ts` (baru) | 8 | Konteks sesi harus dari server, bukan dari klien |
 | `src/convex/context-route-hardening.test.ts` (baru) | 11 | CORS fail-closed dan batas permintaan, lewat `t.fetch` |
 | `src/convex/access-denial-contract.test.ts` (baru) | 10 | Batasan transaksi Convex, gerbang tetap menolak, jalur return-only terdeteksi |
+
+Tujuh test ditambahkan pada commit ini, semuanya di berkas yang sudah ada, dan
+**tidak ada satu pun test lama yang diubah kontraknya atau di-`skip`**:
+
+| Berkas | Test | Isi |
+|---|---:|---|
+| `src/lib/image-upload.test.ts` | 3 | SVG ditolak walau berawalan `image/`; huruf besar dan spasi tidak membuat ditolak; allowlist hanya berisi raster |
+| `src/convex/storage.test.ts` | 2 | Peta blob menolak foto melebihi batas ukuran dan menolak SVG |
+| `src/convex/reviews-notifications.test.ts` | 2 | Penandaan terbaca dibatasi 200 per panggilan dan menutup sisanya; inbox memotong 5 baris dari yang terbaru |
 
 Jumlah di atas lebih besar daripada kenaikan bersihnya karena tiga test lama
 DIUBAH kontraknya sejak Fase 3, bukan ditambah: dua di
@@ -973,7 +1121,9 @@ Disebut eksplisit supaya tidak terlihat seperti sudah tercakup.
 Sudah ditutup sejak versi pertama laporan ini: sesi tercabut (10 test),
 `ensureCatalogSeeded` (4 test), `postMessage` (6 test), dan pemicu deteksi
 untuk tiga aturan pertama (11 test). Sejak commit ini: integritas konteks sesi
-(8 test) dan CORS fail-closed plus batas permintaan (11 test).
+(8 test), CORS fail-closed plus batas permintaan (11 test), allowlist tipe
+gambar dan batas ukuran peta blob (5 test), serta batas kerja enam permukaan
+publik (2 test).
 
 Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
 
@@ -1023,6 +1173,11 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
       server. 11 test di `src/convex/context-route-hardening.test.ts`.
 - [ ] Webhook diperkuat - **SEBAGIAN.** HMAC dan perbandingan panjang tetap
       sudah ada; idempotensi dan pencegahan replay belum diperiksa.
+- [x] Penyimpanan tidak menerima tipe aktif - `image/svg+xml` dan keluarga
+      XML lain ditolak lewat allowlist raster; batas ukuran ditegakkan di
+      `storage`, `users`, dan `community` dari aturan yang sama; bukti klaim,
+      dokumen cadangan, dan foto profil orang lain tetap tidak bisa jadi foto
+      listing. 5 test regresi (bagian 2.10).
 - [x] Deteksi serangan nyata diimplementasikan dan diuji - model, katalog,
       pencatat, panel, retensi, 21 test aturan, dan 21 test pemicu. **4 dari 9
       pemicu tersambung**; dua sisanya terbukti mustahil dari dalam gerbang
@@ -1040,8 +1195,11 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
 - [ ] Tidak ada error kritis yang tertelan tanpa penjelasan - **TIDAK DIVERIFIKASI.**
 - [ ] Tidak ada deep-link rusak - **TIDAK DIVERIFIKASI.**
 - [x] Tidak ada beban kerja publik tanpa batas - untuk `ensureCatalogSeeded`,
-      `listRequests`, dan `POST /admin-gate/context`, semuanya sekarang
-      dibatasi. Fungsi publik lain belum diaudit (bagian 2).
+      `listRequests`, `listActive`, dan `POST /admin-gate/context`, semuanya
+      sekarang dibatasi. Enam permukaan baca publik lainnya juga dipotong di
+      server: inbox notifikasi, penandaan terbaca, deduplikasi interaksi,
+      kuota laporan, kuota ulasan anonim, dan fans-out notifikasi request.
+      Fungsi publik lain belum diaudit satu per satu (bagian 2).
 
 ### Responsif
 

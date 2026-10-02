@@ -400,6 +400,73 @@ describe("notifikasi dalam aplikasi", () => {
     expect(marked).toBe(0);
   });
 
+  test("penandaan terbaca dibatasi, jadi satu akun tidak bisa memaksa ribuan tulisan", async () => {
+    // TEMUAN FASE 11: versi lama `.collect()` seluruh notifikasi milik
+    // pengguna lalu menandai semuanya dalam SATU transaksi. Akun dengan
+    // 20.000 notifikasi belum dibaca menghasilkan 20.000 tulisan, dan kalau
+    // transaksinya gagal semua penandaan hilang. Sekarang filter `read ===
+    // false` dijalankan di database dan penandaan dibatasi 200 baris per
+    // panggilan; sisanya ditandai pada pemanggilan berikutnya.
+    const t = convexTest(schema, modules);
+    const user = await seedUser(t, "Warga Ramai", "warga-ramai@sumenep.co.id");
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 250; i += 1) {
+        await ctx.db.insert("notifications", {
+          userId: user.userId as never,
+          kind: "request",
+          title: `Judul ${i}`,
+          body: `Isi ${i}`,
+          read: false,
+          createdAt: Date.now(),
+        });
+      }
+    });
+    const marked = await user.asUser.mutation(api.community.markNotificationsRead, {});
+    expect(marked).toBe(200);
+    const left = await t.run(async (ctx) =>
+      ctx.db
+        .query("notifications")
+        .withIndex("byUser", (q) => q.eq("userId", user.userId as never))
+        .filter((q) => q.eq(q.field("read"), false))
+        .collect(),
+    );
+    expect(left).toHaveLength(50);
+    // Panggilan kedua menutup sisanya, jadi tidak ada baris yang terkunci
+    // selamanya hanya karena pemiliknya punya banyak notifikasi.
+    expect(await user.asUser.mutation(api.community.markNotificationsRead, {})).toBe(50);
+  });
+
+  test("daftar notifikasi terpotong di server dan urut dari yang terbaru", async () => {
+    // `.collect()` + sort + slice membaca SELURUH riwayat notifikasi hanya untuk
+    // menampilkan 30 baris. Sekarang batasnya ditegakkan server lewat
+    // `.order("desc").take(n)` pada indeks, dan hasilnya harus persis sama:
+    // terbaru lebih dulu.
+    const t = convexTest(schema, modules);
+    const user = await seedUser(t, "Warga Urut", "warga-urut@sumenep.co.id");
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 40; i += 1) {
+        await ctx.db.insert("notifications", {
+          userId: user.userId as never,
+          kind: "request",
+          title: `Judul ${i}`,
+          body: "Isi",
+          read: false,
+          createdAt: Date.now() + i,
+        });
+      }
+    });
+    const rows = (await user.asUser.query(api.community.listNotifications, { limit: 5 })) as Array<{
+      title: string;
+    }>;
+    expect(rows.map((row) => row.title)).toEqual([
+      "Judul 39",
+      "Judul 38",
+      "Judul 37",
+      "Judul 36",
+      "Judul 35",
+    ]);
+  });
+
   test("notifikasi bertahan setelah dibaca dan tidak hilang sendiri", async () => {
     // Notifikasi yang lenyap setelah dibaca tidak bisa dipakai untuk menelusuri
     // kembali: "tawaran Anda diterima" harus masih bisa dibaca besok.

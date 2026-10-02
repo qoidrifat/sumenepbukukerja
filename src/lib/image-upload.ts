@@ -29,16 +29,62 @@ export const MAX_IMAGE_LABEL = "1 MB";
 export const ACCEPTED_IMAGE_LABEL = "JPG, PNG, atau WebP";
 
 /**
- * Apakah berkas di storage benar-benar gambar?
+ * Format gambar yang BOLEH masuk storage, satu per satu — bukan awalan `image/`.
+ *
+ * Kenapa bukan `startsWith("image/")`: awalan itu menerima semua keluarga
+ * `image/*`, termasuk `image/svg+xml`. SVG bukan gambar bitmap, melainkan
+ * dokumen yang boleh memuat `<script>`, `onload`, dan `<foreignObject>`.
+ * Convex menyajikan berkas storage lewat URL sendiri, jadi SVG yang lolos
+ * bisa dieksekusi sebagai skrip di origin storage - persis kelas celah
+ * "penyimpanan bebas tipe = XSS tersimpan" yang paling sering dilewatkan.
+ *
+ * Daftar di bawah sengaja berisi HANYA format raster. Setiap entri ada
+ * alasannya:
+ *  - `jpeg`/`jpg`/`pjpeg` - hasil perkecil di peramban dan hampir semua kamera.
+ *  - `png` - screenshot dan gambar dengan transparansi.
+ *  - `webp` - pilihan modern, didukung semua peramban yang dipakai app ini.
+ *  - `gif` - masih diterima karena sudah menjadi perilaku yang berjalan dan
+ *    `downscaleImageIfLarge` secara khusus tidak mengubahnya; menghapusnya
+ *    akan mengganti keputusan produk menjadi perubahan keamanan.
+ *  - `avif` - format kamera Android terbaru.
+ *  - `heic`/`heif` - foto iPhone. Format ini tidak bisa dirender sebagian
+ *    peramban, tapi TIDAK bisa menjalankan skrip juga, jadi aman dari sisi
+ *    keamanan; penampil bawaan iPhone sudah menampilkannya dengan benar.
+ *
+ * Yang TIDAK ada di sini: `svg+xml`, `x-icon`, `x-xbitmap`, dan apa pun yang
+ * berbasis XML. Format seperti itu bisa membawa skrip, dan storage milik kita
+ * disajikan sebagai dokumen utuh - bukan sebagai `<img>` yang terisolasi.
+ */
+export const ALLOWED_IMAGE_TYPES: readonly string[] = [
+  "image/jpeg",
+  "image/jpg",
+  "image/pjpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+  "image/heic",
+  "image/heif",
+];
+
+/**
+ * Apakah berkas di storage benar-benar gambar yang boleh ditayangkan?
  *
  * `contentType` dibaca dari metadata STORAGE, bukan dari `File` yang dikirim
  * klien — nama berkas dan `type` di sisi klien bisa dipalsukan, metadata ini
  * tidak. Kalau `contentType`-nya KOSONG, berkas DITOLAK: memperbolehkannya
  * berarti siapa pun bisa mengunggah apa saja dengan sengaja tidak mengirim
  * header, dan berkas itu lalu disajikan ulang dari storage milik kita.
+ *
+ * Perbandingan dinormalisasi (huruf kecil, tanpa parameter `; charset=`),
+ * karena sebagian server MIME menulis `IMAGE/JPEG` atau
+ * `image/jpeg; charset=binary` untuk berkas yang sama.
  */
 export function isStoredImage(contentType: string | undefined | null): boolean {
-  return typeof contentType === "string" && contentType.startsWith("image/");
+  if (typeof contentType !== "string") return false;
+  const normalized = contentType.split(";")[0].trim().toLowerCase();
+  if (!normalized) return false;
+  return ALLOWED_IMAGE_TYPES.includes(normalized);
 }
 
 /**

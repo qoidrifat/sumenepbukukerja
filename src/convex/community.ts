@@ -240,6 +240,19 @@ export const listReviewQueue = query({
   },
 });
 
+/**
+ * Seberapa banyak permintaan terbaru yang boleh dipindai untuk satu halaman papan.
+ *
+ * Papan menampilkan paling banyak 100 baris, tapi PENCARIAN dan penyaringan
+ * dilakukan setelah pembacaan - jadi tanpa plafon, satu permintaan anonim ke
+ * papan publik membaca SELURUH riwayat permintaan untuk mengembalikan 30 baris.
+ * Plafon ini membaca 500 baris terbaru saja, yang selalu jauh lebih dari yang
+ * dibutuhkan halaman yang benar-benar berisi 30 hasil. Perbedaan perilaku
+ * hanya mungkin kalau ada lebih dari 500 permintaan yang cocok dengan filter
+ * yang sama, dan itupun hanya untuk permintaan paling lama.
+ */
+const REQUEST_BOARD_SCAN = 500;
+
 export const listRequests = query({
   args: {
     status: v.optional(requestStatusValidator),
@@ -265,8 +278,9 @@ export const listRequests = query({
       ? await ctx.db
           .query("serviceRequests")
           .withIndex("byStatus", (q) => q.eq("status", args.status!))
-          .collect()
-      : await ctx.db.query("serviceRequests").collect();
+          .order("desc")
+          .take(REQUEST_BOARD_SCAN)
+      : await ctx.db.query("serviceRequests").order("desc").take(REQUEST_BOARD_SCAN);
     const search = args.search?.trim().toLowerCase();
     const visible = rows
       .filter((request) => args.mine || (request.status !== "cancelled" && request.status !== "expired"))
@@ -415,10 +429,16 @@ export const createRequest = mutation({
         .unique();
       if (preferences?.requestUpdates !== true) continue;
       const body = `${title} — ${args.landmark === "all" ? "sekitar Sumenep" : landmarkLabelForNotification(args.landmark)}`;
+      // Hanya perlu notifikasi 24 jam terakhir. Membaca seluruh riwayat
+      // notifikasi tiap kandidat membuat satu permintaan baru membaca
+      // 50 x semua notifikasi dari siapa pun, dan itu berulang setiap kali
+      // ada request baru. Jendela 50 baris terbaru menutup jendela 24 jam
+      // itu dengan jauh lebih dari cukup untuk kuota 3 per hari.
       const recentNotifications = await ctx.db
         .query("notifications")
         .withIndex("byUser", (q) => q.eq("userId", candidate._id))
-        .collect();
+        .order("desc")
+        .take(REQUEST_FANOUT_SCAN);
       const recentRequestNotifications = recentNotifications.filter(
         (notification) =>
           notification.kind === "request" &&
@@ -810,6 +830,12 @@ export const updateAvailability = mutation({
   },
 });
 
+/** Seberapa banyak interaksi terbaru yang diperiksa untuk deduplikasi. */
+const INTERACTION_DEDUP_SCAN = 100;
+
+/** Berapa notifikasi terbaru per pengguna yang diperiksa saat fans-out. */
+const REQUEST_FANOUT_SCAN = 50;
+
 export const recordInteraction = mutation({
   args: {
     vendorId: v.id("vendors"),
@@ -825,10 +851,17 @@ export const recordInteraction = mutation({
     if (!vendor) return null;
     const now = Date.now();
     if (args.kind !== "view") {
+      // Deduplikat hanya perlu melihat interaksi yang BARU. Versi lama
+      // mengoleksi SELURUH riwayat interaksi pengguna untuk mencari satu
+      // baris dalam jendela 5 menit, jadi satu akun yang aktif lama
+      // membaca ribuan dokumen setiap kali menekan tombol. Jendelanya
+      // sengaja hanya 5 menit, jadi 100 baris terbaru selalu lebih dari
+      // cukup - dan kalau memang tidak ditemukan di sana, memang tidak ada.
       const recent = await ctx.db
         .query("vendorInteractions")
         .withIndex("byUser", (q) => q.eq("userId", userId))
-        .collect();
+        .order("desc")
+        .take(INTERACTION_DEDUP_SCAN);
       const duplicate = recent.find(
         (item) =>
           item.vendorId === args.vendorId &&
@@ -928,23 +961,48 @@ export const listNotifications = query({
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) return [];
-    const rows = await ctx.db
+    // Batasnya HARUS dipindah ke server. Versi lama `.collect()` seluruh
+    // notifikasi milik pengguna lalu `sort` + `slice`: panel inbox hanya
+    // menampilkan 30 baris, tapi biayanya tumbuh tanpa batas seiring
+    // notifikasi menumpuk, jadi siapa pun bisa memaksa pembacaan besar hanya
+    // dengan membuka panel. Indeks `byUser` sudah terurut dari yang terbaru,
+    // jadi `.order("desc").take(n)` memberi hasil yang PERSIS sama dengan
+    // sort-then-slice, dengan biaya yang tidak bergantung pada total baris.
+    const limit = Math.min(Math.max(args.limit ?? 30, 1), 100);
+    return await ctx.db
       .query("notifications")
       .withIndex("byUser", (q) => q.eq("userId", userId))
-      .collect();
-    return rows.sort((a, b) => b.createdAt - a.createdAt).slice(0, Math.min(Math.max(args.limit ?? 30, 1), 100));
+      .order("desc")
+      .take(limit);
   },
 });
+
+/**
+ * Berapa banyak baris yang boleh ditandai terbaca dalam satu panggilan.
+ *
+ * Tanpa batas ini, satu akun dengan ribuan notifikasi belum dibaca akan
+ * menulis ribuan dokumen dalam satu transaksi - dan transaksi yang gagal
+ * berarti semua penandaan hilang. Batas ini membuat pekerjaan paling buruk
+ * selesai dengan pasti; sisanya ditandai pada pemanggilan berikutnya
+ * (tombol di panel pemanggil tidak menampilkan angka, jadi tidak ada
+ * komitmen yang perlu dijaga ke pengguna).
+ */
+const MARK_READ_BATCH = 200;
 
 export const markNotificationsRead = mutation({
   args: {},
   handler: async (ctx) => {
     const userId = await requireUser(ctx);
+    // Filter `read === false` dijalankan di dalam database, jadi baris yang
+    // sudah dibaca tidak pernah ditarik ke memori transaksi. Angka yang
+    // dikembalikan sekarang adalah jumlah baris yang benar-benar ditandai,
+    // bukan jumlah seluruh notifikasi milik pengguna.
     const rows = await ctx.db
       .query("notifications")
       .withIndex("byUser", (q) => q.eq("userId", userId))
-      .collect();
-    await Promise.all(rows.filter((row) => !row.read).map((row) => ctx.db.patch(row._id, { read: true })));
+      .filter((q) => q.eq(q.field("read"), false))
+      .take(MARK_READ_BATCH);
+    await Promise.all(rows.map((row) => ctx.db.patch(row._id, { read: true })));
     return rows.length;
   },
 });
@@ -1321,6 +1379,17 @@ const categoryOptionsForMetrics = [
   "Jasa Umum",
 ] as const;
 
+/**
+ * Seberapa banyak laporan terbaru per irisan yang dibaca untuk duplikat dan
+ * kuota.
+ *
+ * Aturannya hanya melihat 6 jam (duplikat), 24 jam (kuota pelapor), dan 1 jam
+ * (kuota target), jadi rapinya selalu di ujung. Membaca seluruh riwayat
+ * laporan membuat satu kiriman laporan jadi mahal tepat ketika sistemnya
+ * paling dibutuhkan, yaitu saat laporan menumpuk.
+ */
+const REPORT_SCAN = 50;
+
 export const createReport = mutation({
   args: {
     vendorId: v.optional(v.id("vendors")),
@@ -1360,12 +1429,14 @@ export const createReport = mutation({
       ? await ctx.db
           .query("reports")
           .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
-          .collect()
+          .order("desc")
+          .take(REPORT_SCAN)
       : args.requestId
         ? await ctx.db
             .query("reports")
             .withIndex("byRequest", (q) => q.eq("requestId", args.requestId))
-            .collect()
+            .order("desc")
+            .take(REPORT_SCAN)
         : [];
     const sameTarget = (report: (typeof targetReports)[number]) =>
       report.vendorId === args.vendorId && report.requestId === args.requestId;
@@ -1385,7 +1456,8 @@ export const createReport = mutation({
       ? await ctx.db
           .query("reports")
           .withIndex("byReporter", (q) => q.eq("reporterId", userId))
-          .collect()
+          .order("desc")
+          .take(REPORT_SCAN)
       : [];
     const recentReporterReports = userId
       ? ownReports.filter((report) => now - report.createdAt < 24 * 60 * 60 * 1000)

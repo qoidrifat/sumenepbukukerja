@@ -222,6 +222,21 @@ const toPublicCatalogVendor = (vendor: VendorDoc, derived: {
   ...(derived.distanceKm === undefined ? {} : { distanceKm: derived.distanceKm }),
 });
 
+/**
+ * Plafon baris listing aktif yang boleh dipindai untuk satu pemanggilan katalog.
+ *
+ * Tanpa plafon, satu permintaan anonim ke katalog publik membaca SELURUH
+ * tabel listing aktif, dan tabel itu hanya tumbuh. Angka 2.000 dipilih jauh di
+ * atas ukuran direktori Sumenep yang wajar, jadi dalam operasi normal plafonnya
+ * tidak pernah tersentuh - tetapi kalau kota ini tumbuh jauh melampaui itu,
+ * batasnya jadi terlihat alih-alih diam-diam.
+ *
+ * Tidak ada paginasi di katalog karena tidak ada di antarmuka juga:
+ * menambahkannya berarti mengubah produk, dan itu keputusan pemilik, bukan
+ * hasil audit.
+ */
+const CATALOG_SCAN = 2_000;
+
 export const listActive = query({
   args: {
     category: v.optional(v.string()),
@@ -235,7 +250,8 @@ export const listActive = query({
     const rows = await ctx.db
       .query("vendors")
       .withIndex("byStatus", (q) => q.eq("status", "active"))
-      .collect();
+      .order("desc")
+      .take(CATALOG_SCAN);
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     const search = args.search?.trim().toLowerCase();
@@ -911,6 +927,12 @@ export const recordSearch = mutation({
   },
 });
 
+/** Kuota ulasan anonim per listing per 24 jam. */
+const ANONYMOUS_REVIEW_DAILY_LIMIT = 3;
+
+/** Berapa ulasan terbaru yang diperiksa untuk menghitung kuota itu. */
+const ANONYMOUS_REVIEW_SCAN = 100;
+
 export const addReview = mutation({
   args: {
     vendorId: v.id("vendors"),
@@ -955,14 +977,21 @@ export const addReview = mutation({
       if (existing) throw new Error("Anda sudah menulis ulasan untuk listing ini");
     } else {
       const todayStart = Date.now() - 24 * 60 * 60_000;
+      // Hanya ulasan yang BARU yang bisa memenuhi kuota hari ini, jadi cukup
+      // membaca ujung terbaru. Versi lama mengoleksi seluruh ulasan listing
+      // untuk menghitung tiga baris, sehingga satu listing yang ramai membuat
+      // setiap ulasan anonim membaca ribuan dokumen.
       const recentAnonymous = await ctx.db
         .query("reviews")
         .withIndex("byVendor", (q) => q.eq("vendorId", args.vendorId))
-        .collect();
+        .order("desc")
+        .take(ANONYMOUS_REVIEW_SCAN);
       const sameDay = recentAnonymous.filter(
         (row) => !row.authorId && row.createdAt >= todayStart,
       ).length;
-      if (sameDay >= 3) throw new Error("Terlalu banyak ulasan hari ini untuk listing ini");
+      if (sameDay >= ANONYMOUS_REVIEW_DAILY_LIMIT) {
+        throw new Error("Terlalu banyak ulasan hari ini untuk listing ini");
+      }
     }
 
     const reviewId = await ctx.db.insert("reviews", {

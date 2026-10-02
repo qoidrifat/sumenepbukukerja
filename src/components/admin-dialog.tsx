@@ -16,18 +16,32 @@ type AdminDialogContentProps = React.ComponentProps<typeof DialogContent>;
  *    memverifikasi seluruh dialog dengan satu IMPORT.
  *
  * 2. ANDROID - DIALOG YANG MENUTUP DIRI SENDIRI. Gejalanya nyata dan hanya
- *    muncul di Android: menekan menu Profil, dialog terbuka, keyboard
- *    langsung muncul, lalu dialog menutup di detik yang sama.
+ *    muncul di Android: menekan menu Profil, dialog terbuka, lalu hilang
+ *    sendiri tanpa pengguna menyentuh Tutup, Escape, atau latarnya.
  *
- *    Rantainya: Radix memfokuskan elemen tabbable pertama saat dialog dibuka,
- *    yaitu isian teks. Di Android, memfokuskan isian itu memunculkan keyboard
- *    yang mengubah tinggi viewport, sehingga layout dialog digeser. FocusScope
- *    membaca pergeseran itu sebagai "fokus keluar" - yang oleh Radix
- *    diperlakukan sebagai interaksi di luar dialog, sehingga dialog ditutup.
- *    Di iOS dan desktop tidak terjadi karena keduanya tidak memunculkan
- *    keyboard otomatis dengan cara yang sama.
+ *    Catatan koreksi, karena versi catatan ini sebelumnya menyalahkan
+ *    keyboard Android dan itu SALAH. Penyebab sebenarnya ada di luar dialog
+ *    ini, di tiga hal yang semuanya ada di `admin-workspace.tsx`:
  *
- *    Tiga hal di bawah menutup semua jalurnya:
+ *      a. Dialog profil dirender DI DALAM panel menu. Begitu panel menutup,
+ *         `AnimatePresence` mencabut dialog itu beserta portalnya.
+ *      b. Klik pada pemicunya sendiri yang menutup panel, di handler yang
+ *         sama yang membuka dialog. Jadi dialog tidak pernah punya alasan
+ *         untuk tetap hidup - ia mati bersama animasi keluar panel, tanpa
+ *         menunggu ketukan apa pun.
+ *      c. Dialog dirender lewat portal ke `document.body`, sehingga isinya
+ *         berada DI LUAR header. Penutup menu berbasis `pointerdown` milik
+ *         header membaca setiap ketukan di dalam dialog sebagai "di luar".
+ *
+ *    (a) dan (b) juga menjelaskan desktop, dan sebenarnya menjelaskan
+ *    kedua device: dialog hanya hidup selama animasi keluar panel, sementara
+ *    animasi MASUK dialog sendiri berdurasi 200 ms. Durasinya nyaris sama,
+ *    jadi dialog mati tepat ketika ia baru selesai memudar masuk. Komponen
+ *    ini karena itu bukan penyebabnya, dan memperbaiki penjaga di sini saja
+ *    tidak akan pernah menutup bug itu.
+ *
+ *    Tiga hal di bawah tetap dipertahankan, karena masing-masing menutup
+ *    kelas bug tersendiri yang nyata pada dialog admin:
  *    - `onOpenAutoFocus` dibatalkan, lalu fokus diarahkan ke PANEL dialog,
  *      bukan ke isian. Efeknya keyboard tidak muncul sampai pengguna sendiri
  *      menyentuh isian yang memang ia tuju.
@@ -35,6 +49,10 @@ type AdminDialogContentProps = React.ComponentProps<typeof DialogContent>;
  *      tidak bisa menutup dialog.
  *    - `onInteractOutside` dibatalkan, jadi ketukan yang lolos ke lapisan
  *      luar saat keyboard sedang naik juga tidak menutupnya.
+ *
+ *    PENTING: ketiga penjaga di atas bekerja di DALAM Radix. Penutup menu di
+ *    (c) adalah `document.addEventListener` terpisah milik komponen lain, dan
+ *    tidak satu pun `preventDefault` di sini yang bisa mencegahnya.
  *
  *    Yang tersisa untuk menutup dialog adalah tombol Batal/Tutup dan tombol
  *    Escape, keduanya selalu ada. Menukar klik-di-luar dengan klik-tutup yang

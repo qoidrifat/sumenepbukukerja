@@ -45,9 +45,13 @@ const MAX_NAME_LENGTH = 80;
  * adalah baris menu yang lebarnya penuh. Keduanya memanggil `openProfile`
  * yang sama persis, jadi tidak ada dua keadaan form yang bisa berbeda.
  *
- * `onOpenChange` dipakai pemanggil menu header untuk menutup panelnya sendiri
- * saat dialog dibuka. Tanpa itu, panel menu tetap menutupi separuh layar
- * di atas dialog yang baru terbuka.
+ * `open`/`onOpenChange` dikendalikan PEMANGGIL, bukan state internal. Dulu
+ * dialog ini memegang state-nya sendiri di dalam komponen yang sama dengan
+ * pemicunya, sehingga pemicu tidak bisa hidup di panel menu: begitu panel
+ * menutup, React mencabut pemicunya - dan dialognya - bersamanya. Sekarang
+ * pemanggil yang memegang keadaan, jadi pemicunya boleh ikut tercabut
+ * sementara dialognya tetap hidup. Lihat catatan panjang di
+ * `AdminProfileTrigger`.
  */
 export function AdminProfileDialog({
   open,

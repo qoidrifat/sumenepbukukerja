@@ -231,6 +231,34 @@ test("header tidak lagi memakai tombol Beranda yang memenuhi layar", () => {
   expect(html.indexOf("logo-mark.svg")).toBeGreaterThan(-1);
 });
 
+test("header menampilkan foto profil, dengan inisial sebagai cadangan", () => {
+  // Foto profil dihitung server dari storage id. Sebelumnya `myProfile` sudah
+  // mengembalikan `imageUrl`, tapi nilainya hanya dipakai DI DALAM dialog -
+  // header tidak pernah menampilkannya. Akibatnya pengelola yang sudah
+  // memasang foto tetap tidak melihatnya di mana pun.
+  //
+  // Avatar harus di HEADER, bukan di panel menu. Panel itu hanya dirender
+  // setelah dibuka, jadi foto yang baru dipasang tidak terlihat tanpa satu
+  // langkah tambahan, dan memasang foto terasa seperti tidak ada yang terjadi.
+  // Itu juga alasan test ini bisa memeriksa markup sama sekali.
+  const withPhoto = renderHeader({
+    accountName: "Ahmad Fauzi",
+    accountImageUrl: "https://storage.convex.test/abc123",
+  });
+  expect(withPhoto).toContain("abc123");
+  expect(withPhoto).toContain("object-cover");
+
+  // Tanpa foto, inisial - bukan kotak kosong. Kotak kosong di sebelah menu
+  // terbaca sebagai bug, bukan sebagai "belum ada foto".
+  const withoutPhoto = renderHeader({ accountName: "Ahmad Fauzi" });
+  expect(withoutPhoto).not.toContain("object-cover");
+  expect(withoutPhoto).toContain("AF");
+
+  // Tanpa nama dan tanpa foto, header harus tetap utuh.
+  const bare = renderHeader();
+  expect(bare).toContain("Buka menu ruang pengelola");
+});
+
 test("kotak peran ada di sisi kiri dan tidak pernah gepeng", () => {
   const html = renderHeader({ role: "staff" });
   expect(html).toContain("admin-status");

@@ -213,6 +213,15 @@ function AdminWorkspace() {
   // sudah ada, bukan query tambahan, supaya header tidak menambah permintaan
   // jaringan hanya untuk satu kalimat.
   const { user } = useAuth();
+  // Foto profil TIDAK bisa diambil dari `useAuth`. Sesi auth tidak membawa
+  // `profileImageStorageId`, dan memang tidak seharusnya - storage id adalah
+  // kunci internal. `myProfile` menghitung URL-nya di server, jadi satu
+  // query ini sudah cukup dan tidak membuka apa pun ke klien.
+  //
+  // Query ini sama persis dengan yang dipakai dialog profil. Convex memakai
+  // satu langganan per query, jadi panel menu dan dialognya bukan dua
+  // permintaan jaringan.
+  const myProfile = useQuery(api.users.myProfile, {});
   // Menandai sesi ini sebagai aktif supaya panel audit bisa menampilkan
   // "Aktif sekarang" pada baris dengan sidik jari yang sama.
   useAdminPresence();
@@ -810,6 +819,7 @@ function AdminWorkspace() {
         role={access?.role ?? undefined}
         isOwner={access?.isOwner ?? false}
         accountName={user?.name ?? null}
+        accountImageUrl={myProfile?.imageUrl ?? null}
         reviewQueue={reviewQueue ?? undefined}
       />
       <main className="admin-shell-frame mx-auto max-w-[1600px] px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10">

@@ -201,12 +201,24 @@ export function AdminHeader({
   role = "admin",
   isOwner = false,
   accountName,
+  accountImageUrl,
   reviewQueue,
 }: {
   role?: string;
   /** Dari `users.currentAccess`, bukan ditebak di klien. */
   isOwner?: boolean;
   accountName?: string | null;
+  /**
+   * Foto profil, dihitung server dari storage id.
+   *
+   * SENGaja bukan diambil dari `useAuth()`. Sesi auth hanya membawa identitas
+   * dasar; `profileImageStorageId` tidak pernah ikut di dalamnya, dan tidak
+   * seharusnya - storage id adalah kunci internal, bukan bagian profil yang
+   * boleh beredar di state klien. `users.myProfile` sudah menghitung URL-nya
+   * di server lewat `ctx.storage.getUrl`, jadi di situ foto bisa dibaca tanpa
+   * membuka akses ke id-nya.
+   */
+  accountImageUrl?: string | null;
   reviewQueue?: { claims: number; photos: number; reports: number; total: number };
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -220,6 +232,16 @@ export function AdminHeader({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const reduceMotion = useReducedMotion();
+
+  // Inisial untuk keadaan tanpa foto. Tanpa ini, pengelola yang belum memasang
+  // foto akan melihat panel menu yang kosong di sebelah namanya - dan itu
+  // terbaca sebagai bug, bukan sebagai pilihan.
+  const accountInitials = (accountName ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.slice(0, 1).toUpperCase())
+    .join("");
 
   // Panel menutup saat diklik di luar dan saat Escape, dengan fokus dikembalikan
   // ke pemicunya. Tanpa dua hal itu, menu yang terbuka di ponsel tetap
@@ -294,6 +316,28 @@ export function AdminHeader({
                 {reviewQueue.reports} laporan
               </span>
             </a>
+          ) : null}
+
+          {/* Avatar ada di header, bukan di dalam panel menu, karena panel itu
+              hanya dirender setelah dibuka. Foto profil yang baru dipasang
+              harus terlihat tanpa satu langkah tambahan - kalau disembunyikan
+              di balik menu, memasang foto terasa seperti tidak ada yang terjadi.
+
+              Sumbernya bukan `useAuth`, tapi `users.myProfile` yang menghitung
+              URL di server. Alasannya ada di catatan prop `accountImageUrl`. */}
+          {accountImageUrl ? (
+            <img
+              src={accountImageUrl}
+              alt={accountName ? `Foto profil ${accountName}` : "Foto profil"}
+              className="size-9 shrink-0 rounded-[2px] border-2 border-[#121212] bg-white object-cover sm:size-10"
+            />
+          ) : accountInitials ? (
+            <span
+              aria-hidden="true"
+              className="flex size-9 shrink-0 items-center justify-center rounded-[2px] border-2 border-[#121212] bg-[#FFE662] text-xs font-black text-[#121212] sm:size-10 sm:text-sm"
+            >
+              {accountInitials}
+            </span>
           ) : null}
 
           <button

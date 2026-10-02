@@ -435,16 +435,12 @@ const schema = defineSchema(
     // tidak pernah menyimpan nomor: hanya siapa yang meminta, pegangan mana,
     // dan kapan. Gunanya murni pembatasan laju + jejak audit.
     //
-    // Sifat throttle: `userId` adalah userId Convex Auth, yang juga diberikan
-    // kepada pengunjung tanpa akun. Jadi batas ini bekerja untuk anonim -
-    // Unlike "tidak masuk", yang hampir tidak pernah benar di sini karena
-    // penyedia anonymous selalu memberi identitas. Yang bisa disalahgunakan
-    // adalah satu akun/peramban, bukan status masuknya.
-    //
-    // TABEL INI SENGAJA TIDAK DISIMPAN LAMA. `getContactHandoff` menghapus
-    // baris miliknya sendiri yang sudah melewati jendela di awal setiap
-    // panggilan, jadi volumenya terikat oleh kuota per akun, bukan oleh
-    // uptime. Tidak perlu cronton untuk membersihkannya.
+    // Sifat throttle: `userId` adalah userId Convex Auth ketika pemanggil punya
+    // sesi. Karena field-nya opsional, kuota ditegakkan dua jalur (lihat
+    // catatan di bawah tabel). Baris yang sudah melewati jendela dihapus
+    // sendiri oleh pemanggil di awal setiap panggilan, jadi volumenya terikat
+    // oleh kuota per akun, bukan oleh uptime. Tidak perlu cron untuk
+    // membersihkannya.
     contactHandoffs: defineTable({
       // OPSIONAL dengan sengaja.
       //
@@ -723,7 +719,31 @@ const schema = defineSchema(
   // Isinya sengaja tidak menyimpan nilai yang bisa dipakai ulang: untuk
   // storage id hanya sidik hash-nya, untuk penolakan hak privilege hanya id
   // dokumen pengguna. Baris ini dibaca Security Desk, jadi tidak boleh berisi
-  // apa pun yang bisa dipakai caller sebagai kredensial.
+  // apa pun yang bisa dipakai pemanggil sebagai kredensial.
+
+  // Penghitung laju per subjek per jendela (FASE 10).
+  //
+  // Berbeda dengan `securityDenyLog` yang menyimpan SATU KEJADIAN per baris,
+  // tabel ini menyimpan satu BARIS PER SUBJUK PER JENDELA yang berisi
+  //_running total_. Itu yang membuatnya murah untuk aturan seperti
+  // satu takikan tidak menambah satu baris database,
+  // dan jumlah kejadian tetap tahu tanpa perlu menghitung apa pun.
+  //
+  // Jendelanya dipotong ke dalam KUNCI, bukan ke dalam kolom: `key` memuat
+  // nomor jendela, jadi jendela yang lewat tidak pernah dibaca dan tidak
+  // pernah dibandingkan. Insert untuk jendela baru sekaligus menghapus baris
+  // jendela lama milik subjek yang sama, sehingga tabel ini tidak tumbuh
+  // seiring waktu tanpa batas.
+  securityRateCounters: defineTable({
+    key: v.string(),
+    ruleKey: v.string(),
+    subjectRef: v.string(),
+    count: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byKey", ["key"])
+    .index("bySubject", ["ruleKey", "subjectRef"]),
+
   securityDenyLog: defineTable({
     subjectType: v.union(v.literal("user"), v.literal("storage"), v.literal("invite")),
     /** Hash atau id yang sudah diturunkan; bukan nilai mentah. */

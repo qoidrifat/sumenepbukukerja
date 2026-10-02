@@ -806,6 +806,15 @@ const preferenceForPhone = async (ctx: GenericMutationCtx<DataModel>, phone: str
  * jejak. Baris thread di-overwrite per nomor, bukan per pesan, supaya dashboard
  * menampilkan pesan terakhir tanpa database tumbuh tanpa batas.
  */
+/**
+ * Umur maksimum satu pesan masuk yang masih diterima.
+ *
+ * Dipakai sebagai pagar replay: provider sah hanya mengirim ulang dalam
+ * rentang beberapa hari, jadi yang jauh lebih tua daripada ini hampir pasti
+ * request yang sudah dibuang lalu diputar ulang oleh pihak ketiga.
+ */
+const INBOUND_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 export const recordInboundMessage = internalMutation({
   args: {
     phone: v.string(),
@@ -824,6 +833,43 @@ export const recordInboundMessage = internalMutation({
       .unique();
     const now = Date.now();
     const lastInboundAt = args.at > 0 ? args.at : now;
+
+    /*
+     * FASE 10 - IDEMPOTENSI.
+     *
+     * Provider mengirim ulang webhook yang sama saat tidak melihat respons
+     * 2xx dalam tempo tertentu. Tanpa pemeriksaan ini, kiriman ulang akan
+     * lolos seluruh jalur di bawah dan berakhir dengan `unread: true` lagi -
+     * jadi satu pesan bisa membuat lencana baru berulang kali dan membingungkan
+     * warga yang thinksIa belum pernah dibaca.
+     *
+     * Yang dibandingkan adalah `providerMessageId`, yaitu pengenal yang diberi
+     * provider sendiri. Kalau sama, ini pastilah kiriman ulang dari pesan yang
+     * sama, bukan pesan baru yang kebetulan memiliki isi mirip.
+     */
+    if (existing && existing.providerMessageId === args.providerMessageId) {
+      return existing._id;
+    }
+
+    /*
+     * FASE 10 - PEMCEGAHAN REPLAY.
+     *
+     * Jangan hanya andalkan tanda tangan: tanda tangan yang SAH yang diulang
+     * tetap sah, dan itulah yang dilakukan capture-the-flag terhadap
+     * sebuah endpoint webhook yang bocor. Yang distinguishes-nya adalah waktu:
+     * provider tidak pernah mengirim ulang pesan yang berumur weeks.
+     *
+     * Jendelanya 7 hari, bukan satu jam, karena Meta dan Twilio memang
+     * menjadwalkan ulang pengiriman sampai berhari-hari dan pemotongan terlalu
+     * pendek akan menghilangkan pesan asli saat provider sedang bermasalah.
+     *
+     * Pesan tanpa timestamp provider (Twilio tidak mengirimnya) TIDAK
+     * ditolak di sini: tidak ada metadata untuk memutuskan, dan menolaknya
+     * hanya akan membuang pesan sah. Aturan ini sengaja memakai "yang punya
+     * bukti untuk ditolak", bukan "yang tidak bisa dibuktikan-baiki".
+     */
+    if (args.at > 0 && now - args.at > INBOUND_MAX_AGE_MS) return null;
+
     if (existing && existing.lastInboundAt > lastInboundAt) return existing._id;
     const preference = await preferenceForPhone(ctx, phone);
     if (existing) {

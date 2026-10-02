@@ -67,6 +67,51 @@ export const recordIncident = internalMutation({
  * dan oleh `.take(200)`. Permintaan palsu yang tak habis-habisnya tidak bisa
  * membuat fungsi ini membaca seluruh tabel.
  */
+/**
+ * FASE 10 - aturan `endpoint_error_burst` disambungkan.
+ *
+ * `webhook_signature_failure` (yang lebih keras dan sudah jalan) menghitung
+ * `occurrences` dari laporan error ber-`signature`. Aturan ini memakai
+ * POLA YANG SAMA tapi untuk semua kegagalan endpoint: body tak valid, content
+ * type salah, provider mengembalikan data yang tidak bisa diproses, dan* sesuatu yang membuat satu rute gagal berulang.
+ *
+ * Bedanya dengan aturan webhook: subjeknya adalah rute, bukan provider,
+ * karena itu yang bisa dilihat pengelola dari Security Desk ("endpoint mana
+ * yang sedang bermasalah").
+ *
+ * Bacaannya tetap dibatasi: satu pembacaan indeks `byLastSeenAt` untuk jendela
+ * aturan dan `.take(200)`. Banjiran permintaan palsu tidak boleh membuat
+ * fungsi ini membaca seluruh tabel.
+ */
+export const recordEndpointErrorBurst = internalMutation({
+  args: {
+    route: v.string(),
+    feature: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const rule = SECURITY_RULES.endpoint_error_burst;
+    const since = Date.now() - rule.windowMs;
+    const rows = await ctx.db
+      .query("errorReports")
+      .withIndex("byLastSeenAt", (q) => q.gte("lastSeenAt", since))
+      .take(200);
+    const count = rows
+      .filter(
+        (row) => row.source === "webhook" && row.feature === args.feature,
+      )
+      .reduce((total, row) => total + row.occurrences, 0);
+
+    await recordIncidentWithin(ctx, {
+      ruleKey: "endpoint_error_burst",
+      count,
+      subjectRef: args.route,
+      route: args.route,
+      method: "POST",
+      evidence: [`endpoint ${args.route} gagal berulang`],
+    });
+  },
+});
+
 export const recordWebhookSignatureFailure = internalMutation({
   args: {
     provider: v.string(),

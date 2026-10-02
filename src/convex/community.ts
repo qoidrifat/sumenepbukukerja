@@ -5,6 +5,7 @@ import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { recordEvent } from "./analytics";
+import { noteSecurityRate } from "./securitySignal";
 import { writeAudit, writeListingHistory } from "./audit";
 import {
   getStaffAccess,
@@ -384,6 +385,18 @@ export const createRequest = mutation({
       updatedAt: now,
     });
     await recordEvent(ctx, { event: "request_created", userId, requestId });
+    // FASE 10 - `public_mutation_rate`. Satu warga membuat banyak permintaan
+    // bukan untuk memakai produknya, melainkan untuk memenuhi papan. Launya
+    // dihitung per akun, dan hanya di atas ambang (60/menit) yang menulis
+    // insiden. Pemanggil tidak pernah memilih kapan dianggap mencurigakan.
+    await noteSecurityRate(ctx, {
+      ruleKey: "public_mutation_rate",
+      subjectRef: userId,
+      route: "community.createRequest",
+      method: "POST",
+      userId,
+      evidence: ["permintaan warga dibuat"],
+    });
     await ctx.scheduler.runAfter(
       Math.max(0, expiresAt - now - 24 * 60 * 60 * 1000),
       internal.community.sendRequestExpiryReminder,
@@ -888,6 +901,18 @@ export const recordInteraction = mutation({
             ? "whatsapp_clicked"
             : "request_matched";
     await recordEvent(ctx, { event: eventName, userId, vendorId: args.vendorId, requestId: args.requestId });
+    // FASE 10 - `public_mutation_rate` di jalur interaksi publik. Ini jalur
+    // terpanas di aplikasi, jadi biayanya harus jujur: satu pembacaan indeks
+    // kecil + satu tulis pada satu dokumen per (pengguna, jendela). Inilah
+    // inilah alasan penghitungannya disimpan, bukan dihitung ulang dari log.
+    await noteSecurityRate(ctx, {
+      ruleKey: "public_mutation_rate",
+      subjectRef: userId,
+      route: "community.recordInteraction",
+      method: "POST",
+      userId,
+      evidence: ["interaksi listing direkam"],
+    });
     return await ctx.db.insert("vendorInteractions", {
       userId,
       vendorId: args.vendorId,

@@ -178,7 +178,7 @@ bagi pemanggilan anonim. Rinciannya di 2.10, 2.11, dan 2.12.
 | 4 | Privasi WhatsApp | SEBAGIAN | Nomor USAHA publik selesai lewat handoff opaque + kuota; nomor pribadi warga masih polos (bagian 5.2) |
 | 5 | Integritas Security Desk | SELESAI | `reportSessionContext` sekarang server-authoritative; 8 test regresi |
 | 6 | CORS / HTTP | SELESAI | Fail-closed saat allowlist kosong + batas 30 permintaan/menit per IP; 11 test |
-| 7 | Deteksi serangan | SEBAGIAN | Model + katalog + pencatat + panel + retensi SELESAI; 4 dari 9 pemicu tersambung dan diuji |
+| 7 | Deteksi serangan | SEBAGIAN | Model + katalog + pencatat + panel + retensi + penghitung laju SELESAI; 7 dari 9 pemicu tersambung dan diuji |
 | 8 | Security header | BELUM | Butuh lapisan deployment (lihat bagian 12) |
 | 9 | postMessage | SELESAI | |
 | 10 | Storage | SELESAI | Allowlist MIME, batas ukuran peta blob, indeks foto profil dipakai; 2.10 |
@@ -188,7 +188,7 @@ bagi pemanggilan anonim. Rinciannya di 2.10, 2.11, dan 2.12.
 | 14 | Sinkronisasi rute | BELUM | |
 | 15 | Performa | SEBAGIAN | Plafon pemindaian pada dua query publik terberat; sisanya butuh pagination di UI |
 | 16 | Dependency / lockfile | SELESAI | 46 -> 15 kerentanan, 0 critical, `axios` dihapus, satu lockfile |
-| 17-19 | Test / unit / e2e | SEBAGIAN | 995 test hijau, termasuk 15 test handoff kontak baru; E2E belum disentuh (tidak ada peramban) |
+| 17-19 | Test / unit / e2e | SEBAGIAN | 1007 test hijau, termasuk 15 test handoff kontak dan 12 test pemicu deteksi baru; E2E belum disentuh (tidak ada peramban) |
 | 20 | Urutan pengerjaan | SEBAGIAN | Urutan diikuti untuk yang dikerjakan |
 | 21 | Laporan ini | SELESAI | |
 | 22 | Definition of Done | SEBAGIAN | Lihat bagian 11 |
@@ -699,7 +699,7 @@ waktu untuk tiga hal.
 
 ### 5.1 Menyambungkan sisa aturan ke titik pemicunya (P1, nilai tertinggi)
 
-**Empat dari sembilan sudah tersambung** dan diuji:
+**Tujuh dari sembilan sudah tersambung** dan diuji.
 
 | Aturan | Pemicu | Cara kerja |
 |---|---|---|
@@ -708,15 +708,32 @@ waktu untuk tiga hal.
 | `webhook_signature_failure` | `http.ts::reportWebhookIssue` | Menjumlahkan `occurrences` laporan error webhook ber-sidik-jari sama di jendela aturan |
 | `invite_token_invalid` | `users.acceptStaffInvite` saat klaim ditolak | Satu baris kecil per penolakan di `securityDenyLog`, dihitung per ember, satu insiden saat ambang terlampaui |
 
-Kelima yang tersisa, dengan status jujur masing-masing:
+Tiga aturan disambungkan pada commit ini (FASE 10):
+
+| Aturan | Titik pemicu | Cara kerja |
+|---|---|---|
+| `public_mutation_rate` | `community.createRequest`, `community.recordInteraction` | Penghitung berjalan per akun di `securityRateCounters`, satu baris per (subjek, jendela) |
+| `session_device_change` | `adminGate.reportSessionContext` saat `isNewSession` | Penghitung yang sama; ambang 2 per 30 menit |
+| `endpoint_error_burst` | `http.ts::reportWebhookIssue`, untuk SETIAP masalah | Menjumlahkan `occurrences` dari `errorReports` per fitur di jendela aturan |
+
+Untuk dua yang pertama, penghitung BARU (`securityRateCounters`) dibuat karena
+keduanya butuh JUMLAH kejadian dalam jendela, dan menghitung ulang dari log
+mentah setiap kali berarti satu pemindaian per kejadian - persis yang tidak
+boleh terjadi di jalur yang sedang diserang. Jendelanya dipotong ke dalam
+`key`, dan baris jendela lama dihapus saat jendela baru dimulai, jadi tabelnya
+sebesar jumlah subjek, bukan jumlah jendela.
+
+Yang tersisa, dengan status jujur masing-masing:
 
 | Aturan | Titik pemicu | Kenapa belum tersambung |
 |---|---|---|
-| `public_mutation_rate` | `community.ts::createRequest`, `recordInteraction` | Butuh subjek per sumber; IP tidak bisa dibaca di query/mutation, dan jumlahkan per-pengguna butuh tabel penghitung baru |
-| `session_device_change` | `adminGate::reportSessionContext` | Pemicunya sudah ada (`isNewSession`), tapi "perangkat berbeda" bukan dengan sendirinya payload serangan - ambangnya perlu dipilih pemilik |
-| `endpoint_error_burst` | semua jalur yang memanggil `reportWebhookIssue` | Polanya sudah ada di `recordWebhookSignatureFailure`; tinggal digeneralisasi ke semua endpoint |
 | `privileged_call_denied` | `access.ts::requireStaff`, `requireManagementViewer`, `requireVendorManager`, `requireProvenIdentity` | **Terbukti mustahil dari dalam gerbang** - lihat 2.9 |
 | `storage_reference_invalid` | `access.ts::requireAssignablePhoto` | Idem |
+
+Kedua sisanya sengaja TIDAK disambungkan lewat jalan pintas. Batasnya kini
+terkunci test di `src/convex/detection-wiring.test.ts` ("aturan yang terbukti
+tidak bisa disambungkan") supaya tidak ada yang mengira keduanya sedang
+berjalan.
 
 **Keputusan arsitektur yang menggantung sudah terjawab oleh bukti, bukan oleh
 preferensi.** Pertanyaan aslinya adalah "`denied()` atau `deniedWith(ctx)`?".
@@ -1285,17 +1302,21 @@ Yang masih terbuka lebih sedikit, dan itu penting untuk disebut:
       izin; wildcard harus diminta lewat `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS`.
       Route konteks juga dibatasi 30 permintaan/menit per IP yang diamati
       server. 11 test di `src/convex/context-route-hardening.test.ts`.
-- [ ] Webhook diperkuat - **SEBAGIAN.** HMAC dan perbandingan panjang tetap
-      sudah ada; idempotensi dan pencegahan replay belum diperiksa.
+- [x] Webhook diperkuat - HMAC dan perbandingan panjang sudah ada; pada
+      commit ini ditambah **idempotensi** (kiriman ulang dengan
+      `providerMessageId` yang sama tidak mengubah apa pun) dan **pagar
+      replay** (pesan yang lebih tua dari 7 hari ditolak; pesan tanpa
+      timestamp provider tetap diterima), plus batas ukuran badan 256 kB.
+      6 test di `src/convex/detection-wiring.test.ts`.
 - [x] Penyimpanan tidak menerima tipe aktif - `image/svg+xml` dan keluarga
       XML lain ditolak lewat allowlist raster; batas ukuran ditegakkan di
       `storage`, `users`, dan `community` dari aturan yang sama; bukti klaim,
       dokumen cadangan, dan foto profil orang lain tetap tidak bisa jadi foto
       listing. 5 test regresi (bagian 2.10).
 - [x] Deteksi serangan nyata diimplementasikan dan diuji - model, katalog,
-      pencatat, panel, retensi, 21 test aturan, dan 21 test pemicu. **4 dari 9
-      pemicu tersambung**; dua sisanya terbukti mustahil dari dalam gerbang
-      yang melempar (bagian 2.9), tiga sisanya menunggu pekerjaan tersendiri.
+      pencatat, panel, retensi, penghitung laju, 21 test aturan, dan 33 test
+      pemicu. **7 dari 9 pemicu tersambung**; dua sisanya terbukti mustahil
+      dari dalam gerbang yang melempar (bagian 2.9) dan batasnya dikunci test.
 - [ ] Security header aktif - **BELUM** (bagian 9.3).
 - [x] Postur dependensi diperbaiki - `bun audit`: 46 -> 15 kerentanan,
       **0 critical**, 0 dependensi langsung rentan. `axios` tak terpakai
@@ -1324,7 +1345,7 @@ keyboard, safe-area, reduced-motion, teks besar/kontras tinggi.
 
 - [x] Lint - 0 error / 26 warning (warning sama seperti sebelum commit ini).
 - [x] Typecheck - 0 error.
-- [x] Test unit - 995 lulus di 71 berkas.
+- [x] Test unit - 1007 lulus di 72 berkas.
 - [x] Test Convex baru - 15 test handoff kontak di
       `src/convex/contact-handoff.test.ts`, termasuk kuota, penolakan
       listing non-aktif, dan backfill idempoten.

@@ -578,12 +578,17 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
       whatsappUpdates: true,
       whatsappPhone: "6282337753394",
     });
+    // FASE 10: `at` harus berumur di dalam pagar replay 7 hari
+    // (`INBOUND_MAX_AGE_MS`). Fixture lama memakai epoch tetap tahun 2023,
+    // yang kini benar-benar ditolak sebagai replay - jadi dibikin relatif
+    // terhadap "sekarang" supaya test ini menguji thread, bukan pagar.
+    const base = Date.now();
     const first = await t.mutation(internal.whatsapp.recordInboundMessage, {
       phone: "6282337753394",
       providerMessageId: "wamid.1",
       body: "Apakah masih buka?",
       kind: "text",
-      at: 1_700_000_000_000,
+      at: base - 60_000,
     });
     expect(first).not.toBeNull();
     // Balasan kedua menimpa thread yang sama, bukan membuat baris baru.
@@ -592,7 +597,7 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
       providerMessageId: "wamid.2",
       body: "Buka sampai 20.00",
       kind: "text",
-      at: 1_700_000_060_000,
+      at: base,
     });
     expect(second).toBe(first);
     const threads = await t.run(async (ctx) => await ctx.db.query("whatsappThreads").collect());
@@ -623,7 +628,7 @@ describe("Sumenep Buku Kerja realtime contracts", () => {
       providerMessageId: "wamid.unknown",
       body: "Halo",
       kind: "text",
-      at: 1_700_000_000_000,
+      at: Date.now(),
     });
     expect(stored).not.toBeNull();
     const threads = await t.run(async (ctx) => await ctx.db.query("whatsappThreads").collect());

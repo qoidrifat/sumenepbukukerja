@@ -205,6 +205,92 @@ export type DenialSignal = {
  * Error" alih-alih kalimat yang tepat. Jadi kegagalan di sini dicatat ke log
  * server lalu dihentikan. Penolakannya tetap terjadi; yang hilang cuma jejaknya.
  */
+export type RateSignal = {
+  ruleKey: SecurityRuleKey;
+  /** Subjek yang dihitung. Untuk laju per-pengguna, ini id dokumen pengguna. */
+  subjectRef: string;
+  route: string;
+  method?: string;
+  userId?: DataModel["users"]["document"]["_id"];
+  sessionFingerprint?: string;
+  evidence?: string[];
+};
+
+/**
+ * Naikkan penghitung laju satu subjek, lalu biarkan `recordIncidentWithin`
+ * memutuskan apakah ambang terlampaui.
+ *
+ * KENAPA TIDAK CUKUP memanggil `recordIncidentWithin` dengan angka satu.
+ *
+ * Aturan laju (`public_mutation_rate`) butuh JUMLAH kejadian dalam jendela,
+ * sedangkan pemanggil hanya tahu "ini kejadian ke-N". Menghitung ulang dari
+ * tabel mentah setiap kali berarti satu pemindaian per kejadian - persis
+ * yang tidak boleh terjadi di jalur yang justru sedang diserang. Penghitung
+ * disimpan, bukan dihitung ulang.
+ *
+ * BIAYA: satu pembacaan indeks + satu tulis per kejadian. Tulisnya pada satu
+ * dokumen per (subjek, jendela), jadi mutation yang berjalan bersamaan pada
+ * subjek yang sama saling berserial secara otomatis - tidak ada counter yang
+ * bisa saling menimpa.
+ *
+ * TIDAK PERNAH MELEMPAR, dengan alasan yang sama seperti `noteSecurityDenial`:
+ * contabilidad penghitung tidak boleh pernah mengubah keputusan produk.
+ */
+export async function noteSecurityRate(
+  ctx: MutationCtx,
+  signal: RateSignal,
+): Promise<void> {
+  try {
+    const rule = SECURITY_RULES[signal.ruleKey];
+    const now = Date.now();
+    const windowIndex = Math.floor(now / rule.windowMs);
+    const key = `${signal.ruleKey}:${signal.subjectRef}:${windowIndex}`;
+
+    const current = await ctx.db
+      .query("securityRateCounters")
+      .withIndex("byKey", (q) => q.eq("key", key))
+      .unique();
+
+    const count = (current?.count ?? 0) + 1;
+    if (current) {
+      await ctx.db.patch(current._id, { count, updatedAt: now });
+    } else {
+      // Jendela baru dimulai. Baris jendela lama untuk subjek yang sama
+      // tidak berguna lagi - menghapusnya di sini yang menjaga tabel ini
+      // tetap sebesar jumlah subjek, bukan jumlah jendela.
+      const previous = await ctx.db
+        .query("securityRateCounters")
+        .withIndex("bySubject", (q) =>
+          q.eq("ruleKey", signal.ruleKey).eq("subjectRef", signal.subjectRef),
+        )
+        .take(8);
+      for (const stale of previous) await ctx.db.delete(stale._id);
+      await ctx.db.insert("securityRateCounters", {
+        key,
+        ruleKey: signal.ruleKey,
+        subjectRef: signal.subjectRef,
+        count,
+        updatedAt: now,
+      });
+    }
+
+    await recordIncidentWithin(ctx, {
+      ruleKey: signal.ruleKey,
+      count,
+      subjectRef: signal.subjectRef,
+      route: signal.route,
+      method: signal.method ?? "POST",
+      ...(signal.userId === undefined ? {} : { userId: signal.userId }),
+      ...(signal.sessionFingerprint === undefined
+        ? {}
+        : { sessionFingerprint: signal.sessionFingerprint }),
+      evidence: signal.evidence,
+    });
+  } catch (error) {
+    console.warn("[SECURITY_INCIDENT] gagal menghitung laju keamanan:", error);
+  }
+}
+
 export async function noteSecurityDenial(
   ctx: MutationCtx,
   signal: DenialSignal,

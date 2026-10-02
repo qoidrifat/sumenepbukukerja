@@ -35,6 +35,7 @@ import { v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getStaffAccess, requireManagementViewer, requireStaff, requireUser } from "./access";
 import { recordIncidentWithin } from "./securityIncidents";
+import { noteSecurityRate } from "./securitySignal";
 import { SECURITY_RULES } from "../lib/security-rules";
 import {
   GLOBAL_ATTEMPT_CEILING,
@@ -1465,6 +1466,38 @@ export const reportSessionContext = mutation({
         fingerprint: sessionFingerprint,
       });
     }
+
+    /*
+     * FASE 10 - aturan `session_device_change` disambungkan di sini.
+     *
+     * Pemicunya sudah ada dan sudah benar: `isNewSession` berarti sidik
+     * perangkat yang tercatat berbeda dari heartbeat sebelumnya. Yang belum
+     * ada adalah penghitungnya, jadi satu perangkat berganti hanya menghasilkan
+     * satu kejadian dan tidak pernah melewati ambang.
+     *
+     * AMBANGNYA PILIHAN PRODUK, dan itu disclosed di sini: angka 2 dalam
+     * jendela 30 menit (lihat `src/lib/security-rules.ts`). Satu perangkat
+     * berganti dalam sebulan adalah hal biasa - orang ganti ponsel, atau buka
+     * dasbor dari HP lain. Dua kali dalam setengah jam dari perangkat yang
+     * berbeda adalah pola yang layak dilihat pengelola, dan aturan ini tidak
+     * memblokir siapa pun: ia hanya menulis satu insiden. Pemilik boleh
+     * menaikkan atau menurunkannya di satu tempat.
+     *
+     * `noteSecurityRate` tidak pernah melempar, jadi penghitungan ini tidak
+     * pernah mengubah heartbeat yang sudah berhasil.
+     */
+    if (isNewSession) {
+      await noteSecurityRate(ctx, {
+        ruleKey: "session_device_change",
+        subjectRef: userId,
+        route: "adminGate.reportSessionContext",
+        method: "POST",
+        userId,
+        ...(sessionFingerprint ? { sessionFingerprint } : {}),
+        evidence: ["perangkat pengelola berganti"],
+      });
+    }
+
     return { isNewSession };
   },
 });

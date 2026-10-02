@@ -92,6 +92,9 @@ async function validMetaSignature(request: Request, body: string) {
  * Sengaja tidak pernah melempar: kalau pelapor sendiri gagal, callback
  * provider tidak boleh ikut gagal dan memicu percobaan beruntun.
  */
+/** Batas badan webhook yang diterima, dalam byte. */
+const WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
+
 const reportWebhookIssue = async (
   ctx: GenericActionCtx<DataModel>,
   input: {
@@ -101,6 +104,8 @@ const reportWebhookIssue = async (
     code: string;
     severity: "warning" | "error" | "critical";
     message: string;
+    /** Path rute yang dilaporkan, dipakai sebagai subjek `endpoint_error_burst`. */
+    path?: string;
     context?: Record<string, unknown>;
   },
 ) => {
@@ -155,6 +160,29 @@ const reportWebhookIssue = async (
       console.warn("[SECURITY_INCIDENT] gagal mencatat insiden tandatangan webhook:", error);
     }
   }
+
+  /*
+   * FASE 10 - `endpoint_error_burst`. Berbeda dari blok di atas, yang HANYA
+   * berlaku pada kegagalan signature, ini berlaku pada SETIAP masalah yang
+   * dilaporkan lewat fungsi ini: body JSON rusak, content type salah, atau
+   * data provider yang tidak bisa diproses.
+   *
+   * Blok signature sudah menutup kasus "pihak ketiga memanggil tanpa secret".
+   * Yang belum tertutup adalah "endpoint ini sedang gagal terus" - yang bisa
+   * berasal dari provider yang salah konfigurasi maupun dari pemanggil yang
+   * menebak. Keduanya terlihat sama dari luar, jadi keduanya dilaporkan.
+   *
+   * Terpisah try/catch, sama seperti di atas: jalur deteksi tidak boleh pernah
+   * mengubah respons HTTP yang sudah benar.
+   */
+  try {
+    await ctx.runMutation(internal.securityIncidents.recordEndpointErrorBurst, {
+      route: input.path ?? "/whatsapp/webhook",
+      feature: input.feature,
+    });
+  } catch (error) {
+    console.warn("[SECURITY_INCIDENT] gagal mencatat insiden endpoint:", error);
+  }
 };
 
 const applyMetaStatuses = async (ctx: GenericActionCtx<DataModel>, payload: unknown) => {
@@ -206,7 +234,26 @@ const whatsappWebhook = httpAction(async (ctx, request) => {
   }
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
+  /*
+   * FASE 10 - BATAS UKURAN BADAN.
+   *
+   * `request.text()` membaca SELURUH badan ke memori sebelum ada yang memeriksa
+   * ukurannya. Tanpa pagar di sini, satu permintaan webhook yang sah
+   * tandatangannya bisa mengirim badan raksasa dan membuat action ini keelahan
+   * memori - persis pada endpoint yang tugasnya menerima kiriman dari luar.
+   *
+   * Batasnya longgar (256 kB) dan dibaca dari header kalau ada, karena body
+   * webhook provider yang sah jauh di bawah itu. Yang dilindungi adalah* memori action, bukan pembatasan pada provider.
+   */
+  const declaredLength = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(declaredLength) && declaredLength > WEBHOOK_MAX_BODY_BYTES) {
+    return new Response("Payload too large", { status: 413 });
+  }
+
   const body = await request.text();
+  if (body.length > WEBHOOK_MAX_BODY_BYTES) {
+    return new Response("Payload too large", { status: 413 });
+  }
   const contentType = request.headers.get("content-type") ?? "";
 
   if (contentType.includes("application/json")) {
@@ -221,6 +268,7 @@ const whatsappWebhook = httpAction(async (ctx, request) => {
         severity: "warning",
         message: "Webhook Meta ditolak karena signature tidak cocok.",
         context: { provider: "meta", path: new URL(request.url).pathname },
+        path: new URL(request.url).pathname,
       });
       return new Response("Invalid signature", { status: 403 });
     }
@@ -236,6 +284,7 @@ const whatsappWebhook = httpAction(async (ctx, request) => {
         severity: "error",
         message: "Body webhook Meta bukan JSON yang valid.",
         context: { provider: "meta", bytes: body.length },
+        path: new URL(request.url).pathname,
       });
       return new Response("Invalid JSON", { status: 400 });
     }
@@ -257,6 +306,7 @@ const whatsappWebhook = httpAction(async (ctx, request) => {
       severity: "warning",
       message: "Webhook Twilio ditolak karena signature tidak cocok.",
       context: { provider: "twilio", path: new URL(request.url).pathname },
+      path: new URL(request.url).pathname,
     });
     return new Response("Invalid signature", { status: 403 });
   }

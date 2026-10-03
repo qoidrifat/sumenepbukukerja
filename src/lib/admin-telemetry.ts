@@ -43,7 +43,7 @@ export type IpHashMethod = "hmac-sha256" | "unavailable";
 
 /** Nama environment yang dipakai untuk kunci hash IP, urutan prioritas. */
 export const IP_HASH_SECRET_ENV = "SERVER_IP_HASH_SECRET";
-export const IP_HASH_FALLBACK_SECRET_ENV = "ADMIN_CONTEyangT_RELAY_SECRET";
+export const IP_HASH_FALLBACK_SECRET_ENV = "ADMIN_CONTEXT_RELAY_SECRET";
 
 /**
  * Nilai `telemetryStatus` untuk satu event.

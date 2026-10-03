@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { RELAY_SECRET_ENV } from "./admin-context-relay";
 import {
   IP_HASH_FALLBACK_SECRET_ENV,
   IP_HASH_SECRET_ENV,
@@ -84,6 +85,19 @@ describe("pemilihan kunci hash IP", () => {
     expect(resolveIpHashSecret({})).toBeNull();
     expect(resolveIpHashSecret({ [IP_HASH_SECRET_ENV]: "   " })).toBeNull();
     expect(resolveIpHashSecret({ [IP_HASH_FALLBACK_SECRET_ENV]: "" })).toBeNull();
+  });
+
+  test("huruf nama environment dikunci, bukan hanya simbolnya", () => {
+    // Uji lain memakai kedua konstanta secara simbolis, jadi nama yang salah
+    // ketik di dalam konstanta tidak akan pernah menggagalkan mereka. Tanpa
+    // penguncian di sini, `ADMIN_CONTEyangT_RELAY_SECRET` lolos ke produksi,
+    // cadangan hash IP tidak pernah aktif, dan `ipHash` hilang hanya karena
+    // satu environment belum diisi.
+    expect(IP_HASH_SECRET_ENV).toBe("SERVER_IP_HASH_SECRET");
+    // Cadangan sengaja menunjuk nama yang sama dengan secret relay, jadi
+    // satu sumber kebenaran dan tidak bisa berbeda diam-diam.
+    expect(IP_HASH_FALLBACK_SECRET_ENV).toBe(RELAY_SECRET_ENV);
+    expect(RELAY_SECRET_ENV).toBe("ADMIN_CONTEXT_RELAY_SECRET");
   });
 });
 

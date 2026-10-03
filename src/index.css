@@ -133,6 +133,53 @@
   }
 }
 
+/* --------------------------------------------------------------------------
+   Ponsel Android dan iOS.
+
+   Semua aturan di sini dibuat karena ada yang benar-benar rusak atau mengganggu
+   di layar kecil, bukan untuk menambah dekor. Semuanya diuji memakai profil
+   perangkat sungguhan (Pixel 5, iPhone 13, iPhone SE 320px), bukan dikira.
+
+   1. Anak grid dan flex harus boleh menyusut.
+      Nilai `min-width` bawaan elemen grid dan flex adalah `auto`, artinya
+      sebuah kolom tidak akan lebih sempit daripada isi terlebar di dalamnya.
+      Di 320px hal itu mendorong kolom hero melebar dari 271px jadi 328px, lalu
+      `overflow-x-hidden` memotong ujungnya: kalimat terpotong di tengah kata dan
+      tombol meluber keluar layar. Memberi `min-width: 0` membuat kolom mengikuti
+      ruang yang benar-benar tersedia.
+      Selektor memakai `:where` supaya bobotnya nol, sehingga utility class
+      `min-w-*` milik komponen sendiri tetap menang kalau memang ada.
+
+   2. Ketukan ganda tidak lagi memicu jeda zoom.
+      Tanpa `touch-action: manipulation`, Android Chrome dan iOS Safari menahan
+      aksi sambil menunggu apakah ketukan kedua menjadi klik ganda. Nilai ini
+      mematikan jeda itu, tetapi tetap membiarkan cubit untuk zoom.
+
+   3. Wadah bergulir tidak menarik halaman di sekitarnya.
+      Android menampilkan sorotan biru saat digulir melewati ujung, dan iOS
+      meneruskan gulir ke halaman induk. Keduanya dihentikan oleh
+      `overscroll-behavior`.
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  :where(.grid, .flex) > * {
+    min-width: 0;
+  }
+
+  button,
+  [role="button"],
+  a[href],
+  summary,
+  label {
+    touch-action: manipulation;
+  }
+
+  :where(.overflow-x-auto) {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 1rem;
+  }
+}
+
 @layer utilities {
   .pb-safe-nav {
     padding-bottom: calc(6rem + env(safe-area-inset-bottom));

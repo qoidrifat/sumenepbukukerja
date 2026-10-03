@@ -603,7 +603,7 @@ export function GlassIcons({ items, className, ariaLabel }: GlassIconsProps) {
           whileTap={reduceMotion ? undefined : { scale: 0.96 }}
           className={cn(
             "group flex min-h-20 w-20 flex-col items-center justify-center gap-1 rounded-2xl border p-2 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2",
-            item.selected ? "border-blue-500 bg-blue-50 shadow-md" : "border-white/80 bg-white/70 shadow-sm hover:border-blue-200",
+            item.selected ? "border-blue-500 bg-blue-50 shadow-md" : "border-slate-200 bg-white shadow-sm hover:border-blue-200",
           )}
         >
           <span

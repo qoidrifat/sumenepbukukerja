@@ -21,8 +21,8 @@
 // CATATAN RUNTIME: kode ini berjalan di runtime server Vercel, bukan di browser.
 // Jangan mengimpor apa pun yang menarik React atau Convex client, dan jangan
 // membaca process.env di modul yang bisa ikut masuk ke bundel browser. Modul
-// bersama di `src/lib/admin-context-relay.ts` aman karena isinya murni fungsi
-// header tanpa efek samping.
+// bersama di src/lib/admin-context-relay.ts dan src/lib/admin-relay-signature.ts
+// aman karena isinya murni fungsi tanpa efek samping.
 //
 
 import { contextCorsHeaders } from "../src/lib/admin-context-cors";
@@ -33,14 +33,29 @@ import {
   readRelayGeo,
   readRelayIp,
 } from "../src/lib/admin-context-relay";
+import {
+  RELAY_SIGNATURE_HEADER_NONCE,
+  RELAY_SIGNATURE_HEADER_SIGNATURE,
+  RELAY_SIGNATURE_HEADER_TIMESTAMP,
+  newRelayTraceId,
+  signRelayRequest,
+} from "../src/lib/admin-relay-signature";
 
 /** Batas keras. Timeout yang lebih panjang tidak pernah membantu. */
 const BACKEND_TIMEOUT_MS = 3_000;
 
-/** Bentuk jawaban netral, sama untuk semua kegagalan. */
+/**
+ * Bentuk jawaban netral, sama untuk semua kegagalan.
+ *
+ * `telemetryStatus: "failed"` di sini disengaja. Relay yang tidak hidup berarti
+ * tidak ada bukti jaringan sama sekali, dan Security Desk harus bisa membedakan
+ * itu dari baris yang benar-benar terkirim tanpa lokasi. Mengembalikan bentuk
+ * kosong tanpa statusnya akan membuat keduanya terlihat sama persis.
+ */
 const KOSONG = {
   contextId: null,
   requestId: null,
+  relayTraceId: null,
   ipMasked: null,
   ipSource: "Unknown",
   ipFamily: "unknown",
@@ -48,7 +63,9 @@ const KOSONG = {
   proxyDetected: false,
   chainLength: 0,
   geoResolved: false,
+  timezone: null,
   relay: "unavailable",
+  telemetryStatus: "failed",
 };
 
 const json = (body: unknown, headers: Record<string, string>, status = 200) =>
@@ -84,36 +101,49 @@ export default async function handler(request: Request): Promise<Response> {
 
   const ip = readRelayIp(request.headers);
   const geo = readRelayGeo(request.headers);
+  const relayTraceId = newRelayTraceId();
+
+  // Badan ditulis sekali, lalu ditandatangani atas byte yang sama persis. Kalau
+  // badan dirakit ulang sesudah ditandatangani, tandatangannya tidak akan cocok
+  // dan backend menolak - itu memang tujuannya, bukan cacat.
+  const body = JSON.stringify({
+    ip: ip?.ip,
+    ipSource: ip?.source,
+    country: geo.country,
+    region: geo.region,
+    city: geo.city,
+    timezone: geo.timezone,
+    latitude: geo.latitude,
+    longitude: geo.longitude,
+    userAgent: request.headers.get("user-agent"),
+    referrer: request.headers.get("referer"),
+    acceptLanguage: request.headers.get("accept-language"),
+    relayTraceId,
+  });
 
   try {
+    const signature = await signRelayRequest({ secret, body });
     const response = await fetch(`${origin}${RELAY_ROUTE}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${secret}`,
+        [RELAY_SIGNATURE_HEADER_TIMESTAMP]: signature.timestamp,
+        [RELAY_SIGNATURE_HEADER_NONCE]: signature.nonce,
+        [RELAY_SIGNATURE_HEADER_SIGNATURE]: signature.signature,
       },
-      body: JSON.stringify({
-        ip: ip?.ip,
-        ipSource: ip?.source,
-        country: geo.country,
-        region: geo.region,
-        city: geo.city,
-        latitude: geo.latitude,
-        longitude: geo.longitude,
-        userAgent: request.headers.get("user-agent"),
-        referrer: request.headers.get("referer"),
-        acceptLanguage: request.headers.get("accept-language"),
-      }),
+      body,
       signal: AbortSignal.timeout(BACKEND_TIMEOUT_MS),
     });
-    if (!response.ok) return json(KOSONG, cors);
+    // Jejak relay dikembalikan walau backend menolak. Tanpa itu, kegagalan
+    // sama sekali tidak punya pengenal yang bisa dicari di log.
+    if (!response.ok) return json({ ...KOSONG, relayTraceId }, cors);
     // `relay` menandai bahwa data ini datang lewat edge, bukan terusan langsung
     // ke Convex. Security Desk memakainya untuk membedakan sumbernya.
     return json({ ...(await response.json()), relay: "vercel-edge" }, cors);
   } catch {
     // Backend tidak hidup, timeout, atau berubah bentuk jawabannya. Penamaan
-    // tidak boleh berbeda antara "secret salah" dan "backend mati" - kalau
+    // tidak boleh berbeda antara "tanda tangan salah" dan "backend mati" - kalau
     // begitu, endpoint ini berubah jadi probe.
-    return json(KOSONG, cors);
+    return json({ ...KOSONG, relayTraceId }, cors);
   }
 }

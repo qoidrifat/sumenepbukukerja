@@ -211,6 +211,8 @@ test("fungsi Vercel tidak pernah meminta secret dari browser", () => {
   const relay = readFileSync("api/admin-context.ts", "utf8");
   expect(relay).not.toMatch(/request\.headers\.get\("authorization"\)/);
   expect(relay).toContain("process.env[RELAY_SECRET_ENV]");
-  // Secret hanya boleh dipakai untukUnix ke backend, bukan untuk menolak pemanggil.
-  expect(relay).toContain("authorization: `Bearer ${secret}`");
+  // Secret hanya boleh dipakai untuk menandatangani permintaan ke backend,
+  // bukan untuk menolak pemanggil.
+  expect(relay).toContain("signRelayRequest({ secret, body })");
+  expect(relay).not.toMatch(/authorization:\s*`Bearer/);
 });

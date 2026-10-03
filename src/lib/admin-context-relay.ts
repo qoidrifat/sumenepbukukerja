@@ -58,6 +58,7 @@ export type RelayGeo = {
   country: string | null;
   region: string | null;
   city: string | null;
+  timezone: string | null;
   latitude: number | null;
   longitude: number | null;
 };
@@ -73,9 +74,27 @@ const EMPTY_GEO: RelayGeo = {
   country: null,
   region: null,
   city: null,
+  timezone: null,
   latitude: null,
   longitude: null,
 };
+
+/**
+ * Zona waktu harus berbentuk `Area/Kota`, misal `Asia/Jakarta`.
+ *
+ * Header ini berasal dari jaringan, jadi isinya tidak bisa dipercaya begitu
+ * saja. Bentuknya diperiksa lebih dulu: nilai seperti `</script>` atau
+ * `Asia/Jakarta'` tidak pernah lolos, dan karena nilai ini akhirnya masuk ke
+ * baris audit yang dibaca Security Desk, bentuknya harus pasti sebelum
+ * disimpan.
+ */
+const ZONE_TIME = /^[A-Za-z][A-Za-z0-9_+-]*\/[A-Za-z0-9_+-]+$/;
+
+export function normalizeTimezone(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed || trimmed.length > 64 || !ZONE_TIME.test(trimmed)) return null;
+  return trimmed;
+}
 
 const clip = (value: string | null | undefined, max: number) => {
   const trimmed = (value ?? "").trim();
@@ -136,9 +155,11 @@ export function readRelayGeo(headers: { get(name: string): string | null }): Rel
   const city = clip(headers.get("x-vercel-ip-city"), 80);
   const region = clip(headers.get("x-vercel-ip-country-region"), 80);
   const country = clip(headers.get("x-vercel-ip-country"), 8);
-  if (!city && !region && !country) return EMPTY_GEO;
+  const timezone = normalizeTimezone(headers.get("x-vercel-ip-timezone"));
+  if (!city && !region && !country && !timezone) return EMPTY_GEO;
   return {
     country: country ? country.toUpperCase() : null,
+    timezone,
     // Vercel menulis "ID-JB"; kode negara di depan sudah ada di field sendiri.
     region:
       region && country ? region.replace(new RegExp(`^${country}-`, "i"), "") || region : region,
@@ -158,6 +179,7 @@ export type RelayPayload = {
   country?: string | null;
   region?: string | null;
   city?: string | null;
+  timezone?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   userAgent?: string | null;
@@ -190,6 +212,7 @@ export function normalizeRelayPayload(input: unknown): RelayPayload {
     country: asString(raw.country, 8)?.toUpperCase() ?? null,
     region: asString(raw.region, 80),
     city: asString(raw.city, 80),
+    timezone: normalizeTimezone(asString(raw.timezone, 64)),
     latitude: coordinate(raw.latitude),
     longitude: coordinate(raw.longitude),
     userAgent: asString(raw.userAgent, 400),

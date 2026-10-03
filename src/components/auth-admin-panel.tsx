@@ -216,18 +216,18 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                       type={showPasscode ? "text" : "password"}
                       value={passcode}
                       onChange={(event) => onPasscodeChange(event.target.value)}
-                      placeholder="Passcode ruang admin"
+                      placeholder="Passcode admin"
                       autoComplete="off"
                       autoFocus
                       aria-describedby="admin-passcode-help"
-                      className="admin-input pl-11 pr-12"
+                      className="admin-input admin-input--slot-left admin-input--slot-right"
                       disabled={gateBusy || gateLocked}
                       required
                     />
                     <button
                       type="button"
                       onClick={onToggleShowPasscode}
-                      className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center text-[#525252] hover:text-[#1A1A1A]"
+                      className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center text-[#525252] hover:text-[#1A1A1A]"
                       aria-label={showPasscode ? "Sembunyikan passcode" : "Tampilkan passcode"}
                     >
                       {showPasscode ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
@@ -342,7 +342,7 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                       type="email"
                       autoComplete="email"
                       placeholder="nama@email.com"
-                      className="admin-input pl-11"
+                      className="admin-input admin-input--slot-left"
                       disabled={isLoading}
                       required
                     />
@@ -364,7 +364,7 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                       }
                       minLength={6}
                       placeholder="Minimal 6 karakter"
-                      className="admin-input pl-11"
+                      className="admin-input admin-input--slot-left"
                       disabled={isLoading}
                       required
                     />

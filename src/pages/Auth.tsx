@@ -426,14 +426,14 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         placeholder="••••••••••••••••"
                         autoComplete="off"
                         autoFocus
-                        className="min-h-12 pl-11 pr-12 text-base"
+                        className="min-h-12 admin-input--slot-left admin-input--slot-right text-base"
                         disabled={gate.state.kind === "checking" || gate.state.kind === "locked"}
                         required
                       />
                       <button
                         type="button"
                         onClick={() => setShowPasscode((current) => !current)}
-                        className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                         aria-label={showPasscode ? "Sembunyikan passcode" : "Tampilkan passcode"}
                       >
                         {showPasscode ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
@@ -565,7 +565,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                           placeholder="nama@email.com"
                           type="email"
                           autoComplete="email"
-                          className="min-h-12 pl-11 text-base"
+                          className="min-h-12 admin-input--slot-left text-base"
                           disabled={isLoading}
                           required
                         />
@@ -583,7 +583,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                           }
                           minLength={6}
                           placeholder="Minimal 6 karakter"
-                          className="min-h-12 pl-11 text-base"
+                          className="min-h-12 admin-input--slot-left text-base"
                           disabled={isLoading}
                           required
                         />

@@ -948,6 +948,45 @@
   box-shadow: 4px 4px 0 0 #121212;
 }
 
+/* ------------------------------------------------------------------ */
+/* Slot ikon pada isian: kolom khusus yang dipesan di dalam input    */
+/* ------------------------------------------------------------------ */
+/*
+ * Isian yang punya ikon kunci, mail, atau cari tidak boleh memakai
+ * utilitas padding Tailwind untuk menyingkirkan teksnya. Aturan `.admin-input`
+ * di atas memakai `padding` shorthand dengan selektor dua kelas, sedangkan
+ * `pl-11` cuma satu kelas DAN hidup di `@layer utilities`. CSS yang tidak
+ * berlayer selalu mengalahkan utility berlayer, apa pun spesifisitasnya, jadi
+ * `pl-11` ditimpa diam-diam: padding isian balik ke 0.8rem, ikon tetap di
+ * `left-3`, dan placeholder mulai digambar DI BAWAH ikon. Di ruang pengelola
+ * itu yang terjadi sungguhan - terukur di produksi, padding kiri terbaca
+ * 12.8px sementara ikon berakhir di 32px.
+ *
+ * Karena itu ruang untuk ikon dideklarasikan sebagai kelas sendiri, bukan
+ * utility, dan ditulis SESUDAH ketiga blok `.admin-input` di atas. Spesifisitas
+ * sama (dua kelas), urutan yang menang. Nilai di bawah mengikuti geometri
+ * ikon yang dipakai repo: ikon 20px di `left-3` berakhir di 32px, tombol mata
+ * 44px di `right-1` mulai di 48px, jadi 44px dan 56px memberi jarak bernapas
+ * di kedua sisinya tanpa tepi isian yang terpotong.
+ *
+ * Selektor polos ikut ditulis supaya isian halaman publik (yang memakai
+ * primitive `Input`, bukan `.admin-input`) memakai mekanisme yang sama,
+ * jadi tidak ada jalur padding yang berbeda di dua tema.
+ */
+.admin-input--slot-left,
+.admin-workspace .admin-input--slot-left,
+.admin-dialog-content .admin-input--slot-left,
+.admin-confirm-content .admin-input--slot-left {
+  padding-left: 2.75rem;
+}
+
+.admin-input--slot-right,
+.admin-workspace .admin-input--slot-right,
+.admin-dialog-content .admin-input--slot-right,
+.admin-confirm-content .admin-input--slot-right {
+  padding-right: 3.5rem;
+}
+
 /* Pill status dipakai di dalam dialog juga (mis. gelar peran pada panel
    profil), jadi bentuk dasarnya ikut dibawa ke scope portal. */
 .admin-dialog-content .admin-status,

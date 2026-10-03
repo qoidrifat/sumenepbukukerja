@@ -1310,7 +1310,7 @@ function AdminWorkspace() {
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Cari nama, kategori, alamat, atau nomor..."
-                className={`${inputClass} pl-11 sm:col-span-2 lg:col-span-1`}
+                className={`${inputClass} admin-input--slot-left sm:col-span-2 lg:col-span-1`}
                 type="search"
                 />
               </label>

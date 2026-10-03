@@ -464,6 +464,84 @@ Prosedur bila ingin mengetatkan:
 
 ---
 
+## Deploy frontend di Vercel sendiri (2026-10-03)
+
+Bagian ini ada karena jalur publish bawaan platform ternyata bisa membuat
+deployment yang tercatat sukses, padahal build-nya dari sumber lama. Terukur
+2026-10-03: deployment `ed65ed0` sukses, aset produksi benar-benar dibuat ulang
+pada 07:29 UTC dengan hash baru, tapi isinya masih memakai kelas dan
+placeholder sebelum perbaikan. Jadi "deployment sukses" bukan bukti bahwa
+kode yang sudah dikomit sudah tayang. Verifikasi isinya, bukan statusnya.
+
+### Isi form import GitHub
+
+| Kolom | Isi | Dasar |
+|---|---|---|
+| Root Directory | `./` | `package.json`, `vite.config.ts`, `convex.json` di root |
+| Framework Preset | Vite | `vite.config.ts` + `@vitejs/plugin-react` |
+| Build Command | `bunx convex codegen --typecheck disable && vite build` | lihat catatan codegen |
+| Output Directory | `dist` | default Vite |
+| Install Command | `bun install` | satu-satunya lockfile adalah `bun.lock` |
+
+### Codegen Convex WAJIB jalan sebelum build
+
+`src/convex/_generated` ada di `.gitignore`, tapi lebih dari 15 berkas frontend
+mengimpornya. Diperbaiki dengan bukti: folder itu dipindahkan aside lalu
+`vite build` dijalankan - build gagal dengan
+`Could not load .../src/convex/_generated/api`.
+
+Tiga cara yang sudah dicoba:
+
+| Cara | Hasil |
+|---|---|
+| `convex codegen --url <url>` | GAGAL - CLI mengabaikan `--url`, tetap minta `CONVEX_DEPLOYMENT` |
+| `CONVEX_DEPLOYMENT` saja, tanpa login/token | BERHASIL - 5 berkas terbentuk, diuji dengan `HOME` tanpa `~/.convex/config.json` |
+| Commit `src/convex/_generated` | Cara alternatif resmi Convex, tanpa env var di Vercel |
+
+Kalau `bun install --frozen-lockfile` dipakai, `bun.lock` yang ter-commit
+(`lockfileVersion: 2`) harus diregenerasi lebih dulu - Bun 1.3 mengabaikannya
+lalu gagal dengan `lockfile had changes, but lockfile is frozen`.
+
+### Environment variable (Vercel)
+
+Wajib:
+
+| Key | Value |
+|---|---|
+| `CONVEX_DEPLOYMENT` | nilai `prod:...` yang sama dengan di `deploy-prod.env`; hanya untuk CLI codegen saat build |
+| `VITE_CONVEX_URL` | `https://focused-lemur-389.convex.cloud`; dibaca `src/main.tsx` dan di-inline ke bundle saat build |
+
+Jangan diisi:
+
+| Key | Kenapa |
+|---|---|
+| `VITE_FIREBASE_*` | sudah ada fallback ter-commit di `src/lib/firebase-web-config.ts`; file itu dibuat justru karena platform mengenkripsi env |
+| `VITE_CONVEX_SITE_URL` | tidak dibaca berkas mana pun di `src/` |
+| `VITE_VLY_*`, `VITE_PREVIEW_PARENT_ORIGIN` | instrumentasi preview platform |
+
+Variabel backend (`PHONE_DATA_KEY`, `WHATSAPP_APP_SECRET`,
+`ADMIN_CONTEXT_ALLOWED_ORIGINS`, `VLY_CONVEX_AUTH_ISSUER`, `CONVEX_SITE_URL`)
+tinggal di dashboard Convex, bukan di Vercel.
+
+JANGAN menyalin `.env.local`: `VITE_CONVEX_URL` di sana menunjuk
+`http://127.0.0.1:3210`, sehingga build menghasilkan aplikasi yang bicara ke
+localhost.
+
+### Checklist pasca-deploy
+
+1. Firebase Console -> Authentication -> Settings -> Authorized domains:
+   tambahkan domain Vercel. Tanpa itu, "Masuk dengan Google" gagal dengan
+   `auth/unauthorized-domain`.
+2. Dashboard Convex -> Environment variables -> `ADMIN_CONTEXT_ALLOWED_ORIGINS`:
+   tambahkan origin baru dipisah koma, pertahankan yang lama. Tanpa itu
+   Security Desk menampilkan "Sumber IP: Tidak terdeteksi".
+3. Buka `/auth` lalu hard refresh. Kalau masih basi: DevTools -> Application ->
+   Unregister service worker.
+4. Verifikasi isi build, bukan status deployment:
+   `node tmp/verify-publish.mjs https://domain-anda.vercel.app`
+
+---
+
 ## Ringkasan aksi operator
 
 | Temuan | Tindakan | Verifikasi | Bisa dikerjakan agent? |

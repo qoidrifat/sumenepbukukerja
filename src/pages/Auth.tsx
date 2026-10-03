@@ -708,10 +708,17 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         )}
                         Masuk dengan Google
                       </Button>
+                      <div className="my-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                        <span className="h-px bg-slate-200" />
+                        <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-400">
+                          atau
+                        </span>
+                        <span className="h-px bg-slate-200" />
+                      </div>
                       <Button
                         type="button"
                         variant="outline"
-                        className="mt-2 min-h-12 w-full text-base"
+                        className="min-h-12 w-full text-base"
                         onClick={() => {
                           setError(null);
                           setNotice(null);
@@ -721,13 +728,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       >
                         Gunakan email dan sandi
                       </Button>
-                      <div className="my-5 flex items-center gap-3">
-                        <span className="h-px flex-1 bg-slate-200" />
-                        <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-400">
-                          atau
-                        </span>
-                        <span className="h-px flex-1 bg-slate-200" />
-                      </div>
                     </>
                   ) : (
                     <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-4">

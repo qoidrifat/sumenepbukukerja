@@ -310,3 +310,137 @@ describe("retensi riwayat aplikasi", () => {
     expect(remaining).toEqual(["queued", "sent"]);
   });
 });
+
+const DAY = 24 * 60 * 60_000;
+
+describe("retensi data keamanan ruang pengelola", () => {
+  test("percobaan kedaluwarsa dibuang, yang baru dipertahankan", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: "lama",
+        outcome: "failed",
+        createdAt: now - 40 * DAY,
+      });
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: "baru",
+        outcome: "failed",
+        createdAt: now - 60_000,
+      });
+    });
+
+    const removed = await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {
+      keepLatest: 500,
+      retentionDays: 30,
+    });
+    expect(removed).toBe(1);
+
+    const left = await t.run(async (ctx) => {
+      const rows = await ctx.db.query("adminPasscodeAttempts").collect();
+      return rows.map((row) => row.key);
+    });
+    // Baris yang belum kedaluwarsa tidak boleh ikut terhapus, meskipun jumlahnya
+    // sedikit. Salah di sini berarti jejak audit hilang sebelum waktunya.
+    expect(left).toEqual(["baru"]);
+  });
+
+  test("nonce relay kedaluwarsa dibuang, yang masih hidup dipertahankan", async () => {
+    // Tabel ini tidak punya jalur pemangkasan sendiri. Tanpa penyiangan di
+    // sini, satu baris baru masuk setiap permintaan relay dan tidak pernah
+    // keluar: tabel yang tumbuh tanpa batas.
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adminRelayNonces", {
+        nonce: "a".repeat(32),
+        createdAt: now - 60 * 60_000,
+        expiresAt: now - 60 * 60_000,
+      });
+      await ctx.db.insert("adminRelayNonces", {
+        nonce: "b".repeat(32),
+        createdAt: now,
+        expiresAt: now + 10 * 60_000,
+      });
+    });
+
+    await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {});
+
+    const left = await t.run(async (ctx) => {
+      const rows = await ctx.db.query("adminRelayNonces").collect();
+      return rows.map((row) => row.nonce);
+    });
+    // Nonce yang masih hidup harus tetap ada: menghapusnya membuka reuse,
+    // karena claim berikutnya akan otomatis menang.
+    expect(left).toEqual(["b".repeat(32)]);
+  });
+
+  test("konteks yang belum kedaluwarsa tidak ikut terhapus", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adminSecurityContexts", {
+        token: "lama",
+        requestId: "req_lama",
+        ipSource: "Vercel Edge",
+        createdAt: now - 60 * 60_000,
+        expiresAt: now - 1_000,
+      });
+      await ctx.db.insert("adminSecurityContexts", {
+        token: "masih-hidup",
+        requestId: "req_baru",
+        ipSource: "Vercel Edge",
+        createdAt: now,
+        expiresAt: now + 10 * 60_000,
+      });
+    });
+
+    await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {});
+
+    const left = await t.run(async (ctx) => {
+      const rows = await ctx.db.query("adminSecurityContexts").collect();
+      return rows.map((row) => row.token);
+    });
+    expect(left).toEqual(["masih-hidup"]);
+  });
+
+  test("pembersihan berulang tidak merusak dan tidak menghapus apa pun lagi", async () => {
+    // Cron harian bisa berjalan dua kali untuk hari yang sama, atau dijalankan
+    // ulang setelah kegagalan. Pembersihan harus idempotent.
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: "lama",
+        outcome: "failed",
+        createdAt: now - 40 * DAY,
+      });
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: "baru",
+        outcome: "failed",
+        createdAt: now,
+      });
+      await ctx.db.insert("adminRelayNonces", {
+        nonce: "c".repeat(32),
+        createdAt: now - 60 * 60_000,
+        expiresAt: now - 1_000,
+      });
+    });
+
+    const pertama = await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {
+      retentionDays: 30,
+    });
+    const kedua = await t.mutation(internal.adminGate.pruneAdminSecurityEvents, {
+      retentionDays: 30,
+    });
+    expect(pertama).toBe(1);
+    expect(kedua).toBe(0);
+
+    const sisa = await t.run(async (ctx) => ({
+      percobaan: (await ctx.db.query("adminPasscodeAttempts").collect()).map((r) => r.key),
+      nonce: (await ctx.db.query("adminRelayNonces").collect()).map((r) => r.nonce),
+    }));
+    expect(sisa.percobaan).toEqual(["baru"]);
+    expect(sisa.nonce).toEqual([]);
+  });
+});

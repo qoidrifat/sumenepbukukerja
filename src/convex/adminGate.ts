@@ -1145,6 +1145,11 @@ export const adminSecuritySummary = query({
 /**
  * Memangkas riwayat lama agar tabel tidak tumbuh tanpa batas.
  *
+ * Yang dikembalikan adalah jumlah baris `adminPasscodeAttempts` yang
+ * dipangkas. Nonce, konteks, dan kehadiran juga disapu di sini, tapi tidak
+ * ikut dihitung: ketiganya bukan jejak audit, dan nilai balik yang sudah
+ * menjadi kontrak uji tidak boleh berubah diam-diam.
+ *
  * Dijalankan setiap hari oleh cron di `src/convex/crons.ts`. Sengaja
  * `internalMutation`: tidak ada jalan untuk memanggilnya dari sisi klien,
  * jadi tidak ada siapa pun — termasuk admin — yang bisa memanggilnya dengan
@@ -1188,6 +1193,17 @@ export const pruneAdminSecurityEvents = internalMutation({
       }
     }
     const now = Date.now();
+    // Nonce relay punya jendela 10 menit dan TIDAK punya jalur pemangkasan
+    // sendiri. Sebelum ini, satu baris baru masuk setiap permintaan relay dan
+    // tidak pernah keluar - tabel yang tumbuh tanpa batas persis hal yang
+    // fungsi ini dibuat untuk cegah. Baris yang ditolak pun tetap disimpan,
+    // itu disengaja: menghapusnya di `claimRelayNonce` membuat penyerang bisa
+    // mencoba lagi sampai kebetulan menang.
+    const staleNonces = await ctx.db
+      .query("adminRelayNonces")
+      .withIndex("byExpiresAt", (q) => q.lt("expiresAt", now))
+      .collect();
+    for (const row of staleNonces) await ctx.db.delete(row._id);
     const staleContexts = await ctx.db
       .query("adminSecurityContexts")
       .withIndex("byExpiresAt", (q) => q.lt("expiresAt", now))

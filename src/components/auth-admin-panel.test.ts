@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
@@ -65,6 +66,28 @@ const posisi = (html: string) => ({
   email: html.indexOf("Gunakan email dan sandi"),
 });
 
+/** Token dan primitive admin dibaca dari CSS asli, bukan dari ingatan test. */
+const CSS = readFileSync("src/index.css", "utf8");
+
+/**
+ * Posisi kedua tombol di baris aksi langkah passcode.
+ *
+ * Yang dijaga adalah urutannya: tombol bunsen di kiri, aksi utama di kanan.
+ * `indexOf` dipakai pada label yang sudah unik di seluruh panel, jadi tidak
+ * perlu mem-parsing struktur DOM yang sudah dirender server.
+ */
+const posisiTombol = (html: string) => ({
+  kembali: html.indexOf("Kembali ke katalog"),
+  verifikasi: html.indexOf("Verifikasi passcode"),
+});
+
+/** Isi deklarasi satu blok CSS untuk pola yang diberikan. */
+function blokCss(pola: RegExp): string {
+  const found = pola.exec(CSS);
+  expect(found?.[0], pola.source).toBeDefined();
+  return found![0]!;
+}
+
 test("pembatas atau memisahkan Google dan email, bukan menggantung di bawah", () => {
   const urut = posisi(render());
   expect(urut.google).toBeGreaterThan(-1);
@@ -99,4 +122,84 @@ test("panel tidak memuat warna palet publik", () => {
   for (const warna of ["text-slate-", "bg-blue-", "border-blue-", "text-blue-"]) {
     expect(html, warna).not.toContain(warna);
   }
+});
+
+test("kartu layar passcode memakai bingkai penuh, bukan garis shell", () => {
+  // Gejalanya di produksi pada lebar >= 1024px: `.admin-shell-frame` hanya
+  // memberi `border-inline-width: 2px`, jadi yang terlihat dua garis vertikal
+  // panjang tanpa tutup atas dan bawah, sementara bingkai aslinya ada di
+  // `.admin-panel` di dalam. Dua bingkai tidak pernah bertemu, dan kartu
+  // terbaca belum selesai.
+  const html = render({ passcodeGranted: false });
+  expect(html).toContain("admin-shell-frame admin-frame-card");
+
+  const bingkai = blokCss(/\.admin-workspace \.admin-frame-card \{[^}]*\}/);
+  expect(bingkai).toContain("border: 2px solid var(--admin-line)");
+  expect(bingkai).toContain("box-shadow: 4px 4px 0 0 var(--admin-line)");
+  expect(bingkai).toContain("border-radius: 2px");
+
+  // Panel di dalam melepas bingkainya sendiri; kalau tidak, garis kartu dan
+  // garis panel jadi dua garis parallel yang sangat dekat.
+  expect(blokCss(/\.admin-frame-card > \.admin-panel \{[^}]*\}/)).toContain("border: 0");
+});
+
+test("kelas bingkai kartu ditulis sesudah aturan shell frame", () => {
+  // Keduanya selektor dua kelas, jadi spesifisitas sama dan urutan yang
+  // menentukan. `border-inline: 0` milik shell frame akan mengalahkan
+  // shorthand `border` kartu kalau kartu ditulis lebih dulu.
+  const shell = CSS.indexOf(".admin-workspace .admin-shell-frame {");
+  const kartu = CSS.indexOf(".admin-workspace .admin-frame-card {");
+  expect(shell).toBeGreaterThan(-1);
+  expect(kartu).toBeGreaterThan(shell);
+});
+
+test("baris aksi passcode: tombol bunsen di kiri, aksi utama di kanan", () => {
+  const html = render({ passcodeGranted: false });
+  const urut = posisiTombol(html);
+  expect(urut.kembali).toBeGreaterThan(-1);
+  expect(urut.verifikasi).toBeGreaterThan(-1);
+  expect(urut.kembali, "Kembali ke katalog harus lebih dulu").toBeLessThan(urut.verifikasi);
+});
+
+test("kedua tombol pada baris aksi passcode sama lebar", () => {
+  // `w-full sm:w-auto` pernah membuat lebarnya mengikuti isi teks, jadi
+  // tombol panjang memakan hampir seluruh baris dan tombol pendek menyisakan
+  // ruang kosong. Grid dua kolom dengan `w-full` memberi tepat 50% untuk
+  // keduanya tanpa menghitung teks.
+  const html = render({ passcodeGranted: false });
+  expect(html).toContain("grid grid-cols-2 gap-2 border-t-2 border-[#121212]");
+  expect(html).toContain("admin-btn admin-btn-secondary admin-btn--half w-full");
+  expect(html).toContain("admin-btn admin-btn-primary admin-btn--half w-full");
+  expect(html).not.toContain("sm:w-auto");
+});
+
+test("penyempitan tombol setengah tidak mengikis tinggi minimum tema", () => {
+  // `.admin-btn--half` hanya boleh mengurangi ruang horizontal. Kalau ikut
+  // menyentuh `min-height`, target sentuh 48px milik tema hilang tepat di
+  // layar sempit - tempat tombol ini paling sempit.
+  const blok = blokCss(/\.admin-workspace \.admin-btn--half \{[^}]*\}/);
+  expect(blok).toContain("padding-inline");
+  expect(blok).not.toContain("min-height");
+  expect(blok).not.toContain("border");
+});
+
+test("kelas tombol tengah ditulis sesudah blok padding admin-btn", () => {
+  // `.admin-workspace .admin-btn` menulis `padding: 0.65rem 1rem` dengan
+  // selektor dua kelas. Kalau `.admin-btn--half` ditulis lebih awal, shorthand
+  // itu selalu menang dan penyempitan itu sama sekali tidak terjadi - kelas
+  // terlihat benar di markup, tetapi tidak mengubah apa pun.
+  const dasar = CSS.indexOf(".admin-workspace .admin-btn,");
+  const setengah = CSS.indexOf(".admin-workspace .admin-btn--half {");
+  expect(dasar).toBeGreaterThan(-1);
+  expect(setengah, "kelas tombol setengah harus ditulis setelah .admin-btn").toBeGreaterThan(
+    dasar,
+  );
+});
+
+test("baris identitas boleh membungkus supaya nama brand tidak terpotong", () => {
+  // Lencana "Akses mengelola" memakan lebih dari separuh baris di lebar
+  // bawah 430px. Tanpa `flex-wrap`, judul brand ikut ellipsis - dan nama
+  // yang tidak terbaca justru bagian pertama yang disebut saat kartu
+  // dikritik kurang profesional.
+  expect(render()).toContain("mb-4 flex flex-wrap items-center gap-3");
 });

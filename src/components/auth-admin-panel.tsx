@@ -99,10 +99,17 @@ export function AdminAuthNotice({
  * Diekspor karena layar "buat sandi baru" di ruang pengelola memakai header
  * yang persis sama. Dua layar yang sama persis biasanya ditulis dua kali,
  * lalu satu kali berbeda.
+ *
+ * `flex-wrap` itu bukan hiasan. Di lebar di bawah 430px, lencana "Akses
+ * mengelola" memakai lebih dari separuh baris dan judul brand ikut
+ * terpotong ellipsis - dan nama yang tidak terbaca adalah hal pertama yang
+ * hilang saat kartu dikritik "kurang profesional". Dengan boleh membungkus,
+ * lencana turun ke baris kedua hanya di layar yang memang sempit; di lebar
+ * normal tidak ada yang bergeser.
  */
 export function AdminAuthIdentity() {
   return (
-    <div className="mb-4 flex items-center gap-3">
+    <div className="mb-4 flex flex-wrap items-center gap-3">
       <img
         src="/brand/logo-mark.svg"
         alt=""
@@ -160,7 +167,7 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
 
   return (
     <main className="admin-workspace flex min-h-dvh min-h-[100svh] flex-col items-center justify-center px-3 pb-[max(1.5rem,env(safe-area-inset-bottom)))] pt-[max(1rem,env(safe-area-inset-top))] text-[#1A1A1A]">
-      <div className="admin-shell-frame w-full max-w-2xl">
+      <div className="admin-shell-frame admin-frame-card w-full max-w-2xl">
         {/* Identitas di luar panel: judul dan peran selalu terlihat, bahkan
             ketika isian terkunci karena percobaan berulang. */}
         <AdminAuthIdentity />
@@ -304,26 +311,26 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                 ) : null}
               </div>
 
-              <div className="flex flex-col gap-2 border-t-2 border-[#121212] px-4 py-4 sm:flex-row sm:px-6">
+              <div className="grid grid-cols-2 gap-2 border-t-2 border-[#121212] px-4 py-4 sm:px-6">
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-secondary admin-btn--half w-full"
+                  onClick={onGoHome}
+                >
+                  <ArrowLeft className="size-5 shrink-0" aria-hidden="true" />
+                  Kembali ke katalog
+                </button>
                 <button
                   type="submit"
-                  className="admin-btn admin-btn-primary w-full sm:w-auto"
+                  className="admin-btn admin-btn-primary admin-btn--half w-full"
                   disabled={gateBusy || gateLocked}
                 >
                   {gateBusy ? (
-                    <Loader2 className="size-5 animate-spin" aria-hidden="true" />
+                    <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden="true" />
                   ) : (
-                    <ShieldCheck className="size-5" aria-hidden="true" />
+                    <ShieldCheck className="size-5 shrink-0" aria-hidden="true" />
                   )}
                   {gateBusy ? "Memeriksa..." : "Verifikasi passcode"}
-                </button>
-                <button
-                  type="button"
-                  className="admin-btn admin-btn-secondary w-full sm:w-auto"
-                  onClick={onGoHome}
-                >
-                  <ArrowLeft className="size-5" aria-hidden="true" />
-                  Kembali ke katalog
                 </button>
               </div>
             </form>
@@ -437,26 +444,26 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                 )}
               </div>
 
-              <div className="flex flex-col gap-2 border-t-2 border-[#121212] px-4 py-4 sm:flex-row sm:px-6">
+              <div className="grid grid-cols-2 gap-2 border-t-2 border-[#121212] px-4 py-4 sm:px-6">
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-secondary admin-btn--half w-full"
+                  onClick={onGoHome}
+                >
+                  <ArrowLeft className="size-5 shrink-0" aria-hidden="true" />
+                  Kembali ke katalog
+                </button>
                 <button
                   type="submit"
-                  className="admin-btn admin-btn-primary w-full sm:w-auto"
+                  className="admin-btn admin-btn-primary admin-btn--half w-full"
                   disabled={isLoading}
                 >
                   {isLoading ? (
-                    <Loader2 className="size-5 animate-spin" aria-hidden="true" />
+                    <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden="true" />
                   ) : (
-                    <LogIn className="size-5" aria-hidden="true" />
+                    <LogIn className="size-5 shrink-0" aria-hidden="true" />
                   )}
                   {passwordMode === "signUp" ? "Daftar" : "Masuk"}
-                </button>
-                <button
-                  type="button"
-                  className="admin-btn admin-btn-secondary w-full sm:w-auto"
-                  onClick={onGoHome}
-                >
-                  <ArrowLeft className="size-5" aria-hidden="true" />
-                  Kembali ke katalog
                 </button>
               </div>
             </form>

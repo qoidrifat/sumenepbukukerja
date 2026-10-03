@@ -696,6 +696,178 @@ sudah diverifikasi dan memang lewat edge, bukan preview lokal.
 
 ---
 
+## Fase 9.2 - Relay admin bertanda tangan (2026-10-03)
+
+### Apa yang berubah
+
+Sebelum fase ini, relay dari edge Vercel ke backend memakai rahasia bersama polos
+di header `Authorization: Bearer`. Secret itu membuktikan pemilik secret
+sedang bicara, tapi tidak membuktikan dua hal yang penting untuk audit:
+
+- apakah isi yang dikirim masih yang dimaksud,
+- apakah permintaan itu hasil penangkapan ulang.
+
+Sekarang setiap permintaan relay membawa tiga header:
+
+| Header | Isi |
+|---|---|
+| `x-admin-relay-timestamp` | milidetik sejak epoch, dihitung server |
+| `x-admin-relay-nonce` | 16 byte acak kriptografis, heksa 32 karakter |
+| `x-admin-relay-signature` | HMAC-SHA-256 atas `timestamp.nonce.digestBadan` |
+
+Backend menolak permintaan yang cap waktunya lebih dari 5 menit, nonce-nya
+sudah pernah dipakai, tanda tangannya tidak cocok, atau badannya berubah satu
+byte saja. Perbandingan tanda tangan waktu-tetap.
+
+Secret polos sebagai `Authorization` sudah tidak lagi jadi jalur auth. Kalau
+kelihatan di log atau di header berarti deployment ini belum ikut fase ini.
+
+### Hash IP sekarang berkey
+
+Sebelumnya `ipHash` dihitung dengan `sha256(ip)`. Hash itu satu arah, tapi
+tidak rahasia: siapa pun yang punya daftar alamat bisa mencocokkannya. Sekarang
+hash-nya `HMAC-SHA-256(kunci, ip)`, dan kunci diambil berurutan dari:
+
+1. `SERVER_IP_HASH_SECRET`
+2. `ADMIN_CONTEXT_RELAY_SECRET`
+
+Kalau keduanya kosong, `ipHash` sengaja dikosongkan dan `ipHashMethod`
+dicatat `unavailable`. Itu lebih jujur daripada diam-diam memakai hash lemah.
+Kolom `ipHashMethod` di Security Desk menunjukkan cara setiap hash dibentuk.
+
+### Kolom baru di Security Desk
+
+Setiap baris `adminPasscodeAttempts` sekarang membawa:
+
+| Kolom | Isi |
+|---|---|
+| `eventId` | `EVT-` + 24 heksa, dibuat server |
+| `relayTraceId` | `rly_` + 16 heksa, dibuat di tepi sebelum perjalanan |
+| `relay` | `vercel-edge`, `convex`, atau `unavailable` |
+| `telemetryStatus` | `complete`, `partial`, atau `failed` |
+| `ipHashMethod` | `hmac-sha256` atau `unavailable` |
+| `eventType` | jenis kejadian, terpisah dari `outcome` |
+| `timezone` | dari header edge, bentuknya sudah divalidasi |
+
+Empat keadaan yang tadinya terlihat sama di layar kini bisa dibedakan:
+
+| Status | Arti |
+|---|---|
+| Lengkap | IP benar-benar diamati edge dan lokasi ada |
+| Sebagian terkumpul | IP ada, lokasi kosong |
+| Gagal terkirim | tidak ada konteks jaringan sama sekali |
+| Tidak tercatat | baris ditulis sebelum fase ini, tidak punya status |
+
+Baris `IP tidak terdeteksi` tanpa keterangan apa pun adalah kegagalan
+tampilan, bukan bukti. Sekarang alasannya ikut ditampilkan.
+
+### Environment variable (Fase 9.2)
+
+Convex:
+
+| Nama | Wajib | Keterangan |
+|---|---|---|
+| `ADMIN_CONTEXT_RELAY_SECRET` | ya | Nilainya harus sama persis dengan yang di Vercel. Kosong berarti relay MATI, bukan terbuka. |
+| `SERVER_IP_HASH_SECRET` | tidak | Kunci khusus hash IP. Kalau kosong, dipakai secret relay. |
+| `ADMIN_SECURITY_RETENTION_DAYS` | tidak | Umur retensi event. Bawaan 30 hari. |
+
+Vercel (produksi dan preview):
+
+| Nama | Wajib | Keterangan |
+|---|---|---|
+| `ADMIN_CONTEXT_RELAY_SECRET` | ya | Sama persis dengan nilai di Convex. |
+| `CONVEX_SITE_URL` | ya | Asal backend. Cloud URL dikoreksi ke `.convex.site`. |
+| `ADMIN_CONTEXT_ALLOWED_ORIGINS` | tidak | Kosong berarti CORS tertutup, bukan wildcard. |
+
+Cara memeriksa tanpa mencetak nilai:
+
+```bash
+# Convex
+npx convex env list | grep -E 'ADMIN_CONTEXT_RELAY_SECRET|SERVER_IP_HASH_SECRET'
+# Vercel
+vercel env ls | grep -E 'ADMIN_CONTEXT_RELAY_SECRET|CONVEX_SITE_URL'
+```
+
+Hanya yang muncul atau tidak yang boleh dilaporkan. Jangan pernah mencetak
+nilainya ke log, ke tiket, atau ke percakapan.
+
+### Diagnosis kegagalan
+
+| Gejala di Security Desk | Kemungkinan | Yang diperiksa |
+|---|---|---|
+| `telemetryStatus: Gagal terkirim`, `relay: Tidak tersedia` | Fungsi Vercel tidak hidup, atau `CONVEX_SITE_URL` kosong | Log fungsi Vercel |
+| `relay: Ditolak` | Secret tidak sama di kedua sisi, atau jam berbeda lebih dari 5 menit | Bandingkan `configured/missing/mismatched` di kedua environment |
+| `relayTraceId` ada tapi tidak ada event | Backend menolak nonce yang berulang, atau rate limit aktif | Cari `relayTraceId` itu di log terstruktur |
+| `ipHashMethod: Tidak dibuat - tidak ada kunci` | Kedua kunci hash kosong | Isi `SERVER_IP_HASH_SECRET` |
+| `Lokasi tidak terdeteksi - sebagian terkumpul` | Edge tidak mengirim header `x-vercel-ip-*` | Cek apakah domain lewat Vercel, bukan akses langsung |
+
+Setiap penolakan menulis satu baris log terstruktur dengan `type:
+"security_telemetry"`. Baris itu sengaja tidak memuat alamat IP, secret,
+passcode, token sesi, atau badan permintaan - hanya pengenal dan keterangan.
+Pencarian lewat `eventId` atau `relayTraceId` adalah cara resmi
+mengikuti satu perjalanan dari HTTP sampai persistence.
+
+### Checklist verifikasi produksi
+
+Setelah redeploy:
+
+1. Buka `/admin` dan lakukan satu percobaan.
+2. Di DevTools, pastikan ada `POST /api/admin-context`. Kalau jawabannya HTML,
+   aturan rewrite capturing endpoint: cek `vercel.json` masih
+   `/((?!api/).*)`.
+3. Pastikan jawabannya bukan `relay: unavailable`.
+4. Buka Security Desk, baris terbaru harus punya `eventId`, `attemptCode`,
+   `occurredAt`, `outcome`, `telemetryStatus`, dan konteks perangkat.
+5. Kalau `telemetryStatus: Gagal terkirim`, itu jawaban yang BENAR untuk
+   deployment yang relay-nya belum terhubung. Laporkan sebagai limitation,
+   jangan tutup dengan fallback palsu.
+
+Verifikasi resmi berhenti di `persistensi`. Status HTTP `200` saja tidak
+membuktikan apa pun: jalur lengkapnya HTTP, relay, Convex, persistence,
+Security Desk.
+
+### Retensi
+
+Event disimpan paling lama `ADMIN_SECURITY_RETENTION_DAYS` hari, bawaan 30,
+dan jumlah baris dibatasi 500 terbaru. Keduanya dijalankan oleh
+`pruneAdminSecurityEvents`, yang juga menghapus konteks relay yang kedaluwarsa,
+nonce yang sudah tak berlaku, dan presence yang lebih tua dari 7 hari.
+
+Tabel `adminRelayNonces` ikut dibersihkan oleh penyiangan yang sama. Tanpa itu,
+tabel itu akan tumbuh tanpa batas seiring relay berjalan.
+
+### Yang disimpan, dan yang tidak
+
+| Disimpan | Tidak disimpan |
+|---|---|
+| Bentuk IP tersamar (`103.xxx.xxx.xxx`) | Alamat IP mentah |
+| Hash IP berkey | Alamat IP di log aplikasi |
+| Negara, wilayah, kota, zona waktu | Koordinat presisi di Security Desk |
+| User agent yang sudah dipangkas | Sidik jari canvas, WebGL, font, perangkat |
+| `eventId`, `relayTraceId`, `requestId` | Passcode, kata sandi, token sesi, cookie |
+| Header `Authorization` | Secret apa pun |
+
+Tabel `adminRelayNonces` menyimpan `nonce`, bukan kredensial: `nonce`
+hanya berguna kalau secret sudah diketahui, dan tidak pernah dikembalikan ke
+siapa pun.
+
+### Catatan privasi untuk operator
+
+Sistem memproses metadata keamanan untuk keperluan audit dan investigasi
+insiden di ruang pengelola sendiri. Pen-catatan ini bukan pelacakan pengunjung
+dan tidak ada data yang dikirim ke pihak ketiga.
+
+Dasar pemrosesan dan kebijakan retensi WAJIB divalidasi terhadap tujuan pemrosesan
+sesungguhnya milik operator serta ketentuan privasi Indonesia yang berlaku.
+Dokumen ini tidak mengklaim kepatuhan otomatis, dan tidak memberi hak atas
+dasar keputusan hukum apa pun. Kepatuhan adalah keputusan operator, bukan hasil
+dari kode ini.
+
+Telemetry keamanan tidak bergantung pada persetujuan pengguna peramban. Audit
+keamanan tidak boleh berhenti hanya karena seseorang tidak menekan tombol
+setuju. Tapi catatan ini juga bukan alasan menambah modal persetujuan
+tambahan yang tidak menjelaskan apa pun.
+
 ## Ringkasan aksi operator
 
 | Temuan | Tindakan | Verifikasi | Bisa dikerjakan agent? |

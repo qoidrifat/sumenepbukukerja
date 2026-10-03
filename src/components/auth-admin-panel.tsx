@@ -478,6 +478,13 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                       )}
                       Masuk dengan Google
                     </button>
+                    <div className="my-1 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                      <span className="h-px bg-[#121212]" />
+                      <span className="text-xs font-black uppercase tracking-[0.14em] text-[#525252]">
+                        atau
+                      </span>
+                      <span className="h-px bg-[#121212]" />
+                    </div>
                     <button
                       type="button"
                       className="admin-btn admin-btn-highlight w-full"
@@ -486,13 +493,6 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                       <Mail className="size-5" aria-hidden="true" />
                       Gunakan email dan sandi
                     </button>
-                    <div className="my-2 flex items-center gap-3">
-                      <span className="h-px flex-1 bg-[#121212]" />
-                      <span className="text-xs font-black uppercase tracking-[0.14em] text-[#525252]">
-                        atau
-                      </span>
-                      <span className="h-px flex-1 bg-[#121212]" />
-                    </div>
                   </>
                 ) : null}
 

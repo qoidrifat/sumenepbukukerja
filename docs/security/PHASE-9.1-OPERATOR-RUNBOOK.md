@@ -713,7 +713,7 @@ Sekarang setiap permintaan relay membawa tiga header:
 |---|---|
 | `x-admin-relay-timestamp` | milidetik sejak epoch, dihitung server |
 | `x-admin-relay-nonce` | 16 byte acak kriptografis, heksa 32 karakter |
-| `x-admin-relay-signature` | HMAC-SHA-256 atas `timestamp.nonce.digestBadan` |
+| `x-admin-relay-signature` | HMAC-SHA-256 atas `v2.timestamp.nonce.metode.path.digestBadan` |
 
 Backend menolak permintaan yang cap waktunya lebih dari 5 menit, nonce-nya
 sudah pernah dipakai, tanda tangannya tidak cocok, atau badannya berubah satu
@@ -768,7 +768,7 @@ Convex:
 | Nama | Wajib | Keterangan |
 |---|---|---|
 | `ADMIN_CONTEXT_RELAY_SECRET` | ya | Nilainya harus sama persis dengan yang di Vercel. Kosong berarti relay MATI, bukan terbuka. |
-| `SERVER_IP_HASH_SECRET` | tidak | Kunci khusus hash IP. Kalau kosong, dipakai secret relay. |
+| `SERVER_IP_HASH_SECRET` | ya (produksi) | Kunci khusus hash IP. Kosong di produksi berarti `ipHash` tidak dibuat dan `ipHashMethod` mencatat `missing-in-production`. |
 | `ADMIN_SECURITY_RETENTION_DAYS` | tidak | Umur retensi event. Bawaan 30 hari. |
 
 Vercel (produksi dan preview):
@@ -776,8 +776,28 @@ Vercel (produksi dan preview):
 | Nama | Wajib | Keterangan |
 |---|---|---|
 | `ADMIN_CONTEXT_RELAY_SECRET` | ya | Sama persis dengan nilai di Convex. |
+| `SERVER_IP_HASH_SECRET` | ya (produksi) | Kunci khusus hash IP. Nilai boleh berbeda dari secret relay, dan memang harus berbeda. |
 | `CONVEX_SITE_URL` | ya | Asal backend. Cloud URL dikoreksi ke `.convex.site`. |
 | `ADMIN_CONTEXT_ALLOWED_ORIGINS` | tidak | Kosong berarti CORS tertutup, bukan wildcard. |
+
+Dua kunci itu tugasnya berbeda dan tidak boleh disamakan.
+`ADMIN_CONTEXT_RELAY_SECRET` membuktikan identitas pengirim dan ada di dua
+tempat, jadi ia melewati jaringan. `SERVER_IP_HASH_SECRET` menjaga hash IP
+tidak bisa ditebak dari daftar alamat yang masuk akal. Kalau keduanya bernilai
+sama, satu kebocoran langsung membuka dua hal sekaligus dan tidak ada cara
+mengetahui kunci mana yang bocor. Mulai Fase 9.3, produksi memakai
+`SERVER_IP_HASH_SECRET` sebagai syarat: kalau kosong, `ipHash` sengaja tidak
+dibuat dan `ipHashMethod` mencatat `missing-in-production`. Baris auditnya
+tetap ditulis, hanya kehilangan bukti hash - itu lebih jujur daripada hash
+yang rahasianya bocor ke tempat lain. Di luar produksi secret relay masih
+boleh dipakai sebagai cadangan, dan hasilnya ditandai
+`hmac-sha256-fallback` supaya penyimpangan itu terbaca di Security Desk.
+
+Tanda tangan relay juga mengikat endpoint-nya. Rangkaian yang ditandatangani
+memuat versi skema, cap waktu, nonce, metode HTTP, dan path, bukan hanya
+cap waktu, nonce, dan digest badan. Tanpa itu, satu tanda tangan sah untuk
+`/admin-gate/context-relay` juga sah untuk route lain yang kebetulan memakai
+secret sama. Tanda tangan dari skema lama ditolak, bukan diterima diam-diam.
 
 Cara memeriksa tanpa mencetak nilai:
 

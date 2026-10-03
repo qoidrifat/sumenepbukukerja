@@ -342,3 +342,38 @@ describe("konfigurasi deploy tidak menelan endpoint api", () => {
     }
   });
 });
+
+describe("minimisasi lokasi", () => {
+  test("tabel konteks keamanan tidak punya kolom koordinat sama sekali", () => {
+    // Lokasi yang disimpan untuk audit cukup negara, wilayah, kota, dan zona
+    // waktu. Koordinat presisi tidak menambah apa pun untuk pertanyaan "dari
+    // mana percobaan ini datang", tapi cukup untuk menunjuk seseorang sampai
+    // bangunan tempatnya berdiri.
+    //
+    // Dijaga di level skema: menambah kolom koordinat harus conscious dan uji
+    // ini akan langsung merah kalau ada yang menambahkannya diam-diam.
+    const skema = readFileSync("src/convex/schema.ts", "utf8");
+    const awal = skema.indexOf("adminSecurityContexts: defineTable");
+    expect(awal).toBeGreaterThan(-1);
+    const akhir = skema.indexOf("adminPasscodeAttempts: defineTable");
+    const tabel = skema.slice(awal, akhir > awal ? akhir : undefined);
+    expect(tabel).not.toMatch(/\b(lat|lng|lon|latitude|longitude)\s*:/);
+
+    // Route relay juga tidak boleh meneruskannya ke penyimpanan.
+    const http = readFileSync("src/convex/http.ts", "utf8");
+    const mulaiRoute = http.indexOf("const adminContextRelay");
+    const route = http.slice(
+      mulaiRoute,
+      http.indexOf("http.route({ path: RELAY_ROUTE"),
+    );
+    expect(route).not.toMatch(/payload\.(latitude|longitude)/);
+    expect(route).not.toMatch(/geo\.(latitude|longitude)/);
+  });
+
+  test("Security Desk menampilkan wilayah, bukan koordinat", () => {
+    const panel = readFileSync("src/components/admin-security-log.tsx", "utf8");
+    expect(panel).toContain("Lokasi perkiraan");
+    expect(panel).toContain("Zona waktu");
+    expect(panel).not.toMatch(/<Row label="(Lintang|Bujur|Latitude|Longitude)/);
+  });
+});

@@ -1,16 +1,18 @@
 import { describe, expect, test } from "vitest";
 import { RELAY_SECRET_ENV } from "./admin-context-relay";
 import {
-  IP_HASH_FALLBACK_SECRET_ENV,
-  IP_HASH_SECRET_ENV,
   buildTelemetryLog,
   deriveTelemetryStatus,
   describeIpHashMethod,
   describeRelay,
   describeTelemetryStatus,
   ipHashMethodFor,
-  resolveIpHashSecret,
 } from "./admin-telemetry";
+import {
+  IP_HASH_FALLBACK_SECRET_ENV,
+  IP_HASH_SECRET_ENV,
+  resolveIpHashSecret,
+} from "./admin-ip-hash";
 
 describe("status telemetry", () => {
   test("lengkap hanya bila relay edge, IP ada, dan geo ada", () => {

@@ -30,6 +30,7 @@ const BOLEH_AMBIL_ENVIRONMENT = [
   "src/convex/",
   "src/lib/admin-context-relay.ts",
   "src/lib/admin-relay-signature.ts",
+  "src/lib/admin-ip-hash.ts",
   "src/lib/admin-telemetry.ts",
   "src/lib/admin-passcode.ts",
   "src/lib/phone-crypto.ts",
@@ -67,12 +68,34 @@ const blokRelay = () => {
 };
 
 describe("secret tidak pernah masuk ke sisi peramban", () => {
-  test("nama environment secret hanya muncul di berkas sisi server", () => {
+  test("nama environment untuk env hanya dibaca dari berkas sisi server", () => {
     const bermasalah: string[] = [];
     for (const file of [...kumpulkanBerkas("src"), "api/admin-context.ts"]) {
       if (bolehEnvironment(file)) continue;
       const isi = readFileSync(file, "utf8");
-      if (isi.includes(SECRET_ENV) || isi.includes(HASH_ENV)) bermasalah.push(file);
+      // Yang dicari adalah pemakaian sebagai kunci environment, bukan teks
+      // di dalam label yang dibaca operator.
+      const dipakai = new RegExp(
+        `process\\.env.{0,80}${SECRET_ENV}|process\\.env.{0,80}${HASH_ENV}`,
+      ).test(isi);
+      if (dipakai) bermasalah.push(file);
+    }
+    expect(bermasalah).toEqual([]);
+  });
+
+  test("nama environment yang muncul di peramban hanya boleh di Security Desk", () => {
+    // Nama environment bukan rahasia, dan menampilkan nama yang harus
+    // diisi justru memperbaiki status: operator melihat 
+    // `SERVER_IP_HASH_SECRET belum diisi`, bukan tebakan 
+    // "tidak ada kunci". Yang tidak boleh ada di peramban adalah logika
+    // pemilihan kuncinya, bukan namanya.
+    const bermasalah: string[] = [];
+    for (const file of kumpulkanBerkas("src")) {
+      if (bolehEnvironment(file)) continue;
+      const isi = readFileSync(file, "utf8");
+      const label = /"[^"]*(SERVER_IP_HASH_SECRET|ADMIN_CONTEXT_RELAY_SECRET)[^"]*"/;
+      const bolehLabel = file.includes("admin-telemetry.ts");
+      if (label.test(isi) && !bolehLabel) bermasalah.push(file);
     }
     expect(bermasalah).toEqual([]);
   });
@@ -375,5 +398,34 @@ describe("minimisasi lokasi", () => {
     expect(panel).toContain("Lokasi perkiraan");
     expect(panel).toContain("Zona waktu");
     expect(panel).not.toMatch(/<Row label="(Lintang|Bujur|Latitude|Longitude)/);
+  });
+
+  test("kunci hash IP tidak pernah ikut ke bundel peramban", () => {
+    // `admin-ip-hash.ts` hanya boleh diimpor dari server. Kalau ada
+    // komponen yang mengimpornya, nama environment ikut ke halaman publik
+    // dan pemeriksaan kebocoran tidak bisa memakai ambang nol. Yang
+    // dipindahkan ke modul terpisah bukan stylisme: nilai rahasianya tetap
+    // aman, tapi kebocoran nama env adalah bukti batas modul keliru.
+    const peramban = kumpulkanBerkas("src").filter((file) =>
+      file.includes("components") || file.endsWith(".tsx"));
+    for (const file of peramban) {
+      expect(readFileSync(file, "utf8"), file).not.toContain("admin-ip-hash");
+    }
+    const relay = readFileSync("api/admin-context.ts", "utf8");
+    expect(relay).not.toContain("admin-ip-hash");
+    // Yang diperiksa adalah kodenya, bukan komentarnya: nama fungsi boleh
+    // disebut di komentar, tapi tidak boleh diekspor atau diimpor sebagai nilai.
+    const label = readFileSync("src/lib/admin-telemetry.ts", "utf8");
+    const kode = label
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(kode).not.toContain("resolveIpHashSecret");
+    expect(kode).not.toContain("IP_HASH_SECRET_ENV");
+    expect(kode).not.toContain("IP_HASH_FALLBACK_SECRET_ENV");
+    // Impor ke modul server-only wajib bertipe, supaya hilang saat bundel.
+    expect(kode).not.toMatch(/import\s*{[^}]*IpHashSecretResult/);
+    expect(kode).toContain("import type { IpHashSecretResult }");
+    // Yang boleh tersisa di berkas ini hanya satu penyebutan sebagai label.
+    expect(label.split("SERVER_IP_HASH_SECRET").length - 1).toBe(1);
   });
 });

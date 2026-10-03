@@ -33,10 +33,10 @@ import {
   buildTelemetryLog,
   deriveTelemetryStatus,
   ipHashMethodFor,
-  resolveIpHashSecret,
   type IpHashMethod,
   type TelemetryStatus,
 } from "../lib/admin-telemetry";
+import { resolveIpHashSecret } from "../lib/admin-ip-hash";
 import { resolveEnvironment } from "../lib/error-reporting";
 import {
   maskIpForDisplay,

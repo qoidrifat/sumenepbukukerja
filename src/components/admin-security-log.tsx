@@ -32,6 +32,11 @@ import {
   describeIpSource,
   type SecuritySignal,
 } from "@/lib/security-context";
+import {
+  describeIpHashMethod,
+  describeRelay,
+  describeTelemetryStatus,
+} from "@/lib/admin-telemetry";
 import { formatRelativeTime } from "@/lib/datetime";
 import { AdminLoadingSkeleton } from "@/components/admin-loading-skeleton";
 import {
@@ -492,13 +497,28 @@ export function AdminSecurityLog() {
                         <span className="min-w-0 break-words">
                           {event.ipMasked
                             ? `IP ${event.ipMasked}${event.ipFamily ? ` · ${event.ipFamily}` : ""}${event.proxyDetected ? " · via proxy/CDN" : ""}`
-                            : <span className="font-medium">IP {UNKNOWN_LABEL}</span>}
+                            : (
+                              <span className="font-medium">
+                                IP {UNKNOWN_LABEL}
+                                {/* Alasan kenapa kosong ikut ditampilkan di sini. */}
+                                {event.telemetryStatus && event.telemetryStatus !== "complete"
+                                  ? ` — ${describeTelemetryStatus(event.telemetryStatus).label.toLowerCase()}`
+                                  : ""}
+                              </span>
+                            )}
                         </span>
                       </p>
                       <p className="flex min-w-0 items-center gap-1.5 text-xs text-[#525252]">
                         <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
                         <span className="min-w-0 break-words">
-                          {location || <span className="font-medium">Lokasi {UNKNOWN_LABEL}</span>}
+                          {location || (
+                            <span className="font-medium">
+                              Lokasi {UNKNOWN_LABEL}
+                              {event.telemetryStatus && event.telemetryStatus !== "complete"
+                                ? ` — ${describeTelemetryStatus(event.telemetryStatus).label.toLowerCase()}`
+                                : ""}
+                            </span>
+                          )}
                         </span>
                       </p>
                     </div>
@@ -586,6 +606,13 @@ export function AdminSecurityLog() {
                           {event.attemptsInWindow} total · {event.failedInWindow} gagal ·{" "}
                           {event.successfulInWindow} berhasil
                         </Row>
+                      </Group>
+                      <Group title="Telemetry">
+                        <Row label="Status bukti">{describeTelemetryStatus(event.telemetryStatus).label}</Row>
+                        <Row label="Jalur relay">{describeRelay(event.relay)}</Row>
+                        <Row label="Cara hash IP">{describeIpHashMethod(event.ipHashMethod)}</Row>
+                        <Row label="Jejak relay">{value(event.relayTraceId)}</Row>
+                        <Row label="Request ID">{value(event.requestId)}</Row>
                       </Group>
                       <Group title="Jaringan">
                         <Row label="IP address">{value(event.ipMasked)}</Row>

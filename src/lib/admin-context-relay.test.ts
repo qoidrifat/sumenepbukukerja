@@ -187,7 +187,7 @@ test("secret kosong di kedua sisi tetap ditolak", () => {
   expect(verifyRelaySecret("   ", "   ")).toBe(false);
 });
 
-test("route relay di backend menolak tanpa secret yang cocok", () => {
+test("route relay di backend menolak tanpa tanda tangan yang cocok", () => {
   // Dijaga di level sumber, bukan lewat pemanggilan: `httpAction` tidak bisa
   // diuji tanpa database, dan pemeriksaan yang hilang di sini berarti Security
   // Desk kembali ke `IP tidak terdeteksi` tanpa satu pun error.
@@ -197,11 +197,27 @@ test("route relay di backend menolak tanpa secret yang cocok", () => {
   expect(awal).toBeGreaterThan(-1);
   expect(akhir).toBeGreaterThan(awal);
   const route = http.slice(awal, akhir);
-  expect(route).toContain("verifyRelaySecret(provided, secret)");
-  expect(route).toContain("if (!secret?.trim()) return netral();");
-  // IP mentah tidak boleh ikut ke tabel: yang disimpan hanya hash dan masker.
+
+  // Bentuk auth yang sekarang: tanda tangan atas timestamp, nonce, dan
+  // digest badan. Header `Authorization` polos tidak lagi jadi jalur auth,
+  // jadi kemunculannya justru harus dianggap tanda kemunduran.
+  expect(route).toContain("verifyRelayRequest({");
+  expect(route).toContain("RELAY_SIGNATURE_HEADER_SIGNATURE");
+  expect(route).not.toMatch(/authorization:\s*`Bearer/);
+
+  // Secret kosong berarti relay MATI, bukan terbuka tanpa password.
+  expect(route).toContain("const secret = process.env[RELAY_SECRET_ENV]");
+
+  // Proteksi ulang: nonce diklaim sekali lalu dipakai lagi akan ditolak.
+  expect(route).toContain("claimRelayNonce");
+  expect(route).toContain("if (!nonce.claimed)");
+
+  // IP mentah tidak boleh ikut ke tabel: yang disimpan hanya hash berkey
+  // dan bentuk tersamar.
   expect(route).toContain("relayDisplayIp(payload.ip)");
-  expect(route).toContain("sha256Hex(payload.ip)");
+  expect(route).toContain("keyedHash(payload.ip, ipHashSecret)");
+  // Hash polos tidak boleh lagi dipakai untuk IP pada jalur ini.
+  expect(route).not.toContain("sha256Hex(payload.ip)");
 });
 
 test("fungsi Vercel tidak pernah meminta secret dari browser", () => {

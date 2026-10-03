@@ -49,11 +49,13 @@ import {
   maskEmail,
   maskIp,
   newAttemptCode,
+  newEventId,
   normalizePasscode,
   parsePasscodeHash,
   timingSafeEqual,
   trimUserAgent,
 } from "../lib/admin-passcode";
+import { deriveTelemetryStatus } from "../lib/admin-telemetry";
 import {
   deriveSecuritySignals,
   deriveSessionFingerprint,
@@ -132,6 +134,11 @@ export type ServerRequestContext = {
   country?: string;
   region?: string;
   city?: string;
+  timezone?: string;
+  relayTraceId?: string;
+  relay?: string;
+  telemetryStatus?: string;
+  ipHashMethod?: string;
   networkType?: string;
 };
 
@@ -153,6 +160,11 @@ export const captureSecurityContext = internalMutation({
     country: v.optional(v.string()),
     region: v.optional(v.string()),
     city: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    relayTraceId: v.optional(v.string()),
+    relay: v.optional(v.string()),
+    telemetryStatus: v.optional(v.string()),
+    ipHashMethod: v.optional(v.string()),
     networkType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -222,6 +234,41 @@ export const contextRequestWindow = internalMutation({
       )
       .collect();
     return { count: rows.length, since };
+  },
+});
+
+/**
+ * Klaim satu nonce relay. Mengembalikan `false` kalau nonce itu sudah pernah
+ * dipakai, dan itulah yang menolak penangkapan ulang.
+ *
+ * Pengecekan dan penyimpanan sengaja dalam satu mutasi. Kalau keduanya
+ * terpisah, dua permintaan dengan nonce sama bisa sama-sama membaca
+ * `kosong` lalu sama-sama menulis - dan perlindungannya-nya hilang tepat
+ * saat paling dibutuhkan. Convexmutation berjalan serial per dokumen, jadi
+ * index unik di `nonce` cukup untuk menutup celah itu.
+ *
+ * Baris yang ditolak tidak dihapus di sini. Kalau dihapus, penyerang tinggal
+ * mencoba lagi sampai kebetulan menang. Baris yang sudah ada dibiarkan sampai
+ * penyiangan retensi membersihkannya.
+ */
+export const claimRelayNonce = internalMutation({
+  args: { nonce: v.string(), expiresAt: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const already = await ctx.db
+      .query("adminRelayNonces")
+      .withIndex("byNonce", (q) => q.eq("nonce", args.nonce))
+      .unique();
+    if (already) return { claimed: false, reason: `duplicate_nonce` };
+    // Jendelanya sedikit lebih panjang daripada jendela tanda tangan, supaya
+    // nonce yang masih sah tidak ikut terhapus sebelum sempat dipakai.
+    const expiresAt = args.expiresAt ?? now + 10 * 60_000;
+    await ctx.db.insert("adminRelayNonces", {
+      nonce: args.nonce,
+      createdAt: now,
+      expiresAt,
+    });
+    return { claimed: true, expiresAt };
   },
 });
 
@@ -355,6 +402,18 @@ export const recordAttempt = internalMutation({
     requestId: v.optional(v.string()),
     attemptNumber: v.optional(v.number()),
     attemptCode: v.optional(v.string()),
+    // Pengenal event dan jejak relay. Keduanya dibuat server, tidak pernah
+    // diterima dari klien, dan selalu ada walau konteks jaringan kosong -
+    // justru di baris paling itulah operator paling butuh pengenal untuk
+    // menanyakan ke log.
+    eventId: v.optional(v.string()),
+    relayTraceId: v.optional(v.string()),
+    relay: v.optional(v.string()),
+    telemetryStatus: v.optional(v.string()),
+    ipHashMethod: v.optional(v.string()),
+    // Jenis kejadian, terpisah dari `outcome`: satu baris bisa outcome
+    // `success` sekaligus eventType `admin_success`.
+    eventType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -365,6 +424,10 @@ export const recordAttempt = internalMutation({
     await ctx.db.insert("adminPasscodeAttempts", {
       ...args,
       attemptCode: args.attemptCode ?? newAttemptCode(now),
+      // Sama seperti attemptCode: pengenal event dibuat di sini, bukan dari
+      // klien dan bukan hanya ketika konteks server masuk. Baris yang paling
+      // perlu ditelusuri justru baris saat beacon gagal.
+      eventId: args.eventId ?? newEventId(),
       createdAt: now,
     });
 
@@ -617,6 +680,22 @@ export const verifyAdminPasscode = action({
       acceptLanguage: clip(serverContext?.acceptLanguage, 80),
       sessionFingerprint,
       requestId: requestId ?? undefined,
+      // Bukti konteks diteruskan apa adanya dari baris relay. Kalau relay tidak
+      // hidup, `telemetryStatus` jatuh ke `failed` di sini - bukan `undefined`
+      // yang akan terbaca di Security Desk sebagai "tidak diketahui", karena
+      // keduanya berbeda: satu berarti tidak terkirim, satu berarti tidak
+      // terkirim ATAU belum diisi.
+      relayTraceId: serverContext?.relayTraceId,
+      relay: serverContext?.relay ?? (serverContext ? "convex" : "unavailable"),
+      telemetryStatus:
+        serverContext?.telemetryStatus ??
+        deriveTelemetryStatus({
+          relay: serverContext ? "convex" : "unavailable",
+          hasIp: Boolean(serverContext?.ipMasked),
+          hasGeo: Boolean(serverContext?.country || serverContext?.city || serverContext?.region),
+        }),
+      ipHashMethod: serverContext?.ipHashMethod,
+      timezone: clip(serverContext?.timezone, 40),
     };
 
     const window = await ctx.runMutation(anyApi.adminGate.attemptWindow, { key });
@@ -833,6 +912,12 @@ export const listAdminSecurityEvents = query({
         requestId: maskRequestId(row.requestId),
         attemptNumber: row.attemptNumber ?? null,
         attemptCode: row.attemptCode ?? null,
+        eventId: row.eventId ?? null,
+        relayTraceId: row.relayTraceId ?? null,
+        relay: row.relay ?? null,
+        telemetryStatus: row.telemetryStatus ?? null,
+        ipHashMethod: row.ipHashMethod ?? null,
+        eventType: row.eventType ?? null,
         createdAt: row.createdAt,
         // Keadaan sesi untuk tombol "Logout dari sesi ini". Yang dikirim hanya
         // bentuk ternormalisasi, bukan id sesi maupun hash-nya: UI tidak butuh
@@ -914,6 +999,12 @@ export const getAdminSecurityAttempt = query({
       requestId: maskRequestId(row.requestId),
       attemptNumber: row.attemptNumber ?? null,
       attemptCode: row.attemptCode ?? null,
+      eventId: row.eventId ?? null,
+      relayTraceId: row.relayTraceId ?? null,
+      relay: row.relay ?? null,
+      telemetryStatus: row.telemetryStatus ?? null,
+      ipHashMethod: row.ipHashMethod ?? null,
+      eventType: row.eventType ?? null,
       createdAt: row.createdAt,
       signals: row.signals ?? [],
       ipHistory: ipRows

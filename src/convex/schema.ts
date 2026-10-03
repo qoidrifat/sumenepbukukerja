@@ -656,6 +656,32 @@ const schema = defineSchema(
       // sebuah baris secara spesifik saat waktunya berdekatan dan sidik
       // jari perangkat kosong.
       attemptCode: v.optional(v.string()),
+      // Pengenal teknis untuk satu event, mis. EVT-<24 hex>.
+      // Dibuat server, tidak pernah diterima dari klien. Operator memakainya
+      // untuk menelusuri satu baris tanpa harus menebak dari timestamp yang
+      // bisa berdekatan.
+      eventId: v.optional(v.string()),
+      // Perjalanan relay dari tepi Vercel sampai baris ini ditulis.
+      // Berbeda dari `requestId`: yang satu dibuat backend, sedangkan ini
+      // dibuat sebelum perjalanan dimulai, jadi tetap ada walau relay gagal
+      // di tengah jalan dan tidak pernah sampai menulis baris.
+      relayTraceId: v.optional(v.string()),
+      // Jalur mana yang benar-benar memberi konteks jaringan. Hanya
+      // `vercel-edge` yang melihat klien; nilai lain berarti operator
+      // sedang membaca baris yang tidak punya bukti jaringan.
+      relay: v.optional(v.string()),
+      // Seberapa lengkap bukti event ini. Menyatukan empat keadaan yang
+      // tadinya terlihat sama di layar: tidak terkirim, terkirim tanpa IP,
+      // terkirim tanpa lokasi, dan lengkap.
+      telemetryStatus: v.optional(v.string()),
+      // Cara `ipHash` dibentuk. Hash polos dan hash berkey sama-sama satu
+      // arah, tapi yang polos bisa dicocokkan dengan daftar alamat yang
+      // sudah diketahui. Metodenya dicatat supaya operator bisa menilai
+      // apakah sebuah hash layak dipakai sebagai bukti korelasi.
+      ipHashMethod: v.optional(v.string()),
+      // Jenis kejadian, terpisah dari `outcome`. Satu baris bisa outcome
+      // `success` sekaligus eventType `admin_success`.
+      eventType: v.optional(v.string()),
       // Hasil resolusi IP di lapisan server. Alamat lengkap tetap tidak
       // disimpan; yang dicatat adalah seberapa kuat sumbernya, supaya operator
       // tahu sebuah IP benar-benar diamati edge atau hanya Percaya rantai proxy.
@@ -686,7 +712,26 @@ const schema = defineSchema(
       // ketika sedang ada percobaan masuk beruntun.
       .index("byKeyCreatedAt", ["key", "createdAt"])
       .index("byOutcomeCreatedAt", ["outcome", "createdAt"])
-      .index("byAttemptCode", ["attemptCode"]),
+      .index("byAttemptCode", ["attemptCode"])
+      // Penelusuran event memakai `eventId`, bukan `attemptCode`: kode
+      // percobaan dibaca manusia dan bisa diketik ulang, sedangkan `eventId`
+      // dibuat server dan tidak pernah keluar dari baris tanpa sengaja.
+      .index("byEventId", ["eventId"]),
+
+    // Nonce relay yang sudah dipakai.
+    //
+    // Tanda tangan HMAC saja belum cukup: permintaan yang sah bisa
+    // tertangkap lalu dikirim ulang, dan tanda tangannya sendiri tetap
+    // berlaku selama jendela waktunya. Satu baris per nonce menutup itu.
+    // Baris ini berumur sangat pendek dan ikut terhapus di penyiangan
+    // retensi, jadi tabelnya tidak tumbuh tanpa batas.
+    adminRelayNonces: defineTable({
+      nonce: v.string(),
+      createdAt: v.number(),
+      expiresAt: v.number(),
+    })
+      .index("byNonce", ["nonce"])
+      .index("byExpiresAt", ["expiresAt"]),
 
     // Tiket sekali pakai yang diterbitkan setelah passcode admin valid.
     // Hanya hash tiket yang disimpan, bukan token aslinya.
@@ -730,6 +775,15 @@ const schema = defineSchema(
       proxyDetected: v.optional(v.boolean()),
       chainLength: v.optional(v.number()),
       mappedFromIpv6: v.optional(v.boolean()),
+      // Zona waktu dari header edge, bukan dari browser. Nilai bentuknya
+      // sudah diperiksa sebelum sampai sini.
+      timezone: v.optional(v.string()),
+      // Jejak relay yang menulis baris ini, ikut dibawa ke event audit
+      // supaya satu perjalanan bisa diikuti dari tepi sampai Security Desk.
+      relayTraceId: v.optional(v.string()),
+      relay: v.optional(v.string()),
+      telemetryStatus: v.optional(v.string()),
+      ipHashMethod: v.optional(v.string()),
       expiresAt: v.number(),
       createdAt: v.number(),
     })

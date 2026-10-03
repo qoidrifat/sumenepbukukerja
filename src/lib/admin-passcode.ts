@@ -254,3 +254,22 @@ export function newAttemptCode(at: number = Date.now()): string {
   }
   return `ADM-${date}-${suffix}`;
 }
+
+/**
+ * Pengenal unik untuk SATU event keamanan.
+ *
+ * Berbeda dengan `attemptCode`, yang ini untuk penelusuran teknis dan bukan
+ * untuk dibacakan manusia. Bentuknya awalan `EVT-` supaya tidak tertukar
+ * dengan kode percobaan ketika keduanya muncul bersebelahan di log.
+ *
+ * Semua event harus punya satu, dan harus dibuat server. Event yang bisa
+ * dibuat atau ditimpa oleh klien bukan jejak audit, cuma klaim.
+ */
+export function newEventId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  let hex = "";
+  for (const byte of bytes) {
+    hex += byte.toString(16).padStart(2, "0");
+  }
+  return `EVT-${hex}`;
+}

@@ -19,8 +19,23 @@ import {
   RELAY_SECRET_ENV,
   normalizeRelayPayload,
   relayDisplayIp,
-  verifyRelaySecret,
+  type RelayPayload,
 } from "../lib/admin-context-relay";
+import {
+  RELAY_SIGNATURE_HEADER_NONCE,
+  RELAY_SIGNATURE_HEADER_SIGNATURE,
+  RELAY_SIGNATURE_HEADER_TIMESTAMP,
+  RELAY_TIMESTAMP_WINDOW_MS,
+  keyedHash,
+  verifyRelayRequest,
+} from "../lib/admin-relay-signature";
+import {
+  buildTelemetryLog,
+  deriveTelemetryStatus,
+  resolveIpHashSecret,
+  type IpHashMethod,
+  type TelemetryStatus,
+} from "../lib/admin-telemetry";
 import {
   maskIpForDisplay,
   normalizeIpDetailed,
@@ -31,6 +46,22 @@ import {
 } from "../lib/security-context";
 import { buildRobotsTxt, buildSitemapXml } from "../lib/sitemap";
 import { CONTEXT_REQUEST_LIMIT, CONTEXT_REQUEST_WINDOW_MS } from "./adminGate";
+
+/**
+ * Tulis satu baris log telemetry yang aman.
+ *
+ * Isinya dibatasi daftar putih di `buildTelemetryLog`, jadi field di luar
+ * daftar itu tidak punya jalan masuk ke sini sama sekali. Kegagalan
+ * menulis log tidak boleh menggagalkan permintaan: menambah telemetri tidak
+ * boleh menjatuhkan audit yang sedang berjalan.
+ */
+function logTelemetry(line: ReturnType<typeof buildTelemetryLog>) {
+  try {
+    console.log(JSON.stringify(line));
+  } catch {
+    // Log yang gagal menulis tidak boleh mengubah jawaban ke pemanggil.
+  }
+}
 
 const http = httpRouter();
 
@@ -453,9 +484,23 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
       : { city: null, region: null, country: null, networkType: null };
 
     const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
+    // Kunci hash IP: punya sendiri kalau ada, kalau tidak secret relay.
+    // Tanpa kunci, `ipHash` sengaja dibiarkan kosong dan metodenya
+    // dicatat `unavailable` - lebih jujur daripada diam-diam memakai
+    // hash polos yang bisa dicocokkan dengan daftar alamat diketahui.
+    const ipHashSecret = resolveIpHashSecret(process.env);
+    const ipHash =
+      resolved.ip && ipHashSecret ? await keyedHash(resolved.ip, ipHashSecret) : null;
+    const ipHashMethod: IpHashMethod = ipHash ? "hmac-sha256" : "unavailable";
+    const geoResolved = Boolean(geo.country || geo.city || geo.region);
+    const telemetryStatus: TelemetryStatus = deriveTelemetryStatus({
+      relay: "convex",
+      hasIp: Boolean(resolved.ip),
+      hasGeo: geoResolved,
+    });
     const expiresAt = await ctx.runMutation(internal.adminGate.captureSecurityContext, {
       token,
-      ipHash: resolved.ip ? await sha256Hex(resolved.ip) : undefined,
+      ipHash: ipHash ?? undefined,
       ipMasked: maskIpForDisplay(resolved.ip) ?? undefined,
       ipSource: resolved.source,
       ipFamily: resolved.family,
@@ -467,6 +512,9 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
       referrer,
       acceptLanguage,
       requestId,
+      relay: "convex",
+      telemetryStatus,
+      ipHashMethod,
       country: geo.country ?? undefined,
       region: geo.region ?? undefined,
       city: geo.city ?? undefined,
@@ -477,6 +525,9 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
       {
         contextId: token,
         requestId,
+        relay: "convex",
+        telemetryStatus,
+        ipHashMethod,
         // Masked saja. Browser tidak pernah melihat alamat lengkap.
         ipMasked: maskIpForDisplay(resolved.ip) ?? null,
         ipSource: resolved.source,
@@ -547,12 +598,38 @@ http.route({ path: ADMIN_CONTEXT_ROUTE, method: "OPTIONS", handler: adminSecurit
  *  - Batas permintaan yang sama dengan route lama ikut dipakai, dengan kunci IP
  *    yang diamati server, bukan kiriman klien.
  */
+/**
+ * Menerima alamat IP yang benar-benar diamati edge, lalu menyimpannya dengan
+ * perlakuan yang sama seperti route langsung di atas.
+ *
+ * KENAPA RUTE INI ADA - hasil pengukuran, bukan dugaan:
+ * `httpAction` Convex tidak mengekspos header proxy. Disuntik `X-Forwarded-For`
+ * ke route `/admin-gate/context`, jawabannya tetap `chainLength: 0` dan
+ * `ipSource: "Unknown"`. Jadi route lama tidak akan pernah punya IP, dengan atau
+ * tanpa konfigurasi. Edge Vercel satu-satunya pihak dalam rantai ini yang
+ * melihat klien - tetapi hanya untuk permintaan yang melewatinya.
+ *
+ * SISI KEAMANAN, dari luar ke dalam:
+ *  - Route ini PUBLIK dan bisa dihubungi siapa pun, jadi setiap permintaan harus
+ *    membuktikan diri lebih dulu lewat HMAC atas timestamp, nonce, dan digest
+ *    badan. Secret polos tanpa tanda tangan hanya bisa dibuktikan dengan
+ *    "pemilik secret sedang bicara", dan tidak membuktikan apa pun soal isi.
+ *  - Nonce diklaim sekali lalu ditolak forever lewat `claimRelayNonce`, jadi
+ *    permintaan yang tertangkap tidak bisa dikirim ulang.
+ *  - Perbandingan tanda tangan waktu-tetap.
+ *  - Secret kosong berarti relay MATI, bukan terbuka tanpa password.
+ *  - IP tetap tidak disimpan mentah: yang masuk hanya `ipHash` dan `ipMasked`,
+ *    persis seperti sebelumnya. `ipHash` sekarang berkey, bukan polos.
+ *  - Batas permintaan yang sama dengan route lama ikut dipakai, dengan kunci IP
+ *    yang diamati server, bukan kiriman klien.
+ */
 const adminContextRelay = httpAction(async (ctx, request: Request) => {
-  const netral = () =>
+  const netral = (relayTraceId: string | null = null) =>
     Response.json(
       {
         contextId: null,
         requestId: null,
+        relayTraceId,
         ipMasked: null,
         ipSource: "Unknown",
         ipFamily: "unknown",
@@ -560,28 +637,100 @@ const adminContextRelay = httpAction(async (ctx, request: Request) => {
         proxyDetected: false,
         chainLength: 0,
         geoResolved: false,
+        timezone: null,
         relay: "rejected",
+        telemetryStatus: "failed",
       },
       { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" } },
     );
 
   if (request.method !== "POST") return netral();
 
+  // Badan dibaca sebagai teks, bukan `request.json()`. Tanda tangan dihitung atas
+  // byte yang benar-benar diterima; kalau badan dirakit ulang dari objek, satu
+  // byte yang berbeda saja sudah cukup menggagalkan verifikasi.
+  let bodyText = "";
+  try {
+    bodyText = await request.text();
+  } catch {
+    return netral();
+  }
+
+  // Tolak bentuk apa pun yang tidak menghasilkan JSON objek sebelumHMAC
+  // dihitung, supaya tidak ada kerja kripto untuk masukan acak.
+  let payload: RelayPayload;
+  try {
+    payload = normalizeRelayPayload(JSON.parse(bodyText));
+  } catch {
+    return netral();
+  }
+
+  // Jejak relay dibaca dari badan supaya jawaban tetap bisa dikorelasikan
+  // meski tanda tangannya ditolak. Nilainya hanya pengenal, tidak pernah
+  // dipakai sebagai kredensial.
+  const relayTraceId =
+    typeof (JSON.parse(bodyText) as Record<string, unknown>)?.relayTraceId === "string"
+      ? String((JSON.parse(bodyText) as Record<string, unknown>).relayTraceId).slice(0, 40)
+      : null;
+
   const secret = process.env[RELAY_SECRET_ENV];
-  if (!secret?.trim()) return netral();
-  const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
-  if (!verifyRelaySecret(provided, secret)) return netral();
+  const signature = await verifyRelayRequest({
+    secret,
+    body: bodyText,
+    timestamp: request.headers.get(RELAY_SIGNATURE_HEADER_TIMESTAMP),
+    nonce: request.headers.get(RELAY_SIGNATURE_HEADER_NONCE),
+    signature: request.headers.get(RELAY_SIGNATURE_HEADER_SIGNATURE),
+  });
+  if (!signature.ok) {
+    // Alasan penolakan masuk ke log terstruktur, bukan ke jawaban. Pesan yang
+    // dikembalikan selalu sama supaya endpoint ini tidak berubah jadi alat
+    // untuk menebak mana yang gagal.
+    logTelemetry(
+      buildTelemetryLog({
+        relay: "vercel-edge",
+        telemetryStatus: "failed",
+        geoResolved: false,
+        relayTraceId,
+        rejection: signature.reason,
+      }),
+    );
+    return netral(relayTraceId);
+  }
+
+  const nonce = await ctx.runMutation(internal.adminGate.claimRelayNonce, {
+    nonce: signature.nonce,
+    expiresAt: signature.timestamp + RELAY_TIMESTAMP_WINDOW_MS * 2,
+  });
+  if (!nonce.claimed) {
+    logTelemetry(
+      buildTelemetryLog({
+        relay: "vercel-edge",
+        telemetryStatus: "failed",
+        geoResolved: false,
+        relayTraceId,
+        rejection: nonce.reason ?? "duplicate_nonce",
+      }),
+    );
+    return netral(relayTraceId);
+  }
 
   try {
-    const payload = normalizeRelayPayload(await request.json());
     const requestId = `req_${bytesToHex(crypto.getRandomValues(new Uint8Array(8)))}`;
 
-    if (payload.ip) {
-      const ipHash = await sha256Hex(payload.ip);
+    // Hash IP dibuat dengan kunci. Hash polos satu arah tetap bisa dicocokkan
+    // dengan daftar alamat yang sudah diketahui, jadi untuk audit keamanan itu
+    // bukan tidakapa-apa saja. Kalau tidak ada kunci sama sekali, `ipHash`
+    // dibiarkan kosong dan metodenya dicatat `unavailable` - lebih jujur
+    // daripada diam-diam memakai hash yang lemah.
+    const ipHashSecret = resolveIpHashSecret(process.env);
+    const ipHash = payload.ip && ipHashSecret ? await keyedHash(payload.ip, ipHashSecret) : null;
+    const ipHashMethod: IpHashMethod = ipHash ? "hmac-sha256" : "unavailable";
+
+    if (ipHash) {
       const usage = await ctx.runMutation(internal.adminGate.contextRequestWindow, { ipHash });
       if (usage.count >= CONTEXT_REQUEST_LIMIT) {
         return Response.json(
-          { error: "rate_limited", retryAfterSeconds: CONTEXT_REQUEST_WINDOW_MS / 1000 },
+          { error: "rate_limited", retryAfterSeconds: CONTEXT_REQUEST_WINDOW_MS / 1000, relayTraceId },
           {
             status: 429,
             headers: {
@@ -598,9 +747,15 @@ const adminContextRelay = httpAction(async (ctx, request: Request) => {
     const family = payload.ip ? normalizeIpDetailed(payload.ip).family : "unknown";
     const ipSource = payload.ip ? (payload.ipSource ?? "Vercel Edge") : "Unknown";
     const ipTrust = payload.ip ? "edge" : "unknown";
+    const geoResolved = Boolean(payload.country || payload.city || payload.region);
+    const telemetryStatus = deriveTelemetryStatus({
+      relay: "vercel-edge",
+      hasIp: Boolean(payload.ip),
+      hasGeo: geoResolved,
+    });
     const expiresAt = await ctx.runMutation(internal.adminGate.captureSecurityContext, {
       token,
-      ipHash: payload.ip ? await sha256Hex(payload.ip) : undefined,
+      ipHash: ipHash ?? undefined,
       ipMasked: relayDisplayIp(payload.ip) ?? undefined,
       ipSource,
       ipFamily: family,
@@ -611,15 +766,33 @@ const adminContextRelay = httpAction(async (ctx, request: Request) => {
       referrer: sanitizeReferrer(payload.referrer ?? undefined) ?? undefined,
       acceptLanguage: payload.acceptLanguage || undefined,
       requestId,
+      relayTraceId: relayTraceId ?? undefined,
       country: payload.country ?? undefined,
       region: payload.region ?? undefined,
       city: payload.city ?? undefined,
+      timezone: payload.timezone ?? undefined,
+      telemetryStatus,
+      ipHashMethod,
+      relay: "vercel-edge",
     });
+
+    logTelemetry(
+      buildTelemetryLog({
+        relay: "vercel-edge",
+        telemetryStatus,
+        geoResolved,
+        relayTraceId,
+        requestId,
+        ipSource,
+        ipHashMethod,
+      }),
+    );
 
     return Response.json(
       {
         contextId: token,
         requestId,
+        relayTraceId,
         ipMasked: relayDisplayIp(payload.ip) ?? null,
         ipSource,
         ipFamily: family,
@@ -629,19 +802,22 @@ const adminContextRelay = httpAction(async (ctx, request: Request) => {
         country: payload.country ?? null,
         region: payload.region ?? null,
         city: payload.city ?? null,
-        geoResolved: Boolean(payload.country || payload.city || payload.region),
+        timezone: payload.timezone ?? null,
+        geoResolved,
         relay: "vercel-edge",
+        telemetryStatus,
+        ipHashMethod,
         expiresAt,
       },
       { headers: { "content-type": "application/json", "cache-control": "no-store" } },
     );
   } catch {
-    // Secret benar tapi badan tidak terbaca, atau baris gagal ditulis.
-    return netral();
+    // Secret benar tapi baris gagal ditulis. Jawaban tetap netral: tidak ada
+    // bukti yang bisa diklaim, jadi tidak ada yang boleh ditulis sebagai
+    // "berhasil".
+    return netral(relayTraceId);
   }
-});
-
-http.route({ path: RELAY_ROUTE, method: "POST", handler: adminContextRelay });
+});http.route({ path: RELAY_ROUTE, method: "POST", handler: adminContextRelay });
 
 /**
  * Sitemap dan robots.txt.

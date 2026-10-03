@@ -34,6 +34,7 @@ import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
 import { CategoryMascot, CategoryMascotStage } from "@/components/category-mascot";
 import { BrandMascot } from "@/components/brand-mascot";
 import { AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
+import SiteFooter from "@/components/site-footer";
 import { AccessibilityControls } from "@/components/display-controls";
 import {
   AnimatedContent,
@@ -632,9 +633,6 @@ function LocalCategories() {
   );
 }
 
-function Footer() {
-  return <footer className="relative z-10 bg-slate-950 text-white"><div className="mx-auto flex max-w-[1600px] flex-col gap-5 px-4 py-8 sm:px-6 lg:flex-row lg:items-end lg:justify-between lg:px-10 lg:py-10"><div><div className="flex items-center gap-3"><NotebookMark className="border-white/20 bg-white/10" /><span className="text-xl font-black tracking-[-0.04em]">Sumenep <span className="text-blue-300">Buku</span> Kerja</span></div><p className="mt-3 max-w-sm text-base leading-7 text-slate-300">Buku kerja lokal untuk warga Sumenep. Temukan usaha, lalu hubungi langsung lewat WhatsApp.</p></div><div className="text-sm font-semibold text-slate-400 lg:text-right"><p>Dibuat untuk warga Sumenep, Madura</p><p className="mt-1">© 2025 Sumenep Buku Kerja</p></div></div></footer>;
-}
 
 function DirectoryContent({
   vendors,
@@ -652,7 +650,7 @@ function DirectoryContent({
   onClearLocation: () => void;
 }) {
   const [activeLandmark, setActiveLandmark] = useState("all");
-  return <><ScrollProgress /><TopNav /><div className="relative z-10 px-4 pt-3 sm:px-6 lg:hidden"><AccessibilityControls /></div><NotebookBackdrop /><Hero vendorCount={vendors.length} onBrowse={() => document.getElementById("katalog")?.scrollIntoView({ behavior: "smooth" })} /><FilterSection activeLandmark={activeLandmark} setActiveLandmark={setActiveLandmark} /><Catalog activeLandmark={activeLandmark} vendors={vendors} location={location} locationStatus={locationStatus} locationError={locationError} onRequestLocation={onRequestLocation} onClearLocation={onClearLocation} /><RequestBoard /><HowItWorks /><LocalCategories /><Footer /><BottomNav /></>;
+  return <><ScrollProgress /><TopNav /><div className="relative z-10 px-4 pt-3 sm:px-6 lg:hidden"><AccessibilityControls /></div><NotebookBackdrop /><Hero vendorCount={vendors.length} onBrowse={() => document.getElementById("katalog")?.scrollIntoView({ behavior: "smooth" })} /><FilterSection activeLandmark={activeLandmark} setActiveLandmark={setActiveLandmark} /><Catalog activeLandmark={activeLandmark} vendors={vendors} location={location} locationStatus={locationStatus} locationError={locationError} onRequestLocation={onRequestLocation} onClearLocation={onClearLocation} /><RequestBoard /><HowItWorks /><LocalCategories /><SiteFooter /><BottomNav /></>;
 }
 
 export default function Landing() {

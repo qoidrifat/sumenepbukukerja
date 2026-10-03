@@ -66,3 +66,46 @@ test("service worker tetap disajikan sebagai berkas, bukan sebagai index.html", 
   expect(sw).toContain("self.addEventListener(\"fetch\"");
   expect(config.rewrites?.every((item) => item.destination === "/index.html")).toBe(true);
 });
+
+/*
+ * Kontrak: hasil codegen Convex ikut ter-commit.
+ *
+ * Build di Vercel berjalan di mesin tanpa kredensial Convex, jadi
+ * `convex codegen` di sana gagal dengan `401 MissingAccessToken` sebelum
+ * `vite build` sempat jalan - itulah yang menggagalkan deployment pertama.
+ * Satu-satunya jalan tanpa menyimpan token pribadi di dashboard pihak ketiga
+ * adalah ikut meng-commit `src/convex/_generated`, sesuai anjuran resmi
+ * Convex di `convex codegen --help`.
+ *
+ * Jadi dua hal dijaga: `.gitignore` TIDAK boleh mengabaikan folder itu lagi,
+ * dan berkas hasil codegennya harus benar-benar ada. Mengembalikan aturan
+ * ignore tidak membuat build lokal merah sedikit pun - ia hanya mematikan
+ * build produksi dengan pesan yang sama sekali tidak menyebut penyebabnya.
+ */
+const DIHALANG = ["src/convex/_generated", "_generated/"];
+
+test("hasil codegen Convex tidak diabaikan Git", () => {
+  const ignore = readFileSync(".gitignore", "utf8")
+    .split(/\r?\n/)
+    .map((baris) => baris.trim())
+    .filter((baris) => baris && !baris.startsWith("#"));
+  const salah = ignore.filter((aturan) => DIHALANG.includes(aturan));
+  expect(salah, "aturan .gitignore yang membuat folder codegen tak terlacak").toEqual([]);
+});
+
+test("berkas hasil codegen ada semua di working tree", () => {
+  for (const nama of ["api.d.ts", "api.js", "dataModel.d.ts", "server.d.ts", "server.js"]) {
+    expect(
+      () => readFileSync(`src/convex/_generated/${nama}`, "utf8"),
+      `src/convex/_generated/${nama} tidak ada`,
+    ).not.toThrow();
+  }
+});
+
+test("penjaga pretest masih menjaga folder itu", () => {
+  const penjaga = readFileSync("scripts/qa/ensure-convex-codegen.mjs", "utf8");
+  expect(penjaga).toContain("_generated");
+  // Penjaga harus memberi jalan pemulihan yang mengarah ke folder yang dik-commit,
+  // bukan ke `convex dev` yang butuh kredensial.
+  expect(penjaga).toContain("convex codegen");
+});

@@ -1,7 +1,13 @@
 # Dependensi dan hasil build
 node_modules
 dist
-src/convex/_generated
+
+# CATATAN: `src/convex/_generated` SENGAJA TIDAK diabaikan Git.
+# Folder itu hasil codegen Convex, tapi build di Vercel berjalan tanpa
+# kredensial Convex - `convex codegen` di sana gagal dengan
+# `401 MissingAccessToken`. Jadi folder ini ikut ter-commit, sesuai anjuran
+# resmi Convex di `convex codegen --help`.
+# Regenerasi: `npx convex codegen`. Penjaga: scripts/qa/ensure-convex-codegen.mjs
 
 # Screenshot QA sementara (Phase 3), bukan aset repo
 tmp/

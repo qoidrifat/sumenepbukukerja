@@ -4,10 +4,13 @@
  *
  * MASALAH YANG DISOLUSIKAN
  *
- * `src/convex/_generated/` diabaikan Git - itu benar, itu hasil codegen, bukan
- * kode sumber. Akibatnya folder itu hanya ada di mesin yang pernah menjalankan
- * codegen. Di mesin lain, setiap berkas test yang menyentuh API Convex gagal
- * saat import dengan pesan:
+ * `src/convex/_generated/` adalah hasil codegen, bukan kode sumber, tapi sejak
+ * 2026-10-03 folder itu IKUT TER-COMMIT. Alasannya terukur: build Vercel
+ * berjalan di mesin tanpa kredensial Convex, sehingga `convex codegen` di sana
+ * gagal dengan `401 MissingAccessToken` sebelum `vite build` sempat jalan.
+ * Folder yang hilang atau terisi separuh berarti dua hal: build produksi
+ * mati, dan setiap berkas test yang menyentuh API Convex gagal saat import
+ * dengan pesan:
  *
  *     Error: Cannot find module './_generated/api'
  *
@@ -19,6 +22,11 @@
  *
  * Yang paling buruk: penyebabnya tidak terlihat di pesan error. Tidak ada
  * satu pun dari 37 pesan itu yang menyebut codegen.
+ *
+ * PENJAGA INI BUKAN PEMERIKSAAN ISI. Folder hasil codegen sengaja ikut
+ * ter-commit supaya CI tidak butuh kredensial. Yang diperiksa di sini hanya
+ * KEHADIRAN folder. Kalau folder ini terhapus saat commit atau `.gitignore`
+ * dikembalikan, jalankan `npx convex codegen` lalu commit hasilnya lagi.
  *
  * KENAPA INI DIJALANKAN SEBAGAI `pretest`, BUKAN PERBAIKAN DI DALAM TEST
  *
@@ -50,17 +58,19 @@ const AUTOFIX = process.env.CONVEX_CODEGEN_AUTOFIX === "1";
 
 const BANGUN_PESAN = `
 ${"=".repeat(72)}
- TEST SUITE TIDAK BISA DIJALANKAN - CONVEX CODEGEN BELUM ADA
+ TEST SUITE TIDAK BISA DIJALANKAN - FOLDER CONVEX CODEGEN HILANG
 ${"=".repeat(72)}
 
- src/convex/_generated/api.d.ts tidak ada, jadi 37 dari 74 berkas test akan
- gagal saat import dan hanya ~ separuh test yang benar-benar jalan.
+ src/convex/_generated/api.d.ts tidak ada. Folder itu seharusnya ikut
+ ter-commit; kalau hilang, build produksi dan separuh test mati tanpa
+ pesan yang menyebut sebabnya.
 
  Penyebabnya hampir selalu salah satu dari dua ini:
 
-   1. Codegen belum pernah dijalankan di mesin ini:
+   1. Folder ikut terhapus saat commit, atau .gitignore mengembalikannya:
 
-        npx convex dev --once
+        npx convex codegen
+        git add src/convex/_generated
 
    2. auth.config.ts memakai variabel yang Convex anggap kosong.
       src/convex/auth.config.ts menulis

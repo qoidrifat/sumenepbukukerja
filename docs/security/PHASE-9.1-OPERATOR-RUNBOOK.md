@@ -479,24 +479,38 @@ kode yang sudah dikomit sudah tayang. Verifikasi isinya, bukan statusnya.
 |---|---|---|
 | Root Directory | `./` | `package.json`, `vite.config.ts`, `convex.json` di root |
 | Framework Preset | Vite | `vite.config.ts` + `@vitejs/plugin-react` |
-| Build Command | `bunx convex codegen --typecheck disable && vite build` | lihat catatan codegen |
+| Build Command | `vite build` | codegen ikut ter-commit, lihat catatan codegen |
 | Output Directory | `dist` | default Vite |
 | Install Command | `bun install --frozen-lockfile` | `bun.lock` sudah diregenerasi ke format v1 (lihat catatan lockfile) |
 
-### Codegen Convex WAJIB jalan sebelum build
+### Codegen Convex: ikut ter-commit, bukan dijalankan saat build
 
-`src/convex/_generated` ada di `.gitignore`, tapi lebih dari 15 berkas frontend
-mengimpornya. Diperbaiki dengan bukti: folder itu dipindahkan aside lalu
-`vite build` dijalankan - build gagal dengan
-`Could not load .../src/convex/_generated/api`.
+`src/convex/_generated` dipakai lebih dari 15 berkas frontend. Folder itu
+pernah diabaikan Git, dan build Vercel yang pertama gagal justru di sini:
 
-Tiga cara yang sudah dicoba:
+```
+401 Unauthorized: MissingAccessToken: An access token is required for this
+command. Authenticate with `npx convex dev`
+```
 
-| Cara | Hasil |
-|---|---|
-| `convex codegen --url <url>` | GAGAL - CLI mengabaikan `--url`, tetap minta `CONVEX_DEPLOYMENT` |
-| `CONVEX_DEPLOYMENT` saja, tanpa login/token | BERHASIL - 5 berkas terbentuk, diuji dengan `HOME` tanpa `~/.convex/config.json` |
-| Commit `src/convex/_generated` | Cara alternatif resmi Convex, tanpa env var di Vercel |
+`convex codegen` menghubungi Convex untuk membaca keadaan deployment,
+jadi butuh access token. Vercel tidak punya token itu, dan menyimpan token
+pribadi di dashboard pihak ketiga memberi akses ke seluruh deployment Convex
+milik akun - termasuk backend produksi.
+
+Keputusan 2026-10-03: folder hasil codegen IKUT TER-COMMIT, dan Build
+Command jadi `vite build` polos. Ini juga anjuran resmi Convex di
+`convex codegen --help`: *"This code is generated automatically while
+running npx convex dev and should be committed to the repo (your code
+won't typecheck without it!)"*.
+
+Konsekuensi yang harus dijaga:
+
+- Tanda tangan fungsi Convex yang berubah harus diikuti `npx convex codegen`
+  lalu commit hasilnya. Penjaganya `scripts/qa/ensure-convex-codegen.mjs`
+  (dijalankan sebagai `pretest`) memeriksa foldernya masih ada.
+- `.gitignore` tidak boleh mengabaikan folder itu lagi; ada test yang
+  menjaganya.
 
 ### Lockfile
 
@@ -518,7 +532,6 @@ Wajib:
 
 | Key | Value |
 |---|---|
-| `CONVEX_DEPLOYMENT` | nilai `prod:...` yang sama dengan di `deploy-prod.env`; hanya untuk CLI codegen saat build |
 | `VITE_CONVEX_URL` | `https://focused-lemur-389.convex.cloud`; dibaca `src/main.tsx` dan di-inline ke bundle saat build |
 
 Jangan diisi:

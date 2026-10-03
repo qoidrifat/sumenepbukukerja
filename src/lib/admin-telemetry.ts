@@ -38,8 +38,36 @@ export type TelemetryRelay = "vercel-edge" | "convex" | "unavailable";
  */
 export type TelemetryStatus = "complete" | "partial" | "failed";
 
-/** Cara `ipHash` dibentuk, dicatat supaya hash polos tidak tersamar. */
-export type IpHashMethod = "hmac-sha256" | "unavailable";
+/**
+ * Cara `ipHash` dibentuk, dicatat supaya hash polos tidak tersamar.
+ *
+ * Keempat nilai ini dibedakan karena tiga di antaranya berarti "ada yang
+ * salah konfigurasi", bukan sekadar "tidak ada data". Kalau hanya ada dua,
+ * operator production akan melihat `unavailable` dan mengira relay yang
+ * mati, padahal masalahnya satu environment yang belum diisi.
+ */
+export type IpHashMethod =
+  | "hmac-sha256"
+  | "hmac-sha256-fallback"
+  | "unavailable"
+  | "missing-in-production";
+
+/** Dari kunci mana `ipHash` dibentuk. */
+export type IpHashSecretSource = "dedicated" | "relay-fallback" | "none";
+
+/**
+ * Hasil pemilihan kunci, beserta alasan kalau tidak ada kunci.
+ *
+ * `missing_dedicated` sengaja dibedakan dari `missing_all`: yang pertama
+ * berarti `SERVER_IP_HASH_SECRET` belum diisi di produksi, dan itu memang
+ * harus diperbaiki. Yang kedua berarti tidak ada environment hash sama
+ * sekali, dan itu juga harus diperbaiki, tapi masalahnya berbeda.
+ */
+export type IpHashSecretResult = {
+  secret: string | null;
+  source: IpHashSecretSource;
+  reason: "ok" | "missing_dedicated" | "missing_all";
+};
 
 /** Nama environment yang dipakai untuk kunci hash IP, urutan prioritas. */
 export const IP_HASH_SECRET_ENV = "SERVER_IP_HASH_SECRET";
@@ -67,15 +95,64 @@ export function deriveTelemetryStatus(input: {
   return input.hasGeo ? "complete" : "partial";
 }
 
-/** Kunci hash IP: miliknya sendiri kalau ada, kalau tidak secret relay. */
-export function resolveIpHashSecret(env: Record<string, string | undefined>): string | null {
+/**
+ * Kunci hash IP.
+ *
+ * Urutannya: kunci khusus dulu, baru secret relay. Tapi urutan kedua hanya
+ * berlaku di luar produksi.
+ *
+ * Kenapa produksi menutup diri di sini: `ADMIN_CONTEXT_RELAY_SECRET` sudah ada
+ * di dua tempat (Vercel dan Convex) dan tugasnya satu, yaitu membuktikan
+ * identitas pengirim. `SERVER_IP_HASH_SECRET` tugasnya berbeda, yaitu menjaga
+ * hash IP tidak bisa ditebak. Dua tugas, dua kunci. Kalau satu kunci dipakai
+ * untuk dua hal, kebocoran di satu tempat langsung membuka yang lain, dan tidak
+ * ada cara mengetahui kunci mana yang bocor.
+ *
+ * Jadi kalau produksi tanpa kunci khusus, jawabannya bukan "pakai saja yang
+ * ada", melainkan `null` dengan alasan `missing_dedicated`. Baris auditnya
+ * tetap ditulis: lebih baik tidak punya hash daripada punya hash yang kunci
+ * rahasianya bocor ke tempat lain. `ipHashMethod` mencatat
+ * `missing-in-production` supaya operator tahu apa yang harus diisi, bukan
+ * mengira relaynya yang mati.
+ *
+ * `production` sengaja diteruskan oleh pemanggil, bukan dibaca di sini.
+ * Modul ini ikut masuk ke bundel peramban lewat Security Desk, dan menarik
+ * `resolveEnvironment` ke sini akan menyeret modul error-reporting beserta
+ * dependensinya ke bundel itu. Server yang memutuskan, modul ini mengikutinya.
+ */
+export function resolveIpHashSecret(
+  env: Record<string, string | undefined>,
+  options: { production?: boolean } = {},
+): IpHashSecretResult {
   const khusus = (env[IP_HASH_SECRET_ENV] ?? "").trim();
-  if (khusus) return khusus;
-  // Secret relay sudah wajib ada agar jalur ini bisa berjalan sama sekali, dan
-  // sudah dijaga tidak pernah masuk browser. Dipakai sebagai cadangan supaya
-  // `ipHash` tidak hilang hanya karena satu env belum diisi.
+  if (khusus) return { secret: khusus, source: "dedicated", reason: "ok" };
+
+  if (options.production) {
+    return { secret: null, source: "none", reason: "missing_dedicated" };
+  }
+
+  // Di luar produksi secret relay boleh dipakai sebagai cadangan supaya
+  // `ipHash` tidak hilang hanya karena satu environment belum diisi.
+  // Hasilnya ditandai `hmac-sha256-fallback`, jadi kalau bocor ke produksi
+  // terbaca sebagai penyimpangan, bukan konfigurasi yang wajar.
   const relay = (env[IP_HASH_FALLBACK_SECRET_ENV] ?? "").trim();
-  return relay || null;
+  return relay ? { secret: relay, source: "relay-fallback", reason: "ok" }
+    : { secret: null, source: "none", reason: "missing_all" };
+}
+
+/**
+ * Terjemahkan hasil pemilihan kunci menjadi nilai yang disimpan di baris.
+ *
+ * Dipisah dari `resolveIpHashSecret` supaya pemetaannya bisa diuji tanpa
+ * menyalin logikanya ke setiap call site. Dua tempat memanggilnya, dan
+ * kalau hanya salah satu yang benar, dua jalur yang tampak sama akan menulis
+ * nilai berbeda untuk keadaan yang sama.
+ */
+export function ipHashMethodFor(result: IpHashSecretResult, formed: boolean): IpHashMethod {
+  if (!formed) {
+    return result.reason === "missing_dedicated" ? "missing-in-production" : "unavailable";
+  }
+  return result.source === "relay-fallback" ? "hmac-sha256-fallback" : "hmac-sha256";
 }
 
 /**
@@ -123,7 +200,11 @@ export function describeRelay(relay: string | null | undefined): string {
  * diketahui.
  */
 export function describeIpHashMethod(method: string | null | undefined): string {
-  if (method === "hmac-sha256") return "HMAC-SHA-256 (berkey)";
+  if (method === "hmac-sha256") return "HMAC-SHA-256 (kunci khusus)";
+  if (method === "hmac-sha256-fallback")
+    return "HMAC-SHA-256 (kunci cadangan - bukan untuk produksi)";
+  if (method === "missing-in-production")
+    return "Tidak dibuat - SERVER_IP_HASH_SECRET belum diisi";
   if (method === "unavailable") return "Tidak dibuat - tidak ada kunci";
   return "Tidak tercatat";
 }

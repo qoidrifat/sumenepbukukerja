@@ -8,6 +8,7 @@ import {
   describeIpHashMethod,
   describeRelay,
   describeTelemetryStatus,
+  ipHashMethodFor,
   resolveIpHashSecret,
 } from "./admin-telemetry";
 
@@ -68,23 +69,58 @@ describe("status telemetry", () => {
 });
 
 describe("pemilihan kunci hash IP", () => {
-  test("kunci khusus menang kalau diisi", () => {
-    expect(
-      resolveIpHashSecret({
-        [IP_HASH_SECRET_ENV]: "khusus",
-        [IP_HASH_FALLBACK_SECRET_ENV]: "cadangan",
-      }),
-    ).toBe("khusus");
+  test("kunci khusus menang, dan hanya itu, di produksi maupun di luar", () => {
+    for (const production of [true, false]) {
+      const hasil = resolveIpHashSecret(
+        {
+          [IP_HASH_SECRET_ENV]: "khusus",
+          [IP_HASH_FALLBACK_SECRET_ENV]: "cadangan",
+        },
+        { production },
+      );
+      expect(hasil.secret).toBe("khusus");
+      expect(hasil.source).toBe("dedicated");
+      expect(hasil.reason).toBe("ok");
+    }
   });
 
-  test("secret relay dipakai sebagai cadangan, supaya hash tidak hilang", () => {
-    expect(resolveIpHashSecret({ [IP_HASH_FALLBACK_SECRET_ENV]: "cadangan" })).toBe("cadangan");
+  test("produksi tanpa kunci khusus GAGAL TERTUTUP, bukan memakai secret relay", () => {
+    // Ini aturan yang diminta Fase 9.3. Secret relay tugasnya membuktikan
+    // identitas pengirim; memakainya juga sebagai kunci hash IP berarti satu
+    // kebocoran membuka dua hal sekaligus. Di produksi jalan itu ditutup:
+    // lebih baik `ipHash` kosong dan tercatat secara jujur daripada hash yang
+    // rahasianya bocor ke tempat lain.
+    const hasil = resolveIpHashSecret(
+      { [IP_HASH_FALLBACK_SECRET_ENV]: "rahasia-relay" },
+      { production: true },
+    );
+    expect(hasil.secret).toBeNull();
+    expect(hasil.source).toBe("none");
+    expect(hasil.reason).toBe("missing_dedicated");
+    // Dan cara yang tercatat harus menyebut kesalahan konfigurasi, bukan
+    // menyalahkan relay yang sebenarnya hidup.
+    expect(ipHashMethodFor(hasil, false)).toBe("missing-in-production");
+  });
+
+  test("di luar produksi secret relay boleh dipakai sebagai cadangan", () => {
+    const hasil = resolveIpHashSecret({ [IP_HASH_FALLBACK_SECRET_ENV]: "cadangan" });
+    expect(hasil.secret).toBe("cadangan");
+    expect(hasil.source).toBe("relay-fallback");
+    expect(ipHashMethodFor(hasil, true)).toBe("hmac-sha256-fallback");
   });
 
   test("tanpa kunci sama sekali hasilnya null, bukan hash polos diam-diam", () => {
-    expect(resolveIpHashSecret({})).toBeNull();
-    expect(resolveIpHashSecret({ [IP_HASH_SECRET_ENV]: "   " })).toBeNull();
-    expect(resolveIpHashSecret({ [IP_HASH_FALLBACK_SECRET_ENV]: "" })).toBeNull();
+    expect(resolveIpHashSecret({}).secret).toBeNull();
+    expect(resolveIpHashSecret({}).reason).toBe("missing_all");
+    expect(resolveIpHashSecret({ [IP_HASH_SECRET_ENV]: "   " }).secret).toBeNull();
+    expect(resolveIpHashSecret({ [IP_HASH_FALLBACK_SECRET_ENV]: "" }).secret).toBeNull();
+    // Di produksi jalur cadangan tidak dijalankan sama sekali, jadi jawabannya
+    // tetap `missing_dedicated` walau secret relay juga kosong. Itu memang
+    // benar: tindakan operator sama-sama sama, yaitu mengisi
+    // `SERVER_IP_HASH_SECRET`. `missing_all` hanya muncul di luar produksi.
+    const produksi = resolveIpHashSecret({}, { production: true });
+    expect(produksi.secret).toBeNull();
+    expect(ipHashMethodFor(produksi, false)).toBe("missing-in-production");
   });
 
   test("huruf nama environment dikunci, bukan hanya simbolnya", () => {
@@ -204,8 +240,14 @@ describe("label untuk Security Desk", () => {
     expect(describeRelay(null)).toBe("Tidak tercatat");
   });
 
-  test("cara hash IP dibedakan antara berkey dan tidak ada kunci", () => {
-    expect(describeIpHashMethod("hmac-sha256")).toContain("berkey");
+  test("cara hash IP dibedakan, termasuk kunci cadangan dan produksi salah konfigurasi", () => {
+    expect(describeIpHashMethod("hmac-sha256")).toContain("kunci khusus");
+    // Kunci cadangan harus terbaca sebagai penyimpangan, bukan konfigurasi wajar.
+    expect(describeIpHashMethod("hmac-sha256-fallback")).toContain("cadangan");
+    expect(describeIpHashMethod("hmac-sha256-fallback")).toContain("bukan untuk produksi");
+    // Dan produksi tanpa kunci khusus harus menyebut nama environment yang
+    // belum diisi, supaya operator tahu apa yang harus dikerjakan.
+    expect(describeIpHashMethod("missing-in-production")).toContain("SERVER_IP_HASH_SECRET");
     expect(describeIpHashMethod("unavailable")).toContain("tidak ada kunci");
     expect(describeIpHashMethod(null)).toBe("Tidak tercatat");
   });

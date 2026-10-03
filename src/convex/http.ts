@@ -32,10 +32,12 @@ import {
 import {
   buildTelemetryLog,
   deriveTelemetryStatus,
+  ipHashMethodFor,
   resolveIpHashSecret,
   type IpHashMethod,
   type TelemetryStatus,
 } from "../lib/admin-telemetry";
+import { resolveEnvironment } from "../lib/error-reporting";
 import {
   maskIpForDisplay,
   normalizeIpDetailed,
@@ -55,6 +57,17 @@ import { CONTEXT_REQUEST_LIMIT, CONTEXT_REQUEST_WINDOW_MS } from "./adminGate";
  * menulis log tidak boleh menggagalkan permintaan: menambah telemetri tidak
  * boleh menjatuhkan audit yang sedang berjalan.
  */
+/**
+ * Apakah deployment ini produksi.
+ *
+ * Dipakai untuk memutuskan apakah `SERVER_IP_HASH_SECRET` wajib ada. Urutan
+ * pembacannya milik `resolveEnvironment`, jadi berkas ini tidak punya
+ * definisi "apa itu produksi" sendiri yang bisa berbeda dari Security Desk.
+ */
+function isProduction(): boolean {
+  return resolveEnvironment(process.env) === "production";
+}
+
 function logTelemetry(line: ReturnType<typeof buildTelemetryLog>) {
   try {
     console.log(JSON.stringify(line));
@@ -488,10 +501,10 @@ const adminSecurityContext = httpAction(async (ctx, request: Request) => {
     // Tanpa kunci, `ipHash` sengaja dibiarkan kosong dan metodenya
     // dicatat `unavailable` - lebih jujur daripada diam-diam memakai
     // hash polos yang bisa dicocokkan dengan daftar alamat diketahui.
-    const ipHashSecret = resolveIpHashSecret(process.env);
+    const ipHashKey = resolveIpHashSecret(process.env, { production: isProduction() });
     const ipHash =
-      resolved.ip && ipHashSecret ? await keyedHash(resolved.ip, ipHashSecret) : null;
-    const ipHashMethod: IpHashMethod = ipHash ? "hmac-sha256" : "unavailable";
+      resolved.ip && ipHashKey.secret ? await keyedHash(resolved.ip, ipHashKey.secret) : null;
+    const ipHashMethod: IpHashMethod = ipHashMethodFor(ipHashKey, Boolean(ipHash));
     const geoResolved = Boolean(geo.country || geo.city || geo.region);
     const telemetryStatus: TelemetryStatus = deriveTelemetryStatus({
       relay: "convex",
@@ -722,9 +735,10 @@ const adminContextRelay = httpAction(async (ctx, request: Request) => {
     // bukan tidakapa-apa saja. Kalau tidak ada kunci sama sekali, `ipHash`
     // dibiarkan kosong dan metodenya dicatat `unavailable` - lebih jujur
     // daripada diam-diam memakai hash yang lemah.
-    const ipHashSecret = resolveIpHashSecret(process.env);
-    const ipHash = payload.ip && ipHashSecret ? await keyedHash(payload.ip, ipHashSecret) : null;
-    const ipHashMethod: IpHashMethod = ipHash ? "hmac-sha256" : "unavailable";
+    const ipHashKey = resolveIpHashSecret(process.env, { production: isProduction() });
+    const ipHash =
+      payload.ip && ipHashKey.secret ? await keyedHash(payload.ip, ipHashKey.secret) : null;
+    const ipHashMethod: IpHashMethod = ipHashMethodFor(ipHashKey, Boolean(ipHash));
 
     if (ipHash) {
       const usage = await ctx.runMutation(internal.adminGate.contextRequestWindow, { ipHash });

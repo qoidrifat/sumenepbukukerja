@@ -152,8 +152,14 @@ describe("alamat IP mentah tidak pernah disimpan atau dikembalikan", () => {
 
   test("tabel konteks menyimpan hash berkey, bukan hash polos", () => {
     const route = blokRelay();
-    expect(route).toContain("keyedHash(payload.ip, ipHashSecret)");
+    expect(route).toContain("keyedHash(payload.ip, ipHashKey.secret)");
     expect(route).not.toContain("sha256Hex(payload.ip)");
+    // Fail closed di produksi ikut dijaga di level sumber. Module-nya sudah
+    // diuji perilakunya, tapi yang diuji di sini adalah call site-nya:
+    // kalau ada satu jalur yang lupa meneruskan `production`, tidak ada yang
+    // menangkapnya sampai baris audit produksi salah konfigurasi.
+    expect(route).toContain("resolveIpHashSecret(process.env, { production: isProduction() })");
+    expect(route).toContain("ipHashMethodFor(ipHashKey, Boolean(ipHash))");
   });
 
   test("argumen konteks hanya menerima bentuk turunan", () => {

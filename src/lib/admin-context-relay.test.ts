@@ -215,7 +215,7 @@ test("route relay di backend menolak tanpa tanda tangan yang cocok", () => {
   // IP mentah tidak boleh ikut ke tabel: yang disimpan hanya hash berkey
   // dan bentuk tersamar.
   expect(route).toContain("relayDisplayIp(payload.ip)");
-  expect(route).toContain("keyedHash(payload.ip, ipHashSecret)");
+  expect(route).toContain("keyedHash(payload.ip, ipHashKey.secret)");
   // Hash polos tidak boleh lagi dipakai untuk IP pada jalur ini.
   expect(route).not.toContain("sha256Hex(payload.ip)");
 });

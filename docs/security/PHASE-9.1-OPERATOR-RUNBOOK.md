@@ -481,7 +481,7 @@ kode yang sudah dikomit sudah tayang. Verifikasi isinya, bukan statusnya.
 | Framework Preset | Vite | `vite.config.ts` + `@vitejs/plugin-react` |
 | Build Command | `bunx convex codegen --typecheck disable && vite build` | lihat catatan codegen |
 | Output Directory | `dist` | default Vite |
-| Install Command | `bun install` | satu-satunya lockfile adalah `bun.lock` |
+| Install Command | `bun install --frozen-lockfile` | `bun.lock` sudah diregenerasi ke format v1 (lihat catatan lockfile) |
 
 ### Codegen Convex WAJIB jalan sebelum build
 
@@ -498,9 +498,19 @@ Tiga cara yang sudah dicoba:
 | `CONVEX_DEPLOYMENT` saja, tanpa login/token | BERHASIL - 5 berkas terbentuk, diuji dengan `HOME` tanpa `~/.convex/config.json` |
 | Commit `src/convex/_generated` | Cara alternatif resmi Convex, tanpa env var di Vercel |
 
-Kalau `bun install --frozen-lockfile` dipakai, `bun.lock` yang ter-commit
-(`lockfileVersion: 2`) harus diregenerasi lebih dulu - Bun 1.3 mengabaikannya
-lalu gagal dengan `lockfile had changes, but lockfile is frozen`.
+### Lockfile
+
+`bun.lock` pernah ter-commit dalam format lama (`lockfileVersion: 2`), yang
+tidak lagi bisa dibaca Bun 1.3: `bun install` mengabaikannya dan
+`bun install --frozen-lockfile` gagal dengan
+`lockfile had changes, but lockfile is frozen`. Install di Vercel jadi
+tidak reproducible - dependensi diambil dari `package.json` saja.
+
+Pada 2026-10-03 lockfile diregenerasi ke format baru (`lockfileVersion: 1`) dan
+diuji `bun install --frozen-lockfile` lulus tanpa perubahan: 431 install
+melintasi 533 paket. Yang bergeser hanya beberapa paket transitif
+(`@types/node`, `electron-to-chromium`, `tinybench`, `tinyexec`); dependensi
+langsung di `package.json` tidak berubah.
 
 ### Environment variable (Vercel)
 

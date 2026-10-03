@@ -614,6 +614,26 @@ IP mentah hanya berpindah di kabel antara dua komponen milik kita sendiri, lalu
 langsung diturunkan jadi `ipHash` dan `ipMasked`. Alamat lengkap tidak pernah
 ditulis ke tabel mana pun - perlakuan yang sama seperti sebelum relay ada.
 
+### Menandai laporan produksi sebagai `production`
+
+`resolveEnvironment` dijalankan di sisi **Convex** (`process.env` di
+`src/convex/errorReports.ts`), bukan di Vercel. Tanpa ini, laporan dari
+`sumenepbukukerja.com` muncul di Security Desk dengan label `development`
+dan tidak terbaca sebagai masalah produksi - persis yang terjadi pada
+laporan `ERR-20261003-0O72S0A` dan sesudahnya.
+
+| Nama | Ditetapkan di | Nilai |
+|---|---|---|
+| `CONVEX_SITE_URL` | **Dashboard Convex** | `https://focused-lemur-389.convex.site` |
+
+Urutan pembacaan disengaja: `APP_ENV` > `CONVEX_SITE_URL` > `CONVEX_DEPLOYMENT`.
+Nilai yang disuntikkan platform dibaca paling akhir karena bisa tertinggal -
+deployment yang pernah dibuat sebagai dev lalu dipakai untuk produksi, misalnya.
+Kalau urlandanya dibalik, label `development` menutupi produksi.
+
+`CONVEX_SITE_URL` di **Vercel** tetap berguna juga, untuk relay IP. Dua
+tempat itu memang env var dengan nama sama tapi pembacaan berbeda.
+
 ### Environment variable (WAJIB, nilai sama persis di kedua tempat)
 
 | Nama | Ditetapkan di | Nilai |

@@ -13,8 +13,17 @@ import {
 } from "../lib/whatsapp-webhook";
 import { lookupGeoLocation } from "../lib/geo-enrichment";
 import { trimUserAgent } from "../lib/admin-passcode";
+import { contextCorsHeaders as contextCorsHeadersForEnv } from "../lib/admin-context-cors";
+import {
+  RELAY_ROUTE,
+  RELAY_SECRET_ENV,
+  normalizeRelayPayload,
+  relayDisplayIp,
+  verifyRelaySecret,
+} from "../lib/admin-context-relay";
 import {
   maskIpForDisplay,
+  normalizeIpDetailed,
   resolveClientIp,
   sanitizeReferrer,
   sha256Hex,
@@ -365,116 +374,23 @@ const ADMIN_CONTEXT_ROUTE = "/admin-gate/context";
  * alamat klien, header itu akan otomatis terpakai pada permintaan berikutnya —
  * tanpa perubahan kode.
  */
-const CONTEXT_CORS_METHODS = "POST, OPTIONS";
-const CONTEXT_CORS_REQUEST_HEADERS =
-  "content-type, x-forwarded-for, x-real-ip, cf-connecting-ip, true-client-ip";
+// Aturan CORS hidup di modul murni supaya fungsi Vercel di
+// `api/admin-context.ts` memakai aturan yang PERSIS sama tanpa menarik
+// `convex/server` ke runtime server. Di-ekspor ulang di sini supaya test yang
+// sudah ada tidak perlu tahu file mana yang memegang kebenarannya.
+export {
+  CONTEXT_CORS_METHODS,
+  CONTEXT_CORS_REQUEST_HEADERS,
+  allowedContextOrigins,
+  allowWildcardContextCors,
+  resolveContextCorsMode,
+  buildContextCorsHeaders,
+} from "../lib/admin-context-cors";
 
-/**
- * FASE 9.1 - F-11: CORS route konteks, dipersempit tanpa merusak beacon.
- *
- * UKURAN PADA DEPLOYMENT YANG DIUJI (`tmp/qa-p91-http-evidence.json`):
- * `POST /admin-gate/context` dijawab `access-control-allow-origin: *` dan TIDAK
- * pernah mengirim `access-control-allow-credentials`. Jadi risikonya bukan
- * pencurian cookie - tidak ada kredensial sama sekali. Risikonya: situs mana
- * pun bisa memanggil route ini dari peramban pengunjung dan membaca
- * jawabannya, yaitu masked IP, kota/negara, dan token konteks milik
- * pengunjung itu sendiri.
- *
- * YANG SENGAJA TIDAK DIPAKAI SEBAGAI ALLOWLIST: `SITE_URL`. Buktinya ada di
- * `tmp/qa-p91-cors-allowlist-evidence.json`: pada deployment yang diuji,
- * `SITE_URL` menunjuk origin `.convex.site` itu sendiri, bukan origin frontend.
- * Memakainya sebagai allowlist sempat membuat beacon Security Desk kehilangan
- * akses begitu kode baru berjalan - frontend tidak pernah dibaca peramban pada
- * origin itu. `SITE_URL` menjelaskan "alamat situs untuk sitemap", bukan "asal
- * aplikasi ini dipanggil", jadi tidak boleh dipakai untuk mempersempit CORS.
- *
- * YANG DIGUNAKAN: `ADMIN_CONTEXT_ALLOWED_ORIGINS`, daftar origin dipisah koma.
- *  - Terisi: hanya origin di daftar itu yang mendapat
- *    `access-control-allow-origin`. Asing tidak mendapat apa pun.
- *  - Kosong: wildcard tanpa credentials, yaitu perilaku sebelum Fase 9.1.
- *    Dipilih supaya deployment yang belum punya origin frontend resmi tidak
- *    kehilangan metadata IP di Security Desk.
- *
- * DUA LARANGAN YANG TIDAK PERNAH DILANGGAR, berapa pun konfigurasi:
- *  - `access-control-allow-credentials` tidak pernah dikirim. Wildcard
- *    bersama credentials ditolak browser dan juga tidak dipakai di sini.
- *  - Dengan allowlist terisi, origin asing tidak pernah mendapat `*`.
- *
- * FASE 6 - KETIKA ALLOWLIST KOSONG, JAWABANNYA SEKARANG "TUTUP", BUKAN `*`.
- *
- * Alasannya sederhana. Allowlist kosong sebelumnya berarti wildcard, dan
- * wildcard berarti setiap situs di internet bisa memanggil route ini dari
- * peramban pengunjung dan membaca jawabannya: masked IP, kota, negara, dan
- * token konteks milik pengunjung itu sendiri.
- *
- * Mode wildcard masih ada, tapi hanya kalau operator MEMILIHNYA lewat
- * `ADMIN_CONTEXT_ALLOW_WILDCARD_CORS`. Di luar itu, allowlist kosong berarti
- * tidak ada `access-control-allow-origin` sama sekali: preflight dan pembacaan
- * lintas origin sama-sama ditolak peramban, jadi Security Desk hanya kehilangan
- * metadata IP, bukan kebocorannya. Penjatahan metadata jauh lebih murah
- * daripada mengaktifkan kebocoran.
- *
- * Penegakan tidak bergantung pada `NODE_ENV` atau tebakan lain tentang
- * lingkungan. Kegagalan mendeteksi "ini produksi" adalah cara yang rapi untuk
- * tidak menegakkan apa pun.
- */
-export type ContextCorsMode = "allowlist" | "wildcard" | "closed";
-
-export function resolveContextCorsMode(
-  allowedOrigins: string[],
-  options: { allowWildcard?: boolean } = {},
-): ContextCorsMode {
-  // Normalisasi ulang di sini, bukan hanya di pembaca env. Kalau ada satu
-  // spasi di environment, allowlist "terisi" menurut hitungan panjang tapi
-  // anggota sama sekali adalah wildcard yang lebih buruk.
-  const usable = allowedOrigins.map((value) => value.trim().replace(/\/+$/, "")).filter(Boolean);
-  if (usable.length > 0) return "allowlist";
-  return options.allowWildcard ? "wildcard" : "closed";
-}
-
-export function buildContextCorsHeaders(
-  requestOrigin: string | null,
-  allowedOrigins: string[],
-  options: { allowWildcard?: boolean } = {},
-) {
-  const headers: Record<string, string> = {
-    "access-control-allow-methods": CONTEXT_CORS_METHODS,
-    "access-control-allow-headers": CONTEXT_CORS_REQUEST_HEADERS,
-    "access-control-max-age": "600",
-    "cache-control": "no-store",
-    // Wajib: respons memakai Origin pada allowlist, jadi cache bersama tidak
-    // boleh memakai satu jawaban untuk origin lain.
-    vary: "Origin",
-    // Route ini mengembalikan JSON milik pemanggil sendiri, dan beacon-nya tetap
-    // butuh jawaban yang tidak ditafsirkan ulang sebagai berkas lain.
-    "x-content-type-options": "nosniff",
-  };
-  const mode = resolveContextCorsMode(allowedOrigins, options);
-  if (mode === "wildcard") {
-    headers["access-control-allow-origin"] = "*";
-    return headers;
-  }
-  if (mode === "closed") return headers;
-  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
-    headers["access-control-allow-origin"] = requestOrigin;
-  }
-  return headers;
-}
-
-const allowedContextOrigins = () =>
-  (process.env.ADMIN_CONTEXT_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((value) => value.trim().replace(/\/+$/, ""))
-    .filter(Boolean);
-
-/** Wildcard harus diminta tertulis, bukan terjadi karena allowlist lupa diisi. */
-const allowWildcardContextCors = () =>
-  (process.env.ADMIN_CONTEXT_ALLOW_WILDCARD_CORS ?? "").trim().toLowerCase() === "true";
-
+/** Header CORS untuk satu request, memakai allowlist dari environment. */
 const contextCorsHeaders = (request: Request) =>
-  buildContextCorsHeaders(request.headers.get("origin"), allowedContextOrigins(), {
-    allowWildcard: allowWildcardContextCors(),
-  });
+  contextCorsHeadersForEnv(request.headers.get("origin"), process.env);
+
 
 const adminSecurityContext = httpAction(async (ctx, request: Request) => {
   const corsHeaders = contextCorsHeaders(request);
@@ -604,6 +520,128 @@ http.route({ path: ADMIN_CONTEXT_ROUTE, method: "GET", handler: adminSecurityCon
 // tanpa baris ini preflight jatuh ke "no matching routes" dan beacon diblokir
 // browser, walau request-nya sebenarnya sampai ke origin.
 http.route({ path: ADMIN_CONTEXT_ROUTE, method: "OPTIONS", handler: adminSecurityContext });
+
+/* ------------------------------------------------------------------ *
+ * Relay IP dari edge Vercel
+ * ------------------------------------------------------------------ */
+
+/**
+ * Menerima alamat IP yang benar-benar diamati edge, lalu menyimpannya dengan
+ * perlakuan yang sama seperti route langsung di atas.
+ *
+ * KENAPA RUTE INI ADA - hasil pengukuran, bukan dugaan:
+ * `httpAction` Convex tidak mengekspos header proxy. Disuntik `X-Forwarded-For`
+ * ke route `/admin-gate/context`, jawabannya tetap `chainLength: 0` dan
+ * `ipSource: "Unknown"`. Jadi route lama tidak akan pernah punya IP, dengan atau
+ * tanpa konfigurasi. Edge Vercel satu-satunya pihak dalam rantai ini yang
+ * melihat klien - tetapi hanya untuk permintaan yang melewatinya.
+ *
+ * SISI KEAMANAN:
+ *  - Route ini PUBLIK dan bisa dihubungi siapa pun, jadi shared secret wajib
+ *    diverifikasi lebih dulu. Tanpa secret yang sama di kedua environment, route
+ *    menjawab netral dan tidak menulis apa pun.
+ *  - Secret dibandingkan waktu-tetap lewat `verifyRelaySecret`.
+ *  - Secret kosong berarti relay MATI, bukan terbuka tanpa password.
+ *  - IP tetap tidak disimpan mentah: yang masuk hanya `ipHash` dan `ipMasked`,
+ *    persis seperti sebelumnya.
+ *  - Batas permintaan yang sama dengan route lama ikut dipakai, dengan kunci IP
+ *    yang diamati server, bukan kiriman klien.
+ */
+const adminContextRelay = httpAction(async (ctx, request: Request) => {
+  const netral = () =>
+    Response.json(
+      {
+        contextId: null,
+        requestId: null,
+        ipMasked: null,
+        ipSource: "Unknown",
+        ipFamily: "unknown",
+        ipTrust: "unknown",
+        proxyDetected: false,
+        chainLength: 0,
+        geoResolved: false,
+        relay: "rejected",
+      },
+      { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" } },
+    );
+
+  if (request.method !== "POST") return netral();
+
+  const secret = process.env[RELAY_SECRET_ENV];
+  if (!secret?.trim()) return netral();
+  const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+  if (!verifyRelaySecret(provided, secret)) return netral();
+
+  try {
+    const payload = normalizeRelayPayload(await request.json());
+    const requestId = `req_${bytesToHex(crypto.getRandomValues(new Uint8Array(8)))}`;
+
+    if (payload.ip) {
+      const ipHash = await sha256Hex(payload.ip);
+      const usage = await ctx.runMutation(internal.adminGate.contextRequestWindow, { ipHash });
+      if (usage.count >= CONTEXT_REQUEST_LIMIT) {
+        return Response.json(
+          { error: "rate_limited", retryAfterSeconds: CONTEXT_REQUEST_WINDOW_MS / 1000 },
+          {
+            status: 429,
+            headers: {
+              "content-type": "application/json",
+              "cache-control": "no-store",
+              "retry-after": String(CONTEXT_REQUEST_WINDOW_MS / 1000),
+            },
+          },
+        );
+      }
+    }
+
+    const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
+    const family = payload.ip ? normalizeIpDetailed(payload.ip).family : "unknown";
+    const ipSource = payload.ip ? (payload.ipSource ?? "Vercel Edge") : "Unknown";
+    const ipTrust = payload.ip ? "edge" : "unknown";
+    const expiresAt = await ctx.runMutation(internal.adminGate.captureSecurityContext, {
+      token,
+      ipHash: payload.ip ? await sha256Hex(payload.ip) : undefined,
+      ipMasked: relayDisplayIp(payload.ip) ?? undefined,
+      ipSource,
+      ipFamily: family,
+      ipTrust,
+      proxyDetected: Boolean(payload.ip),
+      chainLength: payload.ip ? 1 : 0,
+      userAgent: trimUserAgent(payload.userAgent ?? undefined) ?? undefined,
+      referrer: sanitizeReferrer(payload.referrer ?? undefined) ?? undefined,
+      acceptLanguage: payload.acceptLanguage || undefined,
+      requestId,
+      country: payload.country ?? undefined,
+      region: payload.region ?? undefined,
+      city: payload.city ?? undefined,
+    });
+
+    return Response.json(
+      {
+        contextId: token,
+        requestId,
+        ipMasked: relayDisplayIp(payload.ip) ?? null,
+        ipSource,
+        ipFamily: family,
+        ipTrust,
+        proxyDetected: Boolean(payload.ip),
+        chainLength: payload.ip ? 1 : 0,
+        country: payload.country ?? null,
+        region: payload.region ?? null,
+        city: payload.city ?? null,
+        geoResolved: Boolean(payload.country || payload.city || payload.region),
+        relay: "vercel-edge",
+        expiresAt,
+      },
+      { headers: { "content-type": "application/json", "cache-control": "no-store" } },
+    );
+  } catch {
+    // Secret benar tapi badan tidak terbaca, atau baris gagal ditulis.
+    return netral();
+  }
+});
+
+http.route({ path: RELAY_ROUTE, method: "POST", handler: adminContextRelay });
 
 /**
  * Sitemap dan robots.txt.

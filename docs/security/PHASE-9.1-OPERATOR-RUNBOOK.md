@@ -563,6 +563,117 @@ localhost.
 4. Verifikasi isi build, bukan status deployment:
    `node tmp/verify-publish.mjs https://domain-anda.vercel.app`
 
+## Relay IP audit ruang pengelola (2026-10-03)
+
+### Gejala yang dilaporkan
+
+Security Desk mencatat percobaan masuk ruang pengelola dengan benar, tapi selalu
+menampilkan `IP Tidak terdeteksi` dan `Lokasi Tidak terdeteksi`, walaupun jelas
+ada percobaan yang sah.
+
+### Dua sebab, keduanya sudah terukur (bukan dugaan)
+
+**1. CORS tertutup.** Probe langsung ke origin produksi:
+
+```
+OPTIONS /admin-gate/context  ->  204 TANPA access-control-allow-origin
+```
+
+`ADMIN_CONTEXT_ALLOWED_ORIGINS` kosong, jadi mode `closed` aktif dan browser
+memblokir beacon sebelum request-nya benar-benar berguna.
+
+**2. Convex membuang header IP.** Ini yang menentukan, karena effort pertama
+(`ADMIN_CONTEXT_ALLOWED_ORIGINS`) saja tidak akan cukup:
+
+```
+curl -X POST .../admin-gate/context -H "X-Forwarded-For: 1.2.3.4"
+-> {"ipMasked":null,"ipSource":"Unknown","chainLength":0}
+```
+
+Header yang disuntik tidak sampai ke `httpAction`. `resolveClientIp()` sudah benar
+dan sudah dijaga test - platformnya yang membuang header. Tidak ada satu pun
+environment variable yang bisa memperbaikinya.
+
+### Solusi: relay lewat edge Vercel
+
+Satu-satunya pihak dalam rantai ini yang melihat alamat IP klien adalah Vercel, dan
+hanya untuk permintaan yang **melewati** Vercel. Beacon lama melompati Vercel dan
+langsung ke `*.convex.site`.
+
+```
+browser  --POST /api/admin-context (same-origin)-->  fungsi Vercel
+fungsi Vercel  --POST /admin-gate/context-relay + Bearer secret-->  Convex
+```
+
+Geo diambil dari header milik Vercel sendiri (`x-vercel-ip-country`,
+`x-vercel-ip-city`, `x-vercel-ip-country-region`), BUKAN dari layanan geolokasi
+pihak ketiga. Jadi tidak ada alamat IP yang keluar dari Vercel dan Convex hanya
+untuk memetakan lokasi.
+
+IP mentah hanya berpindah di kabel antara dua komponen milik kita sendiri, lalu
+langsung diturunkan jadi `ipHash` dan `ipMasked`. Alamat lengkap tidak pernah
+ditulis ke tabel mana pun - perlakuan yang sama seperti sebelum relay ada.
+
+### Environment variable (WAJIB, nilai sama persis di kedua tempat)
+
+| Nama | Ditetapkan di | Nilai |
+|---|---|---|
+| `ADMIN_CONTEXT_RELAY_SECRET` | Dashboard Convex | string acak, mis. `openssl rand -hex 32` |
+| `ADMIN_CONTEXT_RELAY_SECRET` | Vercel (Production + Preview) | **nilai yang sama persis** |
+| `CONVEX_SITE_URL` | Vercel | `https://<deployment>.convex.site` |
+| `ADMIN_CONTEXT_ALLOWED_ORIGINS` | Vercel + Convex | dipisah koma, pertahankan yang lama |
+
+Secret KOSONG tidak merusak apa pun: relay menjawab netral dan Security Desk
+kembali seperti sekarang. Secret yang berbeda di kedua tempat juga aman - relay
+mati. Yang berbahaya hanya secret yang dipakai browser, dan kode itu dilarang.
+
+Contoh membuat secret:
+
+```bash
+openssl rand -hex 32
+```
+
+### Kenapa `vercel.json` berubah
+
+Rewrite SPA tadinya `/(.*)`, yang akan menelan `/api/admin-context` dan
+mengembalikan `index.html` di tempat JSON. Gejalanya bukan error, hanya IP yang
+hilang lagi. Sekarang:
+
+```json
+{ "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }] }
+```
+
+`src/lib/deploy-config.test.ts` menjaga bahwa setiap fetch same-origin ke `/api`
+benar-benar dikecualikan, dan menambah route baru di `/api` memaksa test itu
+dijalankan ulang.
+
+### Checklist verifikasi setelah deploy
+
+1. Dari browser, buka DevTools -> Network -> filter `admin-context`.
+2. Balasan harus punya `ipSource: "Vercel Edge"` dan `ipMasked` terisi.
+3. Masuk ke `/auth?returnTo=%2Fadmin`, salah ketik passcode sekali.
+4. Buka `/admin` -> Security Desk. Kartu percobaan terbaru harus punya:
+   - `IP <alamat tersamar>` (bukan `IP Tidak terdeteksi`),
+   - `Lokasi <kota, wilayah>` dari header Vercel,
+   - kode `ADM-YYYYMMDD-XXXXXX` yang bisa dibaca dan disebut dalam laporan.
+
+Kalau `ipSource` masih `Unknown` tetapi `relay` bernilai `unavailable`, artinya
+secret di kedua environment tidak sama. Kalau `relay` bernilai `vercel-edge`
+tapi `ipMasked` null, artinya Vercel tidak mengirim header IP - cek apakah domain
+sudah diverifikasi dan memang lewat edge, bukan preview lokal.
+
+### Yang TIDAK dikerjakan, dan kenapa
+
+- **Tidak menebak IP.** Kalau platform tidak formalized alamat klien, header itu
+  dipakai otomatis pada permintaan berikutnya - tanpa perubahan kode. Mengarang
+  nilai membuat log tampak lengkap padahal kosong.
+- **Tidak mempercayai IP kiriman browser untuk keputusan rate limit.** Nilai itu
+  masih disimpan sebagai `reportedIp` untuk dibaca manusia, tapi kunci rate limit
+  hanya boleh memakai IP yang diamati server. Kalau tidak, siapa pun bisa memanggil
+  dengan IP berbeda tiap kali dan mendapat jatah baru tanpa batas.
+- **Tidak memakai layanan geolokasi pihak ketiga.** Header Vercel sudah cukup,
+  dan mengundang pihak ketiga berarti alamat keluar dari sistem kita sendiri.
+
 ---
 
 ## Ringkasan aksi operator

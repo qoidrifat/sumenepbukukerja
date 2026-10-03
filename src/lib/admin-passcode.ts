@@ -221,3 +221,36 @@ export const LOCKOUT_MS = 60 * 60_000;
  * Angkanya longgar supaya admin yang sedang salah ketik tidak ikut terkunci.
  */
 export const GLOBAL_ATTEMPT_CEILING = 60;
+/**
+
+/**
+ * Alfabet tanpa huruf yang mudah tertukar saat dibaca atau diketik ulang:
+ * tidak ada 0/O, 1/I/L, atau U/V. Kode ini sering dibacakan lewat telepon atau
+ * disalin manual ke tiket insiden, jadi keraguan saat dibaca di situ mahal.
+ */
+const ATTEMPT_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTWXYZ";
+
+/**
+ * Kode unik untuk SATU percobaan masuk ruang pengelola.
+ *
+ * Kenapa ini perlu ada: Security Desk tadinya hanya bisa menunjuk sebuah
+ * percobaan lewat waktu dan sidik jari perangkat. Waktu bisa berdekatan, dan
+ * sidik jari bisa kosong ketika beacon gagal. Needed kode yang bisa dibaca
+ * manusia dan disebut langsung di laporan.
+ *
+ * Kode ini SELALU ada, bukan hanya ketika konteks server masuk. Dihasilkan di
+ * server dari sumber acak kriptografis, jadi tidak bisa ditebak dan tidak
+ * bergantung pada apa pun yang dikirim browser. Enam karakter dengan alfabet
+ * 31 memberi sekitar 30 bit - cukup untuk membedakan percobaan di dalam
+ * jendela lockout, dan sama sekali bukan pengenal yang boleh dipakai sebagai
+ * kunci keputusan keamanan apa pun.
+ */
+export function newAttemptCode(at: number = Date.now()): string {
+  const date = new Date(at).toISOString().slice(0, 10).replace(/-/g, "");
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  let suffix = "";
+  for (const byte of bytes) {
+    suffix += ATTEMPT_CODE_ALPHABET[byte % ATTEMPT_CODE_ALPHABET.length];
+  }
+  return `ADM-${date}-${suffix}`;
+}

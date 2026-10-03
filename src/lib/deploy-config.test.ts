@@ -29,9 +29,16 @@ type VercelConfig = {
 const config: VercelConfig = JSON.parse(readFileSync("vercel.json", "utf8"));
 
 test("setiap route client-side punya jawaban server yang benar", () => {
-  const rewrite = config.rewrites?.find((item) => item.source === "/(.*)");
+  const rewrite = config.rewrites?.find((item) => item.source === "/((?!api/).*)");
   expect(rewrite, "rewrite SPA harus ada di vercel.json").toBeDefined();
   expect(rewrite?.destination).toBe("/index.html");
+  // Pengecualiannya harus benar-benar menolak awalan `/api`. Pola yang keliru
+  // tidak membuat build merah - ia hanya membuat relay tertelan diam-diam,
+  // dan gejalanya cuma IP yang hilang lagi.
+  const pola = new RegExp("^" + "/((?!api/).*)" + "$");
+  expect(pola.test("/api/admin-context")).toBe(false);
+  expect(pola.test("/admin")).toBe(true);
+  expect(pola.test("/v/daftar")).toBe(true);
 });
 
 test("aplikasi memang butuh rewrite: rutenya milik React Router", () => {
@@ -43,9 +50,8 @@ test("aplikasi memang butuh rewrite: rutenya milik React Router", () => {
   }
 });
 
-test("tidak ada permintaan same-origin yang bisa ditelan rewrite", () => {
+test("permintaan same-origin ke backend dibatasi pada relay IP saja", () => {
   const berkas = [
-    "src/lib/admin-gate-client.ts",
     "src/lib/error-reporting.ts",
     "src/lib/chunk-recovery.ts",
     "src/main.tsx",
@@ -56,6 +62,16 @@ test("tidak ada permintaan same-origin yang bisa ditelan rewrite", () => {
     const cocok = sumber.match(pola);
     expect(cocok?.[0] ?? null, `${file} memanggil ${pola}`).toBeNull();
   }
+
+  // Beacon gerbang boleh memanggil `/api`, tapi HANYA relay IP. Panggilan
+  // same-origin berikutnya harus ikut ditambah ke daftar berkas di atas,
+  // supaya route-nya ditinjau sebelum ikut tertelan rewrite.
+  const beacon = readFileSync("src/lib/admin-gate-client.ts", "utf8");
+  expect(beacon).toContain("const RELAY_URL = RELAY_PATH;");
+  expect(beacon).toContain("await askContext(RELAY_URL);");
+  // Hanya dua pemanggilan: relay dulu, route langsung sebagai cadangan.
+  expect(beacon.match(/askContext\(/g) ?? []).toHaveLength(3);
+  expect(beacon).not.toMatch(/fetch\(\s*["'`]\/convex/);
 });
 
 test("service worker tetap disajikan sebagai berkas, bukan sebagai index.html", () => {

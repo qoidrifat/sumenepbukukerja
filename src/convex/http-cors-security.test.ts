@@ -27,6 +27,23 @@ import { buildContextCorsHeaders, resolveContextCorsMode } from "./http";
 
 const httpSource = readFileSync(fileURLToPath(new URL("./http.ts", import.meta.url)), "utf8");
 
+/*
+ * Aturan CORS dipindah ke modul murni supaya fungsi Vercel di
+ * `api/admin-context.ts` memakai aturan yang sama tanpa menarik
+ * `convex/server` ke runtime server. Ketiga berkas yang boleh menyentuh
+ * header CORS ikut dipindai - kalau ada file keempat yang mulai mengirim
+ * header sendiri, test ini tidak akan ikut menyadarinya.
+ */
+const corsSource = readFileSync(
+  fileURLToPath(new URL("../lib/admin-context-cors.ts", import.meta.url)),
+  "utf8",
+);
+const relaySource = readFileSync(
+  fileURLToPath(new URL("../../api/admin-context.ts", import.meta.url)),
+  "utf8",
+);
+const allSources = httpSource + "\n" + corsSource + "\n" + relaySource;
+
 /**
  * Buang komentar sebelum sumber dipindai.
  *
@@ -38,7 +55,7 @@ const httpSource = readFileSync(fileURLToPath(new URL("./http.ts", import.meta.u
 const stripComments = (source: string) =>
   source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
 
-const httpCode = stripComments(httpSource);
+const httpCode = stripComments(allSources);
 
 describe("Fase 9.1: CORS route konteks tidak pernah memakai wildcard berkredensial", () => {
   test("tidak ada satu pun route yang mengirim access-control-allow-credentials", () => {
@@ -69,7 +86,7 @@ describe("Fase 9.1: CORS route konteks tidak pernah memakai wildcard berkredensi
     expect(tertutup["access-control-allow-headers"]).toContain("content-type");
     expect(tertutup.vary).toBe("Origin");
 
-    // Wildcard masih bisa obtained, tapi hanya atas permintaan tertulis.
+    // Wildcard masih bisa diminta, tapi hanya atas permintaan tertulis.
     const liar = buildContextCorsHeaders("https://situs-lain.example", [], {
       allowWildcard: true,
     });
@@ -140,12 +157,26 @@ describe("Fase 9.1: CORS route konteks tidak pernah memakai wildcard berkredensi
     // sendiri - bukan frontend. Memakainya sebagai allowlist mematikan beacon
     // Security Desk. Kode harus membacanya dari variabel khusus.
     expect(httpCode).toContain("ADMIN_CONTEXT_ALLOWED_ORIGINS");
-    const originBuilder = httpCode.slice(
-      httpCode.indexOf("const allowedContextOrigins"),
-      httpCode.indexOf("const contextCorsHeaders"),
+    const corsCode = stripComments(corsSource);
+    const originBuilder = corsCode.slice(
+      corsCode.indexOf("export function allowedContextOrigins"),
+      corsCode.indexOf("export function resolveContextCorsMode"),
     );
     expect(originBuilder).not.toContain("SITE_URL");
     expect(originBuilder).not.toContain("CONVEX_SITE_URL");
+  });
+
+  test("fungsi relay Vercel memakai allowlist yang sama", () => {
+    // Relay dipanggil dari browser pada origin yang sama, jadi tidak butuh
+    // CORS untuk bekerja. Tapi ia tetap boleh dibaca situs lain kalau
+    // mengirim `*`, dan jawabannya berisi masked IP milik pengunjung.
+    const relayCode = stripComments(relaySource);
+    expect(relayCode).toContain("contextCorsHeaders");
+    expect(relayCode).not.toContain("ADMIN_CONTEXT_ALLOW_WILDCARD_CORS");
+    // Secret hanya boleh berpindah Vercel ke backend, tidak pernah diminta
+    // dari browser. Fungsi yang menolak tanpa header Authorization akan
+    // membuat beacon mati total.
+    expect(relayCode).not.toMatch(/authorization.*verifyRelaySecret/i);
   });
 
   test("route webhook tidak pernah membuka CORS ke peramban", () => {

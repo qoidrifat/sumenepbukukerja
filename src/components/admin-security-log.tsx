@@ -465,6 +465,11 @@ export function AdminSecurityLog() {
                           percobaan ke-{event.attemptNumber}
                         </span>
                       ) : null}
+                      {event.attemptCode ? (
+                        <span className="font-mono text-xs font-black tracking-tight text-[#1A1A1A]">
+                          {event.attemptCode}
+                        </span>
+                      ) : null}
                     </div>
 
                     <p className="mt-1.5 text-xs text-[#525252]">
@@ -575,6 +580,7 @@ export function AdminSecurityLog() {
                         </Row>
                         <Row label="Akun">{value(event.emailMasked)}</Row>
                         <Row label="Percobaan ke-">{value(event.attemptNumber)}</Row>
+                        <Row label="Kode percobaan">{value(event.attemptCode)}</Row>
                         <Row label="Status keamanan">{event.status}</Row>
                         <Row label="Percobaan dalam jendela">
                           {event.attemptsInWindow} total · {event.failedInWindow} gagal ·{" "}

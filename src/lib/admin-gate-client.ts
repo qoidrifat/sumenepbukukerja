@@ -13,27 +13,35 @@
 //     tipis dan login tetap berjalan.
 
 import { useCallback, useState } from "react";
+import { RELAY_PATH, convexSiteUrl } from "./admin-context-relay";
 import { useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
+/* `convexSiteUrl` tinggal diekspor ulang dari modul relay supaya berkas ini
+   tidak punya salinan kedua dari koreksi yang sama. Pemanggil di luar repo
+   ikut rusak kalau hanya satu sisinya yang diperbarui. */
+export { convexSiteUrl };
+
 const DEVICE_ID_KEY = "bk.device-id";
+/**
+ * Route langsung ke Convex. Dipakai sebagai cadangan.
+ *
+ * Rute ini dipanggil dari origin berbeda, jadi butuh CORS allowlist di
+ * backend. Kalau allowlist kosong, backend menjawab preflight TANPA
+ * `access-control-allow-origin` dan peramban memblokir beacon - itu kondisi
+ * produksi sebelum relay ada, dan gejalanya persis "IP tidak terdeteksi"
+ * padahal request-nya sebenarnya sampai.
+ */
 const CONTEXT_ROUTE = "/admin-gate/context";
+/**
+ * Relay same-origin. Dipakai lebih dulu karena inilah jalur yang benar-benar
+ * punya alamat IP: permintaan ke origin sendiri melewati Vercel, sehingga
+ * header IP dan geo benar-benar ada. Same-origin juga berarti tidak ada
+ * preflight sama sekali.
+ */
+const RELAY_URL = RELAY_PATH;
 const CONTEXT_TIMEOUT_MS = 2_500;
 
-/**
- * Custom HTTP route Convex hanya dilayani di origin `.convex.site`, bukan di
- * `.convex.cloud` yang dipakai `useConvex().url` untuk query dan action.
- *
- * Ini bug yang tidak terlihat dari kode: `fetch` ke `.convex.cloud` membalas
- * 404, `fetchServerContext` mengembalikan objek kosong tanpa error, dan hasilnya
- * audit tidak pernah punya IP server sama sekali. Terbukti ke produksi:
- * `.convex.cloud/admin-gate/context` -> 404, `.convex.site/...` -> 200 dengan
- * `CF-Connecting-IP`. Karena itu origin diturunkan di sini, bukan dibaca dari
- * environment yang bisa lupa diisi.
- */
-export function convexSiteUrl(cloudUrl: string): string {
-  return cloudUrl.replace(/\.convex\.cloud(?=\/|$)/, ".convex.site");
-}
 
 /**
  * ID perangkat acak, hanya untuk membedakan rate limit antar perangkat. Bukan
@@ -112,13 +120,13 @@ const EMPTY_CONTEXT: ServerContext = {
 };
 
 /**
- * Minta satu kali jejak header ke server. Timeout pendek supaya halaman auth
- * tidak menunggu, dan kegagalan diam-diam diabaikan — login tidak boleh
- * bergantung pada ini.
+ * Satu percobaan ke satu endpoint. Timeout pendek supaya halaman auth tidak
+ * menunggu; hasilnya dinormalisasi sehingga bentuknya sama apa pun yang
+ * terjadi di jaringan.
  */
-async function fetchServerContext(cloudUrl: string): Promise<ServerContext> {
+async function askContext(url: string): Promise<ServerContext> {
   try {
-    const response = await fetch(`${convexSiteUrl(cloudUrl)}${CONTEXT_ROUTE}`, {
+    const response = await fetch(url, {
       method: "POST",
       // `text/plain` adalah simple header, jadi browser tidak perlu preflight.
       // Body-nya tetap JSON; route ini tidak pernah mem-parsing body.
@@ -142,6 +150,23 @@ async function fetchServerContext(cloudUrl: string): Promise<ServerContext> {
   } catch {
     return EMPTY_CONTEXT;
   }
+}
+
+/**
+ * Minta satu kali jejak header ke server.
+ *
+ * Urutannya bukan formalitas: relay dicoba lebih dulu karena hanya jalur itu
+ * yang menghasilkan IP sungguhan. Route langsung ke Convex tetap dicoba
+ * sebagai cadangan supaya instalasi yang belum mengaktifkan relay tidak
+ * kehilangan device, locale, dan zona waktu.
+ *
+ * Kegagalan diam-diam diabaikan di kedua percobaan - login tidak boleh
+ * bergantung pada audit.
+ */
+async function fetchServerContext(cloudUrl: string): Promise<ServerContext> {
+  const lewatRelay = await askContext(RELAY_URL);
+  if (lewatRelay.contextId) return lewatRelay;
+  return askContext(`${convexSiteUrl(cloudUrl)}${CONTEXT_ROUTE}`);
 }
 
 export type GateAlert = {

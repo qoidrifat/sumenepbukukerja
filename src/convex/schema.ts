@@ -650,6 +650,12 @@ const schema = defineSchema(
       sessionFingerprint: v.optional(v.string()),
       requestId: v.optional(v.string()),
       attemptNumber: v.optional(v.number()),
+      // Kode manusia untuk satu percobaan, mis. ADM-20261003-K7P2QX.
+      // Dihasilkan server dan SELALU ada, tidak bergantung pada apakah
+      // konteks IP berhasil ditangkap. Inilah satu-satunya cara menunjuk
+      // sebuah baris secara spesifik saat waktunya berdekatan dan sidik
+      // jari perangkat kosong.
+      attemptCode: v.optional(v.string()),
       // Hasil resolusi IP di lapisan server. Alamat lengkap tetap tidak
       // disimpan; yang dicatat adalah seberapa kuat sumbernya, supaya operator
       // tahu sebuah IP benar-benar diamati edge atau hanya Percaya rantai proxy.
@@ -679,7 +685,8 @@ const schema = defineSchema(
       // di dalam jendelanya" — tepat pada saat tabelnya paling padat, yaitu
       // ketika sedang ada percobaan masuk beruntun.
       .index("byKeyCreatedAt", ["key", "createdAt"])
-      .index("byOutcomeCreatedAt", ["outcome", "createdAt"]),
+      .index("byOutcomeCreatedAt", ["outcome", "createdAt"])
+      .index("byAttemptCode", ["attemptCode"]),
 
     // Tiket sekali pakai yang diterbitkan setelah passcode admin valid.
     // Hanya hash tiket yang disimpan, bukan token aslinya.

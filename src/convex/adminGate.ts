@@ -48,6 +48,7 @@ import {
   encodePasscodeHash,
   maskEmail,
   maskIp,
+  newAttemptCode,
   normalizePasscode,
   parsePasscodeHash,
   timingSafeEqual,
@@ -353,10 +354,19 @@ export const recordAttempt = internalMutation({
     sessionFingerprint: v.optional(v.string()),
     requestId: v.optional(v.string()),
     attemptNumber: v.optional(v.number()),
+    attemptCode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    await ctx.db.insert("adminPasscodeAttempts", { ...args, createdAt: now });
+    // Kode dibuat di sini, bukan di sisi klien dan bukan hanya ketika konteks
+    // server masuk. Kalau kode bergantung pada konteks, baris yang justru
+    // paling perlu ditelusuri - yaitu percobaan saat beacon gagal - justru
+    // yang tidak punya kode.
+    await ctx.db.insert("adminPasscodeAttempts", {
+      ...args,
+      attemptCode: args.attemptCode ?? newAttemptCode(now),
+      createdAt: now,
+    });
 
     /*
      * FASE 7 - MENGUBAH PENCATATAN MENJADI DETEKSI.
@@ -822,6 +832,7 @@ export const listAdminSecurityEvents = query({
         sessionFingerprint: maskFingerprint(row.sessionFingerprint),
         requestId: maskRequestId(row.requestId),
         attemptNumber: row.attemptNumber ?? null,
+        attemptCode: row.attemptCode ?? null,
         createdAt: row.createdAt,
         // Keadaan sesi untuk tombol "Logout dari sesi ini". Yang dikirim hanya
         // bentuk ternormalisasi, bukan id sesi maupun hash-nya: UI tidak butuh
@@ -902,6 +913,7 @@ export const getAdminSecurityAttempt = query({
       sessionFingerprint: maskFingerprint(row.sessionFingerprint),
       requestId: maskRequestId(row.requestId),
       attemptNumber: row.attemptNumber ?? null,
+      attemptCode: row.attemptCode ?? null,
       createdAt: row.createdAt,
       signals: row.signals ?? [],
       ipHistory: ipRows

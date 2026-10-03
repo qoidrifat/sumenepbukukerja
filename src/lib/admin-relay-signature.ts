@@ -90,14 +90,47 @@ export async function keyedHash(value: string, secret: string): Promise<string> 
 }
 
 /**
+ * Versi skema tanda tangan.
+ *
+ * Bagian dari string yang ditandatangani, bukan hiasan. Tanda tangan yang
+ * dibuat dengan skema lama punya awalan berbeda, jadi tidak akan cocok dengan
+ * verifikasi yang sekarang. Itu disengaja: lebih baik satu jendela produksi
+ * ditutup begitu saja daripada menerima dua skema sekaligus.
+ */
+export const RELAY_SIGNING_VERSION = "v2";
+
+/**
  * String yang benar-benar ditandatangani.
  *
  * Pemisah titik itu penting. Tanpa pemisah, timestamp 123 dengan nonce 45 dan
  * timestamp 12 dengan nonce 345 menghasilkan string yang sama persis, jadi
  * satu permintaan bisa diubah timestep-nya tanpa membuat tanda tangan gagal.
+ *
+ * `method` dan `path` ikut diikat sejak awal, bukan ditambahkan belakangan.
+ * Tanpa keduanya, satu tanda tangan yang sah untuk `/admin-gate/context-relay`
+ * juga sah untuk route lain yang kebetulan memakai secret yang sama, karena
+ * isinya sama persis. Mengikatnya ke endpoint membuat secret relay tidak lagi
+ * menjadi kunci yang terlalu umum: satu kebocoran tidak lagi membuka semua
+ * route yang memakainya.
+ *
+ * `method` dinormalisasi ke huruf besar supaya `post` dan `POST` tidak bisa
+ * jadi dua bentuk yang berbeda untuk permintaan yang sama.
  */
-export function relaySigningString(timestamp: string, nonce: string, bodyDigest: string) {
-  return `${timestamp}.${nonce}.${bodyDigest}`;
+export function relaySigningString(
+  timestamp: string,
+  nonce: string,
+  method: string,
+  path: string,
+  bodyDigest: string,
+) {
+  return [
+    RELAY_SIGNING_VERSION,
+    timestamp,
+    nonce,
+    method.trim().toUpperCase(),
+    path,
+    bodyDigest,
+  ].join(".");
 }
 
 async function signSigningString(secret: string, value: string): Promise<string> {
@@ -133,6 +166,8 @@ export function constantTimeEqual(a: string, b: string): boolean {
 export async function signRelayRequest(input: {
   secret: string;
   body: string;
+  method: string;
+  path: string;
   timestamp?: number;
   nonce?: string;
 }): Promise<{ timestamp: string; nonce: string; signature: string }> {
@@ -142,7 +177,7 @@ export async function signRelayRequest(input: {
   const digest = await relayBodyDigest(input.body);
   const signature = await signSigningString(
     input.secret,
-    relaySigningString(timestamp, nonce, digest),
+    relaySigningString(timestamp, nonce, input.method, input.path, digest),
   );
   return { timestamp, nonce, signature };
 }
@@ -161,6 +196,8 @@ export async function signRelayRequest(input: {
 export async function verifyRelayRequest(input: {
   secret: string | null | undefined;
   body: string;
+  method: string;
+  path: string;
   timestamp: string | null | undefined;
   nonce: string | null | undefined;
   signature: string | null | undefined;
@@ -196,7 +233,7 @@ export async function verifyRelayRequest(input: {
   const digest = await relayBodyDigest(input.body);
   const expected = await signSigningString(
     secret,
-    relaySigningString(timestamp, nonce, digest),
+    relaySigningString(timestamp, nonce, input.method, input.path, digest),
   );
   if (!constantTimeEqual(expected, signature)) {
     return { ok: false, reason: "invalid_signature" };

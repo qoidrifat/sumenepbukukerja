@@ -41,6 +41,12 @@ import {
   signRelayRequest,
 } from "../src/lib/admin-relay-signature";
 
+/**
+ * Metode yang dipakai relay. Disatukan di sini supaya penandatangan dan
+ * pengiriman tidak bisa berbeda diam-diam.
+ */
+export const RELAY_METHOD = "POST";
+
 /** Batas keras. Timeout yang lebih panjang tidak pernah membantu. */
 const BACKEND_TIMEOUT_MS = 3_000;
 
@@ -122,9 +128,18 @@ export default async function handler(request: Request): Promise<Response> {
   });
 
   try {
-    const signature = await signRelayRequest({ secret, body });
+    // `method` dan `path` yang ditandatangani harus sama dengan yang benar-benar
+    // dikirim. Kalau berbeda, backend menolak, dan itu memang tujuannya:
+    // tanda tangan hanya berlaku untuk endpoint ini, tidak bisa dipindah ke
+    // route lain yang kebetulan memakai secret yang sama.
+    const signature = await signRelayRequest({
+      secret,
+      body,
+      method: RELAY_METHOD,
+      path: RELAY_ROUTE,
+    });
     const response = await fetch(`${origin}${RELAY_ROUTE}`, {
-      method: "POST",
+      method: RELAY_METHOD,
       headers: {
         "content-type": "application/json",
         [RELAY_SIGNATURE_HEADER_TIMESTAMP]: signature.timestamp,

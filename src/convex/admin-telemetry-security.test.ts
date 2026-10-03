@@ -89,7 +89,10 @@ describe("secret tidak pernah masuk ke sisi peramban", () => {
   test("fungsi Vercel memakai secret hanya untuk menandatangani", () => {
     const sumber = readFileSync("api/admin-context.ts", "utf8");
     expect(sumber).toContain("process.env[RELAY_SECRET_ENV]");
-    expect(sumber).toContain("signRelayRequest({ secret, body })");
+    // Metode dan path ikut ditandatangani: tanpa itu, satu tanda tangan sah
+    // untuk route relay juga sah untuk route lain yang memakai secret sama.
+    expect(sumber).toContain("method: RELAY_METHOD,");
+    expect(sumber).toContain("path: RELAY_ROUTE,");
     // Secret tidak boleh dipakai untuk menolak pemanggil, dan header
     // Authorization tidak boleh jadi gerbang.
     expect(sumber).not.toMatch(/request\.headers\.get\("authorization"\)/);

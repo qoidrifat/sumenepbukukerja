@@ -22,28 +22,42 @@ const BODY = JSON.stringify({
   relayTraceId: "rly_0123456789abcdef",
 });
 
+/** Path dan metode yang dipakai seluruh uji, sama dengan yang di produksi. */
+const METHOD = "POST";
+const PATH = "/admin-gate/context-relay";
+
 /** Permintaan bertanda tangan, dengan penyesuaian per kasus. */
-async function tandatangani(ubah: { body?: string; secret?: string; now?: number } = {}) {
+async function tandatangani(
+  ubah: { body?: string; secret?: string; now?: number; method?: string; path?: string } = {},
+) {
   const body = ubah.body ?? BODY;
   const secret = ubah.secret ?? SECRET;
   const now = ubah.now ?? 1_700_000_000_000;
-  const signed = await signRelayRequest({ secret, body, timestamp: now });
+  const method = ubah.method ?? METHOD;
+  const path = ubah.path ?? PATH;
+  const signed = await signRelayRequest({ secret, body, method, path, timestamp: now });
   return {
     body,
     secret,
     now,
+    method,
+    path,
     signed,
     // `null` ikut diterima karena memang ada kasus secret yang null.
     verify: (
       secretOverride?: string | null,
       bodyOverride?: string,
       nowOverride?: number,
+      methodOverride?: string,
+      pathOverride?: string,
     ) =>
       verifyRelayRequest({
         // `undefined` berarti "pakai bawaan". `??` tidak bisa dipakai di
         // sini karena `null` justru nilai yang sedang diuji.
         secret: secretOverride === undefined ? secret : secretOverride,
         body: bodyOverride === undefined ? body : bodyOverride,
+        method: methodOverride === undefined ? method : methodOverride,
+        path: pathOverride === undefined ? path : pathOverride,
         timestamp: signed.timestamp,
         nonce: signed.nonce,
         signature: signed.signature,
@@ -72,8 +86,10 @@ describe("tanda tangan relay", () => {
   });
 
   test("header yang hilang ditolak", async () => {
-    const signed = await signRelayRequest({ secret: SECRET, body: BODY });
+    const signed = await signRelayRequest({ secret: SECRET, body: BODY, method: METHOD, path: PATH });
     const penuh = {
+      method: METHOD,
+      path: PATH,
       secret: SECRET,
       body: BODY,
       timestamp: signed.timestamp,
@@ -91,6 +107,8 @@ describe("tanda tangan relay", () => {
     // Jam dijepit supaya pemeriksaan tanda tangan yang diuji, bukan sekadar
     // penolakan karena cap waktu dianggap basi.
     const hasil = await verifyRelayRequest({
+      method: METHOD,
+      path: PATH,
       secret: SECRET,
       body: BODY,
       timestamp: "1700000000000",
@@ -105,6 +123,8 @@ describe("tanda tangan relay", () => {
   test("secret yang berbeda ditolak walau bentuk tanda tangan benar", async () => {
     const { signed, body, now } = await tandatangani();
     const hasil = await verifyRelayRequest({
+      method: METHOD,
+      path: PATH,
       secret: "secret-yang-berbeda-tapi-sama-panjangnya",
       body,
       timestamp: signed.timestamp,
@@ -127,6 +147,8 @@ describe("tanda tangan relay", () => {
   test("cap waktu yang sudah basi ditolak", async () => {
     const { signed, body, secret } = await tandatangani();
     const hasil = await verifyRelayRequest({
+      method: METHOD,
+      path: PATH,
       secret,
       body,
       timestamp: signed.timestamp,
@@ -141,6 +163,8 @@ describe("tanda tangan relay", () => {
   test("cap waktu yang terlalu ke depan juga ditolak", async () => {
     const { signed, body, secret } = await tandatangani();
     const hasil = await verifyRelayRequest({
+      method: METHOD,
+      path: PATH,
       secret,
       body,
       timestamp: signed.timestamp,
@@ -155,6 +179,8 @@ describe("tanda tangan relay", () => {
   test("cap waktu tepat di tepi jendela masih diterima", async () => {
     const { signed, body, secret } = await tandatangani();
     const hasil = await verifyRelayRequest({
+      method: METHOD,
+      path: PATH,
       secret,
       body,
       timestamp: signed.timestamp,
@@ -168,6 +194,8 @@ describe("tanda tangan relay", () => {
   test("cap waktu yang bukan angka ditolak sebelum menyentuh HMAC", async () => {
     for (const buruk of ["abc", "17e10", "", " 1700000000000 x", "1.5"]) {
       const hasil = await verifyRelayRequest({
+        method: METHOD,
+        path: PATH,
         secret: SECRET,
         body: BODY,
         timestamp: buruk,
@@ -185,6 +213,8 @@ describe("tanda tangan relay", () => {
     // Nonce 1 MB akan membuat HMAC ikut sebesar itu, jadi bentuknya wajib dicek.
     for (const buruk of ["pendek", "z".repeat(32), "0".repeat(31), "0".repeat(33)]) {
       const hasil = await verifyRelayRequest({
+        method: METHOD,
+        path: PATH,
         secret: SECRET,
         body: BODY,
         timestamp: "1700000000000",
@@ -202,14 +232,14 @@ describe("tanda tangan relay", () => {
     // Kalau pemisahnya hilang, pasangan ini bertabrakan dan request bisa
     // diputar ulang dengan cap waktu berbeda.
     const digest = await relayBodyDigest(BODY);
-    expect(relaySigningString("123", "45", digest)).not.toBe(
-      relaySigningString("12", "345", digest),
+    expect(relaySigningString("123", "45", METHOD, PATH, digest)).not.toBe(
+      relaySigningString("12", "345", METHOD, PATH, digest),
     );
   });
 
   test("nonce acak punya panjang yang ditentukan", async () => {
-    const a = await signRelayRequest({ secret: SECRET, body: BODY });
-    const b = await signRelayRequest({ secret: SECRET, body: BODY });
+    const a = await signRelayRequest({ secret: SECRET, body: BODY, method: METHOD, path: PATH });
+    const b = await signRelayRequest({ secret: SECRET, body: BODY, method: METHOD, path: PATH });
     expect(a.nonce).toHaveLength(RELAY_NONCE_BYTES * 2);
     expect(a.nonce).not.toBe(b.nonce);
   });
@@ -318,7 +348,7 @@ describe("bentuk produksi, dari header Vercel sampai verifikasi", () => {
     });
 
     const now = Date.now();
-    const signed = await signRelayRequest({ secret: SECRET, body, timestamp: now });
+    const signed = await signRelayRequest({ secret: SECRET, body, method: METHOD, path: PATH, timestamp: now });
 
     // Cermin ulang pakai header yang benar-benar dikirim fungsi Vercel.
     const terkirim = new Map(HEADER);
@@ -327,6 +357,8 @@ describe("bentuk produksi, dari header Vercel sampai verifikasi", () => {
     terkirim.set(RELAY_SIGNATURE_HEADER_SIGNATURE, signed.signature);
 
     const hasil = await verifyRelayRequest({
+      method: METHOD,
+      path: PATH,
       secret: SECRET,
       body,
       timestamp: terkirim.get(RELAY_SIGNATURE_HEADER_TIMESTAMP),
@@ -343,11 +375,13 @@ describe("bentuk produksi, dari header Vercel sampai verifikasi", () => {
     const ip = readRelayIp(headers);
     const bodyAsli = JSON.stringify({ ip: ip?.ip, relayTraceId: "rly_0011223344556677" });
     const now = Date.now();
-    const signed = await signRelayRequest({ secret: SECRET, body: bodyAsli, timestamp: now });
+    const signed = await signRelayRequest({ secret: SECRET, body: bodyAsli, method: METHOD, path: PATH, timestamp: now });
 
     // Penyerang menandatangani badan asli, lalu mengirim badan lain.
     const bodyPalsu = bodyAsli.replace("203.0.113.45", "198.51.100.200");
     const hasil = await verifyRelayRequest({
+      method: METHOD,
+      path: PATH,
       secret: SECRET,
       body: bodyPalsu,
       timestamp: signed.timestamp,
@@ -376,5 +410,90 @@ describe("bentuk produksi, dari header Vercel sampai verifikasi", () => {
 
   test("nama environment untuk secret relay tetap terkunci di satu tempat", () => {
     expect(RELAY_SECRET_ENV).toBe("ADMIN_CONTEXT_RELAY_SECRET");
+  });
+});
+
+describe("pemisahan domain tanda tangan", () => {
+  test("tanda tangan sah ditolak begitu path-nya diganti", async () => {
+    // Kalau tanda tangan tidak mengikat path, satu tanda tangan yang sah untuk
+    // route ini juga sah untuk route lain yang kebetulan memakai secret sama.
+    // Itu sebabnya satu secret yang bocor membuka banyak pintu sekaligus.
+    const { verify } = await tandatangani();
+    const hasil = await verify(undefined, undefined, undefined, undefined, "/admin-gate/lain");
+    expect(hasil.ok).toBe(false);
+    if (!hasil.ok) expect(hasil.reason).toBe("invalid_signature");
+  });
+
+  test("tanda tangan sah ditolak begitu metodenya diganti", async () => {
+    const { verify } = await tandatangani();
+    const hasil = await verify(undefined, undefined, undefined, "GET");
+    expect(hasil.ok).toBe(false);
+    if (!hasil.ok) expect(hasil.reason).toBe("invalid_signature");
+  });
+
+  test("huruf besar-kecil metode tidak membuka celah baru", async () => {
+    // `post` dan `POST` menunjuk permintaan yang sama. Kalau keduanya jadi
+    // string tanda tangan yang berbeda, hanya satu yang bisa lolos, dan
+    // penandatangan harus menebak-nebak bentuk yang mana yang benar.
+    const digest = await relayBodyDigest(BODY);
+    expect(relaySigningString("1", "2", "post", PATH, digest)).toBe(
+      relaySigningString("1", "2", "POST", PATH, digest),
+    );
+
+    // Pengirim menulis huruf kecil, penerima melihat huruf besar dari
+    // `request.method`. Tetap harus cocok.
+    const { signed, now } = await tandatangani({ method: "post" });
+    const hasil = await verifyRelayRequest({
+      method: "POST",
+      path: PATH,
+      secret: SECRET,
+      body: BODY,
+      timestamp: signed.timestamp,
+      nonce: signed.nonce,
+      signature: signed.signature,
+      nowMs: now,
+    });
+    expect(hasil.ok).toBe(true);
+  });
+
+  test("tanda tangan skema lama ditolak, bukan diterima diam-diam", async () => {
+    // Skema sebelumnya hanya mengikat timestamp, nonce, dan digest badan.
+    // Kalau skema lama masih diterima, seluruh pengikatan endpoint yang baru
+    // ini tidak berarti apa-apa.
+    const sekarang = await tandatangani();
+    const digest = await relayBodyDigest(BODY);
+    const kunci = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(SECRET),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const lama = Array.from(
+      new Uint8Array(
+        await crypto.subtle.sign(
+          "HMAC",
+          kunci,
+          new TextEncoder().encode(
+            `${sekarang.signed.timestamp}.${sekarang.signed.nonce}.${digest}`,
+          ),
+        ),
+      ),
+    )
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+
+    const hasil = await verifyRelayRequest({
+      method: METHOD,
+      path: PATH,
+      secret: SECRET,
+      body: BODY,
+      timestamp: sekarang.signed.timestamp,
+      nonce: sekarang.signed.nonce,
+      signature: lama,
+      nowMs: sekarang.now,
+    });
+    expect(hasil.ok).toBe(false);
+    if (!hasil.ok) expect(hasil.reason).toBe("invalid_signature");
   });
 });

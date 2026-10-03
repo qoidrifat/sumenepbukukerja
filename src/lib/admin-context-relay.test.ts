@@ -229,6 +229,9 @@ test("fungsi Vercel tidak pernah meminta secret dari browser", () => {
   expect(relay).toContain("process.env[RELAY_SECRET_ENV]");
   // Secret hanya boleh dipakai untuk menandatangani permintaan ke backend,
   // bukan untuk menolak pemanggil.
-  expect(relay).toContain("signRelayRequest({ secret, body })");
+  // Metode dan path ikut ditandatangani: tanpa itu, satu tanda tangan sah
+  // untuk route relay juga sah untuk route lain yang memakai secret sama.
+  expect(relay).toContain("method: RELAY_METHOD,");
+  expect(relay).toContain("path: RELAY_ROUTE,");
   expect(relay).not.toMatch(/authorization:\s*`Bearer/);
 });

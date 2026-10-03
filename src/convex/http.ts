@@ -687,9 +687,14 @@ const adminContextRelay = httpAction(async (ctx, request: Request) => {
       : null;
 
   const secret = process.env[RELAY_SECRET_ENV];
+  // Metode dan path diambil dari permintaan yang benar-benar masuk, bukan dari
+  // konstanta. Kalau keduanya ditulis mati di sini, verifikasi tidak lagi
+  // mengikat tanda tangan ke endpoint yang benar-benar dipanggil.
   const signature = await verifyRelayRequest({
     secret,
     body: bodyText,
+    method: request.method,
+    path: new URL(request.url).pathname,
     timestamp: request.headers.get(RELAY_SIGNATURE_HEADER_TIMESTAMP),
     nonce: request.headers.get(RELAY_SIGNATURE_HEADER_NONCE),
     signature: request.headers.get(RELAY_SIGNATURE_HEADER_SIGNATURE),

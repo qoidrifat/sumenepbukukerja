@@ -18,6 +18,7 @@ import {
   reportIdFor,
   resolveEnvironment,
   safeUserRef,
+  sessionGateFailure,
   shouldAlert,
   whatsappRecommendedAction,
 } from "./error-reporting";
@@ -184,17 +185,37 @@ describe("isExpectedMessage", () => {
  * berisi persis bentuk ini, dan keduanya menggumpal jadi satu laporan karena
  * pesan yang tersisa sama-sama "Called by client". Nama fungsi dan Request ID
  * di bawah ini disalin apa adanya dari laporan tersebut.
+ *
+ * KEDUA contoh itu adalah penolakan sesi, dan sekarang keduanya BENAR-BENAR
+ * tidak dilaporkan - bukan karena pesannya cocok dengan filter teks, melainkan
+ * karena nama funksinya ada di `SESSION_GATE_UDFS`. Bentuk amplopnya sendiri
+ * tidak berubah, jadi `convexErrorEnvelope` tetap diuji dengan data nyata.
  */
 const REDACTED_VENDORS =
   "ConvexError: [CONVEX Q(vendors:listForAdmin)] [Request ID: fdef7197fd99914a] Server Error\n  Called by client";
 const REDACTED_ADMIN_GATE =
   "ConvexError: [CONVEX Q(adminGate:currentAdminSession)] [Request ID: 0941b51b1a88c5ed] Server Error\n  Called by client";
 
+/** UDF kedua yang TIDAK butuh sesi, dipakai test sidik jari laporan. */
+const REDACTED_BUILTIN =
+  "ConvexError: [CONVEX Q(catalogStore:publicStores)] [Request ID: 2c1f0b6ad4e77c31] Server Error\n  Called by client";
+
+/** UDF yang TIDAK butuh sesi, jadi penolakannya tetap layak dilaporkan. */
+const REDACTED_CATALOG =
+  "ConvexError: [CONVEX Q(catalogStore:publicSitemap)] [Request ID: 7b31aa90c4de1122] Server Error\n  Called by client";
+
 describe("convexErrorEnvelope", () => {
   test("mengambil nama fungsi dan Request ID dari amplop Convex", () => {
     expect(convexErrorEnvelope(REDACTED_VENDORS)).toEqual({
       udf: "vendors:listForAdmin",
       requestId: "fdef7197fd99914a",
+    });
+  });
+
+  test("amplop dari ERR-20261001-0O72S0A juga terbaca apa adanya", () => {
+    expect(convexErrorEnvelope(REDACTED_ADMIN_GATE)).toEqual({
+      udf: "adminGate:currentAdminSession",
+      requestId: "0941b51b1a88c5ed",
     });
   });
 
@@ -222,6 +243,47 @@ describe("resolveEnvironment", () => {
     expect(resolveEnvironment({ CONVEX_SITE_URL: "http://localhost:3211" })).toBe("development");
   });
 
+  test("CONVEX_SITE_URL menang atas CONVEX_DEPLOYMENT yang tertinggal", () => {
+    // Persis kondisi di lapangan: deployment produksi yang punya
+    // CONVEX_DEPLOYMENT sisa dari saat masih dev. Kalau nilai platform itu
+    // menang, setiap laporan produksi dicap "development" dan tidak pernah
+    // terbaca sebagai masalah produksi.
+    expect(
+      resolveEnvironment({
+        CONVEX_DEPLOYMENT: "dev:happy-otter-123",
+        CONVEX_SITE_URL: "https://focused-lemur-389.convex.site",
+      }),
+    ).toBe("production");
+    // Kebalikannya tetap berlaku: alamat lokal selalu menang.
+    expect(
+      resolveEnvironment({
+        CONVEX_DEPLOYMENT: "prod:focused-lemur-389",
+        CONVEX_SITE_URL: "http://127.0.0.1:3211",
+      }),
+    ).toBe("development");
+    // APP_ENV tetap yang paling berkuasa, karena itu pilihan eksplisit.
+    expect(
+      resolveEnvironment({
+        APP_ENV: "staging",
+        CONVEX_DEPLOYMENT: "dev:happy-otter-123",
+        CONVEX_SITE_URL: "https://focused-lemur-389.convex.site",
+      }),
+    ).toBe("staging");
+  });
+
+  test("host yang mirip Convex tidak dianggap produksi", () => {
+    // Pola host harus terkunci di awal dan akhir. Kalau longgar, satu env var
+    // yang salah ketik akan membuat laporan Margarita ditandai "production"
+    // padahal sama sekali bukan deployment produksi kita - label yang salah
+    // lebih merusak daripada label yang tidak ada.
+    expect(resolveEnvironment({ CONVEX_SITE_URL: "https://evil.test/convex.site" })).not.toBe("production");
+    expect(resolveEnvironment({ CONVEX_SITE_URL: "https://convex.site.example.test" })).not.toBe("production");
+    expect(resolveEnvironment({ CONVEX_SITE_URL: "https://a.convex.site.example.test" })).not.toBe("production");
+    expect(resolveEnvironment({ CONVEX_SITE_URL: "http://focused-lemur-389.convex.site" })).not.toBe("production");
+    // Bentuk yang benar tetap dikenali, termasuk garis miring di akhir.
+    expect(resolveEnvironment({ CONVEX_SITE_URL: "https://focused-lemur-389.convex.site/" })).toBe("production");
+  });
+
   test("tidak menebak \"development\" ketika tidak ada petunjuk", () => {
     expect(resolveEnvironment({})).toBe("unknown");
     expect(resolveEnvironment({ CONVEX_SITE_URL: "https://contoh.test" })).toBe("unknown");
@@ -229,28 +291,30 @@ describe("resolveEnvironment", () => {
 });
 
 describe("laporan error server yang diredaksi Convex", () => {
+  // UDF contoh diganti ke fungsi yang tidak butuh sesi. Bentuk amplopnya sama
+  // persis, jadi apa yang diuji di sini tetap parsing-nya - bukan filter teks.
   const input = {
     kind: "critical" as const,
     feature: "Application Shell",
     operation: "RootErrorBoundary",
     severity: "critical" as const,
     source: "client" as const,
-    message: REDACTED_VENDORS,
+    message: REDACTED_CATALOG,
   };
 
   test("pesannya menyebut fungsi yang gagal, bukan hanya \"Called by client\"", () => {
     const report = normalizeErrorReport(input);
     expect(report).not.toBeNull();
     expect(report?.message).not.toBe("Called by client");
-    expect(report?.message).toContain("vendors:listForAdmin");
-    expect(report?.message).toContain("fdef7197fd99914a");
+    expect(report?.message).toContain("catalogStore:publicSitemap");
+    expect(report?.message).toContain("7b31aa90c4de1122");
     // Kalimatnya harus terbaca, bukan amplop mentah yang disalin apa adanya.
     expect(report?.message).not.toContain("ConvexError:");
     expect(report?.message).not.toContain("[CONVEX");
   });
 
   test("Request ID ikut tersimpan sebagai field sendiri", () => {
-    expect(normalizeErrorReport(input)?.requestId).toBe("fdef7197fd99914a");
+    expect(normalizeErrorReport(input)?.requestId).toBe("7b31aa90c4de1122");
   });
 
   test("Request ID dari pemanggil tidak ditimpa amplop", () => {
@@ -259,9 +323,11 @@ describe("laporan error server yang diredaksi Convex", () => {
   });
 
   test("dua fungsi yang gagal tidak lagi menggumpal jadi satu laporan", () => {
-    const vendors = normalizeErrorReport(input);
-    const adminGate = normalizeErrorReport({ ...input, message: REDACTED_ADMIN_GATE });
-    expect(vendors?.fingerprint).not.toBe(adminGate?.fingerprint);
+    const katalog = normalizeErrorReport(input);
+    const builtin = normalizeErrorReport({ ...input, message: REDACTED_BUILTIN });
+    expect(katalog).not.toBeNull();
+    expect(builtin).not.toBeNull();
+    expect(katalog?.fingerprint).not.toBe(builtin?.fingerprint);
   });
 
   test("pesan asli yang utuh tidak ikut diubah", () => {
@@ -271,6 +337,84 @@ describe("laporan error server yang diredaksi Convex", () => {
       message: "Meta menolak pesan teks di luar jendela layanan 24 jam.",
     });
     expect(utuh?.message).toBe("Meta menolak pesan teks di luar jendela layanan 24 jam.");
+  });
+});
+
+/*
+ * Lima laporan `critical` di Security Desk (ERR-20261001-0O72S0A,
+ * ERR-20261001-0O72S0A, ERR-20261002-0O72S0A, ERR-20261003-0O72S0A, dan
+ * ERR-20261003-0O72S0A-2) punya satu bentuk yang sama: `Server Error` dari
+ * query yang hanya gagal karena tidak ada sesi. Nama fungsi dan Request ID di
+ * bawah ini disalin apa adanya dari laporan tersebut.
+ */
+const GERBANG_SESI = [
+  ["vendors:listForAdmin", "fdef7197fd99914a"],
+  ["vendors:listForOwner", "958623015a6eda87"],
+  ["adminGate:currentAdminSession", "0941b51b1a88c5ed"],
+] as const;
+
+describe("penolakan sesi bukan gangguan sistem", () => {
+  const input = {
+    kind: "critical" as const,
+    feature: "Application Shell",
+    operation: "RootErrorBoundary",
+    severity: "critical" as const,
+    source: "client" as const,
+  };
+
+  test.each(GERBANG_SESI)("%s tidak pernah jadi laporan", (udf, requestId) => {
+    const message =
+      `ConvexError: [CONVEX Q(${udf})] [Request ID: ${requestId}] Server Error\n  Called by client`;
+    expect(sessionGateFailure(message)).toBe(udf);
+    expect(normalizeErrorReport({ ...input, message })).toBeNull();
+  });
+
+  test("UDF lain dengan amplop identik tetap dilaporkan", () => {
+    expect(sessionGateFailure(REDACTED_CATALOG)).toBeNull();
+    expect(normalizeErrorReport({ ...input, message: REDACTED_CATALOG })).not.toBeNull();
+  });
+
+  test("penolakan sesi pada kelas auth juga ikut dibuang", () => {
+    // Kelas `auth` justru yang paling mungkin dipakai untuk penolakan sesi,
+    // dan tetap tidak boleh memenuhi antrean Critical. Syaratnya ada di
+    // `normalizeErrorReport`, bukan di satu jalur saja.
+    const message =
+      "ConvexError: [CONVEX Q(vendors:listForAdmin)] [Request ID: fdef7197fd99914a] Server Error\n  Called by client";
+    expect(
+      normalizeErrorReport({ ...input, kind: "auth", severity: "error", message }),
+    ).toBeNull();
+  });
+
+  test("pesan lain pada teks yang sama sekali tidak ikut tersaring", () => {
+    // Aset basi setelah deploy (ERR-20261001-0GTXIGT) punya UDF dan bentuk
+    // yang sama sekali berbeda, jadi harus tetap dilaporkan.
+    const asetBasi = "TypeError: Failed to fetch dynamically imported module: /assets/Admin-ZfOF0elJ.js";
+    expect(sessionGateFailure(asetBasi)).toBeNull();
+    expect(normalizeErrorReport({ ...input, message: asetBasi })).not.toBeNull();
+  });
+
+  test("pesan biasa di luar amplop Convex tidak tersaring", () => {
+    expect(sessionGateFailure("Koneksi terputus")).toBeNull();
+    expect(
+      normalizeErrorReport({ ...input, message: "TypeError: undefined is not a function" }),
+    ).not.toBeNull();
+  });
+
+  test("nama UDF gerbang sesi di luar \"Server Error\" tetap dilaporkan", () => {
+    // Syarat "Server Error" inilah yang membedakan penolakan sesi dari
+    // kegagalan lain yang kebetulan menyebut nama fungsi yang sama - koneksi
+    // ke query yang putus, atau validasi sisi klien. Tanpa syarat ini,
+    // kegagalan jaringan yang menyebut UDF gerbang ikut hilang dari dashboard,
+    // dan itu justru yang paling perlu diketahui.
+    const jaringanMati =
+      "TypeError: Failed to fetch [CONVEX Q(vendors:listForAdmin)] [Request ID: aa11bb22cc33dd44]";
+    expect(sessionGateFailure(jaringanMati)).toBeNull();
+    expect(normalizeErrorReport({ ...input, message: jaringanMati })).not.toBeNull();
+
+    const validasi =
+      "ArgumentValidationError: [CONVEX Q(adminGate:currentAdminSession)] at vendors (src/convex/vendors.ts:1:1)";
+    expect(sessionGateFailure(validasi)).toBeNull();
+    expect(normalizeErrorReport({ ...input, message: validasi })).not.toBeNull();
   });
 });
 

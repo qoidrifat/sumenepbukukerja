@@ -431,6 +431,50 @@ const EXPECTED_MESSAGE_RULES: RegExp[] = [
 export const isExpectedMessage = (message: string): boolean =>
   EXPECTED_MESSAGE_RULES.some((rule) => rule.test(message));
 
+/*
+ * Fungsi yang HANYA menolak ketika sesi tidak ada atau sudah kedaluwarsa.
+ *
+ * Kenapa daftar ini perlu, dan kenapa tidak bisa pakai teks pesan:
+ *
+ * Di deployment produksi Convex SENGAJA tidak mengirim pesan error yang
+ * tidak tertangkap ke klien. Yang sampai hanya amplopnya:
+ *
+ *   [CONVEX Q(vendors:listForAdmin)] [Request ID: ...] Server Error
+ *
+ * Kalimat aslinya - "Masuk untuk menggunakan fitur Buku Kerja" - tidak
+ * pernah ada di sisi peramban. Akibatnya `isExpectedMessage` di atas tidak
+ * PERNAH bisa cocok untuk error Convex: masalahnya bukan filter yang
+ * salah, tapi filter yang dijalankan pada teks yang isinya sudah dibuang.
+ *
+ * Konsekuensinya nyata dan sudah terjadi: setiap sesi yang kedaluwarsa -
+ * hal yang wajar pada halaman yang butuh login - dilaporkan sebagai
+ * `critical` "Gangguan sistem", dan pengguna melihat "gangguan total"
+ * padahal yang terjadi cuma perlu masuk lagi.
+ *
+ * Yang boleh masuk ke daftar ini HANYA fungsi yang butuh sesi. Fungsi yang
+ * bisa gagal karena alasan lain (validasi, database, provider) TIDAK boleh
+ * masuk, karena penyimpangan seperti itu ikut hilang dari dashboard.
+ */
+const SESSION_GATE_UDFS = new Set([
+  "vendors:listForOwner",
+  "vendors:listForAdmin",
+  "adminGate:currentAdminSession",
+  "adminGate:currentAdminSessionStatus",
+]);
+
+/**
+ * Apakah error ini adalah penolakan sesi biasa, bukan gangguan sistem?
+ *
+ * Mengembalikan nama funksinya supaya pemanggil bisa menyimpannya di konteks
+ * laporan tanpa perlu mengulangi parsing amplop.
+ */
+export const sessionGateFailure = (message: string): string | null => {
+  const udf = convexErrorEnvelope(message).udf;
+  if (!udf || !SESSION_GATE_UDFS.has(udf)) return null;
+  if (!/server error/i.test(message)) return null;
+  return udf;
+};
+
 const DEFAULT_ACTIONS: Partial<Record<ErrorCode, string>> = {
   [ERROR_CODES.whatsappSend]:
     "Periksa template WhatsApp yang disetujui dan WHATSAPP_TEMPLATE_NAME, lalu baca kode provider pada laporan.",
@@ -505,6 +549,19 @@ export const resolveEnvironment = (env: Record<string, string | undefined>): str
   const explicit = env.APP_ENV?.trim();
   if (explicit) return explicit;
 
+  // Urutan di sini penting dan bukan soal selera. `CONVEX_SITE_URL` dibaca
+  // SEBELUM `CONVEX_DEPLOYMENT` karena keduanya tidak setara credibilitasnya:
+  // yang pertama diisi sengaja oleh operator, yang kedua disuntikkan platform
+  // dan bisa tertinggal - deployment yang awal dibuat sebagai dev lalu
+  // dipakai untuk produksi, misalnya. Kalau urplandanya dibalik, nilai
+  // platform itu menang dan SETIAP laporan produksi dicap "development".
+  // Gejalanya nyata: laporan dari `sumenepbukukerja.com` yang sebenarnya
+  // berjalan di deployment produksi muncul di Security Desk sebagai
+  // "development", sehingga tidak terbaca sebagai masalah produksi.
+  const site = env.CONVEX_SITE_URL?.trim() ?? "";
+  if (/^https:\/\/[a-z0-9-]+\.convex\.site\/?$/i.test(site)) return "production";
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(site)) return "development";
+
   const deployment = env.CONVEX_DEPLOYMENT?.trim();
   if (deployment) {
     const prefix = deployment.split(":")[0]?.toLowerCase();
@@ -512,10 +569,6 @@ export const resolveEnvironment = (env: Record<string, string | undefined>): str
     if (prefix === "dev" || prefix === "local") return "development";
     if (prefix === "staging" || prefix === "preview") return prefix;
   }
-
-  const site = env.CONVEX_SITE_URL?.trim() ?? "";
-  if (/^https:\/\/[a-z0-9-]+\.convex\.site\/?$/i.test(site)) return "production";
-  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(site)) return "development";
 
   return "unknown";
 };
@@ -546,6 +599,12 @@ export const normalizeErrorReport = (
   );
   const policy = KIND_POLICY[input.kind] ?? KIND_POLICY.operation;
   if (!policy.reportable) return null;
+  // Penolakan sesi adalah keadaan normal, bukan gangguan. Amannya sudah
+  // kedaluwarsa beberapa kali di lapangan: setiap kejadiannya masuk ke sini
+  // sebagai `critical` dan menutupi masalah yang benar-benar perlu
+  // ditindak. Ditutup di sini, BUKAN hanya diturunkan ke `warning` -
+  // laporan yang tidak perlu ditindaklanjuti tidak boleh memenuhi antrean.
+  if (sessionGateFailure(input.message)) return null;
   // Jaring pengaman teks: kalau kalimatnya jelas merupakan error yang
   // diharapkan, jangan sampai jadi laporan meski kelasnya salah.
   if (isExpectedMessage(message)) return null;

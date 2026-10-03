@@ -2,6 +2,7 @@ import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { SessionRevokedGuard } from "@/components/session-revoked-guard";
 import { RequireAuth } from "@/components/RequireAuth";
+import { SessionGateBoundary } from "@/components/SessionGateBoundary";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
@@ -284,7 +285,13 @@ createRoot(document.getElementById("root")!).render(
           <RouteSyncer />
           <SessionRevokedGuard>
           <Suspense fallback={<RouteLoading />}>
-            <Routes>
+            {/* Penolakan sesi ditangani DI DALAM batas root. Tanpa ini,
+                sesi yang kedaluwarsa di /dashboard atau /admin akan
+                dilaporkan sebagai `critical` dan pengguna melihat
+                "gangguan total" padahal yang terjadi cuma perlu masuk
+                lagi. Error lain tetap jatuh ke RootErrorBoundary. */}
+            <SessionGateBoundary>
+              <Routes>
               <Route path="/" element={<Landing />} />
               <Route
                 path="/auth"
@@ -308,10 +315,11 @@ createRoot(document.getElementById("root")!).render(
               />
               <Route path="/v/:slug" element={<VendorProfile />} />
               <Route path="*" element={<NotFound />} />
-              {MascotPreview ? (
-                <Route path="/__mascot" element={<MascotPreview />} />
-              ) : null}
-            </Routes>
+                {MascotPreview ? (
+                  <Route path="/__mascot" element={<MascotPreview />} />
+                ) : null}
+              </Routes>
+            </SessionGateBoundary>
           </Suspense>
           </SessionRevokedGuard>
         </BrowserRouter>

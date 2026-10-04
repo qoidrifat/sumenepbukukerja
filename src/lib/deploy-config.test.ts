@@ -1,5 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { expect, test } from "vitest";
+import { GET, OPTIONS, POST } from "../../api/admin-context";
 
 /**
  * Kontrak `vercel.json`.
@@ -115,6 +117,126 @@ test("berkas hasil codegen ada semua di working tree", () => {
       () => readFileSync(`src/convex/_generated/${nama}`, "utf8"),
       `src/convex/_generated/${nama} tidak ada`,
     ).not.toThrow();
+  }
+});
+
+/*
+ * Kontrak: setiap impor relatif yang dicapai fungsi Vercel memakai ekstensi.
+ *
+ * Fungsi di `api/admin-context.ts` TIDAK digabungkan Vercel. Ia dikompilasi
+ * per-berkas menjadi ESM, lalu dijalankan Node yang mensyaratkan ekstensi
+ * eksplisit pada resolusi ESM. Spesifier tanpa ekstensi membuat modul gagal
+ * dimuat, dan gejalanya menyesatkan: 500 pada SEMUA metode, bukan 405 pada
+ * GET, karena kegagalannya terjadi sebelum handler sempat memeriksa apa pun.
+ *
+ * Bukti produksi sebelum perbaikan (log runtime deployment `dpl_9JTQFH`):
+ *
+ *   Error [ERR_MODULE_NOT_FOUND]: Cannot find module
+ *   '/var/task/src/lib/admin-context-cors' imported from
+ *   '/var/task/api/admin-context.js'
+ *
+ * Build, lint, dan seluruh test lain tetap hijau saat ini rusak, jadi satu-
+ * satunya penjaganya adalah pemeriksaan rantai impor di bawah.
+ */
+const SPESIFIER_RELATIF = /from\s+"(\.[^"]*)"/g;
+
+/** Jalur dinormalkan ke garis miring supaya sama di Windows dan POSIX. */
+const rapikan = (jalur: string) => jalur.split(path.sep).join("/");
+
+/**
+ * Calon berkas sumber untuk satu spesifier relatif. Spesifier `.js` menunjuk
+ * berkas sumber `.ts`/`.tsx` di repo ini, dan resolusinya relatif terhadap
+ * direktori berkas yang mengimpor.
+ */
+function calonSumber(dari: string, spesifier: string): string[] {
+  const tanpaEkstensi = path.join(path.dirname(dari), spesifier.replace(/\.js$/, ""));
+  return [`${tanpaEkstensi}.ts`, `${tanpaEkstensi}.tsx`].map(rapikan);
+}
+
+test("setiap impor relatif yang dicapai fungsi Vercel memakai ekstensi .js", () => {
+  const dikunjungi = new Set<string>();
+  const tanpaEkstensi: string[] = [];
+  const hilang: string[] = [];
+  const antre: string[] = ["api/admin-context.ts"];
+
+  while (antre.length > 0) {
+    const berkas = antre.pop() as string;
+    if (dikunjungi.has(berkas)) continue;
+    dikunjungi.add(berkas);
+
+    const sumber = readFileSync(berkas, "utf8");
+    for (const cocok of sumber.matchAll(SPESIFIER_RELATIF)) {
+      const spesifier = cocok[1];
+      if (!spesifier.endsWith(".js")) tanpaEkstensi.push(`${berkas} -> ${spesifier}`);
+      const tujuan = calonSumber(berkas, spesifier).find((calon) => existsSync(calon));
+      if (!tujuan) {
+        hilang.push(`${berkas} -> ${spesifier}`);
+        continue;
+      }
+      antre.push(tujuan);
+    }
+  }
+
+  // Rantai ini harus benar-benar ditelusuri; kalau tidak, test-nya hampa.
+  expect(dikunjungi.size, "berkas yang ditelusuri").toBeGreaterThanOrEqual(5);
+  expect(tanpaEkstensi, "impor relatif tanpa ekstensi .js").toEqual([]);
+  expect(hilang, "impor yang menunjuk berkas yang tidak ada").toEqual([]);
+});
+
+/*
+ * Kontrak: fungsi Vercel memakai "Web Handler" bernama metode.
+ *
+ * Runtime Node Vercel hanya menyerahkan `Request` Web standar kepada ekspor
+ * bernama per metode (`POST`, `GET`, `OPTIONS`). `export default function`
+ * justru diperlakukan sebagai handler gaya lama `(request, response)` dan
+ * disodori `IncomingMessage`, sehingga `request.headers.get(...)` bukan fungsi
+ * dan setiap permintaan dijawab 500 sebelum satu byte pun diproses:
+ *
+ *   TypeError: request.headers.get is not a function
+ *   at handler (/vercel/path0/api/admin-context.ts:111:51)
+ *
+ * Build, lint, dan seluruh test lain tetap hijau saat itu terjadi, jadi
+ * kontraknya diuji langsung di sini: modul wajib mengekspor nama metode, TIDAK
+ * boleh punya ekspor default, dan perilakunya harus lewat `Request` Web.
+ */
+test("fungsi Vercel memakai Web Handler bernama metode, bukan ekspor default", async () => {
+  expect(typeof POST, "ekspor POST").toBe("function");
+  expect(typeof GET, "ekspor GET").toBe("function");
+  expect(typeof OPTIONS, "ekspor OPTIONS").toBe("function");
+
+  const modul = (await import("../../api/admin-context")) as { default?: unknown };
+  expect(modul.default, "ekspor default gaya Node lama").toBeUndefined();
+
+  const get = await GET(new Request("https://contoh.test/api/admin-context", { method: "GET" }));
+  expect(get.status).toBe(405);
+  expect(await get.json()).toEqual({ error: "method_not_allowed" });
+
+  const options = await OPTIONS(new Request("https://contoh.test/api/admin-context", { method: "OPTIONS" }));
+  expect(options.status).toBe(204);
+
+  // Tanpa secret, relay harus MATI: 200 dengan status telemetri gagal, bukan
+  // panggilan ke backend. Ini sekaligus membuktikan handler menerima `Request`
+  // Web dan mengembalikan `Response`, bukan gaya Node lama.
+  const simpanRahasia = process.env.ADMIN_CONTEXT_RELAY_SECRET;
+  const simpanOrigin = process.env.ADMIN_CONTEXT_ALLOWED_ORIGINS;
+  delete process.env.ADMIN_CONTEXT_RELAY_SECRET;
+  process.env.ADMIN_CONTEXT_ALLOWED_ORIGINS = "https://contoh.test";
+  try {
+    const post = await POST(new Request("https://contoh.test/api/admin-context", { method: "POST" }));
+    expect(post.status).toBe(200);
+    const badan = (await post.json()) as {
+      relay?: string;
+      telemetryStatus?: string;
+      ipMasked?: string | null;
+    };
+    expect(badan.relay).toBe("unavailable");
+    expect(badan.telemetryStatus).toBe("failed");
+    expect(badan.ipMasked).toBeNull();
+  } finally {
+    if (simpanRahasia === undefined) delete process.env.ADMIN_CONTEXT_RELAY_SECRET;
+    else process.env.ADMIN_CONTEXT_RELAY_SECRET = simpanRahasia;
+    if (simpanOrigin === undefined) delete process.env.ADMIN_CONTEXT_ALLOWED_ORIGINS;
+    else process.env.ADMIN_CONTEXT_ALLOWED_ORIGINS = simpanOrigin;
   }
 });
 

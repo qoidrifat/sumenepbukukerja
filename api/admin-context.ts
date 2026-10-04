@@ -24,22 +24,36 @@
 // bersama di src/lib/admin-context-relay.ts dan src/lib/admin-relay-signature.ts
 // aman karena isinya murni fungsi tanpa efek samping.
 //
+// CATATAN EKSTENSI IMPOR. Setiap impor relatif di sini WAJIB memakai ekstensi
+// `.js` eksplisit, walau berkas sumbernya `.ts`. Vercel mengompilasi fungsi ini
+// per-berkas menjadi ESM dan TIDAK menggabungkannya, lalu menjalankannya di Node
+// yang mensyaratkan ekstensi pada resolusi ESM. Tanpanya, setiap permintaan
+// gagal sebelum handler berjalan:
+//
+//   Error [ERR_MODULE_NOT_FOUND]: Cannot find module
+//   '/var/task/src/lib/admin-context-cors' imported from
+//   '/var/task/api/admin-context.js'
+//
+// Gejalanya 500 pada SEMUA metode, bukan 405 pada GET - karena modulnya gagal
+// dimuat sebelum pemeriksaan metode. Penjaganya ada di
+// `src/lib/deploy-config.test.ts`.
+//
 
-import { contextCorsHeaders } from "../src/lib/admin-context-cors";
+import { contextCorsHeaders } from "../src/lib/admin-context-cors.js";
 import {
   RELAY_ROUTE,
   RELAY_SECRET_ENV,
   convexSiteUrl,
   readRelayGeo,
   readRelayIp,
-} from "../src/lib/admin-context-relay";
+} from "../src/lib/admin-context-relay.js";
 import {
   RELAY_SIGNATURE_HEADER_NONCE,
   RELAY_SIGNATURE_HEADER_SIGNATURE,
   RELAY_SIGNATURE_HEADER_TIMESTAMP,
   newRelayTraceId,
   signRelayRequest,
-} from "../src/lib/admin-relay-signature";
+} from "../src/lib/admin-relay-signature.js";
 
 /**
  * Metode yang dipakai relay. Disatukan di sini supaya penandatangan dan
@@ -93,9 +107,22 @@ function backendOrigin(): string | null {
   }
 }
 
-export default async function handler(request: Request): Promise<Response> {
+/**
+ * Kontrak ekspor: SATU NAMA PER METODE, bukan `export default`.
+ *
+ * Runtime Node Vercel memperlakukan `export default function` sebagai handler
+ * gaya lama `(request, response)` dan menyodorkan `IncomingMessage`. Akibatnya
+ * `request.headers.get(...)` bukan fungsi, dan SEMUA permintaan dijawab 500:
+ *
+ *   TypeError: request.headers.get is not a function
+ *   at handler (/vercel/path0/api/admin-context.ts:111:51)
+ *
+ * Ekspor bernama (`POST`, `GET`, `OPTIONS`) memakai "Web Handler" Vercel yang
+ * menerima `Request` standar dan mengembalikan `Response` - sama seperti yang
+ * diuji unit. Penjaganya ada di `src/lib/deploy-config.test.ts`.
+ */
+export async function POST(request: Request): Promise<Response> {
   const cors = contextCorsHeaders(request.headers.get("origin"), process.env);
-  if (request.method !== "POST") return json({ error: "method_not_allowed" }, cors, 405);
 
   // Secret kosong berarti relay belum dikonfigurasi di environment Vercel.
   // Route ditutup, bukan dibuka tanpa password.
@@ -161,4 +188,26 @@ export default async function handler(request: Request): Promise<Response> {
     // begitu, endpoint ini berubah jadi probe.
     return json({ ...KOSONG, relayTraceId }, cors);
   }
+}
+
+/** Metode selain POST dijawab 405 dengan bentuk dan header yang sama seperti dulu. */
+export async function GET(request: Request): Promise<Response> {
+  return json(
+    { error: "method_not_allowed" },
+    contextCorsHeaders(request.headers.get("origin"), process.env),
+    405,
+  );
+}
+
+/**
+ * Preflight CORS dijawab eksplisit supaya pemanggilan lintas origin dari
+ * allowlist benar-benar mungkin; sebelumnya OPTIONS ikut 405, dan preflight
+ * non-2xx selalu ditolak peramban. Mode "closed" tetap tidak mengirim header
+ * izin apa pun, jadi endpoint ini tidak pernah terbuka untuk origin asing.
+ */
+export async function OPTIONS(request: Request): Promise<Response> {
+  return new Response(null, {
+    status: 204,
+    headers: contextCorsHeaders(request.headers.get("origin"), process.env),
+  });
 }

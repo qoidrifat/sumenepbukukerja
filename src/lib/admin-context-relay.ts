@@ -38,7 +38,12 @@
 // Ini pencatatan untuk investigasi insiden di ruang pengelola sendiri. Bukan
 // pelacakan pengunjung, dan tidak ada data yang dikirim ke pihak ketiga mana pun.
 
-import { maskIpForDisplay, normalizeIpDetailed } from "./security-context";
+// Ekstensi `.js` WAJIB ada meski berkas sumbernya `.ts`. Rantai impor ini juga
+// dicapai fungsi Vercel di `api/admin-context.ts`, dan Vercel mengompilasi
+// fungsi itu per-berkas menjadi ESM tanpa menggabungkannya - Node lalu menolak
+// spesifier tanpa ekstensi dan setiap permintaan berakhir 500 sebelum handler
+// berjalan. Penjaganya ada di `src/lib/deploy-config.test.ts`.
+import { maskIpForDisplay, normalizeIpDetailed } from "./security-context.js";
 
 /** Path yang dipanggil browser. Same-origin, jadi CORS tidak ikut campur. */
 export const RELAY_PATH = "/api/admin-context";

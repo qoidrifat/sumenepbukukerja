@@ -74,3 +74,4 @@ deploy-prod.env
 .idea
 .DS_Store
 *.local
+.vercel

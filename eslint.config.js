@@ -7,6 +7,30 @@ import eslintConfigPrettier from "eslint-config-prettier/flat";
 
 export default tseslint.config(
   { ignores: ["dist"] },
+  /*
+   * Verifier pra-deploy produksi: skrip Node, bukan kode peramban.
+   *
+   * Fase 9.4. Sebelum blok ini ada, `scripts/verify-production-security.mjs`
+   * tidak diperiksa apa pun: aturan di bawah hanya berlaku untuk berkas
+   * TypeScript (ekstensi ts dan tsx), sedangkan skrip itu `.mjs`. Artinya gate
+   * yang dipakai untuk
+   * memutuskan kesiapan produksi justru satu-satunya berkas yang lolos dari
+   * lint. Lingkupnya sengaja sempit, hanya berkas ini, supaya skrip lama yang
+   * punya temuan gaya sendiri tidak ikut berubah pada fase ini.
+   */
+  {
+    files: ["scripts/verify-production-security.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: globals.node,
+    },
+    rules: {
+      "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+      "no-undef": "error",
+      eqeqeq: ["error", "always", { null: "ignore" }],
+    },
+  },
   {
     extends: [
       js.configs.recommended,

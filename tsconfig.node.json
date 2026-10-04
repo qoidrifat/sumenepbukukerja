@@ -19,7 +19,28 @@
     "noUnusedParameters": false,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+
+    /*
+     * Verifier pra-deploy produksi (Fase 9.4) ikut diperiksa tipe di sini.
+     *
+     * Berkasnya `.mjs`, jadi butuh allowJs; checkJs menyalakan pemeriksaan
+     * tipe sungguhan, bukan sekadar penguraian. Tanpa keduanya, satu-satunya
+     * kode yang dipakai untuk memutuskan kesiapan produksi justru tidak
+     * diperiksa tsc sama sekali - `tsconfig.app.json` hanya memuat `src`, dan
+     * proyek ini dulu hanya memuat `vite.config.ts`.
+     */
+    "allowJs": true,
+    "checkJs": true,
+    /*
+     * `strict` di atas menyalakan `noImplicitAny`, dan pada berkas JavaScript
+     * tanpa anotasi itu menghasilkan 95 galat yang isinya sama semua: parameter
+     * tanpa tipe. Yang dicari dari cakupan ini bukan itu, melainkan kesalahan
+     * sungguhan - properti yang tidak ada, argumen yang salah bentuk, nilai
+     * yang mungkin kosong. Jadi hanya aturan ini yang dimatikan untuk proyek
+     * ini; sisanya tetap menyala, termasuk `strictNullChecks`.
+     */
+    "noImplicitAny": false
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "scripts/verify-production-security.mjs"]
 }

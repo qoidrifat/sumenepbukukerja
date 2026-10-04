@@ -132,6 +132,41 @@ layar kosong. `src/pages/auth-password-reset.test.ts` mengunci hal itu.
 
 Jejak OTP yang masih ada di `e2e/flows.spec.ts` adalah komentar historis.
 
+### Menuju suite E2E ber-auth (F-17, masih OPEN)
+
+Terukur 2026-10-04 dengan `npm run test:e2e` (Chromium desktop dan Pixel 5,
+build produksi lokal, backend Convex nyata): **64 tes, 32 lulus, 32 dilewati,
+0 gagal**. Semua yang dilewati membutuhkan kredensial uji:
+
+| Variabel | Isi |
+|---|---|
+| `E2E_USER_EMAIL` | email akun uji nyata di Firebase |
+| `E2E_USER_PASSWORD` | sandi akun uji itu |
+| `E2E_ADMIN_PASSCODE` | passcode yang cocok dengan `ADMIN_PASSCODE_HASH` di deployment yang diuji |
+
+Empat syarat sebelum suite ini boleh masuk pipeline otomatis:
+
+1. **Jangan dijalankan terhadap produksi.** Skenario B menulis satu baris
+   `errorReports` sungguhan ke deployment yang sedang diuji (hal ini
+   terdokumentasi di berkasnya). Menyetirkan E2E ke deployment uji/staging
+   lebih dulu; kalau tidak, setiap run_smokes_test menjadi pencemaran data
+   produksi yang tidak terlihat sebagai bug.
+2. **Akun uji terpisah dengan izin terbatas.** Peran pengelola diberikan
+   server, tidak pernah dari sisi klien, dan akun uji tidak boleh memakai
+   kredensial pengelola produksi yang sebenarnya.
+3. **Kredensial hanya di secret store CI.** Tidak masuk repository, tidak masuk
+   berkas `.env*`, tidak pernah dicetak ke log - aturan yang sama dengan
+   bagian rotasi di atas. Locally, cukup variabel shell untuk satu run manual.
+4. **Bukti selesai adalah angka, bukan kesan.** `npm run test:e2e` dengan ketiga
+   variabel terisi harus menghasilkan 64 tes, 0 gagal, **0 dilewati**. Baru
+   setelah itu suite ini boleh jadi gerbang pipeline.
+
+Yang sudah disiapkan sampai hari ini: helper login sudah mengikuti urutan yang
+benar di aplikasi - di `/auth?returnTo=/admin` pada peramban yang bersih,
+gerbang passcode tampil lebih dulu dan form email+sandi baru muncul setelah
+passcode lolos - dan form email+sandi memang ada di balik tombol "Gunakan
+email dan sandi" sejak migrasi Firebase. Yang belum ada hanya akunnya.
+
 ---
 
 ## F-01 — Kredensial OTP bawaan platform (TIDAK bisa dirotasi)
@@ -905,4 +940,4 @@ tambahan yang tidak menjelaskan apa pun.
 | F-11b | Header di route Convex | `vary` + `nosniff` di respons | Sudah (kode + test) |
 | F-11c | Allowlist CORS (opsional) | Probe allowlist + Security Desk masih terisi | Sebagian (kode + test sudah ada) |
 | F-05 | Keputusan kebijakan PII | Register keputusan terisi | Tidak (product owner) |
-| F-17 | Infrastruktur test E2E dua sesi | Test berjalan tanpa dilewati | Tidak (butuh kredensial uji) |
+| F-17 | Infrastruktur test E2E dua sesi | `npm run test:e2e` tanpa dilewati: 64 tes, 0 dilewati | Tidak (butuh kredensial uji; syaratnya di bagian F-17a) |

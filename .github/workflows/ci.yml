@@ -1,0 +1,140 @@
+# Gate publik: typecheck, ESLint, unit test, dan E2E Playwright publik.
+#
+# ATURAN YANG DIJAGA DI SINI
+#
+# 1. TIDAK ADA SATU PUN RAHASIA DI WORKFLOW INI. Kredensial auth
+#    (`E2E_USER_EMAIL`, `E2E_USER_PASSWORD`, `E2E_ADMIN_PASSCODE`) sengaja tidak
+#    di sini: suite auth akan tetap `skip` sampai staging F-17 siap, dan skip
+#    dengan pesan jelas bukan lulus yang disamarkan.
+# 2. `verify:prod` TIDAK dijalankan di sini. Verifier itu membaca nilai rahasia
+#    dari Vercel dan Convex lewat CLI yang butuh login operator; menjalankannya di
+#    runner publik hanya akan menghasilkan kegagalan yang tidak berguna.
+# 3. Job E2E menunjuk deployment DEV Convex, bukan produksi. Alasannya
+#    praktis: `e2e/flows.spec.ts` "Skenario B" menulis baris `errorReports`
+#    sungguhan ke deployment yang sedang diuji. Menunjuk dev membuat
+#    penulisan itu jatuh ke data uji, bukan ke data warga Sumenep.
+#    Nilai itu bukan rahasia (sudah ada di bundel klien), jadi tidak perlu
+#    secret sama sekali; ketika staging F-17 siap, cukup set repository variable
+#    `CI_CONVEX_URL` tanpa mengubah workflow ini.
+#
+# Bukti bahwa job ini benar-benar hijau ada di log run, bukan di klaim commit.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Push berikutnya membatalkan run yang masih berjalan untuk ref yang sama:
+# tidak ada gunanya menunggu hasil yang sudah tidak berlaku.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Backend untuk build lokal yang dipakai Playwright. Tidak rahasia: URL ini
+  # sudah ikut ter-inline di bundel klien.
+  VITE_CONVEX_URL: ${{ vars.CI_CONVEX_URL || 'https://qualified-chameleon-491.convex.cloud' }}
+
+jobs:
+  quality:
+    name: Typecheck, lint, dan unit test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Versi Node dan Bun dicocokkan dengan mesin tempat semua gate ini
+      # sebelumnya dijalankan (Node 24, Bun 1.3.14 - versi yang dipakai
+      # `bun.lock` versi 1). Tanpa pin, "hijau di lokal" bisa jadi merah di CI
+      # hanya karena versi tool berbeda.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      # Lockfile wajib konsisten; kalau tidak, build CI bisa berbeda dari yang
+      # dijalankan lokal dan semua gate di bawah jadi tidak berarti.
+      - name: Install dependensi (lockfile beku)
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint (nol warning diperbolehkan)
+        # Sengaja bukan `bun run lint`: standar yang dikunci di sini adalah nol
+        # warning, bukan "warning boleh ada seperti sebelumnya".
+        run: ./node_modules/.bin/eslint . --max-warnings 0
+
+      - name: Penjaga codegen + self-test verifier
+        # Dua hal yang tidak boleh lolos diam-diam: folder hasil codegen
+        # (`src/convex/_generated`) hilang, atau verifier pra-deploy rusak
+        # sendiri sehingga gate-nya tidak lagi berarti.
+        run: |
+          node scripts/qa/ensure-convex-codegen.mjs
+          node scripts/verify-production-security.mjs --self-test
+
+      - name: Unit test (vitest)
+        run: ./node_modules/.bin/vitest run
+
+  e2e-public:
+    name: E2E Playwright publik (tanpa kredensial)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install dependensi (lockfile beku)
+        run: bun install --frozen-lockfile
+
+      - name: node_modules/.bin ada di PATH
+        # `playwright.config.ts` menjalankan `vite build && vite preview` sebagai
+        # webServer lewat nama perintah, bukan jalur absolut. Tanpa baris ini,
+        # build E2E gagal dengan "'vite' is not recognized" - kegagalan yang
+        # menunjuk ke environment, bukan ke aplikasi.
+        run: echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Pasang Chromium untuk Playwright
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: E2E publik
+        # `bun run` (bukan memanggil binernya langsung) memastikan PATH berisi
+        # node_modules/.bin untuk proses webServer juga.
+        run: bun run test:e2e
+
+      - name: Unggah artefak kegagalan
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

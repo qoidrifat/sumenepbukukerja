@@ -167,6 +167,25 @@ gerbang passcode tampil lebih dulu dan form email+sandi baru muncul setelah
 passcode lolos - dan form email+sandi memang ada di balik tombol "Gunakan
 email dan sandi" sejak migrasi Firebase. Yang belum ada hanya akunnya.
 
+Gerbang publiknya sudah jalan tanpa satu pun rahasia: `.github/workflows/ci.yml`
+menjalankan typecheck, ESLint dengan `--max-warnings 0`, 1234 unit test, dan 64
+tes Playwright - 32 di antaranya publik dan ikut dijalankan, sedangkan 32 tes
+ber-auth otomatis dilewati karena `E2E_USER_EMAIL`, `E2E_USER_PASSWORD`, dan
+`E2E_ADMIN_PASSCODE` belum diisi (lihat F-17). Job E2E-nya sengaja menunjuk
+deployment **dev** (`qualified-chameleon-491`), bukan produksi, karena Skenario B
+menulis baris `errorReports` sungguhan; dengan begitu penulisan uji jatuh ke
+data uji.
+Backend-nya dipindah lewat repository variable `CI_CONVEX_URL` tanpa menyentuh
+workflow, jadi staging F-17 nanti hanya perlu mengarahkan satu variabel itu.
+
+Satu hal yang perlu diketahui operator sebelum mempercayai hasil E2E publik:
+deployment produksi belum punya satu pun baris `vendors` (terukur 2026-10-04 -
+`vendors:listActive` mengembalikan 0 baris, dan `vendors:getBySlug` untuk slug
+katalog mengembalikan `null`). Katalog publik di produksi karena itu dirender
+dari data contoh yang ikut ter-bundle (`seedVendors`, lihat `useCatalogVendors`
+di `src/lib/catalog-store.ts`). Artinya 32 tes publik itu menguji perilaku
+antarmuka dan konektivitas ke Convex, bukan isi data produksi.
+
 ---
 
 ## F-01 — Kredensial OTP bawaan platform (TIDAK bisa dirotasi)

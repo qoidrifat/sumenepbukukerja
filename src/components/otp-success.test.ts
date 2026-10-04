@@ -16,6 +16,7 @@ describe("sekuens sukses OTP", () => {
   });
   test("onDone tepat sekali + SLOT_GAP terdokumentasi + draw reduced-motion", () => {
     expect(src).toContain("doneRef");
+    expect(src).toContain("onDoneRef");
     expect(src).toContain("SLOT_GAP");
     expect(src).toContain("email-otp-dialog");
     expect(src).toMatch(/reduceMotion \? \{[^}]*opacity[^}]*\} : \{[^}]*pathLength/);

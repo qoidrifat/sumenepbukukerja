@@ -46,8 +46,15 @@ export function OtpSuccess({ email, onDone }: OtpSuccessProps) {
   const [phase, setPhase] = useState<Phase>(() => (reduceMotion ? "done" : "merging"));
   const [secondsLeft, setSecondsLeft] = useState(COUNTDOWN_START);
   // Guard agar onDone() tepat sekali: tanpa ini efek bisa menembak ulang
-  // bila identitas onDone berubah atau efek berjalan ganda (StrictMode dev).
+  // bila efek berjalan ganda (StrictMode dev).
   const doneRef = useRef(false);
+  // Ref callback terbaru: efek countdown tidak re-subscribe saat identitas
+  // onDone berubah, tapi selalu memanggil versi terkini. Sinkronisasi via
+  // efek (bukan saat render) agar lolos aturan lint `react-hooks/refs`.
+  const onDoneRef = useRef(onDone);
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  });
 
   // merging (600ms) → burst. Reduced-motion melewati fase ini.
   useEffect(() => {
@@ -82,12 +89,12 @@ export function OtpSuccess({ email, onDone }: OtpSuccessProps) {
     if (secondsLeft <= 0) {
       if (doneRef.current) return;
       doneRef.current = true;
-      onDone();
+      onDoneRef.current();
       return;
     }
     const timer = setTimeout(() => setSecondsLeft((v) => Math.max(0, v - 1)), COUNTDOWN_MS);
     return () => clearTimeout(timer);
-  }, [phase, secondsLeft, onDone]);
+  }, [phase, secondsLeft]);
 
   return (
     <div className="flex flex-col items-center gap-5 px-6 py-8 text-center">

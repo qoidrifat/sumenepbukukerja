@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { generateKeyPairSync } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { RESEND_COOLDOWN_MS, sha256Hex } from "../lib/otp-email";
 
@@ -212,6 +212,64 @@ describe("otp email backend", () => {
       );
     expect(error.message).toContain("Email belum terkirim");
     expect(error.message).not.toContain("rate_limited_dari_provider");
+
+    // Kirim-dulu-simpan-belakangan: kiriman gagal tidak meninggalkan baris,
+    // jadi tidak membakar plafon 5/jam dan tidak memulai cooldown 60 dtk.
+    // Buktinya percobaan ulang langsung terkirim penuh (retryAfterMs utuh,
+    // bukan sisa cooldown), bukan ditahan.
+    expect(await otpRows(t, "gagal@example.id")).toHaveLength(0);
+    stubResendOk();
+    const retry = await t.action(api.otpEmail.requestCode, { email: "gagal@example.id" });
+    expect(retry).toEqual({ ok: true, retryAfterMs: RESEND_COOLDOWN_MS });
+    expect(await otpRows(t, "gagal@example.id")).toHaveLength(1);
+    expect(fetchCalls).toBe(1);
+  });
+
+  test("pruneOtpCodes: baris mati >7 hari hilang, baris hidup + mati muda utuh", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    const old = now - 8 * 24 * 60 * 60_000;
+    await t.run(async (ctx) => {
+      // Kedaluwarsa lama.
+      await ctx.db.insert("emailOtpCodes", {
+        email: "tua@example.id",
+        codeHash: "a".repeat(64),
+        expiresAt: old + 600_000,
+        attempts: 0,
+        createdAt: old,
+      });
+      // Terpakai lama (masih dalam TTL tapi sudah hangus).
+      await ctx.db.insert("emailOtpCodes", {
+        email: "tua@example.id",
+        codeHash: "b".repeat(64),
+        expiresAt: now + 600_000,
+        attempts: 1,
+        consumedAt: old + 1000,
+        createdAt: old,
+      });
+      // Hidup: belum dipakai + belum kedaluwarsa.
+      await ctx.db.insert("emailOtpCodes", {
+        email: "hidup@example.id",
+        codeHash: "c".repeat(64),
+        expiresAt: now + 600_000,
+        attempts: 0,
+        createdAt: now,
+      });
+      // Mati muda (<7 hari): masih dalam masa retensi.
+      await ctx.db.insert("emailOtpCodes", {
+        email: "muda@example.id",
+        codeHash: "d".repeat(64),
+        expiresAt: now + 600_000,
+        attempts: 1,
+        consumedAt: now - 1000,
+        createdAt: now - 3_600_000,
+      });
+    });
+
+    expect(await t.mutation(internal.otpEmail.pruneOtpCodes, {})).toBe(2);
+    expect(await otpRows(t, "tua@example.id")).toHaveLength(0);
+    expect(await otpRows(t, "hidup@example.id")).toHaveLength(1);
+    expect(await otpRows(t, "muda@example.id")).toHaveLength(1);
   });
 
   test("signIn penuh: kode benar → sesi; salah 5x → hangus; kedaluwarsa → null; pakai-ulang → null", async () => {

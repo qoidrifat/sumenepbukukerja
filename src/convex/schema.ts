@@ -91,7 +91,11 @@ const schema = defineSchema(
       attempts: v.number(),
       consumedAt: v.optional(v.number()),
       createdAt: v.number(),
-    }).index("byEmail", ["email"]),
+    })
+      .index("byEmail", ["email"])
+      // FASE 9.5 fix-wave: retensi `pruneOtpCodes` menyapu dari yang tertua,
+      // jadi butuh urutan global — `byEmail` tidak bisa memberikannya.
+      .index("byCreatedAt", ["createdAt"]),
 
     businesses: defineTable({
       name: v.string(),

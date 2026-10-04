@@ -2,9 +2,10 @@
 //
 // Alurnya: `requestCode` (action publik, tanpa sesi — pemanggilnya memang
 // belum masuk) menormalisasi email, menegakkan plafon 5/jam + cooldown 60
-// dtk, menyimpan HANYA hash SHA-256 kode, lalu POST ke Resend. Verifikasi
-// kode terjadi di provider `auth/otpEmail.ts` lewat `verifyOtpCode` di bawah,
-// bukan di sini, supaya pemeriksaan dan pembakaran kode dalam satu transaksi.
+// dtk, POST ke Resend DULU, dan HANYA bila kiriman 2xx menyimpan hash SHA-256
+// kode. Verifikasi kode terjadi di provider `auth/otpEmail.ts` lewat
+// `verifyOtpCode` di bawah, bukan di sini, supaya pemeriksaan dan pembakaran
+// kode dalam satu transaksi.
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalMutation, internalQuery, query } from "./_generated/server";
@@ -89,6 +90,10 @@ export const sendWindow = internalQuery({
  * Simpan kode baru: tandai baris aktif lama (belum dipakai, belum
  * kedaluwarsa) sebagai terpakai, lalu sisipkan baris baru. Kode lama mati
  * begitu kode baru diminta — hanya satu kode hidup per email.
+ *
+ * Bacaannya bounded: yang aktif pasti baris terbaru (setiap kiriman membakar
+ * semua yang aktif saat itu), jadi 6 baris terbaru lebih dari cukup tanpa
+ * pernah memindai seluruh riwayat satu email.
  */
 export const storeOtpCode = internalMutation({
   args: {
@@ -101,7 +106,8 @@ export const storeOtpCode = internalMutation({
     const rows = await ctx.db
       .query("emailOtpCodes")
       .withIndex("byEmail", (q) => q.eq("email", args.email))
-      .collect();
+      .order("desc")
+      .take(6);
     for (const row of rows) {
       if (!row.consumedAt && row.expiresAt > args.createdAt) {
         await ctx.db.patch(row._id, { consumedAt: args.createdAt });
@@ -114,6 +120,37 @@ export const storeOtpCode = internalMutation({
       attempts: 0,
       createdAt: args.createdAt,
     });
+  },
+});
+
+/**
+ * Retensi `emailOtpCodes`: hapus baris mati (terpakai/kedaluwarsa) yang
+ * umurnya lewat 7 hari. Dipanggil cron harian (lihat `crons.ts`).
+ *
+ * Yang TIDAK dihapus: baris yang masih hidup (belum dipakai + belum
+ * kedaluwarsa) — umurnya tidak mungkin lewat 7 hari (TTL 10 menit), tapi
+ * syaratnya ditulis eksplisit supaya prune tidak pernah bisa membunuh kode
+ * yang masih bisa dipakai. Baris mati yang masih muda (<7 hari) juga
+ * dipertahankan supaya jendela plafon 5/jam tetap bisa dihitung.
+ */
+export const pruneOtpCodes = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const cutoff = now - 7 * 24 * 60 * 60_000;
+    const rows = await ctx.db
+      .query("emailOtpCodes")
+      .withIndex("byCreatedAt")
+      .order("asc")
+      .take(200);
+    let removed = 0;
+    for (const row of rows) {
+      if (row.createdAt >= cutoff) break;
+      if (!row.consumedAt && row.expiresAt >= now) continue;
+      await ctx.db.delete(row._id);
+      removed += 1;
+    }
+    return removed;
   },
 });
 
@@ -165,13 +202,17 @@ export const requestCode = action({
       return { ok: true, retryAfterMs: window.latestCreatedAt + RESEND_COOLDOWN_MS - now };
     }
     const code = String(crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000).padStart(6, "0");
+    const codeHash = await sha256Hex(code);
+    // Kirim DULU, simpan BELAKANGAN: kiriman yang gagal (non-2xx/jaringan)
+    // melempar sebelum ada baris baru, jadi tidak membakar plafon 5/jam
+    // dan tidak memulai cooldown 60 dtk untuk email yang tak terkirim.
+    await sendViaResend(email, code);
     await ctx.runMutation(internal.otpEmail.storeOtpCode, {
       email,
-      codeHash: await sha256Hex(code),
+      codeHash,
       expiresAt: now + OTP_TTL_MS,
       createdAt: now,
     });
-    await sendViaResend(email, code);
     return generic;
   },
 });

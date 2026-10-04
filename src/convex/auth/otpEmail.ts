@@ -24,6 +24,48 @@ const AUTH_STORE = "auth:store" as unknown as FunctionReference<"mutation">;
 /** Id provider. Klien memanggil `signIn("otp-email", { email, code })`. */
 const PROVIDER_ID = "otp-email";
 
+/**
+ * Bentuk argumen `auth:store` untuk pembuatan akun dari kredensial.
+ *
+ * Kunci tipe yang sama dengan `CreateAccountArgs` di `firebase.ts`: `store`
+ * terdaftar sebagai `internal`, sedangkan `ctx.runMutation` di dalam provider
+ * menerima referensi publik — perbedaannya hanya bentuk TIPE referensinya,
+ * argumennya sama persis. Jadi referensinya yang di-cast satu kali,
+ * sementara argumennya dikunci di sini supaya compiler memeriksa nama field
+ * dan tipenya. Kalau store berubah, build gagal di sini, bukan gagal saat
+ * orang mencoba masuk.
+ */
+type CreateAccountArgs = {
+  type: "createAccountFromCredentials";
+  provider: string;
+  account: { id: string; secret?: string };
+  // Validator store untuk field ini memang `v.any()`, jadi bentuknya bebas.
+  // Di sini tetap ditulis ketat supaya isi profil yang kita kirim terlihat
+  // jelas dan tidak bisa tanpa sengaja melebar tanpa disadari.
+  profile: Record<string, unknown>;
+  shouldLinkViaEmail?: boolean;
+  shouldLinkViaPhone?: boolean;
+};
+
+/**
+ * Bentuk argumen untuk `auth:store` — dibungkus `{ args }`, bukan dikirim
+ * level paling atas (lihat `createAccountRequest` di `firebase.ts`).
+ *
+ * Diekstrak jadi fungsi murni supaya bentuk pembungkusnya terlihat di satu
+ * tempat dan perubahan shape menggagalkan typecheck di sini.
+ */
+function createAccountRequest(email: string): { args: CreateAccountArgs } {
+  return {
+    args: {
+      type: "createAccountFromCredentials",
+      provider: PROVIDER_ID,
+      account: { id: email },
+      profile: { email, emailVerified: true },
+      shouldLinkViaEmail: true,
+    },
+  };
+}
+
 export const otpEmail = ConvexCredentials<DataModel>({
   id: PROVIDER_ID,
   authorize: async (credentials, ctx) => {
@@ -37,15 +79,9 @@ export const otpEmail = ConvexCredentials<DataModel>({
     });
     if (!verdict.ok) return null;
 
-    const result = (await ctx.runMutation(AUTH_STORE, {
-      args: {
-        type: "createAccountFromCredentials",
-        provider: PROVIDER_ID,
-        account: { id: email },
-        profile: { email, emailVerified: true },
-        shouldLinkViaEmail: true,
-      },
-    })) as { user?: { _id?: unknown } } | undefined;
+    const result = (await ctx.runMutation(AUTH_STORE, createAccountRequest(email))) as
+      | { user?: { _id?: unknown } }
+      | undefined;
 
     const userId = result?.user?._id;
     if (typeof userId !== "string") {

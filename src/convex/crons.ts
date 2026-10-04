@@ -166,4 +166,23 @@ crons.daily(
   {},
 );
 
+/**
+ * Retensi OTP email (Fase 9.5).
+ *
+ * Tanpa job ini, `emailOtpCodes` tumbuh ~5 baris/jam per email aktif tanpa
+ * ada yang menyentuhnya: baris hangus (`consumedAt`) dan kedaluwarsa tinggal
+ * selamanya. Harian sudah cukup — jendela plafon hanya 1 jam, jadi baris
+ * mati yang dipertahankan 7 hari semata-mata batas aman sebelum dibuang.
+ *
+ * Jam 2 UTC dipilih karena jam 0/1/3/4/5/6 sudah dipakai job lain di atas.
+ * Argumennya `{}`: `pruneOtpCodes` memakai batasnya sendiri (7 hari, maks
+ * 200 baris per jalan). Tidak ada jalan untuk mengaturnya dari luar.
+ */
+crons.daily(
+  "retensi OTP email",
+  { hourUTC: 2 },
+  internal.otpEmail.pruneOtpCodes,
+  {},
+);
+
 export default crons;

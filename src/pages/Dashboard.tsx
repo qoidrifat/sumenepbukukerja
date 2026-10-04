@@ -55,7 +55,6 @@ import {
 } from "@/lib/select-options";
 import { ClaimListingPanel, InteractionHistory, MyRequestHistory, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
 import { NotificationCenter } from "@/components/community-notification-center";
-import { AccessibilityControls } from "@/components/display-controls";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
 
 type OwnerAvailability = NonNullable<Vendor["availability"]>;
@@ -613,7 +612,6 @@ export default function Dashboard() {
           />
         </ScrollReveal>
 
-        <AccessibilityControls />
         <PwaControls />
 
         <section className="grid gap-4 sm:grid-cols-3">

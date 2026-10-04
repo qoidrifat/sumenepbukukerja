@@ -35,7 +35,7 @@ import { CategoryMascot, CategoryMascotStage } from "@/components/category-masco
 import { BrandMascot } from "@/components/brand-mascot";
 import { AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
 import SiteFooter from "@/components/site-footer";
-import { AccessibilityControls } from "@/components/display-controls";
+import { focusRing } from "@/lib/focus-ring";
 import {
   AnimatedContent,
   AnimatedList,
@@ -50,7 +50,8 @@ import {
   ShinyText,
 } from "@/components/react-bits";
 
-const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
+// Cincin fokus tidak didefinisikan ulang di sini; satu sumbernya ada di
+// `@/lib/focus-ring` supaya semua kontrol di aplikasi memakai penanda yang sama.
 const recordedSearches = new Map<string, number>();
 
 function NotebookMark({ className = "" }: { className?: string }) {
@@ -68,11 +69,11 @@ function NotebookMark({ className = "" }: { className?: string }) {
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <Link to="/" className={`group flex min-h-12 items-center gap-3 rounded-lg ${focusRing}`} aria-label="Sumenep Buku Kerja beranda">
+    <Link to="/" className={`group flex min-h-12 min-w-0 items-center gap-3 rounded-lg ${focusRing}`} aria-label="Sumenep Buku Kerja beranda">
       <NotebookMark />
-      <span className="leading-tight">
-        <span className="block text-lg font-extrabold tracking-[-0.04em] text-slate-950">Sumenep <span className="text-blue-600">Buku</span> Kerja</span>
-        {!compact && <span className="text-sm font-medium text-slate-600">Jasa dekat, tanpa ribet.</span>}
+      <span className="min-w-0 leading-tight">
+        <span className="brand-name block truncate text-lg font-extrabold tracking-[-0.04em] text-slate-950">Sumenep <span className="text-blue-600">Buku</span> Kerja</span>
+        {!compact && <span className="brand-tagline block truncate text-sm font-medium text-slate-600">Jasa dekat, tanpa ribet.</span>}
       </span>
     </Link>
   );
@@ -121,20 +122,41 @@ function TopNav({ active = "Beranda" }: { active?: string }) {
     { label: "Cara Pakai", icon: Compass, to: "/#cara-pakai" },
   ];
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur-sm">
-      <div className="mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-6 px-4 sm:px-6 lg:px-10">
-        <Brand />
+    <header className="site-header sticky top-0 z-40 border-b border-slate-200/80 bg-white/85 pt-[env(safe-area-inset-top)] backdrop-blur-md supports-[backdrop-filter]:bg-white/70">
+      {/* Tiga aturan bentuk header ini, dan ketiganya soal ruang:
+          - Brand dibungkus `min-w-0 flex-1` supaya teks panjangnya boleh
+            menyusut, bukan mendorong CTA keluar layar di 320px.
+          - CTA memakai `shrink-0` dan labelnya disembunyikan di bawah `sm`,
+            jadi tetap ada satu aksi utama di ponsel tanpa memakan seluruh baris.
+          - `gap` dan `padding-inline` tighten sendiri di <=360px lewat
+            `.site-header` di index.css, jadi iPhone SE dan Android kecil
+            tidak perlu breakpoint terpisah di JSX. */}
+      <div className="mx-auto flex min-h-16 max-w-[1600px] items-center gap-3 px-4 sm:gap-4 sm:px-6 lg:gap-6 lg:px-10">
+        <div className="min-w-0 flex-1">
+          <Brand />
+        </div>
         <nav className="hidden items-center gap-1 lg:flex" aria-label="Navigasi utama">
           {links.map(({ label, icon: Icon, to }) => (
-            <a key={label} href={to} className={`flex min-h-12 items-center gap-2 rounded-lg px-4 text-base font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${active === label ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-50 hover:text-blue-700"}`}>
-              <Icon className="size-4" aria-hidden="true" />{label}
+            <a
+              key={label}
+              href={to}
+              aria-current={active === label ? "page" : undefined}
+              aria-label={label}
+              className={`flex min-h-12 min-w-12 items-center gap-2 rounded-lg px-3 text-base font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 xl:px-4 ${active === label ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"}`}
+            >
+              <Icon className="size-4 shrink-0" aria-hidden="true" />
+              <span className="hidden max-w-[9rem] truncate xl:inline">{label}</span>
             </a>
           ))}
         </nav>
-        <a href="#katalog" className={`hidden min-h-12 items-center justify-center rounded-lg bg-blue-600 px-5 text-base font-extrabold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 lg:flex`}>
-          Cari jasa <Search className="ml-2 size-4" aria-hidden="true" />
+        <a
+          href="#katalog"
+          aria-label="Cari jasa"
+          className="header-cta inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-base font-extrabold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 lg:px-5"
+        >
+          <Search className="size-4 shrink-0" aria-hidden="true" />
+          <span className="hidden min-[420px]:inline">Cari jasa</span>
         </a>
-        <div className="hidden lg:block"><AccessibilityControls /></div>
       </div>
     </header>
   );
@@ -241,7 +263,7 @@ function VendorCard({ vendor, saved, onSave, onCompare }: { vendor: Vendor; save
           <p className="mt-1 line-clamp-2 text-base leading-6 text-slate-600">{vendor.description}</p>
           {vendor.featured && <span className="mt-2 inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-sm font-extrabold text-amber-800"><Sparkles className="size-3.5" />Pilihan warga</span>}
         </div>
-        <div className="flex shrink-0 flex-col gap-1"><button type="button" onClick={onSave} className={`flex min-h-12 min-w-12 items-center justify-center rounded-lg ${saved ? "bg-blue-100 text-blue-700" : "text-slate-500 hover:bg-blue-50 hover:text-blue-700"}`} aria-label={saved ? "Hapus dari tersimpan" : "Simpan listing"}><Bookmark className={`size-5 ${saved ? "fill-current" : ""}`} /></button><button type="button" onClick={onCompare} className="flex min-h-12 min-w-12 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" aria-label="Bandingkan listing"><GitCompare className="size-5" /></button><button type="button" onClick={share} className="flex min-h-12 min-w-12 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" aria-label="Bagikan listing"><Share2 className="size-5" /></button></div>
+        <div className="flex w-12 shrink-0 flex-col gap-1"><button type="button" onClick={onSave} className={`flex min-h-12 min-w-12 items-center justify-center rounded-lg ${saved ? "bg-blue-100 text-blue-700" : "text-slate-500 hover:bg-blue-50 hover:text-blue-700"}`} aria-label={saved ? "Hapus dari tersimpan" : "Simpan listing"}><Bookmark className={`size-5 ${saved ? "fill-current" : ""}`} /></button><button type="button" onClick={onCompare} className="flex min-h-12 min-w-12 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" aria-label="Bandingkan listing"><GitCompare className="size-5" /></button><button type="button" onClick={share} className="flex min-h-12 min-w-12 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" aria-label="Bagikan listing"><Share2 className="size-5" /></button></div>
       </div>
       <div className="mt-auto border-t border-slate-100 px-4 pb-4 pt-3">
         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium text-slate-600">           <span className="inline-flex items-center gap-1.5"><MapPin className="size-4 text-blue-600" aria-hidden="true" />{landmarkLabel(vendor.landmark)}</span>
@@ -463,8 +485,8 @@ function Catalog({
             <BlurText as="h2" text="Siapa yang bisa membantu hari ini?" className="mt-2 text-[clamp(1.7rem,3.5vw,2.6rem)] font-black leading-tight tracking-[-0.045em] text-slate-950" />
             <p className="mt-2 max-w-2xl text-base leading-7 text-slate-600">Cari dan telusuri catatan usaha yang sudah dipilih warga Sumenep.</p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <label className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-700 shadow-sm transition-[border-color,box-shadow] focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 lg:max-w-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <label className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-700 shadow-sm transition-[border-color,box-shadow] focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 sm:w-auto sm:min-w-0 sm:flex-1 sm:basis-[15rem] lg:max-w-sm">
               <motion.span
                 animate={searchFocused && !reduceMotion ? { scale: 1.12, rotate: -7 } : { scale: 1, rotate: 0 }}
                 transition={{ duration: 0.2 }}
@@ -650,7 +672,7 @@ function DirectoryContent({
   onClearLocation: () => void;
 }) {
   const [activeLandmark, setActiveLandmark] = useState("all");
-  return <><ScrollProgress /><TopNav /><div className="relative z-10 px-4 pt-3 sm:px-6 lg:hidden"><AccessibilityControls /></div><NotebookBackdrop /><Hero vendorCount={vendors.length} onBrowse={() => document.getElementById("katalog")?.scrollIntoView({ behavior: "smooth" })} /><FilterSection activeLandmark={activeLandmark} setActiveLandmark={setActiveLandmark} /><Catalog activeLandmark={activeLandmark} vendors={vendors} location={location} locationStatus={locationStatus} locationError={locationError} onRequestLocation={onRequestLocation} onClearLocation={onClearLocation} /><RequestBoard /><HowItWorks /><LocalCategories /><SiteFooter /><BottomNav /></>;
+  return <><ScrollProgress /><TopNav /><NotebookBackdrop /><Hero vendorCount={vendors.length} onBrowse={() => document.getElementById("katalog")?.scrollIntoView({ behavior: "smooth" })} /><FilterSection activeLandmark={activeLandmark} setActiveLandmark={setActiveLandmark} /><Catalog activeLandmark={activeLandmark} vendors={vendors} location={location} locationStatus={locationStatus} locationError={locationError} onRequestLocation={onRequestLocation} onClearLocation={onClearLocation} /><RequestBoard /><HowItWorks /><LocalCategories /><SiteFooter /><BottomNav /></>;
 }
 
 export default function Landing() {

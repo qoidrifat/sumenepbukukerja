@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useConvex, useMutation, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { vendors as seedVendors, vendorBySlug, type Vendor } from "./catalog";
+import type { Vendor } from "./catalog";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers } from "./offline-queue";
 import { uploadWithDedup } from "./image-upload";
 import { useErrorReporter, withErrorReporting } from "./error-reporter";
@@ -152,11 +152,8 @@ export type NotificationPreferences = {
 
 const STORAGE_KEY = "sumenep-buku-kerja-favorites";
 const COLLECTION_STORAGE_KEY = "sumenep-buku-kerja-favorite-collections";
-const CATALOG_SEED_EVENT = "sumenep-catalog-seed-updated";
 const CATALOG_SNAPSHOT_KEY = "sumenep-buku-kerja-catalog-snapshot";
 const CATALOG_SNAPSHOT_EVENT = "sumenep-catalog-snapshot-updated";
-let catalogSeedState: "idle" | "requested" | "ready" = "idle";
-let catalogSyncRequested = false;
 
 type LocalCollections = Record<string, string>;
 
@@ -222,39 +219,31 @@ function persistCollections(collections: LocalCollections) {
   }
 }
 
+/**
+ * Katalog yang dibaca di sini SELALU berasal dari server.
+ *
+ * Dulu fungsi ini memanggil `vendors:ensureCatalogSeeded` sendiri begitu tab
+ * pertama dibuka. Akibatnya pengunjung pertama diam-diam mengisi tabel produksi
+ * dengan enam listing contoh dari `lib/catalog.ts`: usaha fiktif yang lalu
+ * tayang sebagai listing publik aktif, lengkap dengan jalur WhatsApp-nya.
+ * Penulisannya memang idempoten sehingga tidak merusak data, tapi "aman"
+ * bukan berarti benar - situs publik tidak boleh mengiklankan usaha yang tidak
+ * pernah ada.
+ *
+ * Pengisian katalog kini keputusan eksplisit operator, bukan efek samping
+ * membuka halaman: `npx convex run vendors:ensureCatalogSeeded --prod`.
+ * Mutasinya tetap ada dan tetap idempoten; hanya pemanggil otomatisnya yang
+ * dicabut.
+ */
 function useCatalogRemote() {
   const remote = useQuery(api.vendors.listActive, {});
-  const ensureSeeded = useMutation(api.vendors.ensureCatalogSeeded);
-  const [, setSeedRevision] = useState(0);
 
   useEffect(() => {
-    const sync = () => setSeedRevision((revision) => revision + 1);
-    window.addEventListener(CATALOG_SEED_EVENT, sync);
-    return () => window.removeEventListener(CATALOG_SEED_EVENT, sync);
-  }, []);
-
-  useEffect(() => {
-    if (remote === undefined) return;
-    if (remote.length > 0) {
-      catalogSeedState = "ready";
-      persistCatalogSnapshot(remote as Vendor[]);
-      const urls = ["/", ...remote.slice(0, 60).map((vendor) => `/v/${vendor.slug}`)];
-      navigator.serviceWorker?.controller?.postMessage({ type: "CACHE_URLS", urls });
-    }
-    if (catalogSyncRequested) return;
-
-    catalogSyncRequested = true;
-    catalogSeedState = remote.length === 0 ? "requested" : "ready";
-    void ensureSeeded()
-      .then((inserted) => {
-        if (inserted === 0) catalogSeedState = "ready";
-        window.dispatchEvent(new Event(CATALOG_SEED_EVENT));
-      })
-      .catch((error) => {
-        if (remote.length === 0) catalogSeedState = "idle";
-        console.warn("Catalog seed could not be created:", error);
-      });
-  }, [ensureSeeded, remote]);
+    if (remote === undefined || remote.length === 0) return;
+    persistCatalogSnapshot(remote as Vendor[]);
+    const urls = ["/", ...remote.slice(0, 60).map((vendor) => `/v/${vendor.slug}`)];
+    navigator.serviceWorker?.controller?.postMessage({ type: "CACHE_URLS", urls });
+  }, [remote]);
 
   return remote;
 }
@@ -271,16 +260,19 @@ export function useCatalogVendors() {
     window.addEventListener(CATALOG_SNAPSHOT_EVENT, refresh);
     return () => window.removeEventListener(CATALOG_SNAPSHOT_EVENT, refresh);
   }, []);
-  if (remote && remote.length > 0) return remote as Vendor[];
-  if (remote && catalogSeedState === "ready") return [];
-  return readCatalogSnapshot().length > 0 ? readCatalogSnapshot() : seedVendors;
+  // `remote` yang sudah menjawab apa adanya itu kebenaran, termasuk ketika
+  // jawabannya array kosong. Snapshot lokal hanya dipakai saat server belum
+  // menjawab atau perangkat sedang luring, karena isinya data yang benar-benar
+  // pernah diambil dari server - bukan karangan.
+  if (remote) return remote as Vendor[];
+  return readCatalogSnapshot();
 }
 
 export function useVendor(slug: string | undefined) {
   const remote = useQuery(api.vendors.getBySlug, { slug: slug ?? "" });
 
   if (remote === undefined) {
-    const local = readCatalogSnapshot().find((item) => item.slug === slug) ?? vendorBySlug(slug ?? "");
+    const local = readCatalogSnapshot().find((item) => item.slug === slug);
     return local ? { ...local, reviewItems: [] } : undefined;
   }
   if (remote === null) return null;

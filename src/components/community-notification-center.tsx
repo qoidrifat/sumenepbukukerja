@@ -11,7 +11,7 @@
  */
 import { useState } from "react";
 import { Bell, ShieldCheck } from "lucide-react";
-import { focusRing } from "@/components/display-controls";
+import { focusRing } from "@/lib/focus-ring";
 import { FormField } from "@/components/form-field";
 import { formatConvexError } from "@/lib/whatsapp";
 import {

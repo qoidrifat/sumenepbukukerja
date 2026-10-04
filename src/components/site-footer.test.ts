@@ -173,9 +173,14 @@ describe("struktur dan aksesibilitas", () => {
     const jangkarBaru = (footerSource.match(/<(a|Link)\b/g) ?? []).length;
     const fokus = (footerSource.match(/focusRing(Gelap)?/g) ?? []).length;
     expect(jangkarBaru).toBeGreaterThan(0);
-    // Dua utilitas: satu untuk pita terang, satu untuk panel gelap.
-    expect(footerSource).toContain("focus-visible:ring-2");
-    expect(footerSource).toMatch(/focusRingGelap\s*=/);
+    // Dua varian diambil dari modul bersama, bukan didefinisikan ulang
+    // di sini: sekarang assertion ini juga membuktikan tidak ada salinan lokal.
+    expect(footerSource).toMatch(
+      /import \{ focusRing, focusRingGelap \} from "@\/lib\/focus-ring"/,
+    );
+    expect(footerSource, "footer tidak boleh mendefinisikan cincin fokus sendiri").not.toMatch(
+      /^\s*const focusRing(Gelap)?\s*=/m,
+    );
     expect(fokus).toBeGreaterThanOrEqual(2);
   });
 });

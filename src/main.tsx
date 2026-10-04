@@ -160,6 +160,41 @@ class RootErrorBoundary extends React.Component<
   }
 }
 
+/**
+ * Preferensi tampilan yang sudah tersimpan tetap dihormati setelah tombol
+ * "Teks besar" dan "Kontras" dihapus dari antarmuka.
+ *
+ * Kedua tombol itu tidak ada lagi, jadi tidak ada yang bisa MENGAKTIFKAN
+ * preferensi baru. Yang masih bisa terjadi adalah pengguna yang dulu pernah
+ * menyalakannya membuka lagi situs ini: tanpa baris di bawah, preferensi yang
+ * sudah tersimpan berhenti berlaku diam-diam dan override CSS-nya jadi tidak
+ * terpakai. Baris ini menutup celah itu, dan nilainya dibaca SEBELUM render
+ * pertama supaya tidak ada kedipan layout.
+ *
+ * Nama key localStorage dan nama atribut di `<html>` tidak berubah keduanya
+ * bagian dari keputusan yang dikunci `display-mode-decision.test.ts`.
+ *
+ * Kegagalan localStorage (mode privat, iframe tersematkan) tidak boleh
+ * menghentikan halaman: preferensi ini kosmetik, jadi galatnya ditelan.
+ */
+function applyStoredDisplayPreferences(): void {
+  if (typeof document === "undefined") return;
+  const pasangan = [
+    ["sumenep-large-text", "largeText"],
+    ["sumenep-high-contrast", "highContrast"],
+  ] as const;
+  for (const [key, atribut] of pasangan) {
+    try {
+      document.documentElement.dataset[atribut] =
+        window.localStorage.getItem(key) === "true" ? "true" : "false";
+    } catch {
+      // Lihat catatan fungsi ini: preferensi kosmetik, halaman tetap jalan.
+    }
+  }
+}
+
+applyStoredDisplayPreferences();
+
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 
 

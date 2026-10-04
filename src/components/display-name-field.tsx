@@ -19,7 +19,7 @@ import { Check, Pencil } from "lucide-react";
 
 import { useDisplayNameActions, useMyDisplayName } from "@/lib/catalog-store";
 import { DISPLAY_NAME_MAX } from "@/lib/display-name";
-import { focusRing } from "@/components/display-controls";
+import { focusRing } from "@/lib/focus-ring";
 import { TextField } from "@/components/form-field";
 import { publicInputClass } from "@/lib/public-field-classes";
 

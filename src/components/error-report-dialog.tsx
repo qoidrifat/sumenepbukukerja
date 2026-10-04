@@ -21,8 +21,7 @@ import {
 } from "@/lib/error-report-bus";
 import { reportAndNotify, useErrorReporter } from "@/lib/error-reporter";
 
-const focusRing =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
+import { focusRing } from "@/lib/focus-ring";
 
 /* ------------------------------------------------------------------ */
 /* Provider                                                            */

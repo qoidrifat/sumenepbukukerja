@@ -180,6 +180,94 @@
   }
 }
 
+/* --------------------------------------------------------------------------
+   Header publik dan perangkat yang modelnya berbeda-beda.
+
+   Aturan di sini berlaku untuk seluruh phone dan tablet yang menjalankan
+   aplikasi ini, bukan untuk satu model tertentu. Empat masalah nyata yang
+   hanya muncul di perangkat tertentu:
+
+   1. Safe-area horizontal.
+      `env(safe-area-inset-top)` sudah menutup notch di atas lewat header, tapi
+      kiri dan kanan baru biteserima saat ponsel dimiringkan. Tanpa aturan ini,
+      di iPhone landscape Brand dan CTA bisa tertutup bagian kamera yang
+      mengarah ke samping.
+
+   2. Ponsel landscape yang pendek.
+      Layar setinggi 320-400px (iPhone SE landscape, Galaxy entry-level
+      landscape) tidak punya tinggi untuk header 64px plus isi. Header dipadatkan
+      supaya isi halaman tetap terlihat tanpa menggulir melewati header.
+
+   3. Lebar 360px ke bawah.
+      iPhone SE generasi awal dan Android entry-level masih 320px. Jarak dan
+      padding diperkecil sedikit supaya Brand dan CTA tidak saling dorong.
+      Teks Brand sudah memakai `truncate`, jadi yang tersisa cuma ruang.
+
+   4. Isian formulir minimal 16px di layar kecil.
+      iOS Safari memagnifikasi tampilan saat field difokuskan kalau ukuran
+      teksnya di bawah 16px; setelah diperbesar, halaman ikut ter-zoom dan
+      posisi gulir berubah. 16px juga batas yang enak dibaca di layar kecil.
+
+   Yang SENGAJA tidak ditambahkan: `overflow-x: clip` pada body. Ia memang
+   menghilangkan gulir horizontal, tetapi sekaligus menyembunyikan apa pun yang
+   meluber, termasuk regresi tata letak yang seharusnya terlihat. Kegagalan itu
+   lebih baik terlihat daripada hilang.
+   -------------------------------------------------------------------------- */
+.site-header {
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+}
+
+@media (orientation: landscape) and (max-height: 480px) {
+  .site-header {
+    padding-top: 0;
+  }
+
+  .site-header > div {
+    min-height: 3.25rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .site-header > div {
+    gap: 0.5rem;
+    padding-inline: 0.75rem;
+  }
+}
+
+/* Di bawah ~380px nama brand dan tagline tidak muat berdampingan. Yang
+   boleh hilang adalah tagline, bukan nama: memotong "Sumenep Buku Kerja"
+   membuat header terlihat seperti salah muat, sementara tanpa tagline
+   header tetap terbaca sebagai header. */
+@media (max-width: 380px) {
+  .brand-tagline {
+    display: none;
+  }
+
+  /* Nama brand turun satu ukuran dan CTA dirapatkan: tanpa dua ini, "Sumenep
+     Buku Kerja" terpotong di 320px karena logo + nama + tombol tidak muat
+     dalam lebar yang sama. Potongannya terlihat di tengah nama, bukan di
+     ujung kata, jadi terbaca sebagai salah muat. */
+  .brand-name {
+    font-size: 1rem;
+    letter-spacing: -0.03em;
+  }
+
+  /* Tanpa `min-width` eksplisit, padding yang menipis di <=380px membuat
+   tombol ini hanya 40px - di bawah target sentuh 44px. */
+.header-cta {
+  min-width: 3rem;
+    padding-inline: 0.75rem;
+  }
+}
+
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: max(1rem, 16px);
+  }
+}
+
 @layer utilities {
   .pb-safe-nav {
     padding-bottom: calc(6rem + env(safe-area-inset-bottom));

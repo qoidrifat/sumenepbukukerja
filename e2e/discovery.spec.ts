@@ -15,6 +15,14 @@ test.describe("penemuan listing dari katalog", () => {
   test("setiap kartu katalog menautkan ke profil publiknya", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("#katalog")).toBeVisible({ timeout: APP_SIAP });
+    // Tunggu daftar benar-benar terisi, bukan hanya bagian "#katalog" terlihat.
+    // Bagian itu sudah terlihat sebelum query Convex selesai; menghitung tautan
+    // saat itu hanya mengukur waktu, bukan isi katalog.
+    await page.waitForFunction(
+      () => document.querySelectorAll("#katalog article").length > 0,
+      undefined,
+      { timeout: APP_SIAP },
+    );
 
     const links = page.locator('#katalog a[href^="/v/"]');
     const count = await links.count();

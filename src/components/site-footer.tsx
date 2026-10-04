@@ -29,10 +29,7 @@ import { useReducedMotion } from "framer-motion";
 
 const TAHUN = new Date().getFullYear();
 
-const focusRing =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
-const focusRingGelap =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+import { focusRing, focusRingGelap } from "@/lib/focus-ring";
 
 type Anchor = { label: string; id: string };
 

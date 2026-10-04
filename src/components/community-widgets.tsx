@@ -48,7 +48,7 @@ import {
 } from "@/lib/select-options";
 import { useOfflineQueue } from "@/lib/offline-queue";
 
-import { focusRing } from "@/components/display-controls";
+import { focusRing } from "@/lib/focus-ring";
 import { MAX_IMAGE_LABEL } from "@/lib/image-upload";
 import { publicInputClass as inputClass } from "@/lib/public-field-classes";
 

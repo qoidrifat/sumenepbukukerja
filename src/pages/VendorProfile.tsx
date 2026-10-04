@@ -30,12 +30,9 @@ import type { WhatsAppIntent } from "@/lib/whatsapp";
 import { useListingMetadata } from "@/lib/use-listing-metadata";
 import { BlurText, GlassSurface, ScrollReveal } from "@/components/react-bits";
 import { AvailabilityBadge, ClaimListingPanel, PackageList, ReportListingButton } from "@/components/community-widgets";
-import { AccessibilityControls } from "@/components/display-controls";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
+import { focusRing } from "@/lib/focus-ring";
 import NotFound from "./NotFound";
-
-const focusRing =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2";
 
 type CtaNotice = {
   tone: "success" | "error";
@@ -636,17 +633,7 @@ function VendorProfileContent() {
             </GlassSurface>
           </motion.aside>
         </div>
-        {/*
-          FASE 9.1 - PEKERJAAN 2: kontrol aksesibilitas harus bisa diakses
-          mana saja. Sebelumnya hanya ada di beranda dan dasbor, jadi warga yang
-          butuh "teks besar" atau kontras tinggi harus balik ke beranda dulu
-          sebelum membuka profil mitra. Sekarang ikut di halaman yang mereka
-          sedang baca.
-        */}
-        <div className="mx-auto mt-8 max-w-[1600px] px-4 sm:px-6 lg:px-10">
-          <AccessibilityControls />
-        </div>
-      </main>
+        </main>
 
       <div className="pointer-events-none fixed inset-x-4 bottom-[calc(6.75rem+env(safe-area-inset-bottom))] z-[60] lg:hidden">
         <CtaFeedback notice={ctaNotice} reduceMotion={reduceMotion} className="mx-auto max-w-md" />

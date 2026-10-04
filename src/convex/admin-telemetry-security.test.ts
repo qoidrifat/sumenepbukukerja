@@ -428,4 +428,22 @@ describe("minimisasi lokasi", () => {
     // Yang boleh tersisa di berkas ini hanya satu penyebutan sebagai label.
     expect(label.split("SERVER_IP_HASH_SECRET").length - 1).toBe(1);
   });
+
+});
+
+describe("templat environment mencantumkan kunci yang wajib", () => {
+  test("kedua kunci relay terdokumentasi di templat environment", () => {
+    // `.env.example` adalah satu-satunya daftar yang dibaca operator saat
+    // mengisi environment. Kalau kunci yang wajib ada tidak tercatat di sana,
+    // kegagalan muncul sebagai Security Desk yang diam: `ipHash` kosong,
+    // `telemetryStatus` `failed`, tanpa ada yang menghubungkan gejalanya dengan
+    // satu environment yang belum diisi.
+    const templat = readFileSync(".env.example", "utf8");
+    for (const nama of ["ADMIN_CONTEXT_RELAY_SECRET", "SERVER_IP_HASH_SECRET"]) {
+      expect(templat, nama).toMatch(new RegExp(`^${nama}=`, "m"));
+    }
+    // Nilai kosong harus tetap kosong di templat. Templat masuk repository,
+    // jadi isinya hanya nama dan aturan, tidak pernah nilai.
+    expect(templat).not.toMatch(/^(ADMIN_CONTEXT_RELAY_SECRET|SERVER_IP_HASH_SECRET)=\S/m);
+  });
 });

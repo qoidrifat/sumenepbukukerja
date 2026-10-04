@@ -5,16 +5,17 @@ import { expect, test } from "vitest";
 import { AuthAdminPanel, type AuthAdminPanelProps } from "./auth-admin-panel";
 
 /**
- * Urutan isi layar masuk ruang pengelola.
+ * Urutan isi layar masuk ruang pengelola (Fase 9.5).
  *
  * Panel ini murni presentasi, jadi markup statis sudah cukup untuk menjaga
- * apa yang dilihat orang. Fokus test ini: pembatas "atau".
+ * apa yang dilihat orang. Fokus test ini: matriks dua pintu (Google +
+ * Email OTP) dan pembatas "atau".
  *
  * Pembatas itu tadinya dirender SESUDAH kedua tombol, padahal di cabang ini
  * tidak ada apa pun lagi di bawahnya. Jadi ia tidak memisahkan apa pun -
  * pembaca mengira masih ada pilihan ketiga, lalu mendapat baris kosong.
- * Yang benar: satu garis antara "Masuk dengan Google" dan "Gunakan email dan
- * sandi".
+ * Yang benar: satu garis antara "Masuk dengan Google" dan "Gunakan Email"
+ * HANYA bila keduanya hidup. Satu pintu tampil tanpa pembatas.
  *
  * `flex-1` pada kedua garis sebenarnya juga bisa memusatkan teks, tapi angka
  * itu ikut berubah kalau salah satu garis perlu panjang berbeda. Grid tiga
@@ -23,7 +24,6 @@ import { AuthAdminPanel, type AuthAdminPanelProps } from "./auth-admin-panel";
  */
 
 const props: AuthAdminPanelProps = {
-  step: "signIn",
   passcodeGranted: true,
   passcode: "",
   onPasscodeChange: () => {},
@@ -34,17 +34,10 @@ const props: AuthAdminPanelProps = {
   wasRevoked: false,
   isLoading: false,
   firebaseEnabled: true,
-  passwordMode: "signIn",
-  resetEmail: "",
-  onResetEmailChange: () => {},
-  showReset: false,
-  onToggleReset: () => {},
-  onTogglePasswordMode: () => {},
+  otpEnabled: true,
   onGoogleSignIn: () => {},
-  onPasswordSubmit: () => {},
-  onPasswordReset: () => {},
+  onOtpOpen: () => {},
   error: null,
-  notice: null,
   onGoHome: () => {},
   formatLockRemaining: () => "5 menit",
 };
@@ -63,7 +56,7 @@ const render = (ubah: Partial<AuthAdminPanelProps> = {}) =>
 const posisi = (html: string) => ({
   google: html.indexOf("Masuk dengan Google"),
   pembatas: html.indexOf(">atau<"),
-  email: html.indexOf("Gunakan email dan sandi"),
+  email: html.indexOf("Gunakan Email"),
 });
 
 /** Token dan primitive admin dibaca dari CSS asli, bukan dari ingatan test. */
@@ -96,11 +89,34 @@ test("pembatas atau memisahkan Google dan email, bukan menggantung di bawah", ()
   expect(urut.pembatas).toBeLessThan(urut.email);
 });
 
-test("pembatas hanya muncul di langkah verifikasi email", () => {
-  expect(render({ step: "signIn" })).toContain(">atau<");
+test("pembatas hanya muncul bila kedua pintu hidup", () => {
+  const dua = posisi(render({ firebaseEnabled: true, otpEnabled: true }));
+  expect(dua.pembatas).toBeGreaterThan(dua.google);
+  expect(dua.pembatas).toBeLessThan(dua.email);
+  // Satu pintu tampil tanpa pembatas yang menggantung.
+  expect(render({ firebaseEnabled: true, otpEnabled: false })).not.toContain(">atau<");
+  expect(render({ firebaseEnabled: false, otpEnabled: true })).not.toContain(">atau<");
   // Di layar passcode tidak ada pilihan kedua, jadi pembatas tidak boleh
   // muncul di sana dan membuat orang mengira ada langkah tambahan.
   expect(render({ passcodeGranted: false })).not.toContain(">atau<");
+});
+
+test("satu pintu mati menyembunyikan tombolnya, bukan menonaktifkannya", () => {
+  // Tombol mati yang pasti gagal diklik berkali-kali tanpa terjadi apa-apa.
+  const tanpaOtp = render({ firebaseEnabled: true, otpEnabled: false });
+  expect(tanpaOtp).toContain("Masuk dengan Google");
+  expect(tanpaOtp).not.toContain("Gunakan Email");
+  expect(tanpaOtp).not.toMatch(/<button[^>]*disabled/);
+  const tanpaGoogle = render({ firebaseEnabled: false, otpEnabled: true });
+  expect(tanpaGoogle).toContain("Gunakan Email");
+  expect(tanpaGoogle).not.toContain("Masuk dengan Google");
+});
+
+test("tidak ada sisa jalur sandi di panel", () => {
+  const html = render();
+  expect(html).not.toMatch(/sandi/i);
+  expect(html).not.toContain("Lupa sandi");
+  expect(html).not.toContain("firebasePassword");
 });
 
 test("teks pembatas tepat di tengah dan kedua garis sama panjang", () => {

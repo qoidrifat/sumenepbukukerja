@@ -17,4 +17,14 @@ describe("dialog OTP", () => {
     expect(src).not.toMatch(/re_[A-Za-z0-9]/);
     expect(src).not.toContain("RESEND_API_KEY");
   });
+  test("tahap sukses dirender di dalam Dialog yang sama (Fase 9.5)", () => {
+    // Kontrak Task 6: setelah kode benar, konten tahap kode DIGANTI konten
+    // sukses di DialogContent yang sama - bukan Dialog baru bersarang.
+    // `onVerified` tetap dipanggil tepat sekali, dari ujung sekuens sukses.
+    expect(src).toContain("OtpSuccess");
+    expect(src).toContain('"success"');
+    expect(src).toContain("onVerified");
+    // Dialog-nya tetap satu: tidak ada Dialog kedua di berkas ini.
+    expect((src.match(/<Dialog[\s>]/g) ?? []).length).toBe(1);
+  });
 });

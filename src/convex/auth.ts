@@ -14,7 +14,9 @@ import { Anonymous } from "@convex-dev/auth/providers/Anonymous";
 // provider `firebase` di bawah. Keduanya diverifikasi di server dengan JWKS
 // resmi Google, dan tidak butuh layanan email pihak ketiga.
 import { firebase } from "./auth/firebase";
+import { otpEmail } from "./auth/otpEmail";
 
+// FASE 9.5: provider otp-email MENGEMBALIKAN login kode — kunci Resend kini milik sendiri (bukan Freebuff).
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [Anonymous, firebase],
+  providers: [Anonymous, firebase, otpEmail],
 });

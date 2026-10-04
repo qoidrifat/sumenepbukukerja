@@ -98,11 +98,14 @@ pernah dipakai; `currentAccess` hanya melaporkan hasil pembacaan server.
 | `errorReports:reportError` | mutation | reportId | 500 laporan baru per jam |
 | `adminGate:verifyAdminPasscode` | action | tiket gerbang atau alasannya | rate limit per perangkat + plafon global |
 | `adminGate:verifyAdminTicket` | action | status tiket | tiket sekali pakai, 10 menit |
+| `otpEmail:status` | query | satu boolean ada/tidaknya kunci Resend | tidak memuat data, tidak membocorkan kunci |
+| `otpEmail:requestCode` | action | status kiriman generik | respons seragam anti-enumeration; plafon 5/jam + cooldown 60 dtk per email |
 | `vendors:ensureCatalogSeeded` | mutation | jumlah listing tersemai | **sudah ikut** `public_mutation_rate`; lihat catatan di bawah |
 
-Tujuh baris terakhir adalah SATU-SATUNYA permukaan publik tanpa gerbang
+Sembilan baris terakhir adalah SATU-SATUNYA permukaan publik tanpa gerbang
 otorisasi. Semuanya disengaja, dan setiap alasannya tertulis di test yang
 menjaga daftar ini - bukan hanya di dokumen.
+
 
 ## 3b. Audit ini tidak bisa basi
 
@@ -113,8 +116,8 @@ baru yang ditambahkan tanpa gerbang. Karena itu pemindaiannya dipindah ke
 menyentuh gerbang yang dikenal ATAU ada di daftar pengecualian yang
 alasannya ditulis di dalam test.
 
-Hasil pemindaian terakhir: **113 fungsi publik**, 106 bergerbang, 7
-pengecualian (tujuh baris terakhir di bagian 3).
+Hasil pemindaian terakhir: **115 fungsi publik**, 106 bergerbang, 9
+pengecualian (sembilan baris terakhir di bagian 3).
 
 Empat pengaman di test tersebut:
 

@@ -81,6 +81,18 @@ const schema = defineSchema(
       // Field ini opsional, jadi indeks hanya memuat baris yang punya foto.
       .index("byProfileImageStorageId", ["profileImageStorageId"]),
 
+    // FASE 9.5 - OTP email dengan kunci Resend milik sendiri. Kode TIDAK
+    // PERNAH tersimpan polos: hanya hash SHA-256-nya (`codeHash`). Satu baris
+    // per kiriman; baris lama ditandai `consumedAt` saat kode baru diminta.
+    emailOtpCodes: defineTable({
+      email: v.string(),
+      codeHash: v.string(),
+      expiresAt: v.number(),
+      attempts: v.number(),
+      consumedAt: v.optional(v.number()),
+      createdAt: v.number(),
+    }).index("byEmail", ["email"]),
+
     businesses: defineTable({
       name: v.string(),
       ownerId: v.optional(v.id("users")),

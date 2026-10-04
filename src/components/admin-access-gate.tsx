@@ -60,7 +60,7 @@ export type AdminAccessGateState = {
 const BLOCKER_GUIDE: Record<string, { title: string; body: string }> = {
   noEmail: {
     title: "Akun ini masuk sebagai tamu, jadi tidak punya email",
-    body: "Sesi yang sedang dipakai dibuat lewat Mode tamu, sehingga tidak tercatat email sama sekali. Allowlist tidak akan pernah cocok untuk akun tanpa email. Keluar dulu dari akun ini, lalu masuk lagi memakai email Anda, lewat Google atau lewat email dan sandi.",
+    body: "Sesi yang sedang dipakai dibuat lewat Mode tamu, sehingga tidak tercatat email sama sekali. Allowlist tidak akan pernah cocok untuk akun tanpa email. Keluar dulu dari akun ini, lalu masuk lagi memakai email Anda, lewat Google atau lewat email.",
   },
   notAllowlisted: {
     title: "Email Anda belum terdaftar untuk akses awal",

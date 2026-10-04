@@ -212,6 +212,25 @@ describe("Fase 9.2: registrasi provider", () => {
     expect(source).not.toContain("emailOtp");
   });
 
+  test("provider otp-email terdaftar sebagai pengganti resmi (Fase 9.5)", () => {
+    // Larangan `email-otp` di atas TETAP: itu provider lama berkredensial
+    // milik platform lain. Yang diizinkan di sini hanya penerusnya yang
+    // kuncinya milik sendiri (`RESEND_API_KEY`), terdaftar di `auth.ts`.
+    const otpEmailSource = readFileSync(new URL("./auth/otpEmail.ts", import.meta.url), "utf8");
+    expect(otpEmailSource).toContain('"otp-email"');
+    const authSource = readFileSync(new URL("./auth.ts", import.meta.url), "utf8");
+    expect(authSource).toContain("otpEmail");
+  });
+
+  test("komentar auth.ts tidak lagi menunjuk sandi sebagai pintu pengganti (Fase 9.5)", () => {
+    // Masuk email-sandi dihapus total di Fase 9.5. Komentar yang masih
+    // menyebutnya sebagai "jalur yang menggantikan" akan mengirim pembaca
+    // ke pintu yang sudah tidak ada - persis jalan buntu yang dihapus itu.
+    const authSource = readFileSync(new URL("./auth.ts", import.meta.url), "utf8");
+    expect(authSource).not.toContain("Email/Sandi");
+    expect(authSource).toContain("9.5");
+  });
+
   test("sumber tidak memuat project id atau token sebagai literal", () => {
     const source = readFileSync(SOURCE, "utf8");
     // Issuer tetap dibangun dari env, bukan ditulis mati.

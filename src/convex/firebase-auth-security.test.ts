@@ -57,6 +57,9 @@ const VERIFIED = {
   sub: "firebase-uid-abc123",
   email: "Warga.Sumenep@Gmail.com",
   email_verified: true,
+  // Asal kredensial menurut ID token Firebase. Fase 9.5 hanya menerima
+  // Google; nilai lain (termasuk tidak ada) harus ditolak.
+  firebase: { sign_in_provider: "google.com" },
   name: "Warga Sumenep",
   picture: "https://example.test/photo.jpg",
 };
@@ -105,6 +108,54 @@ describe("Fase 9.2: klaim yang sudah terverifikasi signature-nya", () => {
 
   test("tanpa email, masuk ditolak walau email_verified true", () => {
     expect(() => identityFromClaims({ ...VERIFIED, email: "" })).toThrow(/verifikasi email/i);
+  });
+
+  test("token provider sandi ditolak walau signature-nya sah", () => {
+    // FASE 9.5. Token akun sandi lama VALID secara signature (project sama,
+    // issuer/audience cocok), jadi tanpa gerbang ini penghapusan UI hanya
+    // kosmetik: `signIn("firebase", { token })` tetap menerbitkan sesi.
+    // `identityFromClaims` hanya menerima klaim yang SUDAH terverifikasi,
+    // jadi test ini tepat menggambarkan gerbangnya: klaim password masuk,
+    // identitas tidak keluar.
+    expect(() =>
+      identityFromClaims({
+        ...VERIFIED,
+        firebase: { sign_in_provider: "password" },
+      }),
+    ).toThrow(/sudah tidak dipakai/i);
+  });
+
+  test("klaim firebase yang hilang atau bukan string ditolak tertutup", () => {
+    // Klaim karangan tidak boleh lolos karena bentuknya tak dikenal.
+    const withoutProvider = Object.fromEntries(
+      Object.entries(VERIFIED).filter(([key]) => key !== "firebase"),
+    );
+    expect(() => identityFromClaims(withoutProvider)).toThrow(/sudah tidak dipakai/i);
+    expect(() =>
+      identityFromClaims({ ...VERIFIED, firebase: { sign_in_provider: 42 } }),
+    ).toThrow(/sudah tidak dipakai/i);
+    expect(() =>
+      identityFromClaims({ ...VERIFIED, firebase: "google.com" }),
+    ).toThrow(/sudah tidak dipakai/i);
+  });
+
+  test("penolakan provider menyebut pintu hidup, bukan isi klaim", () => {
+    let caught: Error | null = null;
+    try {
+      identityFromClaims({
+        ...VERIFIED,
+        firebase: { sign_in_provider: "password" },
+      });
+    } catch (error) {
+      caught = error as Error;
+    }
+    // Menyebut pintu yang hidup (Google, OTP) supaya bisa ditindaklanjuti;
+    // tidak menyebut provider yang ditolak, uid, atau email dari klaim.
+    expect(caught?.message).toContain("Google");
+    expect(caught?.message).toContain("OTP");
+    expect(caught?.message).not.toContain("password");
+    expect(caught?.message).not.toContain("firebase-uid-abc123");
+    expect(caught?.message).not.toContain("warga.sumenep@gmail.com");
   });
 });
 

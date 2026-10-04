@@ -50,6 +50,12 @@ export type AuthAdminPanelProps = {
   firebaseEnabled: boolean;
   /** Hidup bila `api.otpEmail.status` menjawab enabled (Fase 9.5). */
   otpEnabled: boolean;
+  /**
+   * Query status OTP sudah terjawab (bukan loading). Selagi belum tahu,
+   * panel menahan fallback "belum siap" supaya tidak flash lalu berganti
+   * — aturan yang sama dengan layar warga.
+   */
+  otpKnown: boolean;
   onGoogleSignIn: () => void;
   onOtpOpen: () => void;
   error: string | null;
@@ -138,6 +144,7 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
     isLoading,
     firebaseEnabled,
     otpEnabled,
+    otpKnown,
     onGoogleSignIn,
     onOtpOpen,
     error,
@@ -317,7 +324,9 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                 {/* FASE 9.5: matriks yang sama dengan layar warga. Pembatas
                     "atau" hanya bila kedua pintu hidup; satu pintu tampil
                     tanpa pembatas; tidak ada pintu tampil fallback yang
-                    menyebut Google + Email OTP. */}
+                    menyebut Google + Email OTP — tapi HANYA setelah status
+                    OTP diketahui (`otpKnown`), supaya fallback tidak flash
+                    selagi query masih loading lalu berganti tombol. */}
                 {firebaseEnabled || otpEnabled ? (
                   <>
                     {firebaseEnabled ? (
@@ -355,7 +364,7 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                       </button>
                     ) : null}
                   </>
-                ) : (
+                ) : otpKnown ? (
                   <div className="border-2 border-dashed border-[#121212] bg-[#F5F0E5] p-4">
                     <p className="text-sm font-black text-[#1A1A1A]">
                       Pintu masuk belum siap di lingkungan ini.
@@ -365,11 +374,11 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                       masuk dengan Email OTP membaca kunci pengiriman email —
                       keduanya belum terisi pada build ini, jadi tidak ada
                       pintu yang bisa dibuka sekarang. Administrator perlu
-                      mengisi konfigurasi tersebut, lalu memuat ulang halaman
-                      ini.
-                    </p>
-                  </div>
-                )}
+                        mengisi konfigurasi tersebut, lalu memuat ulang halaman
+                        ini.
+                      </p>
+                    </div>
+                  ) : null}
 
                 {error ? <AdminAuthNotice tone="error" icon={AlertTriangle}>{error}</AdminAuthNotice> : null}
               </div>

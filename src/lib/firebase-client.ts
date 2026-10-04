@@ -226,7 +226,7 @@ const CODE_TO_MESSAGE: Record<string, string> = {
   "auth/cancelled-popup-request":
     "Percobaan masuk sebelumnya masih berjalan. Tutup jendela yang terbuka, lalu coba lagi.",
   "auth/operation-not-supported-in-this-environment":
-    "Masuk lewat jendela tidak didukung di lingkungan ini. Pakai email dan sandi saja.",
+    "Masuk lewat jendela tidak didukung di lingkungan ini. Kembali dan gunakan tombol Google atau Email.",
   "auth/web-storage-unsupported":
     "Peramban ini memblokir penyimpanan lokal, jadi sesi tidak bisa disimpan. Coba peramban lain.",
   "auth/network-request-failed": "Jaringan bermasalah. Periksa koneksi lalu coba lagi.",

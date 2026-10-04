@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldOff } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "convex/react";
@@ -114,16 +114,21 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [otpOpen, setOtpOpen] = useState(false);
   const [otpEmail, setOtpEmail] = useState("");
   const [otpDone, setOtpDone] = useState(false);
-  // Navigasi pasca-OTP harus tepat sekali: dialog menutup DULU lalu
+  // Navigasi pasca-masuk harus tepat sekali: dialog OTP menutup DULU lalu
   // memanggil `onVerified`, dan di saat yang sama efek sesi ikut melihat
   // sesi baru sudah terbentuk. Tanpa penjaga, dua navigasi ke tujuan yang
-  // sama meluncur dalam satu tick.
+  // sama meluncur dalam satu tick dan menumpuk entri riwayat yang sama.
+  // Stabil via `useCallback` supaya efek di bawah tidak re-subscribe tiap
+  // render (identitas `navigate` dari router memang stabil).
   const navigatedRef = useRef(false);
-  const navigateOnce = (target: string) => {
-    if (navigatedRef.current) return;
-    navigatedRef.current = true;
-    navigate(target);
-  };
+  const navigateOnce = useCallback(
+    (target: string) => {
+      if (navigatedRef.current) return;
+      navigatedRef.current = true;
+      navigate(target);
+    },
+    [navigate],
+  );
 
   const passcodeGranted = gate.state.kind === "granted" ? gate.state : null;
   const needsPasscode = adminGateRequired && passcodeGranted === null;
@@ -138,9 +143,10 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     // Dialog OTP yang masih terbuka menahan navigasi otomatis: sesi baru
     // sudah terbentuk saat kode benar, dan tanpa penahan ini efek langsung
     // navigasi sehingga sekuens sukses Task 5 terpotong sebelum terlihat.
-    // Navigasi pasca-OTP milik `onVerified` dialog (via `navigateOnce`).
-    if (!authLoading && isAuthenticated && !otpOpen) navigate(redirect);
-  }, [authLoading, isAuthenticated, navigate, redirect, otpOpen]);
+    // Navigasi pasca-OTP milik `onVerified` dialog. Semua lewat
+    // `navigateOnce` supaya tidak ada entri riwayat ganda ke tujuan sama.
+    if (!authLoading && isAuthenticated && !otpOpen) navigateOnce(redirect);
+  }, [authLoading, isAuthenticated, navigateOnce, redirect, otpOpen]);
 
   const handlePasscodeSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -209,9 +215,11 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
     // Tahap 3: server Convex. Kalau gagal di sini, Google sudah berhasil dan
     // tokennya sah, jadi ini masalah kita - bukan salah akun pengguna.
+    // Lewat `navigateOnce`: efek sesi di atas ikut melihat sesi baru dan
+    // akan menembak navigasi yang sama — penjaga menahan yang kedua.
     try {
       await signIn("firebase", { token });
-      navigate(redirect);
+      navigateOnce(redirect);
     } catch {
       setError(
         "Akun Google Anda sudah diterima, tetapi server belum bisa membuka sesi. Coba lagi sebentar lagi.",
@@ -256,6 +264,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         isLoading={isLoading}
         firebaseEnabled={firebaseEnabled}
         otpEnabled={otpEnabled}
+        otpKnown={otpKnown}
         onOtpOpen={handleOtpOpen}
         onGoogleSignIn={() => void handleGoogleSignIn()}
         error={error}

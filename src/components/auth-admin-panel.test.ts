@@ -35,6 +35,7 @@ const props: AuthAdminPanelProps = {
   isLoading: false,
   firebaseEnabled: true,
   otpEnabled: true,
+  otpKnown: true,
   onGoogleSignIn: () => {},
   onOtpOpen: () => {},
   error: null,
@@ -117,6 +118,28 @@ test("tidak ada sisa jalur sandi di panel", () => {
   expect(html).not.toMatch(/sandi/i);
   expect(html).not.toContain("Lupa sandi");
   expect(html).not.toContain("firebasePassword");
+});
+
+test("fallback ditahan selama status OTP belum diketahui", () => {
+  // Aturan yang sama dengan layar warga: `otpEnabled=false` + query belum
+  // terjawab = belum tahu, bukan mati. Fallback yang flash lalu berganti
+  // tombol dibaca sebagai situs rusak.
+  const loading = render({ firebaseEnabled: false, otpEnabled: false, otpKnown: false });
+  expect(loading).not.toContain("Pintu masuk belum siap");
+  expect(loading).not.toContain("Gunakan Email");
+  const mati = render({ firebaseEnabled: false, otpEnabled: false, otpKnown: true });
+  expect(mati).toContain("Pintu masuk belum siap di lingkungan ini.");
+  expect(mati).toContain("Email OTP");
+});
+
+test("tombol Email di panel memakai cincin fokus tema ruang kerja", () => {
+  // Panel memakai `<button>` mentah + kelas `.admin-btn`, bukan `focusRing`
+  // dari `@/lib/focus-ring`: cincinnya datang dari aturan tema. Yang
+  // dikunci: aturan itu mencakup `button` dan berupa outline yang tidak
+  // bisa hilang di balik background (bukan bayangan).
+  expect(CSS).toMatch(/\.admin-workspace :where\(a, button[^)]*\):focus-visible/);
+  const aturan = /\.admin-workspace :where\(a, button[^)]*\):focus-visible[^{]*\{[^}]*\}/.exec(CSS);
+  expect(aturan?.[0]).toContain("outline: 3px solid");
 });
 
 test("teks pembatas tepat di tengah dan kedua garis sama panjang", () => {

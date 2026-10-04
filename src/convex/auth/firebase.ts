@@ -1,4 +1,5 @@
-// Provider autentikasi Firebase (Google / email+sandi).
+// Provider autentikasi Firebase — Google SAJA sejak Fase 9.5
+// (pintu email-sandi dihapus; kode OTP lewat provider `otp-email`).
 //
 // FASE 9.2 - FASAL 9.1.1
 //
@@ -34,6 +35,12 @@
 //    aturan itu dikunci test di berkas ini.
 // 5. Identitas memakai `sub` (Firebase UID), bukan email. `sub` tidak bisa
 //    diubah pengguna; email bisa.
+// 6. FASE 9.5: hanya penyedia `google.com` yang diterima. Firebase menandai
+//    asal kredensial di klaim `firebase.sign_in_provider` (`"google.com"`,
+//    `"password"`, ...). Token akun sandi lama VALID secara signature, jadi
+//    tanpa gerbang ini penghapusan UI hanya kosmetik: `signIn("firebase",
+//    { token })` tetap menerbitkan sesi Convex. Aturannya dikunci test di
+//    berkas ini (token provider `password` ditolak, `google.com` diterima).
 //
 // CATATAN PRODUK: `shouldLinkViaEmail: true` berarti akun Google dengan email
 // yang sama TERHUBUNG ke akun lama yang sudah ada, jadi listing, permintaan, dan
@@ -146,6 +153,22 @@ export function identityFromClaims(claims: Record<string, unknown>): FirebaseVer
   const uid = typeof claims.sub === "string" ? claims.sub : "";
   const email = typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
   if (!uid) throw new Error("Sesi Google tidak lengkap. Masuk lagi.");
+
+  // FASE 9.5: tolak penyedia selain Google SEBELUM apa pun. Bentuk klaim ini
+  // milik Firebase dan stabil: ID token selalu membawa objek `firebase`
+  // dengan `sign_in_provider` string (`"google.com"`, `"password"`,
+  // `"anonymous"`, ...). Nilai selain string persis sama bahayanya dengan
+  // tidak ada: klaim karangan tidak boleh lolos karena bentuknya tak dikenal.
+  const firebaseClaim =
+    typeof claims.firebase === "object" && claims.firebase !== null
+      ? (claims.firebase as Record<string, unknown>).sign_in_provider
+      : undefined;
+  if (firebaseClaim !== "google.com") {
+    // Yang dicatat hanya fakta penolakan, bukan isi klaim: klaim datang dari
+    // token yang memang lolos signature, tapi isinya bukan untuk log.
+    console.warn("[FIREBASE_AUTH] penyedia non-Google ditolak, masuk digagalkan");
+    throw new Error("Metode masuk itu sudah tidak dipakai. Masuk lagi lewat Google atau kode OTP email.");
+  }
 
   // Wajib, bukan opsional. Tanpa email terverifikasi, `shouldLinkViaEmail` di
   // bawah bisa menautkan akun ini ke akun orang lain yang memakai email sama.

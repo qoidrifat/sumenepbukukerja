@@ -60,6 +60,14 @@ test("navigasi otomatis tidak memotong sekuens sukses OTP", () => {
   expect(auth).toContain("!otpOpen");
 });
 
+test("semua navigasi pasca-masuk tepat sekali tanpa entri ganda", () => {
+  // Dialog menutup DULU lalu `onVerified` navigasi, dan di saat yang sama
+  // efek sesi ikut melihat sesi baru: dua navigasi ke tujuan sama dalam
+  // satu tick menumpuk entri riwayat yang sama. Semua lewat `navigateOnce`.
+  expect(auth).toContain("navigateOnce(redirect)");
+  expect(auth).not.toMatch(/[^e]navigate\(redirect\)/);
+});
+
 test("klien Firebase tidak lagi mengekspor fungsi email-sandi yang yatim", () => {
   for (const fn of [
     "export async function createEmailAccount",

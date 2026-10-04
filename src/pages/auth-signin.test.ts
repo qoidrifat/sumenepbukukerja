@@ -109,6 +109,19 @@ test("kedua tombol tetap punya tinggi sentuh yang sama", () => {
   expect(tag("Gunakan Email")).toContain("min-h-12");
 });
 
+test("tombol Email OTP punya cincin fokus yang terlihat", () => {
+  // Tombol warga memakai `Button` shadcn (bukan `focusRing` eksplisit):
+  // cincinnya datang dari kelas dasar varian. Yang dikunci: kelas
+  // `focus-visible:ring` ikut ter-render pada tombolnya, jadi navigasi
+  // keyboard selalu terlihat.
+  envState.firebase = true;
+  envState.otpStatus = { enabled: true };
+  const html = render();
+  const at = html.indexOf("Gunakan Email");
+  const tag = html.slice(html.lastIndexOf("<button", at), html.indexOf(">", at) + 1);
+  expect(tag).toContain("focus-visible:ring");
+});
+
 test("hanya Google hidup: tanpa pembatas yang menggantung", () => {
   envState.firebase = true;
   envState.otpStatus = { enabled: false };

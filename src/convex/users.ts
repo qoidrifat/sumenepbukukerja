@@ -507,11 +507,11 @@ export const getInviteDetails = query({
  * tautannya.
  * Karena itu link hanya boleh dikirim ke alamat yang diundang.
  *
- * Verifikasi email tetap ada di jalur biasa: email sudah diverifikasi ketika
- * orang mendaftar atau masuk lewat email dan sandi, dan akun Google sudah
- * terverifikasi oleh Google. Yang hilang di sini hanya untuk penerima
- * undangan, dan itu konsekuensi langsung dari permintaan "tanpa langkah
- * registrasi manual".
+ * Verifikasi email tetap ada di jalur biasa: email terbukti milik orang itu
+ * ketika ia masuk lewat Google atau kode OTP (Fase 9.5 menghapus pintu
+ * sandi, jadi tidak ada lagi jalur pendaftaran email-sandi). Yang hilang
+ * di sini hanya untuk penerima undangan, dan itu konsekuensi langsung dari
+ * permintaan "tanpa langkah registrasi manual".
  *
  * Sesi diterbitkan lewat `auth:store` milik Convex Auth sendiri dengan
  * `generateTokens: true` — bukan JWT yang dirakit sendiri. Jadi sesi yang
@@ -637,8 +637,7 @@ export const acceptStaffInvite = mutation({
     if (!tokens) {
       // Akun dan peran sudah tercatat, jadi tidak ada setengah jadi yang
       // tidak terlihat oleh admin. Yang gagal cuma penerbitan sesi; penerima
-      // bisa masuk lagi lewat email dan sandi yang dibuat di Firebase, lalu
-      // mengulang.
+      // bisa masuk lagi lewat Google atau kode OTP email, lalu mengulang.
       await writeAudit(ctx, {
         action: "staff.invite_rejected",
         actorId: userId,

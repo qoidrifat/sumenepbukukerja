@@ -68,19 +68,24 @@ import {
   SectionHeading,
   TimeStampLabel,
   VendorActionArea,
-  formatPhone,
   inputClass,
   quietButtonClass,
   secondaryButtonClass,
+  type PendingConfirmation,
+} from "@/components/admin-workspace";
+// Helper non-komponen dipisah ke `@/lib/admin-workspace-helpers` supaya berkas
+// komponen tidak mengekspor fungsi/konstanta (aturan react-refresh). Isinya
+// tidak berubah, hanya tempatnya.
+import {
+  formatPhone,
   queueFilters,
   statusFilters,
   statusInfo,
   vendorUpdatePayload,
   whatsappHref,
   type ModerationFilter,
-  type PendingConfirmation,
   type QueueFilter,
-} from "@/components/admin-workspace";
+} from "@/lib/admin-workspace-helpers";
 import { AdminNotice, AdminWorkspaceHero } from "@/components/admin-workspace-hero";
 // Tiga panel sudah dipisah ke berkasnya sendiri pada Fase 9.1 Pekerjaan 6.
 // Diimpor langsung, bukan lewat barrel `admin-workspace`, supaya file itu

@@ -15,6 +15,12 @@ Aturan yang berlaku untuk semua bagian di bawah:
 Status per temuan ada di `PHASE-9.1-OPERATOR-CLOSURE.md`. Ringkasan per temuan
 ada di `PHASE-9.1-SECURITY-CLOSURE-REPORT.md`.
 
+> **Rotasi dua rahasia produksi** (`ADMIN_CONTEXT_RELAY_SECRET`,
+> `SERVER_IP_HASH_SECRET`) punya runbook sendiri:
+> [PHASE-9.4-SECRET-ROTATION-RUNBOOK.md](PHASE-9.4-SECRET-ROTATION-RUNBOOK.md).
+> Jangan menjalankannya dari ingatan - urutan langkahnya menentukan apakah
+> relay kehilangan bukti telemetri atau tidak.
+
 ---
 
 ## F-17a — Mengaktifkan Firebase Authentication (P0, untuk akun produksi)

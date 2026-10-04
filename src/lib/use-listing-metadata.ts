@@ -73,5 +73,11 @@ export function useListingMetadata(
     script.type = "application/ld+json";
     script.textContent = jsonLdScript(structured);
     document.head.appendChild(script);
-  }, [listing?.slug, listing?.name, listing?.rating, listing?.reviewsCount, photoUrl]);
+    // `listing` ikut jadi dependensi, bukan daftar sebagian fieldnya. Efek ini
+    // membaca banyak field lewat listingTitle/listingDescription/
+    // listingStructuredData, dan daftar sebagian membuat field yang terlewat
+    // tidak pernah memicu penulisan ulang. Convex mengembalikan referensi yang
+    // sama selama datanya tidak berubah, jadi efek ini tidak berjalan tiap
+    // render.
+  }, [listing, photoUrl]);
 }

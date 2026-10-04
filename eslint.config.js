@@ -6,7 +6,23 @@ import tseslint from "typescript-eslint";
 import eslintConfigPrettier from "eslint-config-prettier/flat";
 
 export default tseslint.config(
-  { ignores: ["dist"] },
+  {
+    ignores: [
+      "dist",
+      /*
+       * Hasil codegen Convex. Dilarang disunting; temuan lint di dalamnya
+       * (mis. arahan disable yang tidak lagi terpakai) bukan temuan kode kita.
+       */
+      "src/convex/_generated/**",
+      /* Skrip scratch/sekali-pakai yang memang tidak masuk version control. */
+      "tmp/**",
+      /*
+       * Berkas read-only dari platform ("DO NOT MODIFY THIS FILE"). Tidak ada
+       * yang bisa diperbaiki di sana tanpa melanggar aturannya.
+       */
+      "vly-toolbar-readonly.tsx",
+    ],
+  },
   /*
    * Verifier pra-deploy produksi: skrip Node, bukan kode peramban.
    *
@@ -91,5 +107,25 @@ export default tseslint.config(
         },
       ],
     },
+  },
+  /*
+   * Titik masuk aplikasi: dijalankan sekali saat boot, bukan modul komponen
+   * yang pernah dimuat ulang panas. Memindahkan komponennya ke berkas lain
+   * tidak mengubah apa pun bagi HMR, jadi aturan fast-refresh tidak berlaku
+   * di sini.
+   */
+  {
+    files: ["src/main.tsx"],
+    rules: { "react-refresh/only-export-components": "off" },
+  },
+  /*
+   * Primitif UI mengikuti pola shadcn: varian (mis. `buttonVariants`) hidup
+   * bersama komponennya dan memang diimpor pemakai. Memindahkannya jauh dari
+   * berkas asalnya mempersulit pembaruan berikutnya, sementara yang dijaga
+   * aturan ini (HMR komponen) tidak berlaku untuk berkas primitif yang stabil.
+   */
+  {
+    files: ["src/components/ui/**"],
+    rules: { "react-refresh/only-export-components": "off" },
   },
 );

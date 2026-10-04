@@ -55,12 +55,20 @@ export function hasCredentials(): boolean {
  */
 export async function signIn(page: Page, returnTo = "/dashboard"): Promise<void> {
   await page.goto(`/auth?returnTo=${encodeURIComponent(returnTo)}`);
+
+  // Sejak Firebase menjadi satu-satunya pintu masuk (F-17a), form email+sandi
+  // TIDAK langsung terbuka: yang tampil lebih dulu adalah Google dan tombol
+  // "Gunakan email dan sandi". Mengisi placeholder tanpa menekan tombol itu
+  // berarti menunggu elemen yang memang belum ada.
+  await page.getByRole("button", { name: /Gunakan email dan sandi/i }).click();
   await page.getByPlaceholder("nama@email.com").fill(authEmail!);
   // Kolom password memakai `type` yang berganti-ganti antara "text" dan
   // "password", jadi labelnya yang dipakai - bukan placeholder - supaya test
   // ini tidak ikut pecah saat komponennya diubah.
   await page.locator('input[type="password"]').first().fill(authPassword!);
-  await page.getByRole("button", { name: /Masuk ke Buku Kerja/i }).click();
+  // Label kendali submit adalah "Masuk"; "Masuk ke Buku Kerja" adalah judul
+  // kartu, bukan nama tombol (lihat catatan yang sama di flows.spec.ts).
+  await page.getByRole("button", { name: /^Masuk$/ }).click();
   await expect(page).toHaveURL(new RegExp(returnTo.replace("/", "\\/")), {
     timeout: 20_000,
   });
@@ -78,15 +86,22 @@ export async function signIn(page: Page, returnTo = "/dashboard"): Promise<void>
  * Catatan yang sama sudah ada di `flows.spec.ts`, "Skenario C".
  */
 export async function openAdminWorkspace(page: Page): Promise<void> {
-  await signIn(page, "/admin");
+  await page.goto(`/auth?returnTo=${encodeURIComponent("/admin")}`);
 
   const passcodeField = page.locator('input[name="passcode"]');
-  const passcodeVisible = await passcodeField
-    .waitFor({ state: "visible", timeout: 5_000 })
-    .then(() => true)
-    .catch(() => false);
+  const passwordButton = page.getByRole("button", {
+    name: /Gunakan email dan sandi/i,
+  });
 
-  if (passcodeVisible) {
+  // Urutan gerbang ditentukan aplikasi, bukan asumsi test. Di konteks
+  // peramban yang bersih, `/auth?returnTo=/admin` menampilkan gerbang passcode
+  // LEBIH DULU, dan form email baru muncul setelah passcode lolos (Skenario C
+  // di flows.spec.ts mengunci urutan itu). Kalau sesi sudah ada, urutannya
+  // terbalik. Jadi tunggu salah satunya benar-benar tampil - jangan mengisi
+  // form yang belum ada.
+  await expect(passcodeField.or(passwordButton)).toBeVisible({ timeout: 20_000 });
+
+  if (await passcodeField.isVisible().catch(() => false)) {
     // Gerbangnya nyata. Tanpa passcode yang benar, isi meja kerja TIDAK BOLEH
     // pernah terlihat - jadi test di-lewati, bukan diteruskan. Yang sudah
     // dipastikan di sini adalah jeratnya tetap ada, karena itu pemeriksaan
@@ -97,8 +112,14 @@ export async function openAdminWorkspace(page: Page): Promise<void> {
     ).toBeVisible();
     test.skip(!adminPasscode, SKIP_NO_PASSCODE);
     await passcodeField.fill(adminPasscode!);
-    await page.getByRole("button", { name: /Buka|Masuk/i }).first().click();
+    await page.getByRole("button", { name: /Verifikasi passcode/i }).click();
   }
+
+  await expect(passwordButton).toBeVisible({ timeout: 15_000 });
+  await passwordButton.click();
+  await page.getByPlaceholder("nama@email.com").fill(authEmail!);
+  await page.locator('input[type="password"]').first().fill(authPassword!);
+  await page.getByRole("button", { name: /^Masuk$/ }).click();
 
   // Membuktikan ruang pengelola benar-benar terbuka. Tanpa ini, test bisa
   // hijau hanya karena sedang melihat halaman yang salah - misalnya panel

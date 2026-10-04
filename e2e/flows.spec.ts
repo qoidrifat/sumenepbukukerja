@@ -36,6 +36,12 @@ test.describe("Skenario A — landing, autentikasi, dashboard", () => {
   test("pendatang tanpa kredensial melihat halaman auth yang benar", async ({ page }) => {
     await page.goto("/auth");
     await expect(page.getByText(/Masuk ke Buku Kerja/i).first()).toBeVisible();
+    // F-17a: form email+sandi TIDAK langsung terbuka. Dua pintu yang tersisa
+    // adalah Google dan tombol di bawah ini; placeholder email baru ada
+    // setelah tombolnya ditekan. Bentuk lama (form langsung terbuka) sudah
+    // tidak ada sejak provider email-otp dihapus 2026-10-01.
+    await expect(page.getByRole("button", { name: /Masuk dengan Google/i })).toBeVisible();
+    await page.getByRole("button", { name: /Gunakan email dan sandi/i }).click();
     await expect(page.getByPlaceholder("nama@email.com")).toBeVisible();
   });
 
@@ -45,11 +51,15 @@ test.describe("Skenario A — landing, autentikasi, dashboard", () => {
       "Butuh E2E_USER_EMAIL + E2E_USER_PASSWORD (akun uji nyata di Keys/deployment)",
     );
     await page.goto("/auth");
+    // F-17a: buka dulu form email+sandi; ia tidak langsung terlihat.
+    await page.getByRole("button", { name: /Gunakan email dan sandi/i }).click();
     await page.getByPlaceholder("nama@email.com").fill(authEmail!);
     // Kolom password memakai `type` bergantian; labelnya yang dipakai, bukan
     // placeholder, supaya tidak ikut berubah saat komponennya berubah.
     await page.locator('input[type="password"]').first().fill(authPassword!);
-    await page.getByRole("button", { name: /Masuk ke Buku Kerja/i }).click();
+    // Label kendali submit adalah "Masuk"; "Masuk ke Buku Kerja" adalah judul
+    // kartu, bukan tombol.
+    await page.getByRole("button", { name: /^Masuk$/ }).click();
     await expect(page).toHaveURL(/\/dashboard/);
     await expect(page.getByRole("heading").first()).toBeVisible();
   });
@@ -257,6 +267,14 @@ test.describe("Skenario E — handoff WhatsApp admin", () => {
     await page.goto("/admin");
     const cta = page.getByTestId("admin-handoff-cta");
     const gate = page.locator('input[name="passcode"]');
+    const teksGerbang = page.getByText(/passcode|Masuk|Undangan/i).first();
+
+    // `/admin` menyiapkan catatan lokal dulu ("Menyiapkan catatan lokal...")
+    // sebelum meja kerja atau gerbangnya ter-render. Menghitung elemen
+    // seketika setelah goto karena itu selalu nol, dan dulu disalahartikan
+    // sebagai "tidak ada apa-apa" padahal halamannya cuma belum selesai.
+    // Tunggu dulu sampai salah satu bentuknya benar-benar muncul.
+    await expect(cta.or(teksGerbang)).toBeVisible({ timeout: 30_000 });
 
     if ((await cta.count()) === 0) {
       // Gerbang passcode masih menutupi meja kerja: ini kondisi yang diharapkan

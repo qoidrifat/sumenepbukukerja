@@ -1,22 +1,9 @@
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
+import { nextExitStage } from "@/lib/session-exit";
 
-vi.mock("convex/react", () => ({
-  useConvexAuth: () => ({ isAuthenticated: true }),
-  useQuery: () => ({ status: "revoked" }),
-}));
-
-vi.mock("@convex-dev/auth/react", () => ({
-  useAuthActions: () => ({ signOut: async () => {} }),
-}));
-
-vi.mock("react-router", () => ({
-  useLocation: () => ({ pathname: "/admin" }),
-  useNavigate: () => () => {},
-}));
-
-vi.mock("sonner", () => ({ toast: () => {} }));
-
-const { nextExitStage } = await import("./session-revoked-guard");
+// Aturan transisinya sekarang tinggal di modul murni, jadi test ini tidak lagi
+// perlu menyeret React, Convex, router, dan sonner lewat mock hanya untuk
+// mengimpor satu fungsi.
 
 /**
  * Kontrak keluarnya perangkat yang dicabut.

@@ -5,35 +5,7 @@ import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
-
-/** Tahap keluar perangkat. Setiap tahap hanya boleh dilalui satu kali. */
-export type ExitStage = "idle" | "notified" | "signing_out" | "redirected";
-
-/** Status sesi yang dipantau watchdog, sebagaimana bentuk di server. */
-export type WatchedSessionStatus = {
-  status: "none" | "untracked" | "active" | "current" | "revoked" | "expired";
-  revokedAt?: number;
-};
-
-/**
- * Aturan transisi keluar, dipisah dari komponen supaya bisa diuji langsung.
- *
- * Sifat yang dijaga di sini: satu pencabutan menghasilkan tepat satu
- * transisi dari `idle`. Render ulang, kiriman ulang dari Convex, dan
- * sambungan kembali semuanya melewati fungsi yang sama, jadi tidak ada jalan
- * untuk memulai keluarnya dua kali — dan karena itu tidak akan ada dua toast
- * untuk satu peristiwa yang sama.
- */
-export function nextExitStage(
-  stage: ExitStage,
-  status: WatchedSessionStatus | undefined,
-  onAuthPage: boolean,
-): ExitStage {
-  if (onAuthPage) return stage;
-  if (status?.status !== "revoked") return stage;
-  if (stage !== "idle") return stage;
-  return "notified";
-}
+import { nextExitStage, type ExitStage } from "@/lib/session-exit";
 
 /**
  * Watchdog sesi reaktif.

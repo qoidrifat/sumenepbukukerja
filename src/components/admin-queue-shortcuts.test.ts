@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { queueFilters, type QueueFilter } from "@/components/admin-workspace";
+import { queueFilters, type QueueFilter } from "@/lib/admin-workspace-helpers";
 
 /**
  * Shortcut "Butuh tindakan" di Ringkasan cepat.

@@ -27,6 +27,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { Label } from "@/components/ui/label";
 import { focusRing } from "@/lib/focus-ring";
 import { useAuth } from "@/hooks/use-auth";
+import { OtpSuccess } from "@/components/otp-success";
 
 export interface EmailOtpDialogProps {
   open: boolean;
@@ -36,7 +37,7 @@ export interface EmailOtpDialogProps {
   onVerified: () => void;
 }
 
-type Stage = "email" | "code";
+type Stage = "email" | "code" | "success";
 
 const RESEND_SECONDS = 60;
 
@@ -73,6 +74,7 @@ export function EmailOtpDialog({
 
   const [stage, setStage] = useState<Stage>("email");
   const [email, setEmail] = useState(initialEmail);
+  const [verifiedEmail, setVerifiedEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -93,6 +95,7 @@ export function EmailOtpDialog({
     if (open) {
       setStage("email");
       setEmail(initialEmail);
+      setVerifiedEmail(initialEmail);
       setCode("");
       setError(null);
       setSending(false);
@@ -146,6 +149,12 @@ export function EmailOtpDialog({
   };
 
   // Enam digit lengkap = verifikasi otomatis, tanpa tombol terpisah.
+  //
+  // Sukses TIDAK memanggil `onVerified` di sini: tahap `"success"` mengambil
+  // alih DialogContent yang sama dengan `<OtpSuccess>`, dan `onVerified`
+  // baru dipanggil dari ujung sekuens itu (tepat sekali, dijamin komponen).
+  // Pemanggil (Auth) menutup + navigasi di sana, sehingga animasi sukses
+  // selalu sempat terlihat sebelum halaman berganti.
   useEffect(() => {
     if (stage !== "code" || code.length !== 6 || verifyingRef.current) return;
     verifyingRef.current = true;
@@ -157,7 +166,8 @@ export function EmailOtpDialog({
           verifyingRef.current = false;
           setError("Kode salah atau kedaluwarsa. Periksa lagi lalu coba kirim ulang.");
         } else {
-          onVerified();
+          setVerifiedEmail(email);
+          setStage("success");
         }
       })
       .catch((caught: unknown) => {
@@ -167,7 +177,16 @@ export function EmailOtpDialog({
       .finally(() => {
         setVerifying(false);
       });
-  }, [stage, code, email, signIn, onVerified]);
+  }, [stage, code, email, signIn]);
+
+  // Ujung sekuens sukses: tutup dialog dulu, baru beri tahu pemanggil.
+  // Urutan ini penting — pemanggil langsung navigasi, dan navigasi
+  // melepas Dialog dari pohon. `onVerified` tepat sekali karena
+  // `<OtpSuccess>` memanggil `onDone`-nya tepat sekali.
+  const handleSuccessDone = () => {
+    onOpenChange(false);
+    onVerified();
+  };
 
   const otpDisabled = otpStatus?.enabled === false;
 
@@ -187,7 +206,9 @@ export function EmailOtpDialog({
           </p>
         ) : null}
 
-        {stage === "email" ? (
+        {stage === "success" ? (
+          <OtpSuccess email={verifiedEmail} onDone={handleSuccessDone} />
+        ) : stage === "email" ? (
           <div className="flex flex-col gap-3">
             <Label htmlFor="otp-email">Email</Label>
             <Input

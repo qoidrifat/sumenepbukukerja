@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck, ShieldOff } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, ArrowLeft, Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldOff } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,28 +19,15 @@ const BRAND_LOGO = "/brand/logo-mark.svg";
 import { useAuth } from "@/hooks/use-auth";
 import { AnimatedContent, GlassSurface, ScrollReveal, ShinyText } from "@/components/react-bits";
 import { useAdminPasscodeGate } from "@/lib/admin-gate-client";
-import { ResetPasswordForm } from "@/components/reset-password-form";
 import { AuthAdminPanel } from "@/components/auth-admin-panel";
-import { consumeAdminAuthIntent, rememberAdminAuthIntent } from "@/lib/admin-auth-intent";
+import { EmailOtpDialog } from "@/components/email-otp-dialog";
 import {
-  createEmailAccount,
   currentFirebaseEmail,
   firebaseAvailable,
   firebaseErrorMessage,
-  requestPasswordReset,
-  signInWithEmail,
   signInWithGoogle,
   signOutOfFirebase,
 } from "@/lib/firebase-client";
-
-/**
- * Pesan setelah permintaan reset sandi dikirim.
- *
- * Sengaja sama dengan pesan di `requestPasswordReset`: halaman publik tidak
- * boleh membedakan email terdaftar dan tidak terdaftar.
- */
-const RESET_SENT =
-  "Kalau email itu terdaftar di Buku Kerja, kami sudah mengirim tautan untuk membuat sandi baru. Cek kotak masuk dan folder spam.";
 
 /** Logo Google. Inline supaya tidak menambah permintaan jaringan. */
 function GoogleMark() {
@@ -106,34 +95,35 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   });
   const [passcode, setPasscode] = useState("");
   const [showPasscode, setShowPasscode] = useState(false);
-  const [step, setStep] = useState<"signIn" | "password">("signIn");
   // Bendera ini datang dari `SessionRevokedGuard`: perangkat ini baru saja
   // dicabut dari Security Desk, jadi orangnya perlu tahu kenapa ia mendarat
   // lagi di halaman masuk. Bukan error — ini konsekuensi yang dia minta sendiri
   // (atau yang orang lain minta untuk perangkatnya).
   const wasRevoked = searchParams.get("revoked") === "1";
-  
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [firebaseEnabled] = useState(() => firebaseAvailable());
-  const [passwordMode, setPasswordMode] = useState<"signIn" | "signUp">("signIn");
-  const [notice, setNotice] = useState<string | null>(null);
-  const [showReset, setShowReset] = useState(false);
-  // Email tujuan reset sandi disimpan di state, bukan dibaca dari FormData.
-  // Alasannya bukan selera: blok reset dulu dirender di DALAM form sign-in,
-  // dan dua form bersarang membuat satu klik "Kirim tautan reset" menjalankan
-  // dua penangan sekaligus - reset sandi DAN masuk dengan sandi lama itu.
-  const [resetEmail, setResetEmail] = useState("");
-  // Kode reset sandi yang datang dari tautan email. Kalau ada, halaman ini
-  // tidak menampilkan daftar akun sama sekali.
-  const resetCode = searchParams.get("oobCode");
-  // Tautan reset dibuat Firebase, jadi `returnTo` tidak bisa ikut di dalamnya.
-  // Niat "ini alur ruang admin" disimpan sebelum email dikirim dan dibaca satu
-  // kali di sini, supaya layar buat-sandi baru tidak berubah tema di tengah
-  // alur. Lihat `src/lib/admin-auth-intent.ts`.
-  const [adminIntent] = useState(() =>
-    resetCode ? consumeAdminAuthIntent() : null,
-  );
+  // FASE 9.5: satu-satunya pintu selain Google adalah dialog OTP.
+  // `otpStatus` undefined = query belum terjawab, BUKAN mati. Tombol
+  // "Gunakan Email" hanya muncul setelah server menjawab hidup, supaya
+  // fallback "belum siap" tidak flash sekilas saat halaman dimuat.
+  const otpStatus = useQuery(api.otpEmail.status);
+  const otpEnabled = otpStatus?.enabled === true;
+  const otpKnown = otpStatus !== undefined;
+  const [otpOpen, setOtpOpen] = useState(false);
+  const [otpEmail, setOtpEmail] = useState("");
+  const [otpDone, setOtpDone] = useState(false);
+  // Navigasi pasca-OTP harus tepat sekali: dialog menutup DULU lalu
+  // memanggil `onVerified`, dan di saat yang sama efek sesi ikut melihat
+  // sesi baru sudah terbentuk. Tanpa penjaga, dua navigasi ke tujuan yang
+  // sama meluncur dalam satu tick.
+  const navigatedRef = useRef(false);
+  const navigateOnce = (target: string) => {
+    if (navigatedRef.current) return;
+    navigatedRef.current = true;
+    navigate(target);
+  };
 
   const passcodeGranted = gate.state.kind === "granted" ? gate.state : null;
   const needsPasscode = adminGateRequired && passcodeGranted === null;
@@ -145,8 +135,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     : "mx-auto w-full max-w-md sm:max-w-lg";
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated) navigate(redirect);
-  }, [authLoading, isAuthenticated, navigate, redirect]);
+    // Dialog OTP yang masih terbuka menahan navigasi otomatis: sesi baru
+    // sudah terbentuk saat kode benar, dan tanpa penahan ini efek langsung
+    // navigasi sehingga sekuens sukses Task 5 terpotong sebelum terlihat.
+    // Navigasi pasca-OTP milik `onVerified` dialog (via `navigateOnce`).
+    if (!authLoading && isAuthenticated && !otpOpen) navigate(redirect);
+  }, [authLoading, isAuthenticated, navigate, redirect, otpOpen]);
 
   const handlePasscodeSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -154,31 +148,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     const granted = await gate.submit(passcode);
     if (granted) {
       setPasscode("");
-      setStep("signIn");
     }
   };
-
-  const handlePasswordReset = async () => {
-    const email = resetEmail.trim();
-    if (!email) {
-      setError("Tulis dulu email yang dipakai untuk masuk.");
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    try {
-      if (adminGateRequired) rememberAdminAuthIntent(redirect);
-      await requestPasswordReset(email);
-      setResetEmail("");
-      setNotice(RESET_SENT);
-    } catch (caught) {
-      setError(firebaseErrorMessage(caught));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  
 
   /**
    * Tukar tiket passcode dengan email milik akun yang BARU SAJA masuk di
@@ -210,10 +181,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     setError(null);
-    setNotice(null);
     // Satu klik melewati tiga tahap yang punya penyebab kegagalan berbeda.
     // Kalau ketiganya masuk satu blok `try`, semuanya berakhir sebagai
-    // "gagal masuk" dan pengunjung mengira sandinya salah lalu mencoba lagi
+    // "gagal masuk" dan pengunjung mengira akunnya yang salah lalu mencoba lagi
     // berkali-kali - padahal masalahnya di server.
     //
     // Tahap 1: Firebase. Kegagalan di sini adalah masalah akun, peramban,
@@ -251,68 +221,20 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   };
 
-  const handlePasswordSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setIsLoading(true);
-    setError(null);
-    setNotice(null);
-    const formData = new FormData(event.currentTarget);
-    const email = String(formData.get("firebaseEmail") ?? "").trim();
-    const password = String(formData.get("firebasePassword") ?? "");
-    // Tahap 1: Firebase. Sama seperti di tombol Google, kegagalan di sini
-    // punya pesan sendiri dan bisa ditindaklanjuti pengguna.
-    let token: string;
-    try {
-      token =
-        passwordMode === "signUp"
-          ? await createEmailAccount(email, password)
-          : await signInWithEmail(email, password);
-    } catch (caught) {
-      if (passwordMode === "signUp" && firebaseErrorMessage(caught).includes("verifikasi")) {
-        setNotice(
-          "Akun dibuat. Buka email Anda dan klik tautan verifikasi, lalu masuk dengan sandi yang sama.",
-        );
-      }
-      setError(firebaseErrorMessage(caught));
-      setIsLoading(false);
-      return;
-    }
-    // Tahap 2: penukaran tiket passcode.
-    try {
-      if (!(await redeemPasscodeForFirebase())) {
-        setIsLoading(false);
-        return;
-      }
-    } catch (caught) {
-      setError(firebaseErrorMessage(caught));
-      setIsLoading(false);
-      return;
-    }
-    // Tahap 3: server Convex.
-    try {
-      await signIn("firebase", { token });
-      navigate(redirect);
-    } catch {
-      setError(
-        "Akun Anda sudah diterima, tetapi server belum bisa membuka sesi. Coba lagi sebentar lagi.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
+  // Dipanggil dari ujung sekuens sukses OTP (tepat sekali, dijamin
+  // komponen): tutup dialog lalu buka tujuan semula. Tepat-sekali ganda —
+  // efek sesi di atas juga melihat sesi baru — ditahan `navigateOnce`.
+  const handleOtpVerified = () => {
+    setOtpDone(true);
+    setOtpOpen(false);
+    navigateOnce(redirect);
   };
 
-  // `adminIntent` menutup kasus yang tidak bisa dilihat dari URL: pengelola
-  // yang meminta tautan reset lewat `/auth?returnTo=/admin`, lalu membuka
-  // tautannya di tab atau perangkat lain pada sesi berikutnya.
-  if (resetCode) {
-    return (
-      <ResetPasswordForm
-        oobCode={resetCode}
-        variant={adminGateRequired || adminIntent ? "admin" : "public"}
-        returnTo={adminIntent ?? redirect}
-      />
-    );
-  }
+  const handleOtpOpen = () => {
+    setError(null);
+    setOtpEmail("");
+    setOtpOpen(true);
+  };
 
   // Hati-hati: tujuan `/admin` mendapat layar bertema admin. "Sedang menuju ruang
   // pengelola" dan "halaman masuk warga" adalah dua produk berbeda; membuat
@@ -321,8 +243,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   // di atas tetap di tempatnya; yang dipindah hanya tampilannya.
   if (adminGateRequired) {
     return (
-      <AuthAdminPanel
-        step={step}
+      <>
+        <AuthAdminPanel
         passcodeGranted={passcodeGranted !== null}
         passcode={passcode}
         onPasscodeChange={setPasscode}
@@ -333,28 +255,25 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         wasRevoked={wasRevoked}
         isLoading={isLoading}
         firebaseEnabled={firebaseEnabled}
-        passwordMode={passwordMode}
-        resetEmail={resetEmail}
-        onResetEmailChange={setResetEmail}
-        showReset={showReset}
-        onToggleReset={() => {
-          setError(null);
-          setNotice(null);
-          setShowReset(true);
-        }}
-        onTogglePasswordMode={() => {
-          setPasswordMode((mode) => (mode === "signIn" ? "signUp" : "signIn"));
-          setError(null);
-          setNotice(null);
-        }}
+        otpEnabled={otpEnabled}
+        onOtpOpen={handleOtpOpen}
         onGoogleSignIn={() => void handleGoogleSignIn()}
-        onPasswordSubmit={handlePasswordSubmit}
-        onPasswordReset={() => void handlePasswordReset()}
         error={error}
-        notice={notice}
         onGoHome={() => navigate("/")}
         formatLockRemaining={formatLockRemaining}
-      />
+        />
+        {/* Dialog yang sama dengan layar warga: panel admin hanya
+            presentasi, state dan dialog tetap milik halaman ini. */}
+        {otpDone ? null : (
+          <EmailOtpDialog
+            open={otpOpen}
+            onOpenChange={setOtpOpen}
+            initialEmail={otpEmail}
+            redirect={redirect}
+            onVerified={handleOtpVerified}
+          />
+        )}
+      </>
     );
   }
 
@@ -383,7 +302,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           <GlassSurface tint="light" className="w-full rounded-2xl p-0 shadow-lg">
           <Card className="w-full border-slate-200 bg-white/95 p-0 shadow-lg sm:p-2">
             <AnimatedContent
-              animationKey={needsPasscode ? "passcode" : step === "password" ? "password" : "signIn"}
+              animationKey={needsPasscode ? "passcode" : "signIn"}
             >
           {needsPasscode ? (
             <>
@@ -531,7 +450,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 </CardFooter>
               </form>
             </>
-          ) : step === "signIn" || step === "password" ? (
+          ) : (
             <>
               <CardHeader className="text-center">
                 <button
@@ -548,206 +467,78 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 <CardDescription className="text-base leading-7">
                   {passcodeGranted
                     ? "Passcode lolos. Sekarang verifikasi email untuk membuka ruang Anda."
-                    : step === "password"
-                      ? "Masuk dengan email dan sandi yang tersimpan di perangkat ini."
-                      : "Simpan listing favorit dan sinkronkan dari perangkat mana pun."}
+                    : "Simpan listing favorit dan sinkronkan dari perangkat mana pun."}
                 </CardDescription>
               </CardHeader>
-              {step === "password" ? (
-                <form onSubmit={handlePasswordSubmit}>
-                  <CardContent>
-                    <label className="flex flex-col gap-2">
-                      <span className="text-sm font-extrabold text-slate-800">Email</span>
-                      <span className="relative">
-                        <Mail className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-blue-600" />
-                        <Input
-                          name="firebaseEmail"
-                          placeholder="nama@email.com"
-                          type="email"
-                          autoComplete="email"
-                          className="min-h-12 admin-input--slot-left text-base"
-                          disabled={isLoading}
-                          required
-                        />
-                      </span>
-                    </label>
-                    <label className="mt-4 flex flex-col gap-2">
-                      <span className="text-sm font-extrabold text-slate-800">Sandi</span>
-                      <span className="relative">
-                        <Lock className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-blue-600" />
-                        <Input
-                          name="firebasePassword"
-                          type="password"
-                          autoComplete={
-                            passwordMode === "signUp" ? "new-password" : "current-password"
-                          }
-                          minLength={6}
-                          placeholder="Minimal 6 karakter"
-                          className="min-h-12 admin-input--slot-left text-base"
-                          disabled={isLoading}
-                          required
-                        />
-                      </span>
-                    </label>
-                    {error && !showReset ? (
-                      <p className="mt-3 text-sm font-bold text-red-700" role="alert">
-                        {error}
-                      </p>
-                    ) : null}
-                    {notice ? (
-                      <p className="mt-3 text-sm font-bold text-emerald-700">{notice}</p>
-                    ) : null}
-                    <Button
-                      type="submit"
-                      className="mt-5 min-h-12 w-full text-base"
-                      disabled={isLoading}
-                    >
-                      {isLoading ? (
-                        <Loader2 className="size-5 animate-spin" />
-                      ) : (
-                        <ArrowRight className="size-5" />
-                      )}
-                      {passwordMode === "signUp" ? "Daftar" : "Masuk"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="mt-2 min-h-11 w-full text-sm"
-                      onClick={() => {
-                        setPasswordMode((mode) => (mode === "signIn" ? "signUp" : "signIn"));
-                        setError(null);
-                        setNotice(null);
-                      }}
-                      disabled={isLoading}
-                    >
-                      {passwordMode === "signIn"
-                        ? "Belum punya akun? Daftar saja"
-                        : "Sudah punya akun? Masuk saja"}
-                    </Button>
-                    {showReset ? (
-                      <div className="mt-4 border-t border-slate-200 pt-4">
-                        <p className="text-sm leading-6 text-slate-600">
-                          Tautan untuk membuat sandi baru dikirim ke email itu. Satu
-                          akun satu email, jadi tautannya hanya berlaku sekali dan
-                          hanya untuk orang yang memegang kotak masuk tersebut.
-                        </p>
-                        <label className="mt-3 flex flex-col gap-2">
-                          <span className="text-sm font-extrabold text-slate-800">
-                            Email untuk tautan reset
-                          </span>
-                          <Input
-                            name="resetEmail"
-                            type="email"
-                            autoComplete="email"
-                            placeholder="nama@email.com"
-                            className="min-h-12 text-base"
-                            value={resetEmail}
-                            onChange={(event) => setResetEmail(event.target.value)}
-                            disabled={isLoading}
-                            required
-                          />
-                        </label>
-                        {error ? (
-                          <p className="mt-3 text-sm font-bold text-red-700" role="alert">
-                            {error}
-                          </p>
-                        ) : null}
-                        <Button
-                          type="button"
-                          className="mt-4 min-h-12 w-full text-base"
-                          onClick={() => {
-                            void handlePasswordReset();
-                          }}
-                          disabled={isLoading}
-                        >
-                          {isLoading ? <Loader2 className="size-5 animate-spin" /> : null}
-                          {isLoading ? "Mengirim..." : "Kirim tautan reset"}
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="mt-1 min-h-11 w-full text-sm"
-                        onClick={() => {
-                          setError(null);
-                          setNotice(null);
-                          setShowReset(true);
-                        }}
-                        disabled={isLoading}
-                      >
-                        Lupa sandi?
-                      </Button>
-                    )}
-                  </CardContent>
-                </form>
-              ) : (
               <div>
                 <CardContent>
-                  {/* FASE 9.2 - satu-satunya pintu masuk yang tersisa.
+                  {/* FASE 9.5 - dua pintu masuk: Google dan Email OTP.
 
-                      Provider `email-otp` sudah dihapus (lihat `src/convex/auth.ts`),
-                      jadi tombol Google dan email-sandi ini sekarang SELURUH isi
-                      layar ini. Karena itu, kalau `firebaseEnabled` false, layar
-                      tidak boleh dibiarkan kosong: orang akan mengira situsnya rusak
-                      lalu pergi. Blok di bawahnya menjelaskan apa yang belum
-                      terisi dan apa yang harus diperbaiki administrator. */}
-                  {firebaseEnabled ? (
+                      Pintu lama dihapus total (keputusan pemilik), jadi tombol
+                      Google dan "Gunakan Email" ini sekarang SELURUH isi layar
+                      ini. Pembatas "atau" hanya tampil bila KEDUA pintu hidup:
+                      pembatas yang tidak memisahkan apa pun membuat orang
+                      mengira masih ada pilihan ketiga yang belum tampil.
+                      Kalau tidak ada pintu yang bisa dibuka, layar tidak boleh
+                      kosong: orang akan mengira situsnya rusak lalu pergi. Blok
+                      di bawahnya menjelaskan apa yang belum terisi dan apa yang
+                      harus diperbaiki administrator. */}
+                  {firebaseEnabled || otpEnabled ? (
                     <>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="min-h-12 w-full text-base"
-                        onClick={handleGoogleSignIn}
-                        disabled={isLoading}
-                      >
-                        {isLoading ? (
-                          <Loader2 className="size-5 animate-spin" />
-                        ) : (
-                          <GoogleMark />
-                        )}
-                        Masuk dengan Google
-                      </Button>
-                      <div className="my-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                        <span className="h-px bg-slate-200" />
-                        <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-400">
-                          atau
-                        </span>
-                        <span className="h-px bg-slate-200" />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="min-h-12 w-full text-base"
-                        onClick={() => {
-                          setError(null);
-                          setNotice(null);
-                          setStep("password");
-                        }}
-                        disabled={isLoading}
-                      >
-                        Gunakan email dan sandi
-                      </Button>
+                      {firebaseEnabled ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="min-h-12 w-full text-base"
+                          onClick={handleGoogleSignIn}
+                          disabled={isLoading}
+                        >
+                          {isLoading ? (
+                            <Loader2 className="size-5 animate-spin" />
+                          ) : (
+                            <GoogleMark />
+                          )}
+                          Masuk dengan Google
+                        </Button>
+                      ) : null}
+                      {firebaseEnabled && otpEnabled ? (
+                        <div className="my-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                          <span className="h-px bg-slate-200" />
+                          <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-400">
+                            atau
+                          </span>
+                          <span className="h-px bg-slate-200" />
+                        </div>
+                      ) : null}
+                      {otpEnabled ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="min-h-12 w-full text-base"
+                          onClick={handleOtpOpen}
+                          disabled={isLoading}
+                        >
+                          Gunakan Email
+                        </Button>
+                      ) : null}
                     </>
-                  ) : (
+                  ) : otpKnown ? (
                     <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-4">
                       <p className="text-sm font-black text-slate-900">
                         Pintu masuk belum siap di lingkungan ini.
                       </p>
                       <p className="mt-2 text-sm leading-6 text-slate-600">
-                        Masuk dengan Google dan masuk dengan email serta sandi
-                        keduanya membaca satu konfigurasi Firebase yang belum
-                        terisi pada build ini, jadi tidak ada pintu yang bisa dibuka
-                        sekarang. Administrator perlu mengisi kunci API web
-                        Firebase, lalu memuat ulang halaman ini. Sesi yang sudah
-                        terbentuk tidak ikut hilang karena itu.
+                        Masuk dengan Google membaca konfigurasi Firebase dan
+                        masuk dengan Email OTP membaca kunci pengiriman email —
+                        keduanya belum terisi pada build ini, jadi tidak ada
+                        pintu yang bisa dibuka sekarang. Administrator perlu
+                        mengisi konfigurasi tersebut, lalu memuat ulang halaman
+                        ini. Sesi yang sudah terbentuk tidak ikut hilang karena
+                        itu.
                       </p>
                     </div>
-                  )}
-                  {notice ? (
-                    <p className="mt-3 text-sm font-bold text-emerald-700">{notice}</p>
                   ) : null}
-                  {error && !showReset ? (
+                  {error ? (
                     <p className="mt-3 text-sm font-bold text-red-700" role="alert">
                       {error}
                     </p>
@@ -760,14 +551,27 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       orang, satu email nyata, satu akun yang bisa dipulihkan. */}
                 </CardContent>
               </div>
-              )}
             </>
-          ) : null}
+          )}
             </AnimatedContent>
           </Card>
           </GlassSurface>
         </ScrollReveal>
       </div>
+      {/* Satu Dialog OTP untuk seluruh halaman ini (warga maupun pengelola
+          setelah passcode). Tahap sukses dirender DI DALAM dialog yang sama
+          oleh komponennya sendiri - tidak ada Dialog bersarang di sini.
+          Dilepas dari pohon setelah selesai supaya tidak bisa dibuka ulang
+          dalam keadaan basi. */}
+      {otpDone ? null : (
+        <EmailOtpDialog
+          open={otpOpen}
+          onOpenChange={setOtpOpen}
+          initialEmail={otpEmail}
+          redirect={redirect}
+          onVerified={handleOtpVerified}
+        />
+      )}
     </main>
   );
 }

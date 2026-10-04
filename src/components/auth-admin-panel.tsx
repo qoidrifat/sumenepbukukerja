@@ -6,8 +6,6 @@ import {
   EyeOff,
   Loader2,
   Lock,
-  LogIn,
-  Mail,
   ShieldCheck,
   ShieldOff,
 } from "lucide-react";
@@ -39,7 +37,6 @@ import type { PasscodeState } from "@/lib/admin-gate-client";
  */
 
 export type AuthAdminPanelProps = {
-  step: "signIn" | "password";
   passcodeGranted: boolean;
   passcode: string;
   onPasscodeChange: (value: string) => void;
@@ -51,17 +48,11 @@ export type AuthAdminPanelProps = {
   wasRevoked: boolean;
   isLoading: boolean;
   firebaseEnabled: boolean;
-  passwordMode: "signIn" | "signUp";
-  resetEmail: string;
-  onResetEmailChange: (value: string) => void;
-  showReset: boolean;
-  onToggleReset: () => void;
-  onTogglePasswordMode: () => void;
+  /** Hidup bila `api.otpEmail.status` menjawab enabled (Fase 9.5). */
+  otpEnabled: boolean;
   onGoogleSignIn: () => void;
-  onPasswordSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  onPasswordReset: () => void;
+  onOtpOpen: () => void;
   error: string | null;
-  notice: string | null;
   onGoHome: () => void;
   formatLockRemaining: (lockedUntil: number) => string;
 };
@@ -96,7 +87,7 @@ export function AdminAuthNotice({
 /**
  * Baris identitas di atas panel masuk.
  *
- * Diekspor karena layar "buat sandi baru" di ruang pengelola memakai header
+ * Diekspor karena layar turunan di ruang pengelola memakai header
  * yang persis sama. Dua layar yang sama persis biasanya ditulis dua kali,
  * lalu satu kali berbeda.
  *
@@ -136,7 +127,6 @@ export function AdminAuthIdentity() {
 
 export function AuthAdminPanel(props: AuthAdminPanelProps) {
   const {
-    step,
     passcodeGranted,
     passcode,
     onPasscodeChange,
@@ -147,17 +137,10 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
     wasRevoked,
     isLoading,
     firebaseEnabled,
-    passwordMode,
-    resetEmail,
-    onResetEmailChange,
-    showReset,
-    onToggleReset,
-    onTogglePasswordMode,
+    otpEnabled,
     onGoogleSignIn,
-    onPasswordSubmit,
-    onPasswordReset,
+    onOtpOpen,
     error,
-    notice,
     onGoHome,
     formatLockRemaining,
   } = props;
@@ -184,17 +167,11 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
               id="admin-auth-title"
               className="mt-1 text-2xl font-black tracking-[-0.035em] text-[#121212] sm:text-3xl"
             >
-              {passcodeGranted
-                ? step === "password"
-                  ? "Masuk dengan email dan sandi"
-                  : "Verifikasi email"
-                : "Passcode pengelola"}
+              {passcodeGranted ? "Verifikasi email" : "Passcode pengelola"}
             </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#1A1A1A]">
             {passcodeGranted
-              ? step === "password"
-                ? "Gunakan email dan sandi yang tersimpan di perangkat ini."
-                : "Ruang /admin terbuka setelah passcode. Pilih cara masuk, lalu akun diverifikasi server sebelum membuka sesi."
+              ? "Ruang /admin terbuka setelah passcode. Pilih cara masuk, lalu akun diverifikasi server sebelum membuka sesi."
               : "Ruang /admin dikunci. Masukkan passcode terlebih dahulu, lalu lanjut ke verifikasi email."}
           </p>
           </div>
@@ -334,192 +311,67 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                 </button>
               </div>
             </form>
-          ) : step === "password" ? (
-            <form onSubmit={onPasswordSubmit}>
-              <div className="space-y-4 px-4 py-4 sm:px-6">
-                <label className="flex flex-col gap-2">
-                  <span className="text-sm font-black text-[#1A1A1A]">Email</span>
-                  <span className="relative block">
-                    <Mail
-                      className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#525252]"
-                      aria-hidden="true"
-                    />
-                    <input
-                      name="firebaseEmail"
-                      type="email"
-                      autoComplete="email"
-                      placeholder="nama@email.com"
-                      className="admin-input admin-input--slot-left"
-                      disabled={isLoading}
-                      required
-                    />
-                  </span>
-                </label>
-
-                <label className="flex flex-col gap-2">
-                  <span className="text-sm font-black text-[#1A1A1A]">Sandi</span>
-                  <span className="relative block">
-                    <Lock
-                      className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#525252]"
-                      aria-hidden="true"
-                    />
-                    <input
-                      name="firebasePassword"
-                      type="password"
-                      autoComplete={
-                        passwordMode === "signUp" ? "new-password" : "current-password"
-                      }
-                      minLength={6}
-                      placeholder="Minimal 6 karakter"
-                      className="admin-input admin-input--slot-left"
-                      disabled={isLoading}
-                      required
-                    />
-                  </span>
-                </label>
-
-                {error ? <AdminAuthNotice tone="error" icon={AlertTriangle}>{error}</AdminAuthNotice> : null}
-                {notice ? <AdminAuthNotice tone="success" icon={ShieldCheck}>{notice}</AdminAuthNotice> : null}
-
-                <button
-                  type="button"
-                  className="admin-btn admin-btn-secondary w-full"
-                  onClick={onTogglePasswordMode}
-                  disabled={isLoading}
-                >
-                  {passwordMode === "signIn"
-                    ? "Belum punya akun? Daftar saja"
-                    : "Sudah punya akun? Masuk saja"}
-                </button>
-
-                {showReset ? (
-                  <div className="border-t-2 border-[#121212] pt-4">
-                    <p className="text-sm leading-6 text-[#525252]">
-                      Tautan untuk membuat sandi baru dikirim ke email itu. Satu
-                      akun satu email, jadi tautannya hanya berlaku sekali dan
-                      hanya untuk orang yang memegang kotak masuk tersebut.
-                    </p>
-                    <label className="mt-3 flex flex-col gap-2">
-                      <span className="text-sm font-black text-[#1A1A1A]">
-                        Email untuk tautan reset
-                      </span>
-                      <input
-                        name="resetEmail"
-                        type="email"
-                        autoComplete="email"
-                        placeholder="nama@email.com"
-                        className="admin-input"
-                        value={resetEmail}
-                        onChange={(event) => onResetEmailChange(event.target.value)}
-                        disabled={isLoading}
-                        required
-                      />
-                    </label>
-                    {error ? (
-                      <div className="mt-3">
-                        <AdminAuthNotice tone="error" icon={AlertTriangle}>{error}</AdminAuthNotice>
-                      </div>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="admin-btn admin-btn-primary mt-4 w-full"
-                      disabled={isLoading}
-                      onClick={onPasswordReset}
-                    >
-                      {isLoading ? (
-                        <Loader2 className="size-5 animate-spin" aria-hidden="true" />
-                      ) : null}
-                      {isLoading ? "Mengirim..." : "Kirim tautan reset"}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    className="admin-btn admin-btn-quiet w-full"
-                    onClick={onToggleReset}
-                    disabled={isLoading}
-                  >
-                    Lupa sandi?
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 border-t-2 border-[#121212] px-4 py-4 sm:px-6">
-                <button
-                  type="button"
-                  className="admin-btn admin-btn-secondary admin-btn--half w-full"
-                  onClick={onGoHome}
-                >
-                  <ArrowLeft className="size-5 shrink-0" aria-hidden="true" />
-                  Kembali ke katalog
-                </button>
-                <button
-                  type="submit"
-                  className="admin-btn admin-btn-primary admin-btn--half w-full"
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <LogIn className="size-5 shrink-0" aria-hidden="true" />
-                  )}
-                  {passwordMode === "signUp" ? "Daftar" : "Masuk"}
-                </button>
-              </div>
-            </form>
           ) : (
             <div className="px-4 py-4 sm:px-6">
               <div className="grid gap-2">
-                {firebaseEnabled ? (
+                {/* FASE 9.5: matriks yang sama dengan layar warga. Pembatas
+                    "atau" hanya bila kedua pintu hidup; satu pintu tampil
+                    tanpa pembatas; tidak ada pintu tampil fallback yang
+                    menyebut Google + Email OTP. */}
+                {firebaseEnabled || otpEnabled ? (
                   <>
-                    <button
-                      type="button"
-                      className="admin-btn admin-btn-secondary w-full"
-                      onClick={onGoogleSignIn}
-                      disabled={isLoading}
-                    >
-                      {isLoading ? (
-                        <Loader2 className="size-5 animate-spin" aria-hidden="true" />
-                      ) : (
-                        <GoogleGlyph />
-                      )}
-                      Masuk dengan Google
-                    </button>
-                    <div className="my-1 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                      <span className="h-px bg-[#121212]" />
-                      <span className="text-xs font-black uppercase tracking-[0.14em] text-[#525252]">
-                        atau
-                      </span>
-                      <span className="h-px bg-[#121212]" />
-                    </div>
-                    <button
-                      type="button"
-                      className="admin-btn admin-btn-highlight w-full"
-                      disabled={isLoading}
-                    >
-                      <Mail className="size-5" aria-hidden="true" />
-                      Gunakan email dan sandi
-                    </button>
+                    {firebaseEnabled ? (
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-secondary w-full"
+                        onClick={onGoogleSignIn}
+                        disabled={isLoading}
+                      >
+                        {isLoading ? (
+                          <Loader2 className="size-5 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <GoogleGlyph />
+                        )}
+                        Masuk dengan Google
+                      </button>
+                    ) : null}
+                    {firebaseEnabled && otpEnabled ? (
+                      <div className="my-1 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                        <span className="h-px bg-[#121212]" />
+                        <span className="text-xs font-black uppercase tracking-[0.14em] text-[#525252]">
+                          atau
+                        </span>
+                        <span className="h-px bg-[#121212]" />
+                      </div>
+                    ) : null}
+                    {otpEnabled ? (
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-highlight w-full"
+                        onClick={onOtpOpen}
+                        disabled={isLoading}
+                      >
+                        Gunakan Email
+                      </button>
+                    ) : null}
                   </>
-                ) : null}
-
-                {error ? <AdminAuthNotice tone="error" icon={AlertTriangle}>{error}</AdminAuthNotice> : null}
-                {notice ? <AdminAuthNotice tone="success" icon={ShieldCheck}>{notice}</AdminAuthNotice> : null}
-
-                {!firebaseEnabled ? (
+                ) : (
                   <div className="border-2 border-dashed border-[#121212] bg-[#F5F0E5] p-4">
                     <p className="text-sm font-black text-[#1A1A1A]">
                       Pintu masuk belum siap di lingkungan ini.
                     </p>
                     <p className="mt-2 text-sm leading-6 text-[#525252]">
-                      Masuk dengan Google dan masuk dengan email serta sandi
-                      keduanya membaca satu konfigurasi Firebase yang belum
-                      terisi pada build ini, jadi tidak ada pintu yang bisa dibuka
-                      sekarang. Administrator perlu mengisi kunci API web
-                      Firebase, lalu memuat ulang halaman ini.
+                      Masuk dengan Google membaca konfigurasi Firebase dan
+                      masuk dengan Email OTP membaca kunci pengiriman email —
+                      keduanya belum terisi pada build ini, jadi tidak ada
+                      pintu yang bisa dibuka sekarang. Administrator perlu
+                      mengisi konfigurasi tersebut, lalu memuat ulang halaman
+                      ini.
                     </p>
                   </div>
-                ) : null}
+                )}
+
+                {error ? <AdminAuthNotice tone="error" icon={AlertTriangle}>{error}</AdminAuthNotice> : null}
               </div>
 
               <div className="mt-4 flex flex-col gap-2 border-t-2 border-[#121212] pt-4 sm:flex-row">

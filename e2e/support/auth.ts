@@ -1,15 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Autentikasi untuk E2E.
+ * Autentikasi untuk E2E (Fase 9.5).
+ *
+ * Pintu sandi dihapus total, jadi tidak ada lagi `E2E_USER_PASSWORD`:
+ * satu-satunya jalan non-Google adalah kode OTP, dan kodenya hanya ada
+ * di kotak masuk akun uji yang tidak bisa dibaca Playwright. Helper di
+ * sini karena itu membuktikan alur SAMPAI tahap kode (dialog terbuka,
+ * kode diminta, tahap kode tampil), lalu skip eksplisit - bukan hijau
+ * palsu, bukan kegagalan misterius.
  *
  * Tiga aturan yang tidak boleh dilanggar di berkas ini:
  *
- *  1. Tidak ada kredensial yang ditulis di source. Semuanya dibaca dari
- *     environment (`E2E_*`), persis seperti yang sudah dipakai `flows.spec.ts`
- *     sebelum helper ini ada. Kalau environment-nya kosong, test di-skip
- *     dengan pesan yang menyebut nama variabelnya - bukan gagal, dan bukan
- *     diam-diam lolos tanpa pemeriksaan apa pun.
+ *  1. Tidak ada kredensial yang ditulis di source. Email akun uji dibaca
+ *     dari environment (`E2E_USER_EMAIL`). Kalau environment-nya kosong,
+ *     test di-skip dengan pesan yang menyebut nama variabelnya - bukan
+ *     gagal, dan bukan diam-diam lolos tanpa pemeriksaan apa pun.
  *
  *  2. Tidak ada token, cookie, atau storageState yang di-hardcode, dan
  *     tidak ada yang menulis ke dalam repo. Berkas kredensial hanya dibaca
@@ -22,18 +28,23 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const authEmail = process.env.E2E_USER_EMAIL;
-const authPassword = process.env.E2E_USER_PASSWORD;
 const adminPasscode = process.env.E2E_ADMIN_PASSCODE;
 
 /**
- * Alasan skip kalau kredensial akun uji belum diisi.
+ * Alasan skip kalau email akun uji belum diisi.
  *
  * Dipisah jadi konstanta supaya pesan yang sama tidak ditulis ulang di lima
  * tempat dengan lima kalimat berbeda.
  */
 export const SKIP_NO_CREDENTIALS =
-  "Butuh E2E_USER_EMAIL + E2E_USER_PASSWORD untuk akun uji nyata "
-  + "(akunnya ada di Keys/deployment, bukan di repo ini)";
+  "Butuh E2E_USER_EMAIL untuk akun uji nyata "
+  + "(Fase 9.5: E2E_USER_PASSWORD sudah pensiun bersama pintu sandi)";
+
+/** Alasan skip kalau kode OTP tidak bisa dibaca dari kotak masuk. */
+export const SKIP_NO_INBOX =
+  "Menyelesaikan OTP butuh kode 6 digit dari kotak masuk akun uji, yang "
+  + "tidak bisa dibaca Playwright. Dialog + permintaan kode terbukti di "
+  + "atas; sisanya OPEN - TEST INFRASTRUCTURE GAP (penerus F-17).";
 
 /** Alasan skip kalau gerbang passcode admin aktif tapi passcode-nya belum diisi. */
 export const SKIP_NO_PASSCODE =
@@ -42,36 +53,46 @@ export const SKIP_NO_PASSCODE =
   + "hanya bisa memastikan gerbangnya ada - bukan menguji dialognya.";
 
 export function hasCredentials(): boolean {
-  return Boolean(authEmail && authPassword);
+  return Boolean(authEmail);
 }
 
 /**
- * Masuk ke aplikasi memakai akun uji.
+ * Minta kode OTP memakai akun uji, sampai tahap kode tampil.
  *
  * Yang diuji adalah konsekuensinya, bukan hanya klik tombolnya: setelah
- * `click`, assertion waits pada URL tujuan. Kalau sesi tidak terbentuk,
- * kegagalan muncul sebagai timeout yang menunjuk halaman auth - jauh lebih
- * berguna daripada test yang hijau karena hanya memeriksa tombolnya diklik.
+ * "Kirim OTP", assertion waits pada tahap kode ("Kode 6 digit dikirim
+ * ke ..."). Kalau pengiriman gagal, kegagalan muncul sebagai timeout
+ * yang menunjuk dialog auth - jauh lebih berguna daripada test yang
+ * hijau karena hanya memeriksa tombolnya diklik.
+ *
+ * Kode-nya sendiri TIDAK dimasukkan: ia hanya ada di kotak masuk akun
+ * uji. Pemanggil yang butuh sesi penuh harus skip dengan SKIP_NO_INBOX.
  */
-export async function signIn(page: Page, returnTo = "/dashboard"): Promise<void> {
+export async function requestOtpCode(page: Page, returnTo = "/dashboard"): Promise<void> {
   await page.goto(`/auth?returnTo=${encodeURIComponent(returnTo)}`);
 
-  // Sejak Firebase menjadi satu-satunya pintu masuk (F-17a), form email+sandi
-  // TIDAK langsung terbuka: yang tampil lebih dulu adalah Google dan tombol
-  // "Gunakan email dan sandi". Mengisi placeholder tanpa menekan tombol itu
-  // berarti menunggu elemen yang memang belum ada.
-  await page.getByRole("button", { name: /Gunakan email dan sandi/i }).click();
-  await page.getByPlaceholder("nama@email.com").fill(authEmail!);
-  // Kolom password memakai `type` yang berganti-ganti antara "text" dan
-  // "password", jadi labelnya yang dipakai - bukan placeholder - supaya test
-  // ini tidak ikut pecah saat komponennya diubah.
-  await page.locator('input[type="password"]').first().fill(authPassword!);
-  // Label kendali submit adalah "Masuk"; "Masuk ke Buku Kerja" adalah judul
-  // kartu, bukan nama tombol (lihat catatan yang sama di flows.spec.ts).
-  await page.getByRole("button", { name: /^Masuk$/ }).click();
-  await expect(page).toHaveURL(new RegExp(returnTo.replace("/", "\\/")), {
-    timeout: 20_000,
-  });
+  // Sejak Fase 9.5, dua pintu yang tersisa adalah Google dan tombol
+  // "Gunakan Email" di bawah ini. Dialog OTP baru ada setelah tombolnya
+  // ditekan; tahap kode baru ada setelah kode diminta.
+  await page.getByRole("button", { name: /Gunakan Email/i }).click();
+  const dialog = page.getByRole("dialog").first();
+  await expect(dialog).toBeVisible({ timeout: 15_000 });
+  await dialog.getByLabel(/email/i).fill(authEmail!);
+  await dialog.getByRole("button", { name: /Kirim OTP/i }).click();
+  await expect(dialog.getByText(/Kode 6 digit/i)).toBeVisible({ timeout: 20_000 });
+}
+
+/**
+ * Masuk ke aplikasi memakai akun uji — SAMPAI tahap kode, lalu skip.
+ *
+ * Lihat `requestOtpCode`: sesi penuh butuh kode dari kotak masuk yang
+ * tidak bisa dibaca Playwright. Helper ini membuktikan semua yang bisa
+ * dibuktikan peramban, lalu skip eksplisit supaya tidak ada yang
+ * mengira sesi penuh sudah teruji E2E.
+ */
+export async function signIn(page: Page, returnTo = "/dashboard"): Promise<void> {
+  await requestOtpCode(page, returnTo);
+  test.skip(true, SKIP_NO_INBOX);
 }
 
 /**
@@ -89,17 +110,17 @@ export async function openAdminWorkspace(page: Page): Promise<void> {
   await page.goto(`/auth?returnTo=${encodeURIComponent("/admin")}`);
 
   const passcodeField = page.locator('input[name="passcode"]');
-  const passwordButton = page.getByRole("button", {
-    name: /Gunakan email dan sandi/i,
+  const otpButton = page.getByRole("button", {
+    name: /Gunakan Email/i,
   });
 
   // Urutan gerbang ditentukan aplikasi, bukan asumsi test. Di konteks
   // peramban yang bersih, `/auth?returnTo=/admin` menampilkan gerbang passcode
-  // LEBIH DULU, dan form email baru muncul setelah passcode lolos (Skenario C
-  // di flows.spec.ts mengunci urutan itu). Kalau sesi sudah ada, urutannya
-  // terbalik. Jadi tunggu salah satunya benar-benar tampil - jangan mengisi
-  // form yang belum ada.
-  await expect(passcodeField.or(passwordButton)).toBeVisible({ timeout: 20_000 });
+  // LEBIH DULU, dan pilihan pintu masuk baru muncul setelah passcode lolos
+  // (Skenario C di flows.spec.ts mengunci urutan itu). Kalau sesi sudah ada,
+  // urutannya terbalik. Jadi tunggu salah satunya benar-benar tampil - jangan
+  // mengisi form yang belum ada.
+  await expect(passcodeField.or(otpButton)).toBeVisible({ timeout: 20_000 });
 
   if (await passcodeField.isVisible().catch(() => false)) {
     // Gerbangnya nyata. Tanpa passcode yang benar, isi meja kerja TIDAK BOLEH
@@ -115,17 +136,15 @@ export async function openAdminWorkspace(page: Page): Promise<void> {
     await page.getByRole("button", { name: /Verifikasi passcode/i }).click();
   }
 
-  await expect(passwordButton).toBeVisible({ timeout: 15_000 });
-  await passwordButton.click();
-  await page.getByPlaceholder("nama@email.com").fill(authEmail!);
-  await page.locator('input[type="password"]').first().fill(authPassword!);
-  await page.getByRole("button", { name: /^Masuk$/ }).click();
-
-  // Membuktikan ruang pengelola benar-benar terbuka. Tanpa ini, test bisa
-  // hijau hanya karena sedang melihat halaman yang salah - misalnya panel
-  // passcode yang belum pernah ditembus.
-  await expect(
-    page.getByRole("button", { name: /menu ruang pengelola/i }),
-    "ruang kelola harus terbuka sampai tombol menunya terlihat",
-  ).toBeVisible({ timeout: 15_000 });
+  // Fase 9.5: tidak ada lagi form sandi di balik passcode. Yang dibuktikan
+  // adalah dialog OTP terbuka dan kode bisa diminta; sesi penuh butuh
+  // kotak masuk, jadi skip eksplisit setelah tahap kode tampil.
+  await expect(otpButton).toBeVisible({ timeout: 15_000 });
+  await otpButton.click();
+  const dialog = page.getByRole("dialog").first();
+  await expect(dialog).toBeVisible({ timeout: 15_000 });
+  await dialog.getByLabel(/email/i).fill(authEmail!);
+  await dialog.getByRole("button", { name: /Kirim OTP/i }).click();
+  await expect(dialog.getByText(/Kode 6 digit/i)).toBeVisible({ timeout: 20_000 });
+  test.skip(true, SKIP_NO_INBOX);
 }

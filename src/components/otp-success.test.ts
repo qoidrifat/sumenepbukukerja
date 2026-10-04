@@ -14,4 +14,10 @@ describe("sekuens sukses OTP", () => {
     expect(src).toContain("Halaman akan dialihkan secara otomatis dalam");
     expect(src).toContain("onDone");
   });
+  test("onDone tepat sekali + SLOT_GAP terdokumentasi + draw reduced-motion", () => {
+    expect(src).toContain("doneRef");
+    expect(src).toContain("SLOT_GAP");
+    expect(src).toContain("email-otp-dialog");
+    expect(src).toMatch(/reduceMotion \? \{[^}]*opacity[^}]*\} : \{[^}]*pathLength/);
+  });
 });

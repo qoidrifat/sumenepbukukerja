@@ -14,7 +14,7 @@
 // yang terbukti mulus tanpa kopling antar-komponen. Yang dipertahankan
 // persis: timing 600ms + stagger 0.04 + spring 320/26.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import confetti from "canvas-confetti";
 
@@ -31,6 +31,9 @@ const BURST_MS = 650;
 const COUNTDOWN_START = 3;
 const COUNTDOWN_MS = 1000;
 const STAGGER = 0.04;
+// Jarak antar-pusat slot = 56px (`size-14`) + 12px (`gap-3`) = 68.
+// Tetap selaras dengan ukuran slot/jarak di email-otp-dialog: bila
+// keduanya berubah, angka ini ikut berubah.
 const SLOT_GAP = 68;
 
 /** Jarak tiap kotak dari tengah barisan (6 slot, tengah di antara indeks 2 dan 3). */
@@ -42,6 +45,9 @@ export function OtpSuccess({ email, onDone }: OtpSuccessProps) {
   const reduceMotion = useReducedMotion() ?? false;
   const [phase, setPhase] = useState<Phase>(() => (reduceMotion ? "done" : "merging"));
   const [secondsLeft, setSecondsLeft] = useState(COUNTDOWN_START);
+  // Guard agar onDone() tepat sekali: tanpa ini efek bisa menembak ulang
+  // bila identitas onDone berubah atau efek berjalan ganda (StrictMode dev).
+  const doneRef = useRef(false);
 
   // merging (600ms) → burst. Reduced-motion melewati fase ini.
   useEffect(() => {
@@ -70,10 +76,12 @@ export function OtpSuccess({ email, onDone }: OtpSuccessProps) {
     };
   }, [reduceMotion, phase]);
 
-  // done: hitung mundur rantai pewaktu 1 detik, lalu onDone().
+  // done: hitung mundur rantai pewaktu 1 detik, lalu onDone() tepat sekali.
   useEffect(() => {
     if (phase !== "done") return;
     if (secondsLeft <= 0) {
+      if (doneRef.current) return;
+      doneRef.current = true;
       onDone();
       return;
     }
@@ -129,9 +137,9 @@ export function OtpSuccess({ email, onDone }: OtpSuccessProps) {
               fill="none"
               stroke="#2563EB"
               strokeWidth="4"
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 0.5, ease: "easeOut" }}
+              initial={reduceMotion ? { opacity: 0 } : { pathLength: 0 }}
+              animate={reduceMotion ? { opacity: 1 } : { pathLength: 1 }}
+              transition={reduceMotion ? { duration: 0 } : { duration: 0.5, ease: "easeOut" }}
             />
             <motion.path
               d="M20 33l8 8 16-16"
@@ -140,9 +148,9 @@ export function OtpSuccess({ email, onDone }: OtpSuccessProps) {
               strokeWidth="5"
               strokeLinecap="round"
               strokeLinejoin="round"
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 0.5, ease: "easeOut" }}
+              initial={reduceMotion ? { opacity: 0 } : { pathLength: 0 }}
+              animate={reduceMotion ? { opacity: 1 } : { pathLength: 1 }}
+              transition={reduceMotion ? { duration: 0 } : { duration: 0.5, ease: "easeOut" }}
             />
           </motion.svg>
           <h2 className="text-xl font-black tracking-tight text-slate-900">

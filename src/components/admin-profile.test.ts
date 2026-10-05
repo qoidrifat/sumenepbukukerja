@@ -21,7 +21,7 @@ const workspace = readFileSync(
 const profile = readFileSync(new URL("./admin-profile.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
 const adminPage = readFileSync(new URL("../pages/Admin.tsx", import.meta.url), "utf8");
-const dashboard = readFileSync(new URL("../pages/Dashboard.tsx", import.meta.url), "utf8");
+const dashboard = readFileSync(new URL("../pages/WargaDashboard.tsx", import.meta.url), "utf8");
 
 /**
  * Indeks pemicu profil varian menu di header ruang pengelola.
@@ -393,4 +393,13 @@ test("batas bawah dihitung dari waktu lokal, bukan UTC", () => {
   for (const file of [community, dashboard, adminPage]) {
     expect(file).toContain("getTimezoneOffset()");
   }
+});
+
+test("dashboard warga hidup di berkas kanonisnya", () => {
+  const warga = readFileSync(new URL("../pages/WargaDashboard.tsx", import.meta.url), "utf8");
+  expect(warga).toContain("export default function WargaDashboard");
+  expect(warga).toContain("Ruang warga");
+  expect(warga).toContain("OwnerListingManager");
+  expect(warga).toContain("field-datetime field-datetime--public");
+  expect(warga).not.toContain("field-datetime--admin");
 });

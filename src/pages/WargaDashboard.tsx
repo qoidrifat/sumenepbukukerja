@@ -54,6 +54,7 @@ import {
   type ThemedSelectOption,
 } from "@/lib/select-options";
 import { ClaimListingPanel, InteractionHistory, MyRequestHistory, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
+import { ProfileCompletionGate } from "@/components/profile-completion-gate";
 import { NotificationCenter } from "@/components/community-notification-center";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
 
@@ -566,7 +567,7 @@ function OwnerListingManager() {
   );
 }
 
-export default function Dashboard() {
+export default function WargaDashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const vendors = useCatalogVendors();
@@ -584,6 +585,10 @@ export default function Dashboard() {
 
   return (
     <main className="min-h-dvh min-h-[100svh] bg-[#f7f8fc] px-4 py-6 text-foreground sm:px-6 sm:py-10 lg:px-10">
+      {/* Gate data diri warga: tampil menutupi dashboard sampai profil
+          lengkap (server yang memutuskan, realtime). Staf dikecualikan di
+          dalam komponennya sendiri. */}
+      <ProfileCompletionGate />
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>

@@ -1,6 +1,7 @@
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Archive, ClipboardList, FileEdit, Inbox, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyStateCard } from "@/components/empty-state-card";
 import { useAdminVendors, useCurrentAccess, useOpenReports, useReviewQueue } from "@/lib/catalog-store";
 import { staffRoleLongLabel } from "@/lib/select-options";
 import { focusRing } from "@/lib/focus-ring";
@@ -22,6 +23,7 @@ const actionRowClass = `flex min-h-12 items-center gap-2 rounded-lg border borde
  * loading dengan skeleton seukuran kartu final.
  */
 export default function StaffDashboard() {
+  const navigate = useNavigate();
   const access = useCurrentAccess();
   const items = useAdminVendors();
   const reportsQuery = useOpenReports();
@@ -204,9 +206,7 @@ export default function StaffDashboard() {
           </div>
           {queriesReady ? (
             topDrafts.length === 0 && (openReportCount ?? 0) === 0 && (reviewTotal ?? 0) === 0 ? (
-              <p className="mt-3 text-sm leading-6 text-slate-600">
-                Semua antrean bersih — tidak ada tindakan menunggu.
-              </p>
+              <EmptyStateCard title="Semua antrean bersih" body="Tidak ada draft, laporan, atau antrean review menunggu." actionLabel="Buka workspace" onAction={() => navigate("/admin")} />
             ) : (
               <ul className="mt-4 grid gap-2">
                 {topDrafts.map((draft) => (

@@ -4,9 +4,9 @@ import {
   Archive,
   ArrowRight,
   Bookmark,
+  ClipboardList,
   Edit3,
   ImagePlus,
-  LayoutDashboard,
   LogOut,
   MapPin,
   MessageCircle,
@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormField, TextField } from "@/components/form-field";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   landmarkLabel,
   type Category,
@@ -35,12 +35,13 @@ import {
   useFavorites,
   useOwnerVendors,
   useMyClaims,
+  useServiceRequests,
   useVendorPackages,
   type VendorRecord,
 } from "@/lib/catalog-store";
 import { categoryActionLabel } from "@/lib/catalog-data";
-import { BrandMascot } from "@/components/brand-mascot";
 import { CategoryMascot } from "@/components/category-mascot";
+import { EmptyStateCard } from "@/components/empty-state-card";
 import { useAuth } from "@/hooks/use-auth";
 import { recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useContactHandoff } from "@/lib/contact-handoff";
@@ -508,11 +509,7 @@ function OwnerListingManager() {
           ))}
         </div>
       ) : (
-        <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
-          <BrandMascot state="empty" size="md" className="mx-auto" />
-          <p className="mt-4 font-black text-slate-950">Belum ada listing milik Anda</p>
-          <p className="mt-1 text-sm leading-6 text-slate-600">Tambahkan usaha Anda agar warga dapat menemukan dan menghubungi Anda.</p>
-        </div>
+        <EmptyStateCard title="Belum ada listing milik Anda" body="Tambahkan usaha Anda agar warga dapat menemukan dan menghubungi Anda." actionLabel="Tambah listing" onAction={startNew} />
       )}
 
       {draft ? (
@@ -577,6 +574,8 @@ export default function WargaDashboard() {
   // pernah memegang nomor mentah. Tombol WhatsApp-nya lewat handoff server.
   const { openContactWithFeedback } = useContactHandoff();
   const savedVendors = vendors.filter((vendor) => favorites.isSaved(vendor.slug));
+  const owned = useOwnerVendors();
+  const myRequests = useServiceRequests({ mine: true });
 
   const handleSignOut = async () => {
     await signOut();
@@ -589,7 +588,7 @@ export default function WargaDashboard() {
           lengkap (server yang memutuskan, realtime). Staf dikecualikan di
           dalam komponennya sendiri. */}
       <ProfileCompletionGate />
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
@@ -613,54 +612,95 @@ export default function WargaDashboard() {
             items={[
               { label: "Cari usaha", icon: <Search className="size-5" />, color: "blue", onClick: () => navigate("/#katalog") },
               { label: "Kelola listing", icon: <Settings2 className="size-5" />, color: "violet", onClick: () => document.getElementById("listing-saya")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
+              { label: "Favorit", icon: <Bookmark className="size-5" />, color: "amber", onClick: () => document.getElementById("favorit-saya")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
+              { label: "Permintaan", icon: <ClipboardList className="size-5" />, color: "emerald", onClick: () => document.getElementById("permintaan-saya")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
             ]}
           />
         </ScrollReveal>
 
         <PwaControls />
 
-        <section className="grid gap-4 sm:grid-cols-3">
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <BorderGlow className="h-full rounded-xl" intensity={0.08}>
-          <Card className="h-full border-slate-200 bg-white shadow-sm">
+          <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
             <CardHeader>
               <div className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
                 <Store className="size-5" />
               </div>
               <CardTitle className="text-lg">Katalog lokal</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1">
               <Counter value={vendors.length} className="text-3xl font-black text-slate-950" />
               <p className="mt-1 text-sm text-muted-foreground">usaha tersedia</p>
             </CardContent>
           </Card>
           </BorderGlow>
           <BorderGlow className="h-full rounded-xl" glowColor="180,83,9" intensity={0.08}>
-          <Card className="h-full border-slate-200 bg-white shadow-sm">
+          <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
             <CardHeader>
               <div className="flex size-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
                 <Bookmark className="size-5" />
               </div>
               <CardTitle className="text-lg">Tersimpan</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1">
               <Counter value={savedVendors.length} className="text-3xl font-black text-slate-950" />
               <p className="mt-1 text-sm text-muted-foreground">listing pilihan Anda</p>
             </CardContent>
           </Card>
           </BorderGlow>
           <BorderGlow className="h-full rounded-xl" glowColor="4,120,87" intensity={0.08}>
-          <Card className="h-full border-slate-200 bg-white shadow-sm">
+          <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
             <CardHeader>
               <div className="flex size-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-                <LayoutDashboard className="size-5" />
+                <Package className="size-5" />
               </div>
-              <CardTitle className="text-lg">Mulai lagi</CardTitle>
+              <CardTitle className="text-lg">Listing saya</CardTitle>
             </CardHeader>
-            <CardContent>
-              <Link to="/#katalog" className="inline-flex min-h-12 items-center gap-2 text-base font-extrabold text-blue-700">
-                Cari jasa <ArrowRight className="size-4" />
-              </Link>
+            <CardContent className="flex-1">
+              {owned === undefined ? (
+                <span
+                  role="status"
+                  aria-label="Memuat listing saya"
+                  className="block h-9 w-20 rounded bg-slate-200 motion-safe:animate-pulse"
+                />
+              ) : (
+                <Counter value={owned.length} className="text-3xl font-black text-slate-950" />
+              )}
+              <p className="mt-1 text-sm text-muted-foreground">listing milik Anda</p>
             </CardContent>
+            <CardFooter>
+              <button type="button" onClick={() => document.getElementById("listing-saya")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="inline-flex min-h-12 items-center gap-2 text-base font-extrabold text-blue-700">
+                Kelola listing <ArrowRight className="size-4" />
+              </button>
+            </CardFooter>
+          </Card>
+          </BorderGlow>
+          <BorderGlow className="h-full rounded-xl" glowColor="37,99,235" intensity={0.08}>
+          <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
+            <CardHeader>
+              <div className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                <ClipboardList className="size-5" />
+              </div>
+              <CardTitle className="text-lg">Permintaan</CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1">
+              {myRequests === undefined ? (
+                <span
+                  role="status"
+                  aria-label="Memuat permintaan saya"
+                  className="block h-9 w-20 rounded bg-slate-200 motion-safe:animate-pulse"
+                />
+              ) : (
+                <Counter value={myRequests.length} className="text-3xl font-black text-slate-950" />
+              )}
+              <p className="mt-1 text-sm text-muted-foreground">permintaan milik Anda</p>
+            </CardContent>
+            <CardFooter>
+              <button type="button" onClick={() => document.getElementById("permintaan-saya")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="inline-flex min-h-12 items-center gap-2 text-base font-extrabold text-blue-700">
+                Lihat permintaan <ArrowRight className="size-4" />
+              </button>
+            </CardFooter>
           </Card>
           </BorderGlow>
         </section>
@@ -668,7 +708,7 @@ export default function WargaDashboard() {
         <OwnerListingManager />
         <OwnerRequestWorkspace />
 
-        <section>
+        <section id="favorit-saya" className="scroll-mt-6">
           <div className="mb-4 flex items-end justify-between gap-4">
             <div>
               <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Daftar tersimpan</p>
@@ -709,16 +749,7 @@ export default function WargaDashboard() {
               })}
             </div>
           ) : (
-            <Card className="border-dashed border-slate-300 bg-white shadow-none">
-              <CardContent className="flex flex-col items-center py-10 text-center">
-                <BrandMascot state="hello" size="md" className="mx-auto" />
-                <h3 className="mt-5 text-xl font-black text-slate-950">Belum ada listing tersimpan</h3>
-                <p className="mt-2 max-w-md text-base leading-7 text-slate-600">Klik ikon bookmark pada listing untuk menyimpannya di perangkat dan menyinkronkannya setelah Anda masuk.</p>
-                <Button asChild className="mt-5 min-h-12 rounded-lg text-base">
-                  <Link to="/#katalog">Jelajahi katalog <ArrowRight className="size-4" /></Link>
-                </Button>
-              </CardContent>
-            </Card>
+            <EmptyStateCard title="Belum ada favorit tersimpan" body="Klik ikon bookmark pada listing untuk menyimpannya di perangkat dan menyinkronkannya setelah Anda masuk." actionLabel="Jelajahi katalog" onAction={() => navigate("/#katalog")} />
           )}
           </AnimatedContent>
         </section>
@@ -727,7 +758,7 @@ export default function WargaDashboard() {
           <InteractionHistory />
           <NotificationCenter />
         </div>
-        <MyRequestHistory />
+        <div id="permintaan-saya" className="scroll-mt-6"><MyRequestHistory /></div>
       </div>
     </main>
   );

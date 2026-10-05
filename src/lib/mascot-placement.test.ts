@@ -102,16 +102,10 @@ const INTEGRATED: Surface[] = [
     why: "Filter katalog tidak menghasilkan apa pun.",
   },
   {
-    id: "owner-listings-empty",
-    file: "src/pages/WargaDashboard.tsx",
+    id: "dashboard-filled-empty",
+    file: "src/components/empty-state-card.tsx",
     state: "empty",
-    why: "Pemilik belum punya listing.",
-  },
-  {
-    id: "saved-listings-empty",
-    file: "src/pages/WargaDashboard.tsx",
-    state: "hello",
-    why: "Belum ada yang disimpan: sifatnya ajakan, bukan kekosongan.",
+    why: "Filled-state seragam dashboard warga+staff (spec S6.1, disetujui user): judul + ajakan + aksi primer dalam bingkai setinggi kartu berisi. Nada ajakan dipertahankan lewat copy+tombol, bukan state hello.",
   },
   {
     id: "route-loading",

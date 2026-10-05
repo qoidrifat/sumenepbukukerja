@@ -2,15 +2,16 @@ import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { SessionRevokedGuard } from "@/components/session-revoked-guard";
 import { RequireAuth } from "@/components/RequireAuth";
+import { RequireStaffGate } from "@/components/RequireStaffGate";
 import { SessionGateBoundary } from "@/components/SessionGateBoundary";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { useCatalogSeedBootstrap } from "@/lib/catalog-store";
-import { BrandMascot } from "@/components/brand-mascot";
+import { MascotLoader } from "@/components/mascot-loader";
 import { ErrorReportDialog, ErrorReportProvider } from "@/components/error-report-dialog";
 import { getErrorReporter } from "@/lib/error-report-bus";
 import { reportErrorToServer } from "@/lib/error-reporter";
@@ -34,8 +35,12 @@ import "./index.css";
  */
 const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
+const EmailOtpPage = lazy(() => import("./pages/EmailOtp.tsx"));
+const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicy.tsx"));
+const TermsOfServicePage = lazy(() => import("./pages/TermsOfService.tsx"));
 const InviteAcceptance = lazy(() => import("./pages/InviteAcceptance.tsx"));
-const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
+const WargaDashboard = lazy(() => import("./pages/WargaDashboard.tsx"));
+const StaffDashboard = lazy(() => import("./pages/StaffDashboard.tsx"));
 const Admin = lazy(() => import("./pages/Admin.tsx"));
 const VendorProfile = lazy(() => import("./pages/VendorProfile.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
@@ -45,16 +50,22 @@ const MascotPreview = import.meta.env.DEV
   ? lazy(() => import("./pages/MascotPreview.tsx"))
   : null;
 
-// Simple loading fallback for route transitions
+// Loading maskot per rute untuk transisi halaman: maskot + ekspresi
+// berbeda tiap halaman, koreografi 2,4 detik, diam total saat
+// reduced-motion. Menggantikan teks denyut statis sebelumnya.
 function RouteLoading() {
-  return (
-    <div className="min-h-dvh min-h-[100svh] flex items-center justify-center bg-[#f7f8fc] text-base font-semibold text-slate-600">
-      <div className="flex flex-col items-center gap-5">
-        <BrandMascot state="working" size="md" animated={false} />
-        <div className="animate-pulse">Menyiapkan catatan lokal...</div>
-      </div>
-    </div>
-  );
+  return <MascotLoader />;
+}
+
+/**
+ * Backward-compat `/dashboard` → `/warga/dashboard`.
+ *
+ * Hash dipertahankan: tautan `/dashboard#listing-saya` (notifikasi) harus
+ * mendarat di section yang sama, dan `Navigate` polos akan membuangnya.
+ */
+function DashboardRedirect() {
+  const location = useLocation();
+  return <Navigate to={{ pathname: "/warga/dashboard", hash: location.hash }} replace />;
 }
 
 /** Silent error boundary — if VlyToolbar crashes it renders nothing instead of
@@ -332,11 +343,25 @@ createRoot(document.getElementById("root")!).render(
                 path="/auth"
                 element={<AuthPage redirectAfterAuth="/dashboard" />}
               />
+              <Route path="/auth/email" element={<EmailOtpPage />} />
+              <Route path="/kebijakan-privasi" element={<PrivacyPolicyPage />} />
+              <Route path="/syarat-ketentuan" element={<TermsOfServicePage />} />
+              <Route path="/dashboard" element={<DashboardRedirect />} />
               <Route
-                path="/dashboard"
+                path="/warga/dashboard"
                 element={
                   <RequireAuth>
-                    <Dashboard />
+                    <WargaDashboard />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/staff/dashboard"
+                element={
+                  <RequireAuth>
+                    <RequireStaffGate>
+                      <StaffDashboard />
+                    </RequireStaffGate>
                   </RequireAuth>
                 }
               />

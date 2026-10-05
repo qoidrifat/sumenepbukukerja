@@ -28,7 +28,7 @@ const stripComments = (source: string) =>
   source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
 
 const formField = read("./form-field.tsx");
-const dashboard = read("../pages/Dashboard.tsx");
+const dashboard = read("../pages/WargaDashboard.tsx");
 const community = read("./community-widgets.tsx");
 
 test("modul bersama membangkitkan id dan menyambungkan label ke kontrol", () => {

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 
 import { BrandMascot } from "@/components/brand-mascot";
-import { MASCOT_SIZES, type MascotSize } from "@/lib/mascot-config";
+import { MASCOT_SIZES, MASCOT_STATE_LIST, type MascotSize } from "@/lib/mascot-config";
 
 /**
  * Kontrak integrasi Phase 4 — tempat BrandMascot hidup di produk.
@@ -103,21 +103,24 @@ const INTEGRATED: Surface[] = [
   },
   {
     id: "owner-listings-empty",
-    file: "src/pages/Dashboard.tsx",
+    file: "src/pages/WargaDashboard.tsx",
     state: "empty",
     why: "Pemilik belum punya listing.",
   },
   {
     id: "saved-listings-empty",
-    file: "src/pages/Dashboard.tsx",
+    file: "src/pages/WargaDashboard.tsx",
     state: "hello",
     why: "Belum ada yang disimpan: sifatnya ajakan, bukan kekosongan.",
   },
   {
     id: "route-loading",
-    file: "src/main.tsx",
-    state: "working",
-    why: "Suspense fallback saat pindah rute.",
+    file: "src/components/mascot-loader.tsx",
+    // DINAMIS: state dipilih per rute di `loaderRouteFor` (lihat
+    // `mascot-loader.test.ts`), jadi tidak ada literal `state="x"` di
+    // call-site. Test di bawah mengauditnya secara struktural, bukan literal.
+    state: "DYNAMIC",
+    why: "Suspense fallback saat pindah rute: maskot + ekspresi beda per halaman.",
   },
 ];
 
@@ -241,6 +244,25 @@ const APPROVED_HEX: Record<string, string> = {
 
 test("setiap permukaan integrasi berdiri di atas permukaan yang §8b izinkan", () => {
   for (const surface of INTEGRATED) {
+    if (surface.state === "DYNAMIC") {
+      // Loader rute memilih state per rute saat runtime (lihat
+      // `mascot-loader.test.ts` untuk petanya). Yang diaudit di sini:
+      // tepat SATU call-site, semua state yang mungkin dari taksonomi beku,
+      // dan latar yang diizinkan.
+      const src = read(surface.file);
+      expect(
+        [...src.matchAll(new RegExp(MASCOT_CALL, "g"))].length,
+        `${surface.id}: harus tepat satu maskot`,
+      ).toBe(1);
+      expect(src, `${surface.id}: latar harus yang diizinkan`).toContain("bg-[#f7f8fc]");
+      for (const base of ["working", "hello", "found", "connect", "neutral", "search", "empty"]) {
+        expect(
+          MASCOT_STATE_LIST as readonly string[],
+          `${surface.id}: state "${base}" di luar taksonomi beku`,
+        ).toContain(base);
+      }
+      continue;
+    }
     const sites = callSites(surface.file).filter((site) => site.props.includes(`state="${surface.state}"`));
     expect(sites.length, `${surface.id}: call-site tidak ditemukan`).toBeGreaterThan(0);
 
@@ -271,9 +293,15 @@ test("tidak ada permukaan integrasi yang duduk di biru-ke-biru", () => {
 test("setiap call-site maskot di produk terdaftar sebagai keputusan sadar", () => {
   const audited = new Set(INTEGRATED.map((surface) => `${surface.file}#${surface.state}`));
   const excluded = new Set(EXCLUDED.map((item) => item.file));
+  const dynamicFiles = new Set(
+    INTEGRATED.filter((surface) => surface.state === "DYNAMIC").map((surface) => surface.file),
+  );
 
   for (const file of new Set([...INTEGRATED.map((s) => s.file), ...EXCLUDED.map((e) => e.file)])) {
     for (const site of callSites(file)) {
+      // Entri DINAMIS diaudit struktural di test permukaan (bukan literal
+      // state), jadi call-site tanpa state literal di berkas itu sah.
+      if (dynamicFiles.has(file)) continue;
       const state = (site.props.match(/state="([^"]+)"/) ?? [])[1] ?? "netral";
       expect(
         audited.has(`${file}#${state}`),
@@ -322,6 +350,10 @@ test("field maskot tetap biru pekat, jadi kontrasnya ke setiap permukaan minimal
 
 test("semua integrasi produk bersifat dekoratif, pesan tetap dibawa teks", () => {
   for (const surface of INTEGRATED) {
+    // Entri DINAMIS (loader rute) diaudit di `mascot-loader.test.ts`:
+    // caption per rute + tepat satu svg + tanpa label (aria-hidden).
+    // Pola di bawah butuh literal `state="x"` yang tidak ada di sana.
+    if (surface.state === "DYNAMIC") continue;
     const lines = read(surface.file).split("\n");
 
     for (const site of callSites(surface.file)) {
@@ -401,10 +433,18 @@ test("peta ukuran responsif Phase 3 tidak bergeser", () => {
   expect(MASCOT_SIZES.md).toContain("xl:size-36");
 });
 
-test("loading rute dibekukan: splash singkat tidak perlu animasi", () => {
-  const site = callSites("src/main.tsx").find((item) => item.props.includes('state="working"'));
-  expect(site, "RouteLoading harus memakai state working").toBeDefined();
-  expect(site?.props, "RouteLoading tidak boleh beranimasi").toContain("animated={false}");
+test("loading rute memakai MascotLoader per-rute (beku dicabut resmi)", () => {
+  // Keputusan pemilik: splash statis diganti loader beranimasi per halaman.
+  // Yang dijaga sebagai gantinya: SATU call-site, state dari taksonomi beku,
+  // latar allowlist, guard reduced-motion, dan tanpa pewaktu periodik.
+  const src = read("src/components/mascot-loader.tsx");
+  expect(src.match(/<BrandMascot\b/g)?.length).toBe(1);
+  expect(src).toContain("bg-[#f7f8fc]");
+  expect(src).toContain("useReducedMotion");
+  expect(src).not.toContain("setInterval");
+  const main = read("src/main.tsx");
+  expect(main).toContain("<MascotLoader />");
+  expect(main).not.toContain("Menyiapkan catatan lokal");
 });
 
 /* ------------------------------------------------------------------ */

@@ -27,11 +27,13 @@ import {
 import { categoryOptions, landmarkLabel, landmarks, type Category, type Vendor } from "@/lib/catalog";
 import { useCatalogActions, useCatalogVendors, useFavorites } from "@/lib/catalog-store";
 import { categoryActionLabel, distanceFilterOptions, distanceKmBetween, distanceLabel, isOpenNow, needSuggestions, searchByNeed } from "@/lib/catalog-data";
+import { useAuth } from "@/hooks/use-auth";
 import { useUserLocation, type UserLocation, type UserLocationStatus } from "@/hooks/use-user-location";
 import { recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useContactHandoff } from "@/lib/contact-handoff";
 import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
 import { CategoryMascot, CategoryMascotStage } from "@/components/category-mascot";
+import { AccountMenu } from "@/components/account-menu";
 import { BrandMascot } from "@/components/brand-mascot";
 import { AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
 import SiteFooter from "@/components/site-footer";
@@ -115,6 +117,7 @@ function WhatsAppButton({ vendor, className = "" }: { vendor: Vendor; className?
 }
 
 function TopNav({ active = "Beranda" }: { active?: string }) {
+  const { isAuthenticated } = useAuth();
   const links = [
     { label: "Beranda", icon: Home, to: "/" },
     { label: "Katalog Usaha", icon: Store, to: "/#katalog" },
@@ -149,14 +152,18 @@ function TopNav({ active = "Beranda" }: { active?: string }) {
             </a>
           ))}
         </nav>
-        <a
-          href="#katalog"
-          aria-label="Cari jasa"
-          className="header-cta inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-base font-extrabold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 lg:px-5"
-        >
-          <Search className="size-4 shrink-0" aria-hidden="true" />
-          <span className="hidden min-[420px]:inline">Cari jasa</span>
-        </a>
+        {isAuthenticated ? (
+          <AccountMenu />
+        ) : (
+          <a
+            href="#katalog"
+            aria-label="Cari jasa"
+            className="header-cta inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-base font-extrabold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 lg:px-5"
+          >
+            <Search className="size-4 shrink-0" aria-hidden="true" />
+            <span className="hidden min-[420px]:inline">Cari jasa</span>
+          </a>
+        )}
       </div>
     </header>
   );

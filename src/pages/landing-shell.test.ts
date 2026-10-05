@@ -43,3 +43,10 @@ describe("landing hanya merender satu kali", () => {
     expect(definitions).toHaveLength(1);
   });
 });
+
+test("header login memakai AccountMenu, anonim tetap CTA", () => {
+  const landing = readFileSync(new URL("./Landing.tsx", import.meta.url), "utf8");
+  expect(landing).toContain("<AccountMenu");
+  expect(landing).toContain("useAuth()");
+  expect(landing).toContain("Cari jasa");
+});

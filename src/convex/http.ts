@@ -868,7 +868,7 @@ const robots = httpAction(async () => {
   return new Response(
     origin
       ? buildRobotsTxt(origin)
-      : ["User-agent: *", "Allow: /", "Disallow: /admin", "Disallow: /dashboard", "Disallow: /auth", ""].join("\n"),
+      : ["User-agent: *", "Allow: /", "Disallow: /admin", "Disallow: /dashboard", "Disallow: /warga/dashboard", "Disallow: /staff/dashboard", "Disallow: /auth", ""].join("\n"),
     { status: 200, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=86400" } },
   );
 });

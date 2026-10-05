@@ -2,9 +2,10 @@
  * Pembangun sitemap XML.
  *
  * Sengaja MURNI: sitemap dibangun dari daftar slug yang sudah difilter di
- * server, lalu dirakit di sini. Konsekuensinya, hal yang tidak boleh masuk
- * sitemap tidak bisa "tidak sengaja" masuk karena pemanggil keliru —
- * `buildSitemapXml` hanya menerima beranda dan slug listing.
+ * server, ditambah dua dokumen hukum statis, lalu dirakit di sini.
+ * Konsekuensinya, hal yang tidak boleh masuk sitemap tidak bisa "tidak
+ * sengaja" masuk karena pemanggil keliru — `buildSitemapXml` hanya menerima
+ * beranda, dokumen hukum, dan slug listing.
  *
  * Yang TIDAK pernah dimasukkan: `/admin`, `/dashboard`, `/auth`, `/invite/*`,
  * dan listing yang bukan `active`. Halaman-halaman itu butuh sesi atau
@@ -30,7 +31,14 @@ export function buildSitemapXml(input: {
   vendors: SitemapVendor[];
 }): string {
   const origin = input.origin.replace(/\/+$/, "");
-  const entries = [urlEntry(`${origin}/`)];
+  // Halaman konten publik yang stabil: beranda + dokumen hukum (dibutuhkan
+  // dialog login dan rincian aplikasi). Rute sesi/admin/invite TIDAK pernah
+  // masuk (lihat catatan modul).
+  const entries = [
+    urlEntry(`${origin}/`),
+    urlEntry(`${origin}/kebijakan-privasi`),
+    urlEntry(`${origin}/syarat-ketentuan`),
+  ];
   for (const vendor of input.vendors) {
     if (!vendor.slug) continue;
     const loc = `${origin}/v/${encodeURIComponent(vendor.slug)}`;
@@ -58,6 +66,8 @@ export function buildRobotsTxt(origin: string): string {
     "Allow: /",
     "Disallow: /admin",
     "Disallow: /dashboard",
+    "Disallow: /warga/dashboard",
+    "Disallow: /staff/dashboard",
     "Disallow: /auth",
     "Disallow: /invite/",
     `Sitemap: ${clean}/sitemap.xml`,

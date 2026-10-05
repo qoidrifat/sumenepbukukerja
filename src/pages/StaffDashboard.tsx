@@ -8,11 +8,8 @@ import { focusRing } from "@/lib/focus-ring";
 const cardClass = "h-full border-slate-200 bg-white shadow-sm";
 const statGrid = "grid gap-4 sm:grid-cols-2 xl:grid-cols-4";
 
-const workspacePath = "/admin";
-// Hash tujuan triage disusun dari dua potong string supaya berkas halaman
-// publik ini tidak memuat rangkaian gaya terlarang.
-const triageSection = "triage";
-const triageTo = { pathname: workspacePath, hash: `#${"admin"}-${triageSection}` };
+// Tautan workspace + anchor triage admin (bagian rute, bukan kelas tema).
+const triageTo = { pathname: "/admin", hash: "#admin-triage" };
 
 const footerLinkClass = `inline-flex min-h-12 items-center gap-1.5 rounded-lg px-1 text-sm font-extrabold text-blue-700 hover:bg-blue-50 ${focusRing}`;
 const actionRowClass = `flex min-h-12 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 hover:border-blue-300 hover:bg-blue-50 ${focusRing}`;

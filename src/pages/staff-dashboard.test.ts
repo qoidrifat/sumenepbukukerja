@@ -19,6 +19,18 @@ test("read-only: tanpa mutasi", () => {
 
 test("kartu h-full + tanpa kelas admin", () => {
   expect(src).toContain("h-full");
-  expect(src).not.toContain("admin-");
+  expect(src).toContain("#admin-triage");
+  for (const marker of [
+    "admin-btn",
+    "admin-card",
+    "admin-input",
+    "admin-dialog",
+    "admin-workspace",
+    "admin-status",
+    "admin-menu",
+    "admin-check",
+  ]) {
+    expect(src, `tanpa kelas tema ${marker}`).not.toContain(marker);
+  }
   expect(src).not.toContain("border-[#121212]");
 });

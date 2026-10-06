@@ -1,14 +1,17 @@
 /**
- * Satu-satunya tempat yang tahu pemetaan akses → URL dashboard.
+ * Satu-satunya tempat yang tahu pemetaan akses → URL dashboard (v2: mitra).
  *
  * Murni (tanpa hook/query) supaya bisa diuji unit tanpa provider Convex.
- * `undefined` berarti query akses belum menjawab — pemanggil menonaktifkan
- * item Dashboard sampai jawabannya tiba, bukan menebak tujuan.
+ * `undefined` di sisi mana pun berarti query terkait belum menjawab —
+ * pemanggil menonaktifkan item Dashboard sampai jawabannya tiba,
+ * bukan menebak tujuan.
  */
 export function dashboardTargetFor(
   access: { canViewAdmin: boolean } | null | undefined,
+  mitra: { qualified: boolean } | null | undefined,
 ): string | null {
-  if (access === undefined) return null;
-  if (access !== null && access.canViewAdmin) return "/staff/dashboard";
+  if (access === undefined || mitra === undefined) return null;
+  if (access !== null && access.canViewAdmin) return "/admin";
+  if (mitra !== null && mitra.qualified) return "/mitra/dashboard";
   return "/warga/dashboard";
 }

@@ -31,10 +31,9 @@ test("warga bebas sisa owner; mitra memakai bingkai seragam", () => {
   expect(warga).not.toContain("border-dashed border-slate-300 bg-white shadow-none");
 });
 
-test("warga: kartu konsumen + quick-access 4 dengan cross-link mitra", () => {
-  expect(warga).toContain("Permintaan saya");
-  expect(warga).toContain('"Interaksi"');
-  expect(warga).toContain('"/mitra/dashboard"');
-  const wargaItems = (warga.match(/label: "/g) ?? []).length;
-  expect(wargaItems).toBeGreaterThanOrEqual(4);
+test("warga: header memakai AccountMenu, quick-access dihapus", () => {
+  expect(warga).toContain("<AccountMenu");
+  expect(warga).not.toContain("<GlassIcons");
+  expect(warga).not.toContain("Akses cepat ruang warga");
+  expect(warga).not.toContain(">Keluar<");
 });

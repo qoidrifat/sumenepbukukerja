@@ -3,13 +3,10 @@ import {
   ArrowRight,
   Bookmark,
   ClipboardList,
-  LogOut,
   MapPin,
   MessageCircle,
-  Search,
   Store,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { landmarkLabel } from "@/lib/catalog";
 import {
@@ -20,18 +17,19 @@ import {
   useServiceRequests,
 } from "@/lib/catalog-store";
 import { categoryActionLabel } from "@/lib/catalog-data";
+import { AccountMenu } from "@/components/account-menu";
 import { EmptyStateCard } from "@/components/empty-state-card";
 import { useAuth } from "@/hooks/use-auth";
 import { recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useContactHandoff } from "@/lib/contact-handoff";
 import { useNavigate } from "react-router";
-import { AnimatedContent, BorderGlow, Counter, GlassIcons, ScrollReveal } from "@/components/react-bits";
+import { AnimatedContent, BorderGlow, Counter } from "@/components/react-bits";
 import { InteractionHistory, MyRequestHistory, PwaControls } from "@/components/community-widgets";
 import { ProfileCompletionGate } from "@/components/profile-completion-gate";
 import { NotificationCenter } from "@/components/community-notification-center";
 
 export default function WargaDashboard() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const vendors = useCatalogVendors();
   const favorites = useFavorites();
@@ -42,11 +40,6 @@ export default function WargaDashboard() {
   const savedVendors = vendors.filter((vendor) => favorites.isSaved(vendor.slug));
   const myRequests = useServiceRequests({ mine: true });
   const interactions = useMyInteractions();
-
-  const handleSignOut = async () => {
-    await signOut();
-    navigate("/");
-  };
 
   return (
     <main className="min-h-dvh min-h-[100svh] bg-[#f7f8fc] px-4 py-6 text-foreground sm:px-6 sm:py-10 lg:px-10">
@@ -67,22 +60,10 @@ export default function WargaDashboard() {
               Simpan usaha yang sering Anda gunakan dan lanjutkan chatting dari satu tempat.
             </p>
           </div>
-          <Button type="button" onClick={handleSignOut} variant="outline" className="min-h-12 self-start rounded-lg text-base">
-            <LogOut className="size-4" />Keluar
-          </Button>
+          <div className="self-start">
+            <AccountMenu />
+          </div>
         </header>
-
-        <ScrollReveal>
-          <GlassIcons
-            ariaLabel="Akses cepat ruang warga"
-            items={[
-              { label: "Cari usaha", icon: <Search className="size-5" />, color: "blue", onClick: () => navigate("/#katalog") },
-              { label: "Favorit", icon: <Bookmark className="size-5" />, color: "amber", onClick: () => document.getElementById("favorit-saya")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
-              { label: "Permintaan", icon: <ClipboardList className="size-5" />, color: "emerald", onClick: () => document.getElementById("permintaan-saya")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
-              { label: "Kelola usaha", icon: <Store className="size-5" />, color: "rose", onClick: () => navigate("/mitra/dashboard") },
-            ]}
-          />
-        </ScrollReveal>
 
         <PwaControls />
 

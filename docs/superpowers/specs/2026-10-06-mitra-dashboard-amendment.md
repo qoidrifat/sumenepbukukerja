@@ -64,10 +64,27 @@ Semua butir 1–7 jalan di atas query/mutation existing; butir 8 = fase 2.
    Σ`whatsappClicks`, Request cocok terbuka) + **tabel per-listing**
    (nama, status, dilihat, dihubungi, dibagikan Σ`shareClicks`). `listForOwner`
    mengembalikan baris milik sendiri utuh (`vendors.ts:430`) — sah dipakai.
-2. **Kelola usaha** (pindah dari warga): `OwnerListingManager` utuh + **Mode libur cepat**
-   (satu tombol `availability:"closed"`+note ke semua listing aktif + "Buka kembali";
-   mutation existing yang sama) + `OwnerPackageEditor`, `OwnerGalleryManager`,
-   `OwnerListingHistory`.
+2. **Kelola usaha — CRUD penuh + tambah usaha, UI/ikon premium** (pindah dari warga):
+   `OwnerListingManager` utuh + `OwnerPackageEditor`, `OwnerGalleryManager`,
+   `OwnerListingHistory`, dengan ketegasan:
+   - Matriks CRUD (mutation existing, tanpa backend baru): **Create** tambah listing
+     (tersimpan draft menunggu moderasi) · **Read** daftar + pratinjau tampilan publik
+     per listing · **Update** edit seluruh field + ketersediaan + foto + paket ·
+     **Archive** nonaktifkan + **ajukan moderasi** untuk tayang ulang. Catatan jujur:
+     TIDAK ada hapus permanen (mutation-nya tidak ada) — arsip adalah keadaan akhir.
+   - **Tambah usaha** memakai form yang sama dengan edit (satu komponen, dua mode);
+     validasi inline nama/WA/deskripsi wajib + alur foto existing + batas tanggal
+     lokal (aturan yang dikunci test).
+   - **Standar ikon premium** (lucide, satu makna satu ikon, di kedua dashboard):
+     `Plus` tambah · `Pencil` edit · `Archive` arsipkan · `RotateCcw` ajukan
+     moderasi/buka kembali · `Eye` pratinjau & lihat halaman publik · `ImagePlus`
+     foto · `Package` paket · `Power` mode libur cepat · `Trash2` HANYA untuk
+     foto/paket (dengan konfirmasi pola existing), bukan listing. `size-4` di tombol,
+     `size-5` header kartu; selalu `aria-hidden` + label teks/aria.
+   - Baris aksi per listing meniru urutan + disabled-state `VendorActionArea`
+     (pola terpusat yang dipakai `/admin`), bukan gaya Warm Brutalism-nya.
+   - **Mode libur cepat** (pengaya): satu tombol `availability:"closed"`+note ke
+     semua listing aktif + "Buka kembali" (mutation existing yang sama).
 3. **Skor kelengkapan**: `profileCompleteness` + `qualityIssues` + `duplicateScore`
    (`catalog-data.ts`, dipakai admin) per listing milik sendiri + aksi konkret.
 4. **Request & tawaran** (pindah `OwnerRequestWorkspace` apa adanya).

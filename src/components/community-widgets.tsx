@@ -46,7 +46,7 @@ import {
   interactionStatusSelectOptions,
   reportReasonSelectOptions,
 } from "@/lib/select-options";
-import { useOfflineQueue } from "@/lib/offline-queue";
+import { useOfflineQueue, formatLastSync } from "@/lib/offline-queue";
 
 import { focusRing } from "@/lib/focus-ring";
 import { MAX_IMAGE_LABEL } from "@/lib/image-upload";
@@ -637,7 +637,7 @@ type InstallPromptEvent = Event & {
 export function PwaControls() {
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [updateReady, setUpdateReady] = useState(false);
-  const { online, pendingCount } = useOfflineQueue();
+  const { online, pendingCount, lastSyncAt } = useOfflineQueue();
 
   useEffect(() => {
     let registration: ServiceWorkerRegistration | undefined;
@@ -696,6 +696,10 @@ export function PwaControls() {
         {online ? <Cloud className="size-5 text-emerald-600" aria-hidden="true" /> : <WifiOff className="size-5 text-amber-600" aria-hidden="true" />}
         <span role="status">{online ? (pendingCount > 0 ? `${pendingCount} perubahan menunggu koneksi` : "Data tersinkron") : "Mode offline — perubahan disimpan di perangkat"}</span>
       </div>
+      <p className="mt-2 text-xs font-bold text-slate-500">
+        Terakhir diperbarui {formatLastSync(lastSyncAt)}{pendingCount > 0 ? ` · ${pendingCount} menunggu` : null}
+      </p>
+      {(installPrompt || updateReady) ? (
       <div className="mt-3 flex flex-wrap gap-2">
         {installPrompt ? (
           <button type="button" onClick={() => void installPrompt.prompt().then(() => setInstallPrompt(null))} className={`inline-flex min-h-11 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 ${focusRing}`}>
@@ -708,6 +712,7 @@ export function PwaControls() {
           </button>
         ) : null}
       </div>
+      ) : null}
     </section>
   );
 }

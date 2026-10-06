@@ -77,26 +77,70 @@ export async function flushOfflineQueue(handlers: OfflineHandlers = {}) {
   return { synced, remaining: readQueue().length };
 }
 
+const LAST_SYNC_KEY = "sumenep-buku-kerja-last-sync";
+const LAST_SYNC_EVENT = "sumenep-last-sync-updated";
+
 export function useOfflineQueue() {
   const [queue, setQueue] = useState<OfflineMutation[]>(() => readQueue());
   const [online, setOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(() => readLastSync());
   useEffect(() => {
-    const refresh = () => setQueue(readQueue());
-    const goOnline = () => setOnline(true);
+    const refresh = () => {
+      setQueue(readQueue());
+      setLastSyncAt(readLastSync());
+    };
+    const goOnline = () => {
+      setOnline(true);
+      setLastSyncAt(readLastSync());
+    };
     const goOffline = () => setOnline(false);
+    const onLastSync = () => setLastSyncAt(readLastSync());
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === "SYNC_REQUESTED") void flushOfflineQueue();
     };
     window.addEventListener(QUEUE_EVENT, refresh);
+    window.addEventListener(LAST_SYNC_EVENT, onLastSync);
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
     navigator.serviceWorker?.addEventListener("message", onMessage);
     return () => {
       window.removeEventListener(QUEUE_EVENT, refresh);
+      window.removeEventListener(LAST_SYNC_EVENT, onLastSync);
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
       navigator.serviceWorker?.removeEventListener("message", onMessage);
     };
   }, []);
-  return { queue, pendingCount: queue.length, online };
+  return { queue, pendingCount: queue.length, online, lastSyncAt };
+}
+
+export function readLastSync(): number | null {
+  if (typeof window === "undefined") return null;
+  const raw = Number(window.localStorage.getItem(LAST_SYNC_KEY) ?? "");
+  return Number.isFinite(raw) && raw > 0 ? raw : null;
+}
+
+function recordLastSync(now: number) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LAST_SYNC_KEY, String(now));
+  } catch { /* private mode: memori sesi cukup, timestamp tak tersimpan */ }
+  window.dispatchEvent(new Event(LAST_SYNC_EVENT));
+}
+
+/** Format pasti DD/MM/YYYY HH:MM (pad manual — Intl id-ID memakai titik untuk jam). */
+export function formatLastSync(value: number | null): string {
+  if (value === null) return "Belum pernah";
+  const date = new Date(value);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Sinkronisasi nyata: flush antrean terdaftar; catat waktu HANYA bila online & sisa 0. */
+export async function syncNow() {
+  const result = await flushOfflineQueue();
+  if (typeof navigator !== "undefined" && navigator.onLine && result.remaining === 0) {
+    recordLastSync(Date.now());
+  }
+  return result;
 }

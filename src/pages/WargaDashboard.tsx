@@ -26,6 +26,7 @@ import { useNavigate } from "react-router";
 import { AnimatedContent, BorderGlow, Counter } from "@/components/react-bits";
 import { InteractionHistory, MyRequestHistory, PwaControls } from "@/components/community-widgets";
 import { ProfileCompletionGate } from "@/components/profile-completion-gate";
+import { SyncIndicator } from "@/components/sync-indicator";
 import { NotificationCenter } from "@/components/community-notification-center";
 
 export default function WargaDashboard() {
@@ -60,7 +61,8 @@ export default function WargaDashboard() {
               Simpan usaha yang sering Anda gunakan dan lanjutkan chatting dari satu tempat.
             </p>
           </div>
-          <div className="self-start">
+          <div className="flex items-center gap-2 self-start">
+            <SyncIndicator />
             <AccountMenu />
           </div>
         </header>

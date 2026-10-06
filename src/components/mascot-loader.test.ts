@@ -20,7 +20,7 @@ describe("peta rute ke maskot", () => {
     expect(loaderRouteFor("/auth/email")).toMatchObject({ base: "hello" });
     expect(loaderRouteFor("/dashboard").base).toBe("found");
     expect(loaderRouteFor("/warga/dashboard").base).toBe("found");
-    expect(loaderRouteFor("/staff/dashboard").base).toBe("found");
+    expect(loaderRouteFor("/mitra/dashboard").base).toBe("found");
     expect(loaderRouteFor("/v/sate-madura").base).toBe("connect");
     expect(loaderRouteFor("/kebijakan-privasi").base).toBe("neutral");
     expect(loaderRouteFor("/syarat-ketentuan").base).toBe("neutral");

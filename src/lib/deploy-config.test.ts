@@ -47,7 +47,7 @@ test("aplikasi memang butuh rewrite: rutenya milik React Router", () => {
   // Kalau rutenya nanti pindah ke file lain, test ini yang ikut menunjuk file
   // itu, bukan diam-diam menjaga rewrite yang tidak terpakai lagi.
   const main = readFileSync("src/main.tsx", "utf8");
-  for (const rute of ["/auth", "/dashboard", "/warga/dashboard", "/staff/dashboard", "/admin", "/v/:slug", "/invite/:token"]) {
+  for (const rute of ["/auth", "/dashboard", "/warga/dashboard", "/mitra/dashboard", "/admin", "/v/:slug", "/invite/:token"]) {
     expect(main, `rute ${rute}`).toContain(`path="${rute}"`);
   }
 });

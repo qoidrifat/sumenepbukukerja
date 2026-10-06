@@ -67,7 +67,7 @@ export function buildRobotsTxt(origin: string): string {
     "Disallow: /admin",
     "Disallow: /dashboard",
     "Disallow: /warga/dashboard",
-    "Disallow: /staff/dashboard",
+    "Disallow: /mitra/dashboard",
     "Disallow: /auth",
     "Disallow: /invite/",
     `Sitemap: ${clean}/sitemap.xml`,

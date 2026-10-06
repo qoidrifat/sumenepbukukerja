@@ -33,7 +33,7 @@ export function loaderRouteFor(pathname: string): LoaderRoute {
   if (pathname.startsWith("/auth")) {
     return { base: "hello", tone: "public", caption: "Menyiapkan ruang masuk…" };
   }
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/warga/") || pathname.startsWith("/staff/")) {
+  if (pathname.startsWith("/dashboard") || pathname.startsWith("/warga/") || pathname.startsWith("/mitra/")) {
     return { base: "found", tone: "public", caption: "Membuka dasbor…" };
   }
   if (pathname.startsWith("/v/")) {

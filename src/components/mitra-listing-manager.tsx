@@ -7,6 +7,7 @@ import {
   ImagePlus,
   Package,
   Plus,
+  Power,
   RotateCcw,
   Save,
   Trash2,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/catalog-store";
 import { CategoryMascot } from "@/components/category-mascot";
 import { EmptyStateCard } from "@/components/empty-state-card";
+import { focusRing } from "@/lib/focus-ring";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import {
   areaSelectOptions,
@@ -288,6 +290,7 @@ export function MitraListingManager() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [liburBusy, setLiburBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -397,6 +400,49 @@ export function MitraListingManager() {
     }
   };
 
+  const activeVendors = (owned ?? []).filter(
+    (vendor) => (vendor.availability ?? "available") === "available",
+  );
+  const closedVendors = (owned ?? []).filter(
+    (vendor) => vendor.availability === "closed",
+  );
+
+  /**
+   * Mode libur cepat: tutup (atau buka kembali) semua listing berurutan
+   * dengan satu busy flag. Kegagalan parsial dilaporkan jujur sebagai
+   * jumlah yang gagal, bukan all-or-nothing palsu.
+   */
+  const toggleAllAvailability = async (close: boolean) => {
+    const targets = close ? activeVendors : closedVendors;
+    if (targets.length === 0) return;
+    setLiburBusy(true);
+    setError("");
+    setNotice("");
+    let failed = 0;
+    for (const vendor of targets) {
+      try {
+        await availability({
+          vendorId: vendor._id as never,
+          availability: close ? "closed" : "available",
+          availabilityNote: close
+            ? vendor.availabilityNote?.trim() || "Libur sementara"
+            : vendor.availabilityNote,
+          nextAvailableAt: vendor.nextAvailableAt,
+          responseMinutes: vendor.responseMinutes,
+          serviceRadiusKm: vendor.serviceRadiusKm,
+        });
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed === 0) {
+      setNotice(close ? "Semua listing ditutup sementara." : "Semua listing dibuka kembali.");
+    } else {
+      setError(`${failed} dari ${targets.length} listing belum dapat ${close ? "ditutup" : "dibuka"}.`);
+    }
+    setLiburBusy(false);
+  };
+
   const archiveListing = async (vendor: VendorRecord) => {
     if (!window.confirm(`Nonaktifkan listing ${vendor.name}?`)) return;
     setBusyId(vendor._id);
@@ -443,6 +489,20 @@ export function MitraListingManager() {
 
       {notice ? <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700" role="status">{notice}</p> : null}
       {error ? <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700" role="alert">{error}</p> : null}
+
+      {owned !== undefined && (activeVendors.length > 0 || closedVendors.length > 0) ? (
+        <div className="mt-5 flex flex-wrap gap-2">
+          {activeVendors.length > 0 ? (
+            <button type="button" disabled={liburBusy} onClick={() => void toggleAllAvailability(true)} className={`inline-flex min-h-12 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-50 ${focusRing}`}>
+              <Power className="size-4" aria-hidden="true" />{liburBusy ? "Menutup..." : "Tutup sementara semua"}
+            </button>
+          ) : (
+            <button type="button" disabled={liburBusy} onClick={() => void toggleAllAvailability(false)} className={`inline-flex min-h-12 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-50 ${focusRing}`}>
+              <RotateCcw className="size-4" aria-hidden="true" />{liburBusy ? "Membuka..." : "Buka kembali semua"}
+            </button>
+          )}
+        </div>
+      ) : null}
 
       {owned === undefined ? (
         <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">Memuat listing milik Anda...</p>

@@ -21,7 +21,10 @@ const workspace = readFileSync(
 const profile = readFileSync(new URL("./admin-profile.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
 const adminPage = readFileSync(new URL("../pages/Admin.tsx", import.meta.url), "utf8");
-const dashboard = readFileSync(new URL("../pages/WargaDashboard.tsx", import.meta.url), "utf8");
+const mitraManager = readFileSync(
+  new URL("./mitra-listing-manager.tsx", import.meta.url),
+  "utf8",
+);
 
 /**
  * Indeks pemicu profil varian menu di header ruang pengelola.
@@ -351,8 +354,8 @@ test("menghapus foto adalah niat eksplisit, bukan kesimpulan dari keadaan", () =
 test("field tanggal publik memakai varian publik, bukan varian admin", () => {
   expect(community).toContain("field-date field-date--public");
   expect(community).not.toContain("field-date--admin");
-  expect(dashboard).toContain("field-datetime field-datetime--public");
-  expect(dashboard).not.toContain("field-datetime--admin");
+  expect(mitraManager).toContain("field-datetime field-datetime--public");
+  expect(mitraManager).not.toContain("field-datetime--admin");
 });
 
 test("field tanggal admin memakai scope admin, bukan varian publik", () => {
@@ -378,19 +381,19 @@ test("semua field tanggal punya batas bawah dan balikan bahasa Indonesia", () =>
   // Tanpa batas bawah, "dibutuhkan kapan" dan "perkiraan tersedia lagi" bisa
   // diisi masa lalu - yang tidak pernah masuk akal untuk keduanya.
   expect(community).toContain("min={todayISODate()}");
-  expect(dashboard).toContain("min={minAvailableAtLocal()}");
+  expect(mitraManager).toContain("min={minAvailableAtLocal()}");
   expect(adminPage).toContain("min={minNextAvailableAtLocal()}");
   // Kontrol native memakai lokalitas perangkat; baris balikan menutup celah
   // salah baca 09/10/2026.
   expect(community).toContain("formatNeededAt(neededAt)");
-  expect(dashboard).toContain("formatDraftAvailability(draft.nextAvailableAt)");
+  expect(mitraManager).toContain("formatDraftAvailability(draft.nextAvailableAt)");
   expect(adminPage).toContain("Tersimpan:");
 });
 
 test("batas bawah dihitung dari waktu lokal, bukan UTC", () => {
   // `toISOString()` selalu UTC: di WIB sebelum pukul 07.00 itu menghasilkan
   // tanggal KEMARIN, dan batas bawahnya ikut bergeser.
-  for (const file of [community, dashboard, adminPage]) {
+  for (const file of [community, mitraManager, adminPage]) {
     expect(file).toContain("getTimezoneOffset()");
   }
 });
@@ -399,7 +402,8 @@ test("dashboard warga hidup di berkas kanonisnya", () => {
   const warga = readFileSync(new URL("../pages/WargaDashboard.tsx", import.meta.url), "utf8");
   expect(warga).toContain("export default function WargaDashboard");
   expect(warga).toContain("Ruang warga");
-  expect(warga).toContain("OwnerListingManager");
-  expect(warga).toContain("field-datetime field-datetime--public");
-  expect(warga).not.toContain("field-datetime--admin");
+  expect(warga).not.toContain("OwnerListingManager");
+  expect(mitraManager).toContain("MitraListingManager");
+  expect(mitraManager).toContain("field-datetime field-datetime--public");
+  expect(mitraManager).not.toContain("field-datetime--admin");
 });

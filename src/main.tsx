@@ -2,7 +2,6 @@ import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { SessionRevokedGuard } from "@/components/session-revoked-guard";
 import { RequireAuth } from "@/components/RequireAuth";
-import { RequireStaffGate } from "@/components/RequireStaffGate";
 import { SessionGateBoundary } from "@/components/SessionGateBoundary";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
@@ -40,7 +39,7 @@ const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicy.tsx"));
 const TermsOfServicePage = lazy(() => import("./pages/TermsOfService.tsx"));
 const InviteAcceptance = lazy(() => import("./pages/InviteAcceptance.tsx"));
 const WargaDashboard = lazy(() => import("./pages/WargaDashboard.tsx"));
-const StaffDashboard = lazy(() => import("./pages/StaffDashboard.tsx"));
+const MitraDashboard = lazy(() => import("./pages/MitraDashboard.tsx"));
 const Admin = lazy(() => import("./pages/Admin.tsx"));
 const VendorProfile = lazy(() => import("./pages/VendorProfile.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
@@ -356,12 +355,10 @@ createRoot(document.getElementById("root")!).render(
                 }
               />
               <Route
-                path="/staff/dashboard"
+                path="/mitra/dashboard"
                 element={
                   <RequireAuth>
-                    <RequireStaffGate>
-                      <StaffDashboard />
-                    </RequireStaffGate>
+                    <MitraDashboard />
                   </RequireAuth>
                 }
               />

@@ -3,26 +3,20 @@ import { expect, test } from "vitest";
 
 const main = readFileSync(new URL("../main.tsx", import.meta.url), "utf8");
 
-test("tiga rute dashboard terdaftar dengan guard yang benar", () => {
-  expect(main).toContain('path="/warga/dashboard"');
-  expect(main).toContain("<WargaDashboard />");
-  expect(main).toContain('path="/staff/dashboard"');
-  expect(main).toContain("<RequireStaffGate>");
-  expect(main).toContain("<StaffDashboard />");
+test("rute mitra terdaftar; gate hidup di dalam halaman", () => {
+  expect(main).toContain('path="/mitra/dashboard"');
+  expect(main).toContain("<MitraDashboard />");
   expect(main).toContain('path="/dashboard"');
+  expect(main).toContain('path="/warga/dashboard"');
+  expect(main).not.toContain("RequireMitraGate");
 });
 
-test("redirect /dashboard mempertahankan hash tujuan", () => {
+test("jejak staff hilang total", () => {
+  expect(main).not.toContain("/staff/dashboard");
+  expect(main).not.toContain("StaffDashboard");
+  expect(main).not.toContain("RequireStaffGate");
+});
+
+test("redirect preservasi-hash tetap", () => {
   expect(main).toContain("hash: location.hash");
-  expect(main).toContain('pathname: "/warga/dashboard"');
-  expect(main).toContain("replace");
-});
-
-test("rute lama tidak lagi me-render Dashboard langsung", () => {
-  expect(main).not.toContain('import("./pages/Dashboard.tsx")');
-  expect(main).toContain('import("./pages/WargaDashboard.tsx")');
-});
-
-test("auth tetap mengarah ke /dashboard (ikut redirect otomatis)", () => {
-  expect(main).toContain('redirectAfterAuth="/dashboard"');
 });

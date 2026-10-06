@@ -28,7 +28,7 @@ const stripComments = (source: string) =>
   source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
 
 const formField = read("./form-field.tsx");
-const dashboard = read("../pages/WargaDashboard.tsx");
+const mitraManager = read("./mitra-listing-manager.tsx");
 const community = read("./community-widgets.tsx");
 
 test("modul bersama membangkitkan id dan menyambungkan label ke kontrol", () => {
@@ -65,7 +65,7 @@ test("gaya input tetap milik pemanggil, bukan milik modul", () => {
 
 test("area warga memakai skema bersama, bukan menulis ulang label sendiri", () => {
   for (const [name, code] of [
-    ["Dashboard.tsx", dashboard],
+    ["mitra-listing-manager.tsx", mitraManager],
     ["community-widgets.tsx", community],
   ] as const) {
     const bare = stripComments(code);
@@ -86,7 +86,7 @@ test("area warga memakai skema bersama, bukan menulis ulang label sendiri", () =
 
 test("tidak ada lagi isian yang labelnya hanya placeholder", () => {
   for (const [name, code] of [
-    ["Dashboard.tsx", dashboard],
+    ["mitra-listing-manager.tsx", mitraManager],
     ["community-widgets.tsx", community],
   ] as const) {
     const bare = stripComments(code);
@@ -137,5 +137,5 @@ test("varian field tanggal publik tidak berubah jadi varian admin", () => {
   // lewat modul bersama tidak bisa menjatuhkan kelasnya.
   expect(community).toContain("field-date field-date--public");
   expect(community).not.toContain("field-date--admin");
-  expect(dashboard).toContain("field-datetime field-datetime--public");
+  expect(mitraManager).toContain("field-datetime field-datetime--public");
 });

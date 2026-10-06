@@ -34,3 +34,14 @@ test("tanpa kelas admin, tanpa maskot literal baru", () => {
     expect(src, `tanpa kelas tema ${marker}`).not.toContain(marker);
   }
 });
+
+test("pelacak klaim + ulasan terpasang", () => {
+  expect(src).toContain("<MitraClaimTracker");
+  expect(src).toContain("<MitraReviews");
+});
+
+test("posisi: tracker setelah manager sebelum gate; reviews di dalam gate", () => {
+  expect(src.indexOf("<MitraClaimTracker")).toBeGreaterThan(src.indexOf("<MitraListingManager"));
+  expect(src.indexOf("<MitraClaimTracker")).toBeLessThan(src.indexOf("<RequireMitraGate"));
+  expect(src.indexOf("<MitraReviews")).toBeGreaterThan(src.indexOf("<RequireMitraGate"));
+});

@@ -6,9 +6,7 @@ import {
   LogOut,
   MapPin,
   MessageCircle,
-  Package,
   Search,
-  Settings2,
   Store,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,7 +16,7 @@ import {
   useCatalogVendors,
   useCatalogActions,
   useFavorites,
-  useOwnerVendors,
+  useMyInteractions,
   useServiceRequests,
 } from "@/lib/catalog-store";
 import { categoryActionLabel } from "@/lib/catalog-data";
@@ -42,8 +40,8 @@ export default function WargaDashboard() {
   // pernah memegang nomor mentah. Tombol WhatsApp-nya lewat handoff server.
   const { openContactWithFeedback } = useContactHandoff();
   const savedVendors = vendors.filter((vendor) => favorites.isSaved(vendor.slug));
-  const owned = useOwnerVendors();
   const myRequests = useServiceRequests({ mine: true });
+  const interactions = useMyInteractions();
 
   const handleSignOut = async () => {
     await signOut();
@@ -79,9 +77,9 @@ export default function WargaDashboard() {
             ariaLabel="Akses cepat ruang warga"
             items={[
               { label: "Cari usaha", icon: <Search className="size-5" />, color: "blue", onClick: () => navigate("/#katalog") },
-              { label: "Kelola listing", icon: <Settings2 className="size-5" />, color: "violet", onClick: () => document.getElementById("listing-saya")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
               { label: "Favorit", icon: <Bookmark className="size-5" />, color: "amber", onClick: () => document.getElementById("favorit-saya")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
               { label: "Permintaan", icon: <ClipboardList className="size-5" />, color: "emerald", onClick: () => document.getElementById("permintaan-saya")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
+              { label: "Kelola usaha", icon: <Store className="size-5" />, color: "rose", onClick: () => navigate("/mitra/dashboard") },
             ]}
           />
         </ScrollReveal>
@@ -121,36 +119,9 @@ export default function WargaDashboard() {
           <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
             <CardHeader>
               <div className="flex size-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-                <Package className="size-5" />
-              </div>
-              <CardTitle className="text-lg">Listing saya</CardTitle>
-            </CardHeader>
-            <CardContent className="flex-1">
-              {owned === undefined ? (
-                <span
-                  role="status"
-                  aria-label="Memuat listing saya"
-                  className="block h-9 w-20 rounded bg-slate-200 motion-safe:animate-pulse"
-                />
-              ) : (
-                <Counter value={owned.length} className="text-3xl font-black text-slate-950" />
-              )}
-              <p className="mt-1 text-sm text-muted-foreground">listing milik Anda</p>
-            </CardContent>
-            <CardFooter>
-              <button type="button" onClick={() => document.getElementById("listing-saya")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="inline-flex min-h-12 items-center gap-2 text-base font-extrabold text-blue-700">
-                Kelola listing <ArrowRight className="size-4" />
-              </button>
-            </CardFooter>
-          </Card>
-          </BorderGlow>
-          <BorderGlow className="h-full rounded-xl" glowColor="37,99,235" intensity={0.08}>
-          <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <div className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
                 <ClipboardList className="size-5" />
               </div>
-              <CardTitle className="text-lg">Permintaan</CardTitle>
+              <CardTitle className="text-lg">Permintaan saya</CardTitle>
             </CardHeader>
             <CardContent className="flex-1">
               {myRequests === undefined ? (
@@ -162,11 +133,38 @@ export default function WargaDashboard() {
               ) : (
                 <Counter value={myRequests.length} className="text-3xl font-black text-slate-950" />
               )}
-              <p className="mt-1 text-sm text-muted-foreground">permintaan milik Anda</p>
+              <p className="mt-1 text-sm text-muted-foreground">permintaan yang Anda buat</p>
             </CardContent>
             <CardFooter>
               <button type="button" onClick={() => document.getElementById("permintaan-saya")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="inline-flex min-h-12 items-center gap-2 text-base font-extrabold text-blue-700">
                 Lihat permintaan <ArrowRight className="size-4" />
+              </button>
+            </CardFooter>
+          </Card>
+          </BorderGlow>
+          <BorderGlow className="h-full rounded-xl" glowColor="37,99,235" intensity={0.08}>
+          <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
+            <CardHeader>
+              <div className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                <MessageCircle className="size-5" />
+              </div>
+              <CardTitle className="text-lg">{"Interaksi"}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1">
+              {interactions === undefined ? (
+                <span
+                  role="status"
+                  aria-label="Memuat interaksi saya"
+                  className="block h-9 w-20 rounded bg-slate-200 motion-safe:animate-pulse"
+                />
+              ) : (
+                <Counter value={interactions.length} className="text-3xl font-black text-slate-950" />
+              )}
+              <p className="mt-1 text-sm text-muted-foreground">chatting & kunjungan terakhir Anda</p>
+            </CardContent>
+            <CardFooter>
+              <button type="button" onClick={() => document.getElementById("aktivitas-saya")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="inline-flex min-h-12 items-center gap-2 text-base font-extrabold text-blue-700">
+                Lihat aktivitas <ArrowRight className="size-4" />
               </button>
             </CardFooter>
           </Card>
@@ -219,7 +217,7 @@ export default function WargaDashboard() {
           </AnimatedContent>
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div id="aktivitas-saya" className="grid scroll-mt-6 gap-6 lg:grid-cols-2">
           <InteractionHistory />
           <NotificationCenter />
         </div>

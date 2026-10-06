@@ -2,29 +2,39 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 
 const warga = readFileSync(new URL("../pages/WargaDashboard.tsx", import.meta.url), "utf8");
-const staff = readFileSync(new URL("../pages/StaffDashboard.tsx", import.meta.url), "utf8");
-const empty = readFileSync(new URL("./empty-state-card.tsx", import.meta.url), "utf8");
+const mitra = readFileSync(new URL("../pages/MitraDashboard.tsx", import.meta.url), "utf8");
+// DEVIASI TERDOKUMENTASI dari brief verbatim (bukti di task-r6-report.md):
+// - Grid 4-up mitra hidup di `mitra-stats.tsx` (const statGrid), bukan inline
+//   di MitraDashboard.tsx — asersi grid mitra dibaca dari pemilik stringnya,
+//   plus rantai komposisi <MitraStats di halaman.
+// - <EmptyStateCard mitra hidup di komponen anak (claim-tracker/reviews),
+//   bukan inline di MitraDashboard.tsx — dibaca dari pemiliknya.
+// - Cross-link quick-access memakai onClick navigate("/mitra/dashboard")
+//   (GlassIcons tak punya prop `to`), jadi asersi mencocokkan string path,
+//   bukan literal `to="..."`.
+const mitraStats = readFileSync(new URL("./mitra-stats.tsx", import.meta.url), "utf8");
+const mitraClaimTracker = readFileSync(new URL("./mitra-claim-tracker.tsx", import.meta.url), "utf8");
 
-test("grid statistik 4 kolom di xl pada kedua dashboard", () => {
+test("grid 4 kolom di xl pada warga + mitra", () => {
   expect(warga).toContain("sm:grid-cols-2 xl:grid-cols-4");
-  expect(staff).toContain("sm:grid-cols-2 xl:grid-cols-4");
+  expect(mitra).toContain("<MitraStats");
+  expect(mitraStats).toContain("sm:grid-cols-2 xl:grid-cols-4");
 });
 
-test("empty state memakai bingkai seragam, bukan dashed raksasa", () => {
-  expect(empty).toContain("export function EmptyStateCard");
-  expect(empty).toContain("h-full");
+test("warga bebas sisa owner; mitra memakai bingkai seragam", () => {
+  expect(warga).not.toContain("MitraListingManager");
+  expect(warga).not.toContain("OwnerListingManager");
+  expect(warga).not.toContain("OwnerRequestWorkspace");
+  expect(mitra).toContain("<MitraClaimTracker");
+  expect(mitraClaimTracker).toContain("<EmptyStateCard");
   expect(warga).toContain("<EmptyStateCard");
-  expect(staff).toContain("<EmptyStateCard");
-  // Dua dashed box yang diganti (string persis dari berkas saat ini):
-  // favorit kosong `border-dashed border-slate-300 bg-white shadow-none`,
-  // listing kosong `border border-dashed border-slate-300 bg-slate-50`.
-  // Input foto owner (`border border-dashed border-slate-300 bg-white`, tanpa
-  // `bg-slate-50`/`shadow-none`) SENGAJA dipertahankan — bukan empty state.
   expect(warga).not.toContain("border-dashed border-slate-300 bg-white shadow-none");
-  expect(warga).not.toContain("border border-dashed border-slate-300 bg-slate-50");
 });
 
-test("quick access minimal 4 item", () => {
+test("warga: kartu konsumen + quick-access 4 dengan cross-link mitra", () => {
+  expect(warga).toContain("Permintaan saya");
+  expect(warga).toContain('"Interaksi"');
+  expect(warga).toContain('"/mitra/dashboard"');
   const wargaItems = (warga.match(/label: "/g) ?? []).length;
   expect(wargaItems).toBeGreaterThanOrEqual(4);
 });

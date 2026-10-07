@@ -45,3 +45,9 @@ test("posisi: tracker setelah manager sebelum gate; reviews di dalam gate", () =
   expect(src.indexOf("<MitraClaimTracker")).toBeLessThan(src.indexOf("<RequireMitraGate"));
   expect(src.indexOf("<MitraReviews")).toBeGreaterThan(src.indexOf("<RequireMitraGate"));
 });
+
+test("laporan listing tampil setelah tracker klaim, sebelum gerbang mitra", () => {
+  expect(src).toContain("<MitraReports");
+  expect(src.indexOf("<MitraReports")).toBeGreaterThan(src.indexOf("<MitraClaimTracker"));
+  expect(src.indexOf("<MitraReports")).toBeLessThan(src.indexOf("<RequireMitraGate"));
+});

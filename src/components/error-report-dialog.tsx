@@ -10,7 +10,9 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { AlertTriangle, CheckCircle2, LifeBuoy, Loader2, MessageCircle, ShieldAlert, X } from "lucide-react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogTitle } from "@/components/ui/dialog";
+import { DialogShell } from "@/components/status-dialog";
+import { resolveDialogVariant } from "@/lib/connection-status";
 import {
   closeErrorDialog,
   describeErrorDialog,
@@ -141,16 +143,20 @@ export function ErrorReportDialog() {
   // Selama tautan admin belum ditekan, dialog tidak boleh ditutup lewat
   // cara apa pun (X, Esc, klik luar): laporan harus diteruskan dulu.
   const locked = view.showWhatsapp;
+  // Tema mengikuti lokasi saat dialog dibuka (mount global di luar
+  // BrowserRouter, jadi baca pathname langsung — sama seperti StatusDialogHost).
+  const variant = resolveDialogVariant(
+    typeof window !== "undefined" && window.location ? window.location.pathname : "/",
+  );
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : locked ? undefined : closeErrorDialog())}>
-      <DialogContent
+      <DialogShell
+        variant={variant}
         showCloseButton={false}
         onEscapeKeyDown={(event) => {
           if (locked) event.preventDefault();
         }}
-        overlayClassName="dash-dialog-overlay"
-        className="dash-dialog-content max-w-[calc(100%-1.5rem)] overflow-hidden sm:max-w-md"
       >
         {/* Tanpa `pe-*`: tombol tutup di baris ini adalah elemen flex biasa
             (bukan `absolute` seperti milik primitif), jadi flexbox sendiri yang
@@ -255,7 +261,7 @@ export function ErrorReportDialog() {
             </button>
           ) : null}
         </div>
-      </DialogContent>
+      </DialogShell>
     </Dialog>
   );
 }

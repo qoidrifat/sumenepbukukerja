@@ -48,7 +48,7 @@ export type Vendor = {
   serviceRadiusKm?: number;
   ownerId?: string;
   businessId?: string;
-  reviewItems?: Array<{ _id: string; authorName: string; rating: number; body: string; createdAt: number }>;
+  reviewItems?: Array<{ _id: string; authorName: string; rating: number; body: string; createdAt: number; reply?: { body: string; createdAt: number; updatedAt?: number } }>;
   accent: string;
   mark: string;
   tags: string[];

@@ -1294,6 +1294,70 @@ export const addReview = mutation({
   },
 });
 
+/**
+ * Hak jawab pemilik usaha atas satu ulasan (right-of-reply).
+ *
+ * Satu balasan per ulasan; pemanggilan ulang = edit (`updatedAt` terisi,
+ * `createdAt` asli dipertahankan). Tanpa thread, tanpa hapus-khusus —
+ * penghapusan penyalahgunaan lewat audit log + peran staf yang sudah ada.
+ *
+ * Otorisasi: pemilik listing itu (`ownerId === userId`) ATAU staf non-viewer (viewer read-only, cermin seluruh sistem)
+ * (`getStaffAccess` — operasional). Listing harus `active`, cermin
+ * `addReview`: balasan pada listing arsip/draf ditolak.
+ */
+export const replyReview = mutation({
+  args: {
+    reviewId: v.id("reviews"),
+    body: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedUser(ctx);
+    const review = await ctx.db.get(args.reviewId);
+    if (!review) throw new Error("Ulasan tidak ditemukan");
+    const vendor = await ctx.db.get(review.vendorId);
+    if (!vendor || vendor.status !== "active") throw new Error("Listing tidak ditemukan");
+    const access = await getStaffAccess(ctx, userId);
+    if (vendor.ownerId !== userId && (!access || access.role === "viewer")) {
+      throw new Error("Hanya pemilik listing atau pengelola yang dapat membalas ulasan");
+    }
+    // Balasan harus ringkas (≤500, lebih pendek dari ulasan 600): ini
+    // tanggapan, bukan ulasan kedua. Normalisasi spasi cermin `addReview`.
+    const body = args.body.trim().replace(/\s+/g, " ");
+    if (!body) throw new Error("Balasan tidak boleh kosong");
+    if (body.length > 500) throw new Error("Balasan maksimal 500 karakter");
+    const now = Date.now();
+    const edited = Boolean(review.reply);
+    await ctx.db.patch(args.reviewId, {
+      reply: {
+        body,
+        createdAt: review.reply?.createdAt ?? now,
+        updatedAt: edited ? now : undefined,
+      },
+    });
+    await writeAudit(ctx, {
+      action: "review.replied",
+      actorId: userId,
+      vendorId: review.vendorId,
+      entityId: args.reviewId,
+      newValue: edited ? "edited" : "created",
+    });
+    // Penulis anonim (`authorId` kosong) tidak punya akun untuk diberi tahu —
+    // dilewati diam-diam, bukan error. Cermin pola notifikasi `updateReport`.
+    if (review.authorId) {
+      await ctx.db.insert("notifications", {
+        userId: review.authorId,
+        kind: `review_reply:${args.reviewId}`,
+        title: "Ulasan Anda dibalas",
+        body: `Pemilik ${vendor.name} membalas ulasan Anda.`,
+        vendorId: review.vendorId,
+        read: false,
+        createdAt: now,
+      });
+    }
+    return args.reviewId;
+  },
+});
+
 export const syncLocalFavorites = mutation({
   args: {
     items: v.array(

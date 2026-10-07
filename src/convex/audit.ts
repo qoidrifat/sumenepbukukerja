@@ -5,6 +5,7 @@ import type { DataModel } from "./_generated/dataModel";
 
 export type AuditAction =
   | "review.created"
+  | "review.replied"
   | "listing.created"
   | "listing.claim_submitted"
   | "listing.claim_approved"

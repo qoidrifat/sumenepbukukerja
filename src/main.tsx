@@ -12,6 +12,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import { useCatalogSeedBootstrap } from "@/lib/catalog-store";
 import { MascotLoader } from "@/components/mascot-loader";
 import { ErrorReportDialog, ErrorReportProvider } from "@/components/error-report-dialog";
+import { StatusDialogHost } from "@/components/status-dialog";
 import { getErrorReporter } from "@/lib/error-report-bus";
 import { reportErrorToServer } from "@/lib/error-reporter";
 import { ERROR_CODES } from "@/lib/error-reporting";
@@ -382,6 +383,7 @@ createRoot(document.getElementById("root")!).render(
         </BrowserRouter>
         <Toaster />
         <ErrorReportDialog />
+        <StatusDialogHost />
         </ErrorReportProvider>
       </ConvexAuthProvider>
     </RootErrorBoundary>

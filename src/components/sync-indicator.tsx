@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Cloud, RefreshCw, WifiOff } from "lucide-react";
 import { formatLastSync, syncNow, useOfflineQueue } from "@/lib/offline-queue";
+import { reportSyncStart } from "@/lib/connection-status";
 import { focusRing } from "@/lib/focus-ring";
 
 /**
@@ -24,10 +25,15 @@ export function SyncIndicator() {
     }
     if (syncing) return;
     setSyncing(true);
+    // Satu-satunya instrumentasi manual-sync task ini: tandai awal sync
+    // agar watchdog (useConnectionStatus) bisa menaikkan `silent` bila
+    // operasi tertunda > SILENT_TIMEOUT_MS padahal online.
+    const finishSyncTrack = reportSyncStart();
     try {
       const result = await syncNow();
       setMessage(result.remaining > 0 ? `${result.remaining} perubahan tertunda` : null);
     } finally {
+      finishSyncTrack();
       setSyncing(false);
     }
   };

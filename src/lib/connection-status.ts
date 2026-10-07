@@ -38,3 +38,48 @@ export function nextConnectionState(prev: ConnectionStatus, event: ConnectionEve
       return prev === "online" ? "silent" : prev;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Pelacakan manual-sync (Task S2)                                     */
+/* ------------------------------------------------------------------ */
+
+// Waktu mulai (Date.now) sinkronisasi manual yang sedang berjalan, atau
+// null bila tidak ada. Pola bus repo: module state + listener set — sama
+// seperti error-report-bus (satu nilai, emit ke listener, tanpa dependensi).
+// SATU-SATUNYA penulis adalah SyncIndicator yang memanggil reportSyncStart
+// mengelilingi syncNow. Auth/OTP TAK tersentuh di task ini — cakupan silent
+// alur auth adalah follow-up eksplisit, bukan diam-diam.
+
+let manualSyncStartAt: number | null = null;
+const syncListeners = new Set<() => void>();
+
+const emitSync = () => {
+  for (const listener of syncListeners) listener();
+};
+
+export function subscribeManualSync(listener: () => void): () => void {
+  syncListeners.add(listener);
+  return () => {
+    syncListeners.delete(listener);
+  };
+}
+
+export function getManualSyncStart(): number | null {
+  return manualSyncStartAt;
+}
+
+/**
+ * Tandai awal sinkronisasi manual; kembalikan cleanup yang menutupnya.
+ * Cleanup idempoten: dipanggil dua kali tetap satu emit tutup.
+ */
+export function reportSyncStart(): () => void {
+  manualSyncStartAt = Date.now();
+  emitSync();
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    manualSyncStartAt = null;
+    emitSync();
+  };
+}

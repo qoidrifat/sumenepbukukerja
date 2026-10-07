@@ -7,6 +7,7 @@ import {
   buildAdminDailySummaryMessage,
   buildAdminHandoffMessage,
   buildAdminWhatsappLink,
+  buildStatusHandoffMessage,
   isValidAdminNumber,
   maskAdminNumber,
 } from "./admin-whatsapp";
@@ -244,5 +245,93 @@ describe("Test E - hasil deterministik", () => {
     const changed = buildAdminDailySummaryMessage({ ...base, newRequests: 2 });
     expect(changed).not.toBe(buildAdminDailySummaryMessage(base));
     expect(buildAdminDailySummaryMessage(base)).toBe(buildAdminDailySummaryMessage({ ...base }));
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Test F - handoff status koneksi                                     */
+/* ------------------------------------------------------------------ */
+
+describe("Test F - pesan handoff status koneksi", () => {
+  const FORBIDDEN = [
+    "WHATSAPP_ACCESS_TOKEN",
+    "EAAG", // awalan access token Meta
+    "WHATSAPP_APP_SECRET",
+    "WHATSAPP_VERIFY_TOKEN",
+    "TWILIO_AUTH_TOKEN",
+    "otp",
+    "OTP",
+    "password",
+    "sandi",
+    "secret",
+    "ownerId",
+    "businessId",
+    "storageId",
+    "subscriptionTier",
+  ];
+
+  test("deterministik: input sama menghasilkan string yang persis sama", () => {
+    const input = { status: "silent" as const, detail: "Antrean kirim macet", date: "2026-10-07" };
+    const first = buildStatusHandoffMessage(input);
+    for (let i = 0; i < 25; i += 1) {
+      expect(buildStatusHandoffMessage(input)).toBe(first);
+    }
+  });
+
+  test("konteks di baris pertama, tanpa jam dan tanpa timestamp generated", () => {
+    for (const status of ["silent", "offline", "reconnecting"] as const) {
+      const text = buildStatusHandoffMessage({ status, detail: "uji", date: "2026-10-07" });
+      expect(text.split("\n")[0]).toBe("Buku Kerja - Status koneksi 2026-10-07");
+      expect(text).not.toMatch(/\d{2}:\d{2}/);
+    }
+  });
+
+  test("label jenis event jujur per status", () => {
+    expect(
+      buildStatusHandoffMessage({ status: "silent", detail: "uji", date: "2026-10-07" }),
+    ).toContain("Jenis event: Sistem tidak merespons");
+    expect(
+      buildStatusHandoffMessage({ status: "offline", detail: "uji", date: "2026-10-07" }),
+    ).toContain("Jenis event: Perangkat offline");
+    expect(
+      buildStatusHandoffMessage({ status: "reconnecting", detail: "uji", date: "2026-10-07" }),
+    ).toContain("Jenis event: Menyambung ulang");
+  });
+
+  test("detail disanitasi minimal: trim + collapse whitespace + potong 500 char", () => {
+    const messy = "  antrean\n\nmacet   berat\tsekali  ";
+    const text = buildStatusHandoffMessage({ status: "silent", detail: messy, date: "2026-10-07" });
+    expect(text).toContain("Detail: antrean macet berat sekali");
+    expect(text).not.toContain("  ");
+    expect(text).not.toContain("\t");
+
+    const long = "x".repeat(600);
+    const truncated = buildStatusHandoffMessage({ status: "silent", detail: long, date: "2026-10-07" });
+    const detailLine = truncated.split("\n").find((line) => line.startsWith("Detail:"));
+    expect(detailLine).toBe(`Detail: ${"x".repeat(500)}`);
+  });
+
+  test("pesan status tidak memuat akses, token, atau identitas internal", () => {
+    for (const status of ["silent", "offline", "reconnecting"] as const) {
+      const text = buildStatusHandoffMessage({
+        status,
+        detail: "Antrean kirim macet",
+        date: "2026-10-07",
+      });
+      for (const needle of FORBIDDEN) expect(text).not.toContain(needle);
+    }
+  });
+
+  test("tautan handoff status valid wa.me dan isi pulih utuh", () => {
+    const message = buildStatusHandoffMessage({
+      status: "offline",
+      detail: "Sinyal hilang",
+      date: "2026-10-07",
+    });
+    const link = buildAdminWhatsappLink(message);
+    expect(link.startsWith("https://wa.me/")).toBe(true);
+    const url = new URL(link);
+    expect(url.host).toBe("wa.me");
+    expect(url.searchParams.get("text")).toBe(message);
   });
 });

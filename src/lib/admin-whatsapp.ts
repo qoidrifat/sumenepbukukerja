@@ -104,6 +104,49 @@ export const buildAdminHandoffMessage = ({ title, body }: AdminHandoffInput): st
   `${title.trim()}\n\n${body.trim()}`;
 
 /**
+ * Input handoff status koneksi. `detail` berasal dari pemanggil (UI) —
+ * JANGAN pernah isi otomatis dengan stack trace, URL, atau token.
+ * `date` berasal dari pemanggil (pola `buildAdminDailySummaryMessage`),
+ * bukan dari `Date.now()`, supaya hasilnya deterministik.
+ */
+export type StatusHandoffInput = {
+  status: "silent" | "offline" | "reconnecting";
+  detail: string;
+  date: string;
+};
+
+/** Label jujur per status: klaim transisional/fakta, bukan klaim server. */
+const STATUS_LABEL = {
+  silent: "Sistem tidak merespons",
+  offline: "Perangkat offline",
+  reconnecting: "Menyambung ulang",
+} as const;
+
+/**
+ * Pesan handoff status koneksi. Deterministik: input sama -> string sama,
+ * tanpa jam dan tanpa timestamp generated di dalam.
+ *
+ * Sanitasi `detail` eksplisit MINIMAL: trim + collapse whitespace +
+ * potong 500 char. Tanpa regex kompleks, tanpa penambahan metadata internal.
+ *
+ * DOKTRIN HANDOFF (cermin modul ini): membuka tautan `wa.me` BUKAN bukti
+ * terkirim — tidak ada message ID, tidak ada status kiriman, tidak ada
+ * webhook balasan. Klik = niat kirim, bukan bukti terkirim. Dialog kritis
+ * membuka kunci tutup HANYA sesudah tap WA, dan teks di bawah menegaskan
+ * bahwa pengelola-lah yang menekan kirim.
+ */
+export const buildStatusHandoffMessage = ({ status, detail, date }: StatusHandoffInput): string => {
+  const clean = detail.trim().replace(/\s+/g, " ").slice(0, 500);
+  return [
+    `Buku Kerja - Status koneksi ${date}`,
+    `Jenis event: ${STATUS_LABEL[status]}`,
+    ...(clean ? [`Detail: ${clean}`] : []),
+    "Sumber: Buku Kerja (handoff WhatsApp manual)",
+    "Pesan disiapkan otomatis; pengelola yang menekan kirim.",
+  ].join("\n");
+};
+
+/**
  * Bangun URL handoff.
  *
  * `encodeURIComponent` dipakai utuh, bukan `URLSearchParams`, karena yang

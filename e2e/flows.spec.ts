@@ -23,13 +23,13 @@ test.describe("Skenario A — landing, autentikasi, dashboard", () => {
     await expect(page).toHaveTitle(/Buku Kerja/i);
 
     await page.goto("/dashboard");
-    // `RequireAuth` di /dashboard sengaja TIDAK mengubah URL: ia menampilkan
-    // kartu "Masuk" supaya pengunjung mengerti kenapa halaman ini kosong. Yang
-    // diuji adalah konsekuensinya — tujuan harus ikut terbawa ke /auth.
+    // `/dashboard` redirect (preservasi-hash) ke kanonis `/warga/dashboard`;
+    // `RequireAuth` di sana menampilkan kartu "Masuk", dan tujuan yang terbawa
+    // ke /auth adalah rute kanonisnya — bukan lagi `/dashboard` mentah.
     const signIn = page.getByRole("button", { name: /^Masuk$/ }).first();
     await expect(signIn).toBeVisible();
     await signIn.click();
-    await expect(page).toHaveURL(/\/auth\?returnTo=%2Fdashboard/);
+    await expect(page).toHaveURL(/\/auth\?returnTo=%2Fwarga%2Fdashboard/);
   });
 
   test("pendatang tanpa kredensial melihat halaman auth yang benar", async ({ page }) => {
@@ -97,7 +97,21 @@ test.describe("Skenario B — pelaporan error", () => {
     await expect(dialog).toContainText(/laporan|masalah|gangguan/i);
 
     // Popup harus bisa ditutup supaya pengguna tidak terjebak di layar ini.
-    await dialog.getByRole("button", { name: /Tutup/i }).first().click();
+    // Dialog BARU mengunci penutupan sampai laporan diteruskan via tautan
+    // admin ("Kirim ke admin"): X/Esc/klik-luar dimatikan dan tombol Tutup
+    // polos disembunyikan selama tautan belum ditekan (lihat `locked` di
+    // error-report-dialog.tsx — keputusan desain yang disengaja, bukan bug).
+    // Alur yang diuji: tautan ada -> klik (onClick mencatat adminShared) ->
+    // "Tutup Pesan" muncul -> tutup -> hilang.
+    await expect(
+      dialog.getByRole("button", { name: /^Tutup Pesan$/ }),
+    ).toBeHidden();
+    const waLink = dialog.getByRole("link", { name: /Kirim ke admin/i });
+    await expect(waLink).toBeVisible({ timeout: 15_000 });
+    await waLink.click();
+    const tutupPesan = dialog.getByRole("button", { name: /Tutup Pesan/i });
+    await expect(tutupPesan).toBeVisible({ timeout: 15_000 });
+    await tutupPesan.click();
     await expect(dialog).toBeHidden();
   });
 

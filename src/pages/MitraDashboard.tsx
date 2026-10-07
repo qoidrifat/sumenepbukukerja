@@ -2,6 +2,7 @@ import { Link } from "react-router";
 import { Plus, Store } from "lucide-react";
 import { MitraListingManager } from "@/components/mitra-listing-manager";
 import { MitraClaimTracker } from "@/components/mitra-claim-tracker";
+import { MitraReports } from "@/components/mitra-reports";
 import { MitraReviews } from "@/components/mitra-reviews";
 import { MitraStats } from "@/components/mitra-stats";
 import { RequireMitraGate } from "@/components/RequireMitraGate";
@@ -51,6 +52,8 @@ export default function MitraDashboard() {
         <div id="usaha-saya" className="scroll-mt-20"><MitraListingManager /></div>
 
         <MitraClaimTracker />
+
+        <MitraReports />
 
         <RequireMitraGate>
           <MitraReviews />

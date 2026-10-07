@@ -38,6 +38,7 @@ Legenda:
 | Catatan moderasi foto (`moderationNote`) | **Tidak** (sejak Fase 9) | Saja (pemilik) | Ya | Ya | Ya | plaintext |
 | Id pengelola pemoderasi (`moderatedBy`) | **Tidak** (sejak Fase 9) | Saja (pemilik) | Ya | Ya | Ya | plaintext |
 | Bukti usaha klaim (`evidenceStorageId`) | **Tidak** | Saja (pemilik) | Ya | Ya | Ya | storage bertanda tangan |
+| Laporan terhadap listing sendiri (`listMyVendorReports`, tanpa identitas pelapor) | **Tidak** | Saja (pemilik listing) | Ya | Ya | Ya | proyeksi query (identitas pelapor dibuang sebelum respons) |
 | Dokumen cadangan mingguan | **Tidak** | **Tidak** | **Tidak** | **Tidak** | **Tidak** | storage privat |
 | Email warga | **Tidak** | Saja (diri sendiri) | Tidak | Tidak | Saja (panel pengelola) | plaintext |
 | Email pengelola | **Tidak** | **Tidak** | Tidak | Ya (audit log) | Ya | plaintext + snapshot audit |

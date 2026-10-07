@@ -1625,3 +1625,35 @@ export const listReports = query({
     return [...open, ...reviewing].sort((a, b) => b.createdAt - a.createdAt);
   },
 });
+
+/**
+ * Laporan terhadap listing milik pemanggil (owner-scoped).
+ *
+ * Mitra melihat laporan yang masuk atas listingnya sendiri — alasan,
+ * rincian, dan status — supaya tahu ada masalah dan apakah sudah
+ * ditangani staf. Identitas pelapor (P3 internal) sengaja dibuang dari
+ * proyeksi di bawah dan tidak pernah keluar lewat query ini; staf tetap
+ * melihat semuanya lewat `listReports`.
+ *
+ * Tanpa perubahan skema/indeks: `byOwner` (milik) + `byVendor` (laporan)
+ * sudah ada. Laporan bertarget-request (`requestId` terisi) dikecualikan:
+ * itu ranah staf, dan barisnya memang tidak punya `vendorId`.
+ */
+export const listMyVendorReports = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const owned = await ctx.db.query("vendors").withIndex("byOwner", (q) => q.eq("ownerId", userId)).collect();
+    const names = new Map(owned.map((v) => [v._id, v.name]));
+    const out = [];
+    for (const vendor of owned) {
+      const rows = await ctx.db.query("reports").withIndex("byVendor", (q) => q.eq("vendorId", vendor._id)).order("desc").take(REPORT_SCAN);
+      for (const r of rows) {
+        if (r.requestId) continue; // bertarget-request: khusus staf
+        // Proyeksi eksplisit: pengenal pelapor sengaja dibuang di sini.
+        out.push({ _id: r._id, vendorId: r.vendorId, vendorName: names.get(r.vendorId ?? vendor._id) ?? "Listing", reason: r.reason, details: r.details, status: r.status, createdAt: r.createdAt, updatedAt: r.updatedAt });
+      }
+    }
+    return out.sort((a, b) => b.createdAt - a.createdAt);
+  },
+});

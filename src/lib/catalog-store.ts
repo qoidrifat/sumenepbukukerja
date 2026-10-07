@@ -778,6 +778,10 @@ export function useOpenReports() {
   return useQuery(api.community.listReports, {});
 }
 
+export function useVendorReports() {
+  return useQuery(api.community.listMyVendorReports, {});
+}
+
 export function useOwnerVendors() {
   const { isAuthenticated } = useConvexAuth();
   return useQuery(api.vendors.listForOwner, isAuthenticated ? {} : "skip") as VendorRecord[] | undefined;

@@ -38,11 +38,14 @@ test.describe("Skenario A — landing, autentikasi, dashboard", () => {
     // Fase 9.5: dua pintu yang tersisa adalah Google dan tombol di bawah
     // ini; dialog OTP baru ada setelah tombolnya ditekan.
     await expect(page.getByRole("button", { name: /Masuk dengan Google/i })).toBeVisible();
-    await page.getByRole("button", { name: /Gunakan Email/i }).click();
-    const dialog = page.getByRole("dialog").first();
-    await expect(dialog).toBeVisible({ timeout: 15_000 });
-    await expect(dialog.getByText(/Masuk dengan email/i)).toBeVisible();
-    await expect(dialog.getByLabel(/email/i)).toBeVisible();
+    // Fase 9.5+: pintu email adalah halaman penuh `/auth/email`, bukan dialog.
+    await page.getByRole("button", { name: /Masuk dengan Email/i }).click();
+    await expect(page).toHaveURL(/\/auth\/email/);
+    await expect(page.getByText(/Masuk ke Buku Kerja/i).first()).toBeVisible();
+    await expect(page.getByLabel(/email/i)).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Kirim OTP/i }),
+    ).toBeVisible();
   });
 
   test("masuk dan sampai ke dashboard", async ({ page }) => {
@@ -55,12 +58,11 @@ test.describe("Skenario A — landing, autentikasi, dashboard", () => {
       "Butuh E2E_USER_EMAIL (akun uji nyata di Keys/deployment) untuk meminta kode OTP",
     );
     await page.goto("/auth");
-    await page.getByRole("button", { name: /Gunakan Email/i }).click();
-    const dialog = page.getByRole("dialog").first();
-    await expect(dialog).toBeVisible({ timeout: 15_000 });
-    await dialog.getByLabel(/email/i).fill(authEmail!);
-    await dialog.getByRole("button", { name: /Kirim OTP/i }).click();
-    await expect(dialog.getByText(/Kode 6 digit/i)).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: /Masuk dengan Email/i }).click();
+    await expect(page).toHaveURL(/\/auth\/email/);
+    await page.getByLabel(/email/i).fill(authEmail!);
+    await page.getByRole("button", { name: /Kirim OTP/i }).click();
+    await expect(page.getByText(/Kode 6 digit/i)).toBeVisible({ timeout: 20_000 });
     test.skip(
       true,
       "Kode OTP hanya ada di kotak masuk akun uji; Playwright tidak bisa membacanya",
@@ -166,12 +168,11 @@ test.describe("Skenario D — dua sesi", () => {
       for (const context of [contextA, contextB]) {
         const p = await context.newPage();
         await p.goto("/auth");
-        await p.getByRole("button", { name: /Gunakan Email/i }).click();
-        const dialog = p.getByRole("dialog").first();
-        await expect(dialog).toBeVisible({ timeout: 15_000 });
-        await dialog.getByLabel(/email/i).fill(email!);
-        await dialog.getByRole("button", { name: /Kirim OTP/i }).click();
-        await expect(dialog.getByText(/Kode 6 digit/i)).toBeVisible({ timeout: 20_000 });
+        await p.getByRole("button", { name: /Masuk dengan Email/i }).click();
+        await expect(p).toHaveURL(/\/auth\/email/);
+        await p.getByLabel(/email/i).fill(email!);
+        await p.getByRole("button", { name: /Kirim OTP/i }).click();
+        await expect(p.getByText(/Kode 6 digit/i)).toBeVisible({ timeout: 20_000 });
       }
       test.skip(
         true,

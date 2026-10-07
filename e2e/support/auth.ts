@@ -29,6 +29,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const authEmail = process.env.E2E_USER_EMAIL;
 const adminPasscode = process.env.E2E_ADMIN_PASSCODE;
+const storageStateFile = process.env.E2E_STORAGE_STATE;
 
 /**
  * Alasan skip kalau email akun uji belum diisi.
@@ -46,6 +47,22 @@ export const SKIP_NO_INBOX =
   + "tidak bisa dibaca Playwright. Dialog + permintaan kode terbukti di "
   + "atas; sisanya OPEN - TEST INFRASTRUCTURE GAP (penerus F-17).";
 
+/**
+ * Alasan skip kalau tidak ada sesi yang bisa dipakai sama sekali.
+ *
+ * Beda dari `SKIP_NO_INBOX`: yang itu berhenti di tahap kode karena kotak
+ * masuknya tidak terbaca. Di sini yang dibutuhkan bukan kode, melainkan sesi
+ * yang SUDAH jadi - hasil login OTP sungguhan yang disimpan operator sebagai
+ * `storageState`, dan berkasnya wajib berada di luar version control
+ * (aturan 2 di atas). Tanpa sesi itu Playwright berhenti di gerbang
+ * `RequireAuth` dan hanya melihat kartu "Masuk untuk melanjutkan"; mengukur
+ * kartu itu bukan berarti mengukur halaman di baliknya.
+ */
+export const SKIP_NO_SESSION =
+  "Butuh E2E_STORAGE_STATE yang menunjuk berkas storageState sesi sungguhan "
+  + "di luar version control; tanpa itu Playwright tidak bisa melewati "
+  + "RequireAuth dan halaman yang diukur hanya kartu 'Masuk untuk melanjutkan'.";
+
 /** Alasan skip kalau gerbang passcode admin aktif tapi passcode-nya belum diisi. */
 export const SKIP_NO_PASSCODE =
   "Gerbang passcode admin aktif, tapi E2E_ADMIN_PASSCODE belum diisi. "
@@ -54,6 +71,19 @@ export const SKIP_NO_PASSCODE =
 
 export function hasCredentials(): boolean {
   return Boolean(authEmail);
+}
+
+/**
+ * Path berkas `storageState` yang disodorkan operator, kalau ada.
+ *
+ * Tidak ada nilai bawaan dan tidak ada path yang ditulis di source: berkas
+ * kredensial hanya dibaca dari disk kalau pemanggil yang menyebutkan
+ * lokasinya (aturan 2 di atas). Pemanggil yang tidak menyodorkannya tetap
+ * bisa menjalankan berkas spec-nya - bagian yang butuh sesi akan `skip`
+ * dengan pesan yang menyebut nama variabelnya.
+ */
+export function storageStatePath(): string | undefined {
+  return storageStateFile;
 }
 
 /**

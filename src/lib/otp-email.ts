@@ -2,6 +2,11 @@ export const OTP_TTL_MS = 600_000;
 export const RESEND_COOLDOWN_MS = 60_000;
 export const MAX_SENDS_PER_HOUR = 5;
 export const MAX_VERIFY_ATTEMPTS = 5;
+/** Batas yang sama untuk kode verifikasi nomor WhatsApp (inbound/outbound). */
+export const PHONE_CODE_TTL_MS = 600_000;
+export const PHONE_RESEND_COOLDOWN_MS = 60_000;
+export const PHONE_MAX_SENDS_PER_HOUR = 5;
+export const PHONE_MAX_VERIFY_ATTEMPTS = 5;
 export const OTP_FROM = "Sumenep Buku Kerja <noreply@sumenepbukukerja.com>";
 export const RESEND_ENDPOINT = "https://api.resend.com/emails";
 

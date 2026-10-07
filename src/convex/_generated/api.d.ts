@@ -26,6 +26,7 @@ import type * as offers from "../offers.js";
 import type * as otpEmail from "../otpEmail.js";
 import type * as phoneMigration from "../phoneMigration.js";
 import type * as phoneVault from "../phoneVault.js";
+import type * as profile from "../profile.js";
 import type * as securityIncidents from "../securityIncidents.js";
 import type * as securitySignal from "../securitySignal.js";
 import type * as storage from "../storage.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   otpEmail: typeof otpEmail;
   phoneMigration: typeof phoneMigration;
   phoneVault: typeof phoneVault;
+  profile: typeof profile;
   securityIncidents: typeof securityIncidents;
   securitySignal: typeof securitySignal;
   storage: typeof storage;

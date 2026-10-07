@@ -425,11 +425,13 @@ test("layar masuk ruang pengelola memakai tema ruang kerja", () => {
   // kuskus admin adalah tujuan, bukan sekadar URL yang sedang dibuka.
   expect(auth).toContain("isAdminDestination(redirect)");
   expect(auth).toContain("if (adminGateRequired) {");
-  // Layar buat sandi baru ikut bertema, termasuk lewat tautan email yang
-  // tidak membawa `returnTo`.
-  expect(auth).toContain("variant={adminGateRequired || adminIntent ?");
-  expect(auth).toContain("rememberAdminAuthIntent(redirect)");
-  expect(auth).toContain("consumeAdminAuthIntent()");
+  // Fase 9.6: tidak ada lagi popup OTP di tema mana pun — kedua tema
+  // menavigasi ke halaman `/auth/email` yang sama, bukan menggandakan
+  // dialog per varian.
+  expect(auth).not.toContain("admin-auth-intent");
+  expect(auth).not.toContain("ResetPasswordForm");
+  expect(auth).not.toContain("EmailOtpDialog");
+  expect(auth).toContain("/auth/email");
 });
 
 test("gelar pemilik hanya boleh ditulis di modulnya", () => {

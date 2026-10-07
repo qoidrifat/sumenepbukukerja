@@ -52,7 +52,7 @@ const focusRingModule = read("../lib/focus-ring.ts");
 /** Halaman yang pernah memuat tombol aksesibilitas. */
 const HALAMAN = [
   "../pages/Landing.tsx",
-  "../pages/Dashboard.tsx",
+  "../pages/WargaDashboard.tsx",
   "../pages/VendorProfile.tsx",
 ];
 
@@ -85,7 +85,7 @@ describe("Fase 9.1: keputusan mode tampilan", () => {
       "./community-notification-center.tsx",
       "../main.tsx",
       "../pages/Landing.tsx",
-      "../pages/Dashboard.tsx",
+      "../pages/WargaDashboard.tsx",
       "../pages/VendorProfile.tsx",
       "../pages/Admin.tsx",
     ]) {

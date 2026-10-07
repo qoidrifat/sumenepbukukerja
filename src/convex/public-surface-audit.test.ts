@@ -84,6 +84,10 @@ const INTENTIONAL_PUBLIC: Record<string, string> = {
     "Penghitung klik pada listing aktif. Hanya menambah satu field, sudah ada plafon per jam.",
   "vendors:recordSearch":
     "Pencatatan kata kunci pencarian. Maks 24 vendor per panggilan, sudah ada plafon per jam.",
+  "otpEmail:status":
+    "Probe konfigurasi OTP email. Hanya satu boolean ada/tidaknya kunci Resend, tidak memuat data dan tidak membocorkan kunci.",
+  "otpEmail:requestCode":
+    "Minta kode OTP sebelum masuk — pemanggilnya memang belum punya sesi. Respons seragam anti-enumeration, plafon 5/jam + cooldown 60 dtk per email.",
 };
 
 const CONVEX_DIR = fileURLToPath(new URL(".", import.meta.url));

@@ -143,5 +143,7 @@ test("tamu yang terkunci tidak diarahkan ke jalur yang sudah dihapus", () => {
   // yang dihapus itu.
   expect(markup).not.toMatch(/OTP/);
   // Yang boleh muncul hanya pintu masuk yang benar-benar hidup.
-  expect(markup).toContain("lewat Google atau lewat email dan sandi");
+  // Fase 9.5 menghapus masuk sandi total: "dan sandi" tidak boleh tersisa.
+  expect(markup).toContain("lewat Google atau lewat email");
+  expect(markup).not.toContain("dan sandi");
 });

@@ -122,6 +122,12 @@ describe("sitemap", () => {
     }
   });
 
+  test("dokumen hukum publik ikut terindeks (syarat dialog login)", () => {
+    const xml = buildSitemapXml({ origin: "https://contoh.test", vendors: [] });
+    expect(xml).toContain("<loc>https://contoh.test/kebijakan-privasi</loc>");
+    expect(xml).toContain("<loc>https://contoh.test/syarat-ketentuan</loc>");
+  });
+
   test("slug berisi karakter khusus di-escape, tidak dipotong diam-diam", () => {
     const xml = buildSitemapXml({
       origin: "https://contoh.test",

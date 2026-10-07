@@ -16,7 +16,6 @@ import { ADMIN_WHATSAPP_BASE_URL } from "../src/lib/admin-whatsapp";
  */
 
 const authEmail = process.env.E2E_USER_EMAIL;
-const authPassword = process.env.E2E_USER_PASSWORD;
 
 test.describe("Skenario A — landing, autentikasi, dashboard", () => {
   test("halaman publik terbuka, dan rute terlindungi menawarkan masuk sambil mempertahankan tujuan", async ({ page }) => {
@@ -24,44 +23,50 @@ test.describe("Skenario A — landing, autentikasi, dashboard", () => {
     await expect(page).toHaveTitle(/Buku Kerja/i);
 
     await page.goto("/dashboard");
-    // `RequireAuth` di /dashboard sengaja TIDAK mengubah URL: ia menampilkan
-    // kartu "Masuk" supaya pengunjung mengerti kenapa halaman ini kosong. Yang
-    // diuji adalah konsekuensinya — tujuan harus ikut terbawa ke /auth.
+    // `/dashboard` redirect (preservasi-hash) ke kanonis `/warga/dashboard`;
+    // `RequireAuth` di sana menampilkan kartu "Masuk", dan tujuan yang terbawa
+    // ke /auth adalah rute kanonisnya — bukan lagi `/dashboard` mentah.
     const signIn = page.getByRole("button", { name: /^Masuk$/ }).first();
     await expect(signIn).toBeVisible();
     await signIn.click();
-    await expect(page).toHaveURL(/\/auth\?returnTo=%2Fdashboard/);
+    await expect(page).toHaveURL(/\/auth\?returnTo=%2Fwarga%2Fdashboard/);
   });
 
   test("pendatang tanpa kredensial melihat halaman auth yang benar", async ({ page }) => {
     await page.goto("/auth");
     await expect(page.getByText(/Masuk ke Buku Kerja/i).first()).toBeVisible();
-    // F-17a: form email+sandi TIDAK langsung terbuka. Dua pintu yang tersisa
-    // adalah Google dan tombol di bawah ini; placeholder email baru ada
-    // setelah tombolnya ditekan. Bentuk lama (form langsung terbuka) sudah
-    // tidak ada sejak provider email-otp dihapus 2026-10-01.
+    // Fase 9.5: dua pintu yang tersisa adalah Google dan tombol di bawah
+    // ini; dialog OTP baru ada setelah tombolnya ditekan.
     await expect(page.getByRole("button", { name: /Masuk dengan Google/i })).toBeVisible();
-    await page.getByRole("button", { name: /Gunakan email dan sandi/i }).click();
-    await expect(page.getByPlaceholder("nama@email.com")).toBeVisible();
+    // Fase 9.5+: pintu email adalah halaman penuh `/auth/email`, bukan dialog.
+    await page.getByRole("button", { name: /Masuk dengan Email/i }).click();
+    await expect(page).toHaveURL(/\/auth\/email/);
+    await expect(page.getByText(/Masuk ke Buku Kerja/i).first()).toBeVisible();
+    await expect(page.getByLabel(/email/i)).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Kirim OTP/i }),
+    ).toBeVisible();
   });
 
   test("masuk dan sampai ke dashboard", async ({ page }) => {
+    // Fase 9.5: pintu sandi dihapus, jadi tidak ada lagi kredensial yang
+    // bisa diisi Playwright. Menyelesaikan OTP butuh kode dari kotak masuk
+    // akun uji. Yang dibuktikan di sini: kode bisa diminta sampai tahap
+    // kode tampil. Sisanya OPEN - TEST INFRASTRUCTURE GAP (penerus F-17).
     test.skip(
-      !authEmail || !authPassword,
-      "Butuh E2E_USER_EMAIL + E2E_USER_PASSWORD (akun uji nyata di Keys/deployment)",
+      !authEmail,
+      "Butuh E2E_USER_EMAIL (akun uji nyata di Keys/deployment) untuk meminta kode OTP",
     );
     await page.goto("/auth");
-    // F-17a: buka dulu form email+sandi; ia tidak langsung terlihat.
-    await page.getByRole("button", { name: /Gunakan email dan sandi/i }).click();
-    await page.getByPlaceholder("nama@email.com").fill(authEmail!);
-    // Kolom password memakai `type` bergantian; labelnya yang dipakai, bukan
-    // placeholder, supaya tidak ikut berubah saat komponennya berubah.
-    await page.locator('input[type="password"]').first().fill(authPassword!);
-    // Label kendali submit adalah "Masuk"; "Masuk ke Buku Kerja" adalah judul
-    // kartu, bukan tombol.
-    await page.getByRole("button", { name: /^Masuk$/ }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
-    await expect(page.getByRole("heading").first()).toBeVisible();
+    await page.getByRole("button", { name: /Masuk dengan Email/i }).click();
+    await expect(page).toHaveURL(/\/auth\/email/);
+    await page.getByLabel(/email/i).fill(authEmail!);
+    await page.getByRole("button", { name: /Kirim OTP/i }).click();
+    await expect(page.getByText(/Kode 6 digit/i)).toBeVisible({ timeout: 20_000 });
+    test.skip(
+      true,
+      "Kode OTP hanya ada di kotak masuk akun uji; Playwright tidak bisa membacanya",
+    );
   });
 });
 
@@ -94,7 +99,21 @@ test.describe("Skenario B — pelaporan error", () => {
     await expect(dialog).toContainText(/laporan|masalah|gangguan/i);
 
     // Popup harus bisa ditutup supaya pengguna tidak terjebak di layar ini.
-    await dialog.getByRole("button", { name: /Tutup/i }).first().click();
+    // Dialog BARU mengunci penutupan sampai laporan diteruskan via tautan
+    // admin ("Kirim ke admin"): X/Esc/klik-luar dimatikan dan tombol Tutup
+    // polos disembunyikan selama tautan belum ditekan (lihat `locked` di
+    // error-report-dialog.tsx — keputusan desain yang disengaja, bukan bug).
+    // Alur yang diuji: tautan ada -> klik (onClick mencatat adminShared) ->
+    // "Tutup Pesan" muncul -> tutup -> hilang.
+    await expect(
+      dialog.getByRole("button", { name: /^Tutup Pesan$/ }),
+    ).toBeHidden();
+    const waLink = dialog.getByRole("link", { name: /Kirim ke admin/i });
+    await expect(waLink).toBeVisible({ timeout: 15_000 });
+    await waLink.click();
+    const tutupPesan = dialog.getByRole("button", { name: /Tutup Pesan/i });
+    await expect(tutupPesan).toBeVisible({ timeout: 15_000 });
+    await tutupPesan.click();
     await expect(dialog).toBeHidden();
   });
 
@@ -122,47 +141,43 @@ test.describe("Skenario B — pelaporan error", () => {
 
 test.describe("Skenario D — dua sesi", () => {
   const email = process.env.E2E_USER_EMAIL;
-  const password = process.env.E2E_USER_PASSWORD;
 
   test("masuk di dua perangkat, lalu cabut satu sesi", async ({ page, browser }) => {
-    // CATATAN FASE 9.2 (DIPERBARUI).
+    // CATATAN FASE 9.5.
     //
-    // Keterangan yang lebih lama di sini sudah tidak berlaku. Dulu diklaim
-    // proyek ini tidak punya autentikasi sandi sama sekali, sehingga test ini
-    // tidak mungkin hijau. Itu benar waktu itu: yang ada hanya `anonymous` dan
-    // `emailOtp`, dan `emailOtp` sendiri sudah dihapus pada 2026-10-01.
-    //
-    // Sekarang provider `firebase` (lihat `src/convex/auth/firebase.ts`)
-    // memberi jalur email + sandi yang TIDAK butuh mailbox uji - syarat yang
-    // tadinya jadi penghalang F-17. Jadi penghalangnya bergeser, bukan hilang:
-    // yang dibutuhkan sekarang adalah satu akun uji di Firebase, plus
-    // `E2E_USER_EMAIL` dan `E2E_USER_PASSWORD` yang menunjuk akun itu, dan
-    // test di bawah harus diisi lewat form sandi Firebase - bukan
-    // `getByLabel(/sandi|password/i)` yang menunjuk isian di layar yang salah,
-    // karena layar OTP sudah tidak ada.
+    // Pintu sandi dihapus total, jadi tidak ada lagi kredensial yang bisa
+    // diisi Playwright: Google butuh interaksi, OTP butuh kotak masuk.
+    // Statusnya tetap `OPEN - TEST INFRASTRUCTURE GAP` (penerus F-17):
+    // yang dibutuhkan sekarang adalah akses baca ke kotak masuk akun uji
+    // (atau hook kode-uji), dan test di bawah harus diisi lewat dialog OTP -
+    // bukan form sandi yang sudah tidak ada.
     //
     // Test ini sengaja TIDAK diubah sekarang. Menghijaukan test dengan
     // menebak-nebak alur login baru akan menghasilkan test yang lulus tanpa
-    // pernah menguji apa yang seharusnya diuji. Statusnya tetap
-    // `OPEN - TEST INFRASTRUCTURE GAP` (F-17), tapi penghalangnya sekarang
-    // credential uji, bukan arsitektur.
+    // pernah menguji apa yang seharusnya diuji.
     test.skip(
-      !email || !password,
-      "Butuh akun uji Firebase (email + sandi) untuk dua sesi; alur test belum ditulis ulang",
+      !email,
+      "Butuh E2E_USER_EMAIL + akses kotak masuk akun uji; alur test belum ditulis ulang untuk OTP",
     );
-    // Dua konteks = dua perangkat. Sesi B dicabut dari perangkat B, lalu
-    // perangkat A harus tetap sahih.
+    // Dua konteks = dua perangkat. Masing-masing meminta kode OTP; sesi
+    // penuh butuh kode dari kotak masuk (lihat skip di bawah), lalu sesi B
+    // dicabut dari perangkat B dan perangkat A harus tetap sahih.
     const contextA = await browser.newContext();
     const contextB = await browser.newContext();
     try {
       for (const context of [contextA, contextB]) {
         const p = await context.newPage();
         await p.goto("/auth");
+        await p.getByRole("button", { name: /Masuk dengan Email/i }).click();
+        await expect(p).toHaveURL(/\/auth\/email/);
         await p.getByLabel(/email/i).fill(email!);
-        await p.getByLabel(/sandi|password/i).fill(password!);
-        await p.getByRole("button", { name: /Masuk/i }).first().click();
-        await p.waitForURL(/dashboard|\/$/, { timeout: 20_000 });
+        await p.getByRole("button", { name: /Kirim OTP/i }).click();
+        await expect(p.getByText(/Kode 6 digit/i)).toBeVisible({ timeout: 20_000 });
       }
+      test.skip(
+        true,
+        "Kode OTP hanya ada di kotak masuk akun uji; pencabutan sesi belum bisa diuji E2E",
+      );
 
       const pageB = contextB.pages()[0]!;
       await pageB.goto("/dashboard");

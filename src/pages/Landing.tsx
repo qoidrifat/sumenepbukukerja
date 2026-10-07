@@ -27,11 +27,13 @@ import {
 import { categoryOptions, landmarkLabel, landmarks, type Category, type Vendor } from "@/lib/catalog";
 import { useCatalogActions, useCatalogVendors, useFavorites } from "@/lib/catalog-store";
 import { categoryActionLabel, distanceFilterOptions, distanceKmBetween, distanceLabel, isOpenNow, needSuggestions, searchByNeed } from "@/lib/catalog-data";
+import { useAuth } from "@/hooks/use-auth";
 import { useUserLocation, type UserLocation, type UserLocationStatus } from "@/hooks/use-user-location";
 import { recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useContactHandoff } from "@/lib/contact-handoff";
 import { CodedBrowser, CodedLogoOrbit } from "@/components/codedvisuals";
 import { CategoryMascot, CategoryMascotStage } from "@/components/category-mascot";
+import { AccountMenu } from "@/components/account-menu";
 import { BrandMascot } from "@/components/brand-mascot";
 import { AvailabilityBadge, CompareTray, RequestBoard } from "@/components/community-widgets";
 import SiteFooter from "@/components/site-footer";
@@ -115,6 +117,7 @@ function WhatsAppButton({ vendor, className = "" }: { vendor: Vendor; className?
 }
 
 function TopNav({ active = "Beranda" }: { active?: string }) {
+  const { isAuthenticated } = useAuth();
   const links = [
     { label: "Beranda", icon: Home, to: "/" },
     { label: "Katalog Usaha", icon: Store, to: "/#katalog" },
@@ -149,14 +152,18 @@ function TopNav({ active = "Beranda" }: { active?: string }) {
             </a>
           ))}
         </nav>
-        <a
-          href="#katalog"
-          aria-label="Cari jasa"
-          className="header-cta inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-base font-extrabold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 lg:px-5"
-        >
-          <Search className="size-4 shrink-0" aria-hidden="true" />
-          <span className="hidden min-[420px]:inline">Cari jasa</span>
-        </a>
+        {isAuthenticated ? (
+          <AccountMenu />
+        ) : (
+          <a
+            href="#katalog"
+            aria-label="Cari jasa"
+            className="header-cta inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-base font-extrabold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 lg:px-5"
+          >
+            <Search className="size-4 shrink-0" aria-hidden="true" />
+            <span className="hidden min-[420px]:inline">Cari jasa</span>
+          </a>
+        )}
       </div>
     </header>
   );
@@ -309,7 +316,9 @@ function Hero({ onBrowse, vendorCount }: { onBrowse: () => void; vendorCount: nu
       <div className="mx-auto grid max-w-[1600px] items-center gap-10 px-4 py-10 sm:px-6 sm:py-14 lg:grid-cols-[1.05fr_.95fr] lg:gap-16 lg:px-10 lg:py-20">
         <div>
           <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-extrabold text-blue-700">
-            <span className="flex size-5 items-center justify-center rounded-full bg-blue-600 text-xs text-white">✓</span>
+            <span className="flex size-5 items-center justify-center rounded-full bg-blue-600 text-white">
+              <Check className="size-3" strokeWidth={3} aria-hidden="true" />
+            </span>
             Katalog lokal warga Sumenep
           </div>           <h1 className="max-w-2xl text-[clamp(2.2rem,6vw,4.8rem)] font-black leading-[0.98] tracking-[-0.065em] text-slate-950">Kebutuhan harian,<br /><span className="relative inline-block text-blue-600"><ShinyText text="dekat rumah." color="#2563eb" shineColor="#93c5fd" speed={4} /><span className="absolute -bottom-1 left-1 h-2 w-[92%] -rotate-1 rounded-full bg-amber-200/80" aria-hidden="true" /></span></h1>
           <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600 sm:text-xl">Buku kerja kecil untuk menemukan jasa, usaha, dan orang terdekat di sekitar Sumenep. Tanpa akun, tanpa aplikasi tambahan — langsung chat lewat WhatsApp.</p>
@@ -330,34 +339,58 @@ function Hero({ onBrowse, vendorCount }: { onBrowse: () => void; vendorCount: nu
            </p>
         </div>
         <div className="relative min-h-[390px] sm:min-h-[470px]">
+          {/* Lembar kertas di belakang sampul. Insets dan rotasinya sudah
+              disetel supaya sisinya rata dengan sampul dan yang terlihat
+              hanya sudut yang terpotong radius sampul. */}
           <div className="absolute inset-2 rotate-2 rounded-2xl border border-amber-200 bg-amber-50/80" aria-hidden="true" />
-          <div className="relative h-full overflow-hidden rounded-2xl border border-blue-200 bg-[#eaf1ff] p-4 shadow-sm sm:p-6">
-            <div className="relative h-full rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-1 pb-3">
-                <div>
-                  <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-blue-600">Buku kerja digital</p>
-                  <p className="mt-1 text-lg font-black text-slate-950">Cari usaha di sekitar Anda</p>
+
+          {/* Sampul biru: radius 26 dengan padding 10 px, jadi halaman di
+              dalamnya memakai radius 16 = 26 - 10 dan kedua sudut itu benar-
+              benar konsentris. */}
+          <div className="relative flex h-full flex-col overflow-hidden rounded-[26px] border border-blue-200/90 bg-[#eaf1ff] p-2.5 shadow-[0_1px_2px_rgb(15_23_42/6%),0_30px_55px_-32px_rgb(37_99_235/60%)]">
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(158deg,#f5f8ff_0%,#e9f0ff_45%,#dce6ff_100%)] shadow-[inset_0_1px_0_rgb(255_255_255/85%)]" aria-hidden="true" />
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(rgb(37_99_235/7%)_1px,transparent_1px)] [background-size:16px_16px]" aria-hidden="true" />
+
+            <div className="relative flex grow flex-col overflow-hidden rounded-[16px] border border-slate-200/90 bg-white shadow-[0_1px_2px_rgb(15_23_42/5%)]">
+              <div className="flex items-start justify-between gap-3 px-4 pb-3.5 pt-4 sm:px-5 sm:pt-5">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.16em] text-blue-700">
+                    <span className="h-px w-6 shrink-0 bg-amber-400" aria-hidden="true" />
+                    Buku kerja digital
+                  </p>
+                  <p className="mt-2 text-[1.375rem] font-black leading-[1.12] tracking-[-0.035em] text-slate-950 sm:text-2xl">Cari usaha di sekitar Anda</p>
                 </div>
-                <div className="flex size-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+                {/* Gradiennya tetap di dua biru gelap: putih di atas #2563eb
+                    masih 5,2:1, sementara #3b82f6 hanya 3,7:1. */}
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-[15px] border border-blue-800/25 bg-[linear-gradient(158deg,#2563eb,#1e40af)] text-white shadow-[inset_0_1px_0_rgb(255_255_255/30%),0_10px_20px_-10px_rgb(30_64_175/85%)]">
                   <MapPin className="size-5" aria-hidden="true" />
-                </div>
+                </span>
               </div>
-              <CodedBrowser
-                url="/#katalog"
-                animated
-                trigger="inView"
-                variant="landing"
-                gradient
-                className="mt-2 h-[19rem] sm:h-[22rem]"
-              />
-              <div className="mt-1 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
-                <span className="text-xl" aria-hidden="true">💬</span>
-                <p className="text-sm font-bold leading-6 text-slate-700 sm:text-base">Pilih usaha → tanya harga → chat langsung.</p>
+              {/* `grow` + `items-center` membuat mock tetap di tengah kalau
+                  kartu lebih tinggi dari isinya, tanpa mengunci tinggi lewat
+                  angka tetap seperti sebelumnya. */}
+              <div className="flex grow items-center px-4 sm:px-5">
+                <CodedBrowser
+                  url="/#katalog"
+                  animated
+                  trigger="inView"
+                  variant="landing"
+                  gradient
+                />
+              </div>
+              {/* Pita baca menyentuh tepi halaman, jadi sudut bawahnya
+                  mengikuti radius halaman tanpa radius tambahan. */}
+              <div className="flex items-center gap-3 border-t border-amber-200/80 bg-amber-50/80 px-4 py-3 sm:px-5">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-[11px] border border-amber-300/70 bg-white text-amber-700 shadow-[0_1px_2px_rgb(15_23_42/6%)]">
+                  <MessageCircle className="size-[18px]" aria-hidden="true" />
+                </span>
+                <p className="text-[13px] font-bold leading-5 text-slate-700 sm:text-sm">Pilih usaha <span className="text-slate-500">→</span> tanya harga <span className="text-slate-500">→</span> chat langsung.</p>
               </div>
             </div>
           </div>
-          <div className="absolute -bottom-3 left-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-extrabold text-slate-700 shadow-sm sm:-left-3">
-            <span className="mr-1 text-blue-600">●</span> <Counter value={vendorCount} className="text-slate-950" /> usaha siap membantu
+          <div className="absolute -bottom-3 left-1 flex items-center gap-2 rounded-[14px] border border-slate-200 bg-white px-3 py-2 text-[13px] font-extrabold text-slate-700 shadow-[0_14px_30px_-18px_rgb(15_23_42/60%)] sm:-left-3 sm:text-sm">
+            <span className="size-2 shrink-0 rounded-full bg-blue-600 ring-4 ring-blue-100" aria-hidden="true" />
+            <Counter value={vendorCount} className="text-slate-950" /> usaha siap membantu
           </div>
         </div>
       </div>

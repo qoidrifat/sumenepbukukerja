@@ -37,6 +37,7 @@ import {
   phoneKeyMaterial,
   phoneLookupKey,
 } from "../lib/phone-crypto";
+import { PHONE_MAX_VERIFY_ATTEMPTS, sha256Hex } from "../lib/otp-email";
 
 type Ctx = GenericMutationCtx<DataModel> | GenericQueryCtx<DataModel>;
 
@@ -148,4 +149,79 @@ export const findByPhoneKey = async (
     .first();
   if (!legacy) return null;
   return { row: legacy, phone: legacyPhone };
+};
+
+/**
+ * Tulis nomor terverifikasi: enkripsi + stempel, flags lain tetap.
+ *
+ * Dipakai klaim inbound webhook dan penyimpanan profil supaya keduanya
+ * sepakat tentang arti "terverifikasi". Nomor lain tidak ikut tersentuh.
+ */
+export const storeVerifiedPhone = async (
+  db: GenericMutationCtx<DataModel>["db"],
+  userId: DataModel["users"]["document"]["_id"],
+  phone: string,
+  now: number,
+): Promise<void> => {
+  const stored = await preparePhone(phone);
+  const phoneFields = {
+    whatsappPhoneEnc: stored.enc,
+    whatsappPhoneKey: stored.key,
+    whatsappPhone: undefined,
+    whatsappVerifiedAt: now,
+  };
+  const prefs = await db
+    .query("notificationPreferences")
+    .withIndex("byUser", (q) => q.eq("userId", userId))
+    .unique();
+  if (prefs) {
+    await db.patch(prefs._id, { ...phoneFields, updatedAt: now });
+  } else {
+    await db.insert("notificationPreferences", {
+      userId,
+      whatsappUpdates: false,
+      areaUpdates: false,
+      requestUpdates: false,
+      ...phoneFields,
+      updatedAt: now,
+    });
+  }
+};
+
+/**
+ * Klaim kode verifikasi inbound dari webhook.
+ *
+ * Pengirim membuktikan kepemilikan nomor dengan mengirimkan kode yang
+ * diterbitkan `profile.requestInboundCode` (mis. `K-4829`) dari nomor itu
+ * sendiri. Bentuk kode disengaja beda dari OTP email 6 digit supaya
+ * keduanya tidak tertukar di log maupun pikiran pengguna.
+ *
+ * Aturan: bukan kode → abaikan; nomor pengirim beda dari nomor yang
+ * diminta → abaikan TANPA dihitung (mencegah pembakaran oleh pengirim
+ * asing); hash cocok + nomor sama → bakar sekali pakai, simpan nomor
+ * terverifikasi. Brute force tidak ekonomis: tiap tebakan adalah satu
+ * pesan WhatsApp sungguhan dan kode hangus dalam 10 menit.
+ */
+export const claimInboundVerificationCode = async (
+  db: GenericMutationCtx<DataModel>["db"],
+  phone: string,
+  body: string,
+  now: number,
+): Promise<{ verified: boolean }> => {
+  const cleaned = body.trim().toUpperCase();
+  if (!/^K-[A-Z0-9]{4}$/.test(cleaned)) return { verified: false };
+  const codeHash = await sha256Hex(cleaned);
+  const row = await db
+    .query("phoneVerificationCodes")
+    .withIndex("byCodeHash", (q) => q.eq("codeHash", codeHash))
+    .first();
+  if (!row || row.consumedAt || now > row.expiresAt) return { verified: false };
+  if (row.attempts >= PHONE_MAX_VERIFY_ATTEMPTS) {
+    await db.patch(row._id, { consumedAt: now });
+    return { verified: false };
+  }
+  if (row.phone !== phone) return { verified: false };
+  await db.patch(row._id, { consumedAt: now, attempts: row.attempts + 1 });
+  await storeVerifiedPhone(db, row.userId, row.phone, now);
+  return { verified: true };
 };

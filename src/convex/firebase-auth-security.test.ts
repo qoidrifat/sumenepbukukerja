@@ -57,6 +57,9 @@ const VERIFIED = {
   sub: "firebase-uid-abc123",
   email: "Warga.Sumenep@Gmail.com",
   email_verified: true,
+  // Asal kredensial menurut ID token Firebase. Fase 9.5 hanya menerima
+  // Google; nilai lain (termasuk tidak ada) harus ditolak.
+  firebase: { sign_in_provider: "google.com" },
   name: "Warga Sumenep",
   picture: "https://example.test/photo.jpg",
 };
@@ -105,6 +108,54 @@ describe("Fase 9.2: klaim yang sudah terverifikasi signature-nya", () => {
 
   test("tanpa email, masuk ditolak walau email_verified true", () => {
     expect(() => identityFromClaims({ ...VERIFIED, email: "" })).toThrow(/verifikasi email/i);
+  });
+
+  test("token provider sandi ditolak walau signature-nya sah", () => {
+    // FASE 9.5. Token akun sandi lama VALID secara signature (project sama,
+    // issuer/audience cocok), jadi tanpa gerbang ini penghapusan UI hanya
+    // kosmetik: `signIn("firebase", { token })` tetap menerbitkan sesi.
+    // `identityFromClaims` hanya menerima klaim yang SUDAH terverifikasi,
+    // jadi test ini tepat menggambarkan gerbangnya: klaim password masuk,
+    // identitas tidak keluar.
+    expect(() =>
+      identityFromClaims({
+        ...VERIFIED,
+        firebase: { sign_in_provider: "password" },
+      }),
+    ).toThrow(/sudah tidak dipakai/i);
+  });
+
+  test("klaim firebase yang hilang atau bukan string ditolak tertutup", () => {
+    // Klaim karangan tidak boleh lolos karena bentuknya tak dikenal.
+    const withoutProvider = Object.fromEntries(
+      Object.entries(VERIFIED).filter(([key]) => key !== "firebase"),
+    );
+    expect(() => identityFromClaims(withoutProvider)).toThrow(/sudah tidak dipakai/i);
+    expect(() =>
+      identityFromClaims({ ...VERIFIED, firebase: { sign_in_provider: 42 } }),
+    ).toThrow(/sudah tidak dipakai/i);
+    expect(() =>
+      identityFromClaims({ ...VERIFIED, firebase: "google.com" }),
+    ).toThrow(/sudah tidak dipakai/i);
+  });
+
+  test("penolakan provider menyebut pintu hidup, bukan isi klaim", () => {
+    let caught: Error | null = null;
+    try {
+      identityFromClaims({
+        ...VERIFIED,
+        firebase: { sign_in_provider: "password" },
+      });
+    } catch (error) {
+      caught = error as Error;
+    }
+    // Menyebut pintu yang hidup (Google, OTP) supaya bisa ditindaklanjuti;
+    // tidak menyebut provider yang ditolak, uid, atau email dari klaim.
+    expect(caught?.message).toContain("Google");
+    expect(caught?.message).toContain("OTP");
+    expect(caught?.message).not.toContain("password");
+    expect(caught?.message).not.toContain("firebase-uid-abc123");
+    expect(caught?.message).not.toContain("warga.sumenep@gmail.com");
   });
 });
 
@@ -210,6 +261,25 @@ describe("Fase 9.2: registrasi provider", () => {
     const source = readFileSync(SOURCE, "utf8");
     expect(source).not.toContain("email-otp");
     expect(source).not.toContain("emailOtp");
+  });
+
+  test("provider otp-email terdaftar sebagai pengganti resmi (Fase 9.5)", () => {
+    // Larangan `email-otp` di atas TETAP: itu provider lama berkredensial
+    // milik platform lain. Yang diizinkan di sini hanya penerusnya yang
+    // kuncinya milik sendiri (`RESEND_API_KEY`), terdaftar di `auth.ts`.
+    const otpEmailSource = readFileSync(new URL("./auth/otpEmail.ts", import.meta.url), "utf8");
+    expect(otpEmailSource).toContain('"otp-email"');
+    const authSource = readFileSync(new URL("./auth.ts", import.meta.url), "utf8");
+    expect(authSource).toContain("otpEmail");
+  });
+
+  test("komentar auth.ts tidak lagi menunjuk sandi sebagai pintu pengganti (Fase 9.5)", () => {
+    // Masuk email-sandi dihapus total di Fase 9.5. Komentar yang masih
+    // menyebutnya sebagai "jalur yang menggantikan" akan mengirim pembaca
+    // ke pintu yang sudah tidak ada - persis jalan buntu yang dihapus itu.
+    const authSource = readFileSync(new URL("./auth.ts", import.meta.url), "utf8");
+    expect(authSource).not.toContain("Email/Sandi");
+    expect(authSource).toContain("9.5");
   });
 
   test("sumber tidak memuat project id atau token sebagai literal", () => {

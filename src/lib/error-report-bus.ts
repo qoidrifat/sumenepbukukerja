@@ -25,6 +25,14 @@ export type ErrorDialogView = {
   showReportId: boolean;
   showDetail: boolean;
   showRetry: boolean;
+  /** True bila tautan handoff WhatsApp ke admin sudah siap dipakai. */
+  showWhatsapp: boolean;
+  /**
+   * True bila pengguna sudah menekan "Kirim ke admin": tombol WA diganti
+   * "Tutup Pesan" selebar penuh. Tidak ada jalan tutup sebelum ini —
+   * laporan harus diteruskan dulu.
+   */
+  showTutupPesan: boolean;
   busy: boolean;
 };
 
@@ -36,6 +44,8 @@ export const describeErrorDialog = (state: ErrorDialogState): ErrorDialogView =>
       showReportId: false,
       showDetail: false,
       showRetry: false,
+      showWhatsapp: false,
+      showTutupPesan: false,
       busy: false,
     };
   }
@@ -66,6 +76,8 @@ export const describeErrorDialog = (state: ErrorDialogState): ErrorDialogView =>
     showReportId: Boolean(state.reportId),
     showDetail: Boolean(state.detail),
     showRetry: state.canRetry,
+    showWhatsapp: Boolean(state.adminWhatsappUrl) && !state.adminShared,
+    showTutupPesan: Boolean(state.adminWhatsappUrl) && Boolean(state.adminShared),
     busy: state.phase === "reporting",
   };
 };
@@ -83,6 +95,20 @@ export type ErrorDialogState = {
   occurredAt: number;
   canRetry: boolean;
   onRetry?: () => void;
+  /**
+   * Tautan handoff `wa.me` ke nomor admin dengan pesan alert premium yang
+   * sudah terisi. Hanya ada bila laporan tercatat (ada reportId): tanpa ID,
+   * admin tidak bisa menelusuri apa pun. Disiapkan oleh `reportAndNotify`,
+   * bukan oleh komponen — komponen hanya menggambarnya.
+   */
+  adminWhatsappUrl?: string;
+  /**
+   * True setelah pengguna menekan tautan handoff (tab WhatsApp dibuka).
+   * Pengiriman aktual di aplikasi WhatsApp tidak terdeteksi dari sini
+   * (`wa.me` tidak memberi callback), jadi klik = niat kirim. Diset oleh
+   * komponen lewat `patchErrorDialog`, bukan oleh pelapor.
+   */
+  adminShared?: boolean;
 };
 
 const CLOSED: ErrorDialogState = {

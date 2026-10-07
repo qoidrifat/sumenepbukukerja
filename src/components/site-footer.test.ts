@@ -115,21 +115,31 @@ describe("tautan footer", () => {
   });
 
   test("tidak mengarang halaman hukum, sosial, atau kontak", () => {
-    // Tidak ada route hukum di proyek ini. Menampilkannya sebagai tautan
-    // akan jadi janji yang tidak bisa ditepati.
+    // Dua dokumen hukum BETUL-BETUL ada (dibutuhkan dialog login dan
+    // rincian aplikasi): /kebijakan-privasi dan /syarat-ketentuan. Yang
+    // tetap dilarang adalah halaman yang tidak ada rutenya.
     const daftarPath = [...routerSource.matchAll(/path="([^"]*)"/g)].map((m) => m[1]);
+    const KNOWN_LEGAL = ["/kebijakan-privasi", "/syarat-ketentuan"];
     for (const p of daftarPath) {
-      expect(p).not.toMatch(/privasi|privacy|syarat|terms|kebijakan|cookie|bantuan|hubungi/i);
+      if (KNOWN_LEGAL.includes(p)) continue;
+      expect(p).not.toMatch(/privacy|syarat|terms|kebijakan|cookie|bantuan|hubungi/i);
     }
+    // Kecualikan dua rute yang memang terdaftar: uji keberadaannya di sini.
+    expect(daftarPath).toContain("/kebijakan-privasi");
+    expect(daftarPath).toContain("/syarat-ketentuan");
     for (const karangan of [
-      "Kebijakan Privasi",
-      "Syarat dan Ketentuan",
       "Kebijakan Cookie",
       "Hubungi Kami",
       "Pusat Bantuan",
     ]) {
       expect(footerSource).not.toContain(karangan);
     }
+  });
+
+  test("kolom Hukum menaut ke kedua dokumen yang ada", () => {
+    expect(footerSource).toContain('aria-label="Hukum"');
+    expect(footerSource).toContain('to: "/kebijakan-privasi"');
+    expect(footerSource).toContain('to: "/syarat-ketentuan"');
   });
 });
 

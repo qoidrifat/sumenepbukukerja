@@ -1099,6 +1099,10 @@ export const setNotificationPreferences = mutation({
           ? current.whatsappOptInAt
           : Date.now()
         : undefined,
+      // Nomor yang berubah membatalkan verifikasi sebelumnya: kode dikirim
+      // untuk nomor lama, bukan yang baru. Tanpa ini gate profil menganggap
+      // nomor baru sudah terverifikasi.
+      whatsappVerifiedAt: phoneChanged ? undefined : current?.whatsappVerifiedAt,
       areaUpdates: args.areaUpdates ?? current?.areaUpdates ?? false,
       requestUpdates: args.requestUpdates ?? current?.requestUpdates ?? false,
     };

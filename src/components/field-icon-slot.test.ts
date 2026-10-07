@@ -232,12 +232,22 @@ const label = (pair: Pair) =>
 test("halaman auth memang punya isian berikon yang perlu kolom ikon", () => {
   // Tanpa test ini, inventory bisa kosong karena salah parse dan semua
   // pengujian di bawahnya lulus tanpa memeriksa apa pun.
+  // Fase 9.5 menghapus isian email-sandi berikon, jadi ambang turun dari
+  // 7 ke 3. Yang tersisa adalah isian passcode (ikon kiri + tombol
+  // intip kanan) di kedua tema; keduanya dijaga per berkas supaya satu
+  // tema yang kehilangan ikonnya langsung terlihat.
   const targets = pairs.filter((pair) =>
     ["auth-admin-panel.tsx", "Auth.tsx", "Admin.tsx"].some((name) =>
       pair.file.endsWith(name),
     ),
   );
-  expect(targets.length).toBeGreaterThanOrEqual(7);
+  expect(targets.length).toBeGreaterThanOrEqual(3);
+  expect(
+    targets.filter((pair) => pair.file.endsWith("Auth.tsx")).length,
+  ).toBeGreaterThanOrEqual(1);
+  expect(
+    targets.filter((pair) => pair.file.endsWith("auth-admin-panel.tsx")).length,
+  ).toBeGreaterThanOrEqual(1);
   expect(pairs.every((pair) => pair.size > 0)).toBe(true);
 });
 
@@ -321,7 +331,7 @@ test("ikon di dalam isian tidak menahan klik", () => {
   expect(penahan).toEqual([]);
 });
 
-test("tombol lihat sandi tetap target sentuh 44px dan tidak menimpa teks", () => {
+test("tombol intip passcode tetap target sentuh 44px dan tidak menimpa teks", () => {
   const authAdmin = readFileSync("src/components/auth-admin-panel.tsx", "utf8");
   const authPublic = readFileSync("src/pages/Auth.tsx", "utf8");
   for (const source of [authAdmin, authPublic]) {

@@ -83,10 +83,10 @@ export function AdminMetricsBoard({
                 key={metric.label}
                 className={`admin-metric admin-metric-lg flex min-h-40 flex-col justify-between p-4 ${
                   index === 0
-                    ? "bg-[#FF5A26] text-white"
+                    ? "admin-metric--accent"
                     : index === 1
-                      ? "bg-[#FFE662] text-[#1A1A1A]"
-                      : "bg-[#FDFBF7] text-[#1A1A1A]"
+                      ? "admin-metric--highlight"
+                      : ""
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -109,7 +109,7 @@ export function AdminMetricsBoard({
                   </p>
                   <p
                     className={`mt-2 text-sm font-bold ${
-                      index === 0 ? "text-white" : "text-[#525252]"
+                      index === 0 ? "text-[#1A1A1A]" : "text-[#525252]"
                     }`}
                   >
                     {metric.note}

@@ -75,3 +75,5 @@ deploy-prod.env
 .DS_Store
 *.local
 .vercel
+.freebuff/
+.superpowers/

@@ -18,6 +18,7 @@ import { api } from "@/convex/_generated/api";
 import { getErrorDialog, getErrorDialogToken, patchErrorDialog, setErrorDialog, type RegisteredReporter } from "./error-report-bus";
 import {
   ERROR_CODES,
+  buildAdminAlertMessage,
   formatWib,
   normalizeErrorReport,
   redactText,
@@ -25,6 +26,7 @@ import {
   type ErrorReportInput,
   type ErrorSeverity,
 } from "./error-reporting";
+import { buildAdminWhatsappLink } from "./admin-whatsapp";
 import { formatConvexError } from "./whatsapp";
 
 const FALLBACK_TITLE = "Terjadi kendala";
@@ -227,7 +229,8 @@ export const reportAndNotify = async (
 
   // Validasi, izin, dan penolakan auth tetap UI biasa: tidak ada popup, tidak
   // ada laporan, tidak ada admin yang dibangunkan.
-  if (!normalizeErrorReport(enriched)) return { reported: false };
+  const normalized = normalizeErrorReport(enriched);
+  if (!normalized) return { reported: false };
 
   // Hanya pemicu yang membuka dialog yang boleh mengubahnya. Laporan yang
   // datang saat dialog sudah tampil tetap dikirim ke server, tapi tidak
@@ -263,6 +266,51 @@ export const reportAndNotify = async (
       },
       token,
     );
+    // Handoff WhatsApp ke admin: pesan alert premium sudah terisi, pengguna
+    // yang menekan kirim di WhatsApp-nya sendiri. Dibangun di sini (bukan di
+    // komponen) karena di sinilah laporan ternormalisasi tersedia. Handoff
+    // sengaja tidak memakai Cloud API: di luar jendela 24 jam Meta menolak
+    // kiriman server (131008), sedangkan tautan click-to-chat tidak kena
+    // batas itu. Kegagalan di sini tidak boleh merusak dialog yang laporannya
+    // sudah tercatat — jadi dibungkus, bukan dilempar.
+    try {
+      if (outcome.reportId) {
+        const now = Date.now();
+        const message = buildAdminAlertMessage({
+          reportId: outcome.reportId,
+          severity: normalized.severity,
+          errorCode: normalized.errorCode,
+          title: normalized.title,
+          message: normalized.message,
+          userMessage: normalized.userMessage,
+          feature: normalized.feature,
+          operation: normalized.operation,
+          route: normalized.route,
+          component: normalized.component,
+          source: normalized.source,
+          environment:
+            typeof window !== "undefined" && window.location
+              ? window.location.hostname
+              : "client",
+          occurredAt: now,
+          requestId: normalized.requestId,
+          provider: normalized.provider,
+          providerCode: normalized.providerCode,
+          providerMessage: normalized.providerMessage,
+          userRef: normalized.userRef,
+          browser: normalized.browser,
+          os: normalized.os,
+          retryable: normalized.retryable,
+          recommendedAction: normalized.recommendedAction,
+          occurrences: 1,
+          firstSeenAt: now,
+          lastSeenAt: now,
+        });
+        patchErrorDialog({ adminWhatsappUrl: buildAdminWhatsappLink(message) }, token);
+      }
+    } catch {
+      // Abaikan: tombol WA hilang, dialog + ID laporan tetap tampil.
+    }
   } else {
     // Jaringan atau server menolak laporan. Teks ke pengguna sengaja generik:
     // rincian kegagalan internal tetap internal.

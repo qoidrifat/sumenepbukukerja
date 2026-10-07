@@ -74,12 +74,50 @@ const schema = defineSchema(
       // tebakan dari email atau koreksi eksplisit pengguna, tidak pernah
       // nilai yang diketik saat pendaftaran.
       publicName: v.optional(v.string()),
+      // Alamat domisili warga untuk gate kelengkapan profil dashboard.
+      // Dipakai HANYA untuk itu; alamat usaha tetap milik klaim/vendor.
+      homeAddress: v.optional(v.string()),
     })
       .index("email", ["email"])
       // FASE 9.1 - F-14. Satu indeks supaya pemeriksaan "blob ini adalah foto
       // profil orang lain" tidak memakai filter atas seluruh tabel `users`.
       // Field ini opsional, jadi indeks hanya memuat baris yang punya foto.
       .index("byProfileImageStorageId", ["profileImageStorageId"]),
+
+    // FASE 9.5 - OTP email dengan kunci Resend milik sendiri. Kode TIDAK
+    // PERNAH tersimpan polos: hanya hash SHA-256-nya (`codeHash`). Satu baris
+    // per kiriman; baris lama ditandai `consumedAt` saat kode baru diminta.
+    emailOtpCodes: defineTable({
+      email: v.string(),
+      codeHash: v.string(),
+      expiresAt: v.number(),
+      attempts: v.number(),
+      consumedAt: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("byEmail", ["email"])
+      // FASE 9.5 fix-wave: retensi `pruneOtpCodes` menyapu dari yang tertua,
+      // jadi butuh urutan global — `byEmail` tidak bisa memberikannya.
+      .index("byCreatedAt", ["createdAt"]),
+
+    // Verifikasi nomor WhatsApp warga lewat kode yang dikirim sebagai pesan
+    // WhatsApp (template UTILITY). Bentuknya meniru `emailOtpCodes` dengan
+    // sengaja: hash saja, sekali pakai, kedaluwarsa 10 menit, plafon
+    // percobaan. Bedanya kunci baris: (userId, phone), bukan email.
+    phoneVerificationCodes: defineTable({
+      userId: v.id("users"),
+      phone: v.string(),
+      codeHash: v.string(),
+      expiresAt: v.number(),
+      attempts: v.number(),
+      consumedAt: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("byUserPhone", ["userId", "phone"])
+      // Webhook inbound hanya membawa ISI pesan: kode dicari lewat hash-nya
+      // (satu lookup, bukan scan), lalu dicocokkan ke nomor pengirim.
+      .index("byCodeHash", ["codeHash"])
+      .index("byCreatedAt", ["createdAt"]),
 
     businesses: defineTable({
       name: v.string(),
@@ -295,6 +333,9 @@ const schema = defineSchema(
       // HMAC satu arah, untuk pencarian lewat indeks. Tidak bisa dibalik
       // menjadi nomor, jadi bocor storage tidak langsung berarti bocor PII.
       whatsappPhoneKey: v.optional(v.string()),
+      // Kapan nomor di atas lolos verifikasi kode WhatsApp. Tanpa ini nomor
+      // hanya "pernah ditulis", belum "terbukti milik pengguna".
+      whatsappVerifiedAt: v.optional(v.number()),
       whatsappOptInAt: v.optional(v.number()),
       areaUpdates: v.optional(v.boolean()),
       requestUpdates: v.optional(v.boolean()),

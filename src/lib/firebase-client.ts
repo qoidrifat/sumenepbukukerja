@@ -1,6 +1,6 @@
 // Klien Firebase Authentication, sisi peramban.
 //
-// FASE 9.2
+// FASE 9.5
 //
 // Tiga aturan yang tidak bisa ditawar di berkas ini:
 //
@@ -10,25 +10,25 @@
 //    `lazy()` di `src/main.tsx`, jadi komponen ini tidak pernah menyentuh jalur
 //    kritis beranda.
 // 2. KETIKA ENV BELUM DIISI, TIDAK ADA YANG MELEDAK. `firebaseAvailable()` jadi
-//    `false`, tombol disembunyikan, dan `/auth` menampilkan penjelasan apa yang
-//    belum terisi. Auth yang hilang total akan membuat `/auth` kosong untuk
-//    siapa pun, dan layar kosong selalu dibaca orang sebagai situs rusak.
+//    `false`, tombol Google disembunyikan, dan `/auth` menampilkan penjelasan
+//    apa yang belum terisi. Auth yang hilang total akan membuat `/auth` kosong
+//    untuk siapa pun, dan layar kosong selalu dibaca orang sebagai situs rusak.
 // 3. PESAN ERROR KE PENGGUNA TIDAK PERNAH BERISI DETAIL TEKNIS. Kode Firebase
 //    dipetakan ke kalimat yang bisa ditindaklanjuti. Menumpuk pesan mentah
 //    dari SDK pernah membocorkan nama project dan konfigurasi di halaman, dan
 //    itu persis kelas kesalahan yang ditegakkan di
 //    `docs/security/PHASE-9.1-*`.
+//
+// FASE 9.5 menghapus seluruh fungsi email-sandi (`createEmailAccount`,
+// `signInWithEmail`, `requestPasswordReset`, `completePasswordReset`):
+// tidak ada lagi pintu berbasis kredensial Firebase di `/auth`, jadi
+// keempatnya yatim. Yang tersisa di sini hanya Google.
 
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import {
   GoogleAuthProvider,
   getAuth,
   signInWithPopup,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  sendEmailVerification,
-  sendPasswordResetEmail,
-  verifyPasswordResetCode,
   signOut,
   type Auth,
 } from "firebase/auth";
@@ -87,7 +87,7 @@ function readConfig(): FirebaseClientConfig | null {
   return configFromEnv() ?? { ...FIREBASE_WEB_CONFIG };
 }
 
-/** Apakah tombol Google dan email-sandi boleh ditampilkan sama sekali. */
+/** Apakah tombol Google boleh ditampilkan sama sekali. */
 export function firebaseAvailable(): boolean {
   return readConfig() !== null;
 }
@@ -105,69 +105,6 @@ function getClient(): { auth: Auth; projectId: string } {
     : initializeApp({ apiKey: config.apiKey, authDomain: config.authDomain, projectId: config.projectId });
   cached = { auth: getAuth(app), projectId: config.projectId };
   return cached;
-}
-
-/**
- * Pesan setelah permintaan reset sandi.
- *
- * SENGaja sama untuk email terdaftar maupun tidak. Kalau dua kasus itu
- * dibedakan, halaman ini berubah jadi alat untuk menebak email mana yang punya
- * akun di aplikasi ini. Pola pemetaan kode ke kalimat yang bisa ditindaklanjuti
- * tanpa membocorkan ada di `CODE_TO_MESSAGE`; aturan lainnya sama dengan
- * `src/convex/auth/firebase.ts`.
- */
-const RESET_SENT_MESSAGE =
-  "Kalau email itu terdaftar di Buku Kerja, kami sudah mengirim tautan untuk membuat sandi baru. Cek kotak masuk dan folder spam.";
-
-/**
- * Kirim email reset sandi.
- *
- * Tidak pernah melempar "email tidak terdaftar" ke pemanggil. Kesalahan itu
- * ditelan dan diganti pesan yang sama dengan kasus berhasil, supaya halaman
- * publik tidak bisa dipakai untuk memetakan email yang punya akun.
- */
-export async function requestPasswordReset(email: string): Promise<void> {
-  const { auth } = getClient();
-  try {
-    await sendPasswordResetEmail(auth, email.trim().toLowerCase(), {
-      // Tautan dikembalikan ke aplikasi sendiri, bukan ke halaman default
-      // Firebase. Tanpa itu, pengguna bisa menyelesaikan reset di domain
-      // Firebase dan tidak pernah kembali ke Buku Kerja.
-      url: `${window.location.origin}/auth`,
-      handleCodeInApp: true,
-    });
-  } catch (caught) {
-    const code = (caught as { code?: unknown })?.code;
-    if (code === "auth/user-not-found" || code === "auth/missing-email") {
-      throw new FirebaseClientError("not-configured", RESET_SENT_MESSAGE);
-    }
-    throw caught;
-  }
-}
-
-/** Email pemilik tautan reset sandi ini, dipakai untuk layar konfirmasi. */
-export type ResetTarget = { email: string };
-
-/**
- * Selesaikan reset sandi dari tautan yang diklik.
- *
- * `verifyPasswordResetCode` memeriksa kode di sisi Firebase; kalau sudah
- * dipakai atau kedaluwarsa, kode itu ditolak SEBELUM sandi bisa diubah. Itu
- * yang membuat tautan tidak bisa dipakai dua kali.
- */
-export async function completePasswordReset(
-  oobCode: string,
-  password: string,
-): Promise<ResetTarget> {
-  const { auth } = getClient();
-  const email = await verifyPasswordResetCode(auth, oobCode);
-  // `updatePassword` hanya menerima objek User, dan `verifyPasswordResetCode`
-  // belum tentu mengisi `auth.currentUser`. Jadi sandi baru dipasang lewat
-  // masuk sekali pakai dengan email hasil verifikasi, lalu langsung keluar.
-  // Urutan ini juga membuat kode terverifikasi benar-benar terpakai.
-  await signInWithEmailAndPassword(auth, email, password);
-  await signOut(auth);
-  return { email };
 }
 
 /** ID token yang diverifikasi server di `src/convex/auth/firebase.ts`. */
@@ -191,30 +128,6 @@ export async function signInWithGoogle(): Promise<string> {
     throw new FirebaseClientError(
       "email-unverified",
       "Email Google Anda belum terverifikasi, jadi tidak bisa dipakai masuk.",
-    );
-  }
-  return idToken();
-}
-
-export async function createEmailAccount(email: string, password: string): Promise<string> {
-  const { auth } = getClient();
-  const result = await createUserWithEmailAndPassword(auth, email, password);
-  // Email harus diverifikasi sebelum server mau menautkan akun. Permintaan
-  // dikirim otomatis supaya pengguna tidak perlu mencarinya di menu lain.
-  await sendEmailVerification(result.user).catch(() => {
-    // Gagal mengirim tidak membatalkan pendaftaran; alasannya akan muncul lagi
-    // saat pengguna menekan "kirim ulang" di UI.
-  });
-  return idToken();
-}
-
-export async function signInWithEmail(email: string, password: string): Promise<string> {
-  const { auth } = getClient();
-  const result = await signInWithEmailAndPassword(auth, email, password);
-  if (!result.user.emailVerified) {
-    throw new FirebaseClientError(
-      "email-unverified",
-      "Verifikasi email Anda dulu lewat tautan yang sudah dikirim, lalu masuk lagi.",
     );
   }
   return idToken();
@@ -313,7 +226,7 @@ const CODE_TO_MESSAGE: Record<string, string> = {
   "auth/cancelled-popup-request":
     "Percobaan masuk sebelumnya masih berjalan. Tutup jendela yang terbuka, lalu coba lagi.",
   "auth/operation-not-supported-in-this-environment":
-    "Masuk lewat jendela tidak didukung di lingkungan ini. Pakai email dan sandi saja.",
+    "Masuk lewat jendela tidak didukung di lingkungan ini. Kembali dan gunakan tombol Google atau Email.",
   "auth/web-storage-unsupported":
     "Peramban ini memblokir penyimpanan lokal, jadi sesi tidak bisa disimpan. Coba peramban lain.",
   "auth/network-request-failed": "Jaringan bermasalah. Periksa koneksi lalu coba lagi.",

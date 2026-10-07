@@ -1,5 +1,27 @@
 import { describe, expect, test } from "vitest";
 import { formatConvexError } from "./whatsapp";
+import { buildTemplatePayload } from "./whatsapp-payload";
+
+describe("buildTemplatePayload", () => {
+  test("template dengan variabel mengirim dua parameter", () => {
+    const payload = buildTemplatePayload(
+      { phone: "6281234567890", title: "a", body: "b" },
+      { name: "t", language: "id", titleParam: "judul", bodyParam: "isi" },
+    );
+    expect(
+      // @ts-expect-error memastikan komponen benar-benar ada pada varian ini
+      payload.template.components[0].parameters,
+    ).toHaveLength(2);
+  });
+
+  test("template tanpa variabel tidak menyisipkan komponen (Meta menolak 132000)", () => {
+    const payload = buildTemplatePayload(
+      { phone: "6281234567890", title: "a", body: "b" },
+      { name: "3p_direct_integration_test_template", language: "en_US", titleParam: "", bodyParam: "" },
+    );
+    expect(payload).not.toHaveProperty("template.components");
+  });
+});
 
 describe("formatConvexError", () => {
   test("melepas pembungkus Uncaught Error dan jejak handler Convex", () => {

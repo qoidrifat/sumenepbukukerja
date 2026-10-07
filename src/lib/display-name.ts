@@ -138,6 +138,47 @@ export function deriveDisplayName(email: string | null | undefined): string | nu
 }
 
 /**
+ * Hasil pemeriksaan nama tampilan yang diketik pengguna.
+ *
+ * `ok: false` berarti nama itu **tidak bisa dipakai apa adanya**.
+ * `suggestion` berisi bentuk yang benar-benar akan disimpan, atau `null`
+ * kalau tidak ada nama yang bisa dihasilkan sama sekali.
+ */
+export type DisplayNameCheck =
+  | { ok: true; value: string }
+  | { ok: false; suggestion: string | null };
+
+/**
+ * Periksa nama yang diketik pengguna, lalu kembalikan bentuk yang akan disimpan.
+ *
+ * MENGAPA KAPITALISASI TIDAK MENOLAK (revisi F-14)
+ * -----------------------------------------------
+* Versi sebelumnya menolak nama bila hasil sanitasi BERBEDA dari ketikan,
+ * termasuk ketika selisihnya hanya huruf besar-kecil. Akibatnya isian paling
+ * normal - `Shina suka matcha` - selalu ditolak, dan pengguna harus mengetik
+ * ulang dengan bentuk kapital yang sama persis dengan balasan errornya.
+ * Itu bukan validasi; itu memaksa pengguna menebak aturan yang tidak
+ * pernah ditampilkan.
+ *
+ * Yang tetap ditolak adalah isian yang benar-benar berisi informasi yang
+ * akan HILANG: angka, tanda baca, HTML, spasi ganda, atau nama yang terpotong
+ * oleh batas 60 huruf. Prinsipnya sama seperti sebelumnya - server tidak
+ * pernah menyimpan nama yang berbeda dari yang diketik - tapi sekarang yang
+ * dibandingkan adalah isi, bukan kapitalisasi. `titleCase` mengembalikan
+ * bentuk kapitalnya sendiri, jadi tidak ada huruf yang hilang di sini.
+ */
+export function checkDisplayNameInput(raw: string): DisplayNameCheck {
+  const value = sanitizeDisplayName(raw);
+  if (!value) return { ok: false, suggestion: null };
+  // Perbandingan TIDAK membedakan huruf besar-kecil: `Shina suka matcha` dan
+  // `Shina Suka Matcha` adalah nama yang sama, hanya beda kapitalisasinya.
+  if (value.toLowerCase() !== raw.trim().toLowerCase()) {
+    return { ok: false, suggestion: value };
+  }
+  return { ok: true, value };
+}
+
+/**
  * Nama yang harus tampil untuk satu akun.
  *
  * Urutannya penting dan tidak boleh dibalik: nama yang dikoreksi pengguna

@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { GenericActionCtx, GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
-import { findByPhoneKey, preparePhone, readStoredPhone } from "./phoneVault";
+import { claimInboundVerificationCode, findByPhoneKey, preparePhone, readStoredPhone } from "./phoneVault";
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -157,6 +157,7 @@ const providerFailureHints: Record<string, string> = {
   "131047": "Meta menganggap pesan harus diaktifkan ulang lewat template.",
   "131009": "Nilai parameter template ditolak Meta.",
   "132000": "Jumlah parameter template tidak cocok dengan template yang disetujui.",
+  "132001": "Nama template atau kode bahasa tidak cocok dengan template yang disetujui. Pastikan WHATSAPP_TEMPLATE_NAME sama persis di WhatsApp Manager dan set WHATSAPP_TEMPLATE_LANGUAGE mengikuti bahasa persetujuan template (mis. en_US).",
   "132005": "Jumlah variabel template tidak cocok.",
   "133000": "Template tidak ditemukan atau belum disetujui di WhatsApp Manager.",
   "131042": "Bisnis belum memenuhi syarat template atau pembayaran.",
@@ -919,6 +920,15 @@ export const recordInboundMessage = internalMutation({
     if (args.at > 0 && now - args.at > INBOUND_MAX_AGE_MS) return null;
 
     if (existing && existing.lastInboundAt > lastInboundAt) return existing._id;
+    // Verifikasi nomor inbound (gate profil warga): cocokkan isi pesan ke
+    // kode yang diterbitkan `profile.requestInboundCode`. Dibungkus agar
+    // kegagalan pencocokan TIDAK PERNAH menggagalkan pencatatan thread —
+    // verifikasi adalah tamu di jalur ini, bukan pemiliknya.
+    try {
+      await claimInboundVerificationCode(ctx.db, phone, args.body, now);
+    } catch {
+      // abaikan: thread tetap tercatat di bawah
+    }
     const preference = await preferenceForPhone(ctx, phone);
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -1051,7 +1061,7 @@ async function sendViaMeta(
   return { skipped: false, configured: true, messageId: result.messageId };
 }
 
-async function sendWhatsappMessage(input: {
+export async function sendWhatsappMessage(input: {
   phone: string;
   title: string;
   body: string;

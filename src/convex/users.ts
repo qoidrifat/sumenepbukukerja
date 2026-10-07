@@ -8,7 +8,7 @@ import { writeAudit } from "./audit";
 import { noteSecurityDenial } from "./securitySignal";
 import { isOwnerAccount } from "../lib/owner-account";
 import { imageRejection } from "../lib/image-upload";
-import { resolveDisplayName, sanitizeDisplayName } from "../lib/display-name";
+import { checkDisplayNameInput, resolveDisplayName } from "../lib/display-name";
 
 /**
  * Read-only user query used by the existing auth UI. Role assignment is never
@@ -369,15 +369,21 @@ export const setMyDisplayName = mutation({
   args: { name: v.string() },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
-    const cleaned = sanitizeDisplayName(args.name);
-    if (!cleaned) return denied("Nama tampilan minimal 2 huruf.");
-    if (cleaned !== args.name.trim()) {
-      // Dijawab dengan nilai yang benar-benar dipakai, bukan ditolak diam-diam
-      // supaya pengguna tidak menebak apa yang salah.
-      return denied(`Nama tampilan itu tidak bisa dipakai. Coba: ${cleaned}`);
+    // Huruf besar-kecil bukan alasan menolak: `Shina suka matcha` disimpan
+    // sebagai `Shina Suka Matcha`. Yang ditolak hanya isian yang isinya hilang
+    // (angka, tanda baca, HTML, spasi ganda, nama terpotong) - isian itu
+    // dijawab dengan nilai yang benar-benar akan dipakai, bukan ditolak
+    // diam-diam supaya pengguna tidak menebak apa yang salah.
+    const checked = checkDisplayNameInput(args.name);
+    if (!checked.ok) {
+      return denied(
+        checked.suggestion
+          ? `Nama tampilan itu tidak bisa dipakai. Coba: ${checked.suggestion}`
+          : "Nama tampilan minimal 2 huruf.",
+      );
     }
-    await ctx.db.patch(userId, { publicName: cleaned });
-    return cleaned;
+    await ctx.db.patch(userId, { publicName: checked.value });
+    return checked.value;
   },
 });
 
@@ -507,11 +513,11 @@ export const getInviteDetails = query({
  * tautannya.
  * Karena itu link hanya boleh dikirim ke alamat yang diundang.
  *
- * Verifikasi email tetap ada di jalur biasa: email sudah diverifikasi ketika
- * orang mendaftar atau masuk lewat email dan sandi, dan akun Google sudah
- * terverifikasi oleh Google. Yang hilang di sini hanya untuk penerima
- * undangan, dan itu konsekuensi langsung dari permintaan "tanpa langkah
- * registrasi manual".
+ * Verifikasi email tetap ada di jalur biasa: email terbukti milik orang itu
+ * ketika ia masuk lewat Google atau kode OTP (Fase 9.5 menghapus pintu
+ * sandi, jadi tidak ada lagi jalur pendaftaran email-sandi). Yang hilang
+ * di sini hanya untuk penerima undangan, dan itu konsekuensi langsung dari
+ * permintaan "tanpa langkah registrasi manual".
  *
  * Sesi diterbitkan lewat `auth:store` milik Convex Auth sendiri dengan
  * `generateTokens: true` — bukan JWT yang dirakit sendiri. Jadi sesi yang
@@ -637,8 +643,7 @@ export const acceptStaffInvite = mutation({
     if (!tokens) {
       // Akun dan peran sudah tercatat, jadi tidak ada setengah jadi yang
       // tidak terlihat oleh admin. Yang gagal cuma penerbitan sesi; penerima
-      // bisa masuk lagi lewat email dan sandi yang dibuat di Firebase, lalu
-      // mengulang.
+      // bisa masuk lagi lewat Google atau kode OTP email, lalu mengulang.
       await writeAudit(ctx, {
         action: "staff.invite_rejected",
         actorId: userId,

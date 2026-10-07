@@ -3,49 +3,33 @@ import { Link } from "react-router";
 import {
   Archive,
   ArrowRight,
-  Bookmark,
   Edit3,
   ImagePlus,
-  LayoutDashboard,
-  LogOut,
-  MapPin,
-  MessageCircle,
   Package,
   Plus,
+  Power,
   RotateCcw,
   Save,
-  Search,
-  Settings2,
-  Store,
   Trash2,
   X,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { FormField, TextField } from "@/components/form-field";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   landmarkLabel,
   type Category,
   type Vendor,
 } from "@/lib/catalog";
 import {
-  useCatalogVendors,
   useCatalogActions,
   useImageUpload,
-  useFavorites,
-  useOwnerVendors,
   useMyClaims,
+  useOwnerVendors,
   useVendorPackages,
   type VendorRecord,
 } from "@/lib/catalog-store";
-import { categoryActionLabel } from "@/lib/catalog-data";
-import { BrandMascot } from "@/components/brand-mascot";
 import { CategoryMascot } from "@/components/category-mascot";
-import { useAuth } from "@/hooks/use-auth";
-import { recommendedWhatsAppIntent } from "@/lib/whatsapp";
-import { useContactHandoff } from "@/lib/contact-handoff";
-import { useNavigate } from "react-router";
-import { AnimatedContent, BorderGlow, Counter, GlassIcons, ScrollReveal } from "@/components/react-bits";
+import { EmptyStateCard } from "@/components/empty-state-card";
+import { focusRing } from "@/lib/focus-ring";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import {
   areaSelectOptions,
@@ -53,9 +37,17 @@ import {
   categorySelectOptions,
   type ThemedSelectOption,
 } from "@/lib/select-options";
-import { ClaimListingPanel, InteractionHistory, MyRequestHistory, OwnerGalleryManager, OwnerListingHistory, OwnerRequestWorkspace, PwaControls } from "@/components/community-widgets";
-import { NotificationCenter } from "@/components/community-notification-center";
-import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
+import {
+  ClaimListingPanel,
+  OwnerGalleryManager,
+  OwnerListingHistory,
+} from "@/components/community-widgets";
+import {
+  enqueueOfflineMutation,
+  flushOfflineQueue,
+  registerOfflineHandlers,
+  useOfflineQueue,
+} from "@/lib/offline-queue";
 
 type OwnerAvailability = NonNullable<Vendor["availability"]>;
 
@@ -185,7 +177,7 @@ const ownerListingPayload = (draft: OwnerDraft, photoId = draft.photoId) => ({
   photoId,
 });
 
-function OwnerPackageEditor({ vendorId }: { vendorId: string }) {
+function MitraPackageEditor({ vendorId }: { vendorId: string }) {
   const packages = useVendorPackages(vendorId);
   const { createPackage, removePackage } = useCatalogActions();
   const [name, setName] = useState("");
@@ -277,7 +269,7 @@ function OwnerPackageEditor({ vendorId }: { vendorId: string }) {
   );
 }
 
-function OwnerListingManager() {
+export function MitraListingManager() {
   const { online } = useOfflineQueue();
   const owned = useOwnerVendors();
   const claims = useMyClaims();
@@ -298,6 +290,7 @@ function OwnerListingManager() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [liburBusy, setLiburBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -407,6 +400,49 @@ function OwnerListingManager() {
     }
   };
 
+  const activeVendors = (owned ?? []).filter(
+    (vendor) => (vendor.availability ?? "available") === "available",
+  );
+  const closedVendors = (owned ?? []).filter(
+    (vendor) => vendor.availability === "closed",
+  );
+
+  /**
+   * Mode libur cepat: tutup (atau buka kembali) semua listing berurutan
+   * dengan satu busy flag. Kegagalan parsial dilaporkan jujur sebagai
+   * jumlah yang gagal, bukan all-or-nothing palsu.
+   */
+  const toggleAllAvailability = async (close: boolean) => {
+    const targets = close ? activeVendors : closedVendors;
+    if (targets.length === 0) return;
+    setLiburBusy(true);
+    setError("");
+    setNotice("");
+    let failed = 0;
+    for (const vendor of targets) {
+      try {
+        await availability({
+          vendorId: vendor._id as never,
+          availability: close ? "closed" : "available",
+          availabilityNote: close
+            ? vendor.availabilityNote?.trim() || "Libur sementara"
+            : vendor.availabilityNote,
+          nextAvailableAt: vendor.nextAvailableAt,
+          responseMinutes: vendor.responseMinutes,
+          serviceRadiusKm: vendor.serviceRadiusKm,
+        });
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed === 0) {
+      setNotice(close ? "Semua listing ditutup sementara." : "Semua listing dibuka kembali.");
+    } else {
+      setError(`${failed} dari ${targets.length} listing belum dapat ${close ? "ditutup" : "dibuka"}.`);
+    }
+    setLiburBusy(false);
+  };
+
   const archiveListing = async (vendor: VendorRecord) => {
     if (!window.confirm(`Nonaktifkan listing ${vendor.name}?`)) return;
     setBusyId(vendor._id);
@@ -439,37 +475,51 @@ function OwnerListingManager() {
   };
 
   return (
-    <section id="listing-saya" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <section id="listing-saya" className="dash-panel scroll-mt-20 p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Ruang mitra</p>
-          <h2 className="mt-1 text-2xl font-black tracking-[-0.035em] text-slate-950">Kelola listing Anda</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Perbarui harga, jam, ketersediaan, foto, dan paket. Perubahan langsung tersinkron ke katalog publik.</p>
+        <div className="min-w-0">
+          <p className="dash-eyebrow">Ruang mitra</p>
+          <h2 className="dash-title mt-2 text-xl sm:text-2xl">Kelola listing Anda</h2>
+          <p className="dash-sub mt-2 max-w-2xl text-sm">Perbarui harga, jam, ketersediaan, foto, dan paket. Perubahan langsung tersinkron ke katalog publik.</p>
         </div>
-        <button type="button" onClick={startNew} className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white hover:bg-blue-700">
-          <Plus className="size-4" />Tambah listing
+        <button type="button" onClick={startNew} className="dash-btn dash-btn--primary">
+          <Plus className="size-4" aria-hidden="true" />Tambah listing
         </button>
       </div>
 
-      {notice ? <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700" role="status">{notice}</p> : null}
-      {error ? <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700" role="alert">{error}</p> : null}
+      {notice ? <p className="mt-4 rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3.5 py-2.5 text-sm font-bold text-emerald-800" role="status">{notice}</p> : null}
+      {error ? <p className="mt-4 rounded-xl border border-red-200/80 bg-red-50/80 px-3.5 py-2.5 text-sm font-bold text-red-800" role="alert">{error}</p> : null}
+
+      {owned !== undefined && (activeVendors.length > 0 || closedVendors.length > 0) ? (
+        <div className="mt-5 flex flex-wrap gap-2">
+          {activeVendors.length > 0 ? (
+            <button type="button" disabled={liburBusy} onClick={() => void toggleAllAvailability(true)} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50 ${focusRing}`}>
+              <Power className="size-4" aria-hidden="true" />{liburBusy ? "Menutup..." : "Tutup sementara semua"}
+            </button>
+          ) : (
+            <button type="button" disabled={liburBusy} onClick={() => void toggleAllAvailability(false)} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50 ${focusRing}`}>
+              <RotateCcw className="size-4" aria-hidden="true" />{liburBusy ? "Membuka..." : "Buka kembali semua"}
+            </button>
+          )}
+        </div>
+      ) : null}
 
       {owned === undefined ? (
-        <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">Memuat listing milik Anda...</p>
+        <p className="dash-sub mt-5 rounded-xl bg-slate-50/80 p-4 text-sm font-semibold">Memuat listing milik Anda...</p>
       ) : owned.length > 0 ? (
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
           {owned.map((vendor) => (
-            <article key={vendor._id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <article key={vendor._id} className="dash-panel dash-panel--soft p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="flex items-center gap-1.5 text-sm font-extrabold text-blue-700">
                     <CategoryMascot category={vendor.category} size="xs" animated={false} />
                     {vendor.category}
                   </p>
-                  <h3 className="mt-1 truncate text-lg font-black text-slate-950">{vendor.name}</h3>
-                  <p className="mt-1 text-sm text-slate-600">{landmarkLabel(vendor.landmark)} · {vendor.price}</p>
+                  <h3 className="mt-1 truncate text-lg font-extrabold tracking-[-0.02em] text-slate-950">{vendor.name}</h3>
+                  <p className="dash-sub mt-1 text-sm">{landmarkLabel(vendor.landmark)} · {vendor.price}</p>
                 </div>
-                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-extrabold ${vendor.status === "active" ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
+                <span className={`dash-pill shrink-0 ${vendor.status === "active" ? "dash-pill--green" : "dash-pill--neutral"}`}>
                   {vendor.status === "active" ? "Tayang" : vendor.status === "draft" ? "Draft" : "Nonaktif"}
                 </span>
               </div>
@@ -507,21 +557,17 @@ function OwnerListingManager() {
           ))}
         </div>
       ) : (
-        <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
-          <BrandMascot state="empty" size="md" className="mx-auto" />
-          <p className="mt-4 font-black text-slate-950">Belum ada listing milik Anda</p>
-          <p className="mt-1 text-sm leading-6 text-slate-600">Tambahkan usaha Anda agar warga dapat menemukan dan menghubungi Anda.</p>
-        </div>
+        <EmptyStateCard title="Belum ada listing milik Anda" body="Tambahkan usaha Anda agar warga dapat menemukan dan menghubungi Anda." actionLabel="Tambah listing" onAction={startNew} />
       )}
 
       {draft ? (
-        <form onSubmit={save} className="mt-6 rounded-xl border-2 border-blue-200 bg-blue-50/40 p-4 sm:p-5">
+        <form onSubmit={save} className="mt-6 rounded-2xl border border-blue-200/70 bg-blue-50/40 p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-lg font-black text-slate-950">{draft.id ? "Edit listing" : "Listing baru"}</h3>
-              <p className="mt-1 text-sm text-slate-600">Isi data yang tampil di halaman publik.</p>
+              <h3 className="text-lg font-extrabold tracking-[-0.02em] text-slate-950">{draft.id ? "Edit listing" : "Listing baru"}</h3>
+              <p className="dash-sub mt-1 text-sm">Isi data yang tampil di halaman publik.</p>
             </div>
-            <button type="button" onClick={resetDraft} className="flex size-10 items-center justify-center rounded-lg text-slate-600 hover:bg-white" aria-label="Batal edit listing"><X className="size-5" /></button>
+            <button type="button" onClick={resetDraft} className="flex size-10 items-center justify-center rounded-lg text-slate-600 hover:bg-white" aria-label="Batal edit listing"><X className="size-5" aria-hidden="true" /></button>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <TextField label="Nama usaha *" value={draft.name} onValueChange={(name) => updateDraft({ name })} controlClassName={ownerInputClass} span required />
@@ -556,174 +602,12 @@ function OwnerListingManager() {
             )} />
           </div>
           <div className="mt-5 flex flex-wrap gap-2">
-            <button type="submit" disabled={saving} className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white hover:bg-blue-700 disabled:opacity-50"><Save className="size-4" />{saving ? "Menyimpan..." : "Simpan listing"}</button>
-            <button type="button" onClick={resetDraft} className="min-h-12 rounded-lg border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-50">Batal</button>
+            <button type="submit" disabled={saving} className="dash-btn dash-btn--primary"><Save className="size-4" aria-hidden="true" />{saving ? "Menyimpan..." : "Simpan listing"}</button>
+            <button type="button" onClick={resetDraft} className="dash-btn dash-btn--secondary">Batal</button>
           </div>
         </form>
       ) : null}
-      {draft?.id ? <OwnerPackageEditor key={draft.id} vendorId={draft.id} /> : null}
+      {draft?.id ? <MitraPackageEditor key={draft.id} vendorId={draft.id} /> : null}
     </section>
-  );
-}
-
-export default function Dashboard() {
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
-  const vendors = useCatalogVendors();
-  const favorites = useFavorites();
-  const { click, interaction } = useCatalogActions();
-  // FASE 10: kartu koleksi memakai listing dari katalog PUBLIK, jadi tidak
-  // pernah memegang nomor mentah. Tombol WhatsApp-nya lewat handoff server.
-  const { openContactWithFeedback } = useContactHandoff();
-  const savedVendors = vendors.filter((vendor) => favorites.isSaved(vendor.slug));
-
-  const handleSignOut = async () => {
-    await signOut();
-    navigate("/");
-  };
-
-  return (
-    <main className="min-h-dvh min-h-[100svh] bg-[#f7f8fc] px-4 py-6 text-foreground sm:px-6 sm:py-10 lg:px-10">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
-              Ruang warga
-            </p>
-            <h1 className="mt-2 text-3xl font-black tracking-[-0.045em] text-slate-950 sm:text-4xl">
-              Halo{user?.name ? `, ${user.name}` : ""}.
-            </h1>
-            <p className="mt-2 text-base leading-7 text-slate-600">
-              Simpan usaha yang sering Anda gunakan dan lanjutkan chatting dari satu tempat.
-            </p>
-          </div>
-          <Button type="button" onClick={handleSignOut} variant="outline" className="min-h-12 self-start rounded-lg text-base">
-            <LogOut className="size-4" />Keluar
-          </Button>
-        </header>
-
-        <ScrollReveal>
-          <GlassIcons
-            ariaLabel="Akses cepat ruang warga"
-            items={[
-              { label: "Cari usaha", icon: <Search className="size-5" />, color: "blue", onClick: () => navigate("/#katalog") },
-              { label: "Kelola listing", icon: <Settings2 className="size-5" />, color: "violet", onClick: () => document.getElementById("listing-saya")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
-            ]}
-          />
-        </ScrollReveal>
-
-        <PwaControls />
-
-        <section className="grid gap-4 sm:grid-cols-3">
-          <BorderGlow className="h-full rounded-xl" intensity={0.08}>
-          <Card className="h-full border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <div className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-                <Store className="size-5" />
-              </div>
-              <CardTitle className="text-lg">Katalog lokal</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Counter value={vendors.length} className="text-3xl font-black text-slate-950" />
-              <p className="mt-1 text-sm text-muted-foreground">usaha tersedia</p>
-            </CardContent>
-          </Card>
-          </BorderGlow>
-          <BorderGlow className="h-full rounded-xl" glowColor="180,83,9" intensity={0.08}>
-          <Card className="h-full border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <div className="flex size-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
-                <Bookmark className="size-5" />
-              </div>
-              <CardTitle className="text-lg">Tersimpan</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Counter value={savedVendors.length} className="text-3xl font-black text-slate-950" />
-              <p className="mt-1 text-sm text-muted-foreground">listing pilihan Anda</p>
-            </CardContent>
-          </Card>
-          </BorderGlow>
-          <BorderGlow className="h-full rounded-xl" glowColor="4,120,87" intensity={0.08}>
-          <Card className="h-full border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <div className="flex size-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-                <LayoutDashboard className="size-5" />
-              </div>
-              <CardTitle className="text-lg">Mulai lagi</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Link to="/#katalog" className="inline-flex min-h-12 items-center gap-2 text-base font-extrabold text-blue-700">
-                Cari jasa <ArrowRight className="size-4" />
-              </Link>
-            </CardContent>
-          </Card>
-          </BorderGlow>
-        </section>
-
-        <OwnerListingManager />
-        <OwnerRequestWorkspace />
-
-        <section>
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Daftar tersimpan</p>
-              <h2 className="mt-1 text-2xl font-black tracking-[-0.035em] text-slate-950">Lanjutkan dari favorit Anda</h2>
-            </div>
-            <Link to="/#katalog" className="hidden min-h-12 items-center gap-2 rounded-lg px-3 text-base font-extrabold text-blue-700 sm:flex">
-              Cari lainnya <ArrowRight className="size-4" />
-            </Link>
-          </div>
-
-          <AnimatedContent animationKey={savedVendors.map((vendor) => vendor.slug).join("-") || "kosong"}>
-          {savedVendors.length > 0 ? (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {savedVendors.map((vendor) => {
-                const landmark = landmarkLabel(vendor.landmark);
-                return (
-                  <article key={vendor.slug} className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex items-start gap-3">
-                      <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${vendor.accent} text-sm font-black text-white`}>{vendor.mark}</span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-extrabold text-blue-700">{vendor.category}</p>
-                        <p className="mt-1 text-xs font-bold text-slate-500">Koleksi: {favorites.collectionFor(vendor.slug)}</p>
-                        <h3 className="mt-1 text-lg font-black leading-snug text-slate-950">{vendor.name}</h3>
-                      </div>
-                    </div>
-                    <p className="mt-4 line-clamp-2 text-base leading-6 text-slate-600">{vendor.description}</p>
-                    <p className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-slate-600"><MapPin className="size-4 text-blue-600" />{landmark}</p>
-                    <div className="mt-auto grid grid-cols-[1fr_3rem] gap-2 pt-5">
-                      <button type="button" disabled={!vendor.contactRef} onClick={() => { openContactWithFeedback({ contactRef: vendor.contactRef, intent: recommendedWhatsAppIntent(vendor.category) }); if (vendor._id) { void click({ id: vendor._id as never, kind: "whatsapp" }).catch(() => undefined); void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined); } }} className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 text-base font-extrabold text-[#082f1e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
-                        <MessageCircle className="size-5" />{categoryActionLabel[vendor.category]}
-                      </button>
-                      <Link to={`/v/${vendor.slug}`} className="flex min-h-12 items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50" aria-label={`Lihat ${vendor.name}`}>
-                        <ArrowRight className="size-5" />
-                      </Link>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <Card className="border-dashed border-slate-300 bg-white shadow-none">
-              <CardContent className="flex flex-col items-center py-10 text-center">
-                <BrandMascot state="hello" size="md" className="mx-auto" />
-                <h3 className="mt-5 text-xl font-black text-slate-950">Belum ada listing tersimpan</h3>
-                <p className="mt-2 max-w-md text-base leading-7 text-slate-600">Klik ikon bookmark pada listing untuk menyimpannya di perangkat dan menyinkronkannya setelah Anda masuk.</p>
-                <Button asChild className="mt-5 min-h-12 rounded-lg text-base">
-                  <Link to="/#katalog">Jelajahi katalog <ArrowRight className="size-4" /></Link>
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-          </AnimatedContent>
-        </section>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <InteractionHistory />
-          <NotificationCenter />
-        </div>
-        <MyRequestHistory />
-      </div>
-    </main>
   );
 }

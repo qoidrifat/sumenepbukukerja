@@ -12,10 +12,13 @@
 import { useState } from "react";
 import { Bell, ShieldCheck } from "lucide-react";
 import { focusRing } from "@/lib/focus-ring";
+import { formatRelativeTime } from "@/lib/datetime";
 import { FormField } from "@/components/form-field";
+import { DashIcon } from "@/components/dashboard-ui";
 import { formatConvexError } from "@/lib/whatsapp";
 import {
   useCatalogActions,
+  useCurrentAccess,
   useMyClaims,
   useNotificationPreferences,
   useNotifications,
@@ -37,11 +40,11 @@ const deliveryStatusLabel: Record<string, string> = {
   failed: "Gagal",
 };
 
-const deliveryStatusClass: Record<string, string> = {
-  queued: "text-amber-700",
-  sent: "text-blue-700",
-  delivered: "text-emerald-700",
-  failed: "text-red-700",
+const deliveryStatusDot: Record<string, string> = {
+  queued: "bg-amber-500",
+  sent: "bg-blue-500",
+  delivered: "bg-emerald-500",
+  failed: "bg-red-500",
 };
 
 export function NotificationCenter() {
@@ -49,6 +52,11 @@ export function NotificationCenter() {
   const preferences = useNotificationPreferences();
   const whatsappStatus = useWhatsappStatus();
   const claims = useMyClaims();
+  // Diagnosis operator (nama env, kode provider, tombol uji, thread teknis)
+  // hanya untuk pengelola. Default saat akses belum terjawab adalah warga:
+  // lebih baik staf menunggu sekejap daripada info internal bocor sekilas.
+  const access = useCurrentAccess();
+  const isStaff = access?.isStaff === true;
   const {
     markNotificationsRead,
     setNotificationPreferences,
@@ -132,22 +140,22 @@ export function NotificationCenter() {
   const pendingClaims = (claims ?? []).filter((claim) => claim.status === "pending");
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <section className="dash-panel p-5 sm:p-6">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="relative flex size-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
-            <Bell className="size-5" />
+          <DashIcon tone="amber" className="relative">
+            <Bell className="size-5" aria-hidden="true" />
             {unread > 0 ? (
-              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-black text-white">
+              <span className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-black tabular-nums text-white">
                 {unread > 9 ? "9+" : unread}
               </span>
             ) : null}
-          </span>
+          </DashIcon>
           <div>
-            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
+            <p className="dash-eyebrow">
               Pemberitahuan
             </p>
-            <h2 className="mt-1 text-xl font-black text-slate-950">
+            <h2 className="dash-title mt-2 text-xl">
               Yang perlu Anda tahu
             </h2>
           </div>
@@ -163,34 +171,19 @@ export function NotificationCenter() {
         ) : null}
       </div>
 
-      <p className="mt-3 text-sm leading-6 text-slate-600">
+      <p className="dash-sub mt-3 text-sm">
         Notifikasi bersifat opt-in dan dibatasi maksimal tiga pesan WhatsApp per
         hari.{" "}
-        {whatsappStatus === undefined
-          ? "Status pengiriman sedang dimuat."
-          : whatsappStatus.configured
-            ? `Pengiriman memakai ${whatsappStatus.provider === "meta" ? "Meta Cloud API" : "Twilio"}, dan status percakapan masuk dibaca otomatis lewat webhook.`
-            : "WhatsApp Business API belum dikonfigurasi; preferensi tetap dapat disimpan."}
+        {isStaff
+          ? whatsappStatus === undefined
+            ? "Status pengiriman sedang dimuat."
+            : whatsappStatus.configured
+              ? `Pengiriman memakai ${whatsappStatus.provider === "meta" ? "Meta Cloud API" : "Twilio"}, dan status percakapan masuk dibaca otomatis lewat webhook.`
+              : "WhatsApp Business API belum dikonfigurasi; preferensi tetap dapat disimpan."
+          : "Aktifkan kanal yang Anda butuhkan di bawah."}
       </p>
 
-      {whatsappStatus?.providerIssue ? (
-        <p
-          className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-900"
-          role="status"
-        >
-          {whatsappStatus.providerIssue}
-        </p>
-      ) : null}
-      {whatsappStatus?.templateWarning ? (
-        <p
-          className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-900"
-          role="status"
-        >
-          {whatsappStatus.templateWarning}
-        </p>
-      ) : null}
-
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+      <div className="mt-4 flex flex-col gap-2">
         {(
           [
             ["whatsappUpdates", "WhatsApp"],
@@ -200,16 +193,21 @@ export function NotificationCenter() {
         ).map(([key, label]) => (
           <label
             key={key}
-            className="flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-700"
+            className={`flex min-h-12 w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 transition-colors has-checked:border-blue-300 has-checked:bg-blue-50/60 ${saving ? "opacity-70" : ""}`}
           >
+            <span className="text-sm font-bold text-slate-700">{label}</span>
             <input
               type="checkbox"
               checked={prefs[key]}
               disabled={saving}
               onChange={() => void toggle(key)}
-              className="size-4 accent-blue-600"
+              aria-label={label}
+              className="peer sr-only"
             />
-            {label}
+            <span
+              aria-hidden="true"
+              className="relative h-7 w-12 shrink-0 rounded-full bg-slate-300 shadow-inner transition-colors duration-200 ease-out peer-checked:bg-blue-600 peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-600 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white motion-safe:transition-colors after:absolute after:left-1 after:top-1 after:size-5 after:rounded-full after:bg-white after:shadow after:transition-transform after:duration-200 after:ease-out after:content-[''] motion-safe:after:transition-transform peer-checked:after:translate-x-5"
+            />
           </label>
         ))}
       </div>
@@ -221,7 +219,7 @@ export function NotificationCenter() {
           implisit tidak bisa menyatakan "kolom ini saja" tanpa htmlFor. */}
       <FormField
         label="Nomor WhatsApp untuk notifikasi"
-        className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3"
+        className="mt-4 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3.5"
         control={({ id, describedBy }) => (
           <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
             <input
@@ -235,14 +233,19 @@ export function NotificationCenter() {
               className={inputClass}
               autoComplete="tel"
             />
-            <button
-              type="button"
-              disabled={saving || !prefs.whatsappUpdates || !whatsappStatus?.configured}
-              onClick={() => void sendTest()}
-              className={`min-h-12 rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-            >
-              {saving ? "Memproses..." : "Kirim pesan uji"}
-            </button>
+            {/* Kirim uji adalah alat diagnosis pengelola, bukan warga: saat
+                template operator belum dikonfigurasi, kegagalan 131008 tampil
+                sebagai kesalahan warga padahal itu salah konfigurasi server. */}
+            {isStaff ? (
+              <button
+                type="button"
+                disabled={saving || !prefs.whatsappUpdates || !whatsappStatus?.configured}
+                onClick={() => void sendTest()}
+                className={`min-h-12 rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+              >
+                {saving ? "Memproses..." : "Kirim pesan uji"}
+              </button>
+            ) : null}
           </div>
         )}
       />
@@ -256,20 +259,24 @@ export function NotificationCenter() {
             {whatsappStatus.recent.map((item) => (
               <li
                 key={item.deliveryKey}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5"
               >
-                <span className="min-w-0 truncate text-sm font-bold text-slate-800">
+                <span
+                  aria-hidden="true"
+                  className={`size-2.5 shrink-0 rounded-full ${deliveryStatusDot[item.status] ?? "bg-slate-300"}`}
+                />
+                <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-800">
                   {item.title}
                 </span>
-                <span className="flex items-center gap-2 text-xs font-extrabold">
-                  {item.lastErrorCode ? (
-                    <span className="font-mono text-red-700">
-                      {item.lastErrorCode}
+                <span className="flex shrink-0 flex-col items-end gap-0.5">
+                  <span className="text-xs font-extrabold text-slate-700">
+                    {deliveryStatusLabel[item.status] ?? item.status}
+                  </span>
+                  {item.updatedAt ? (
+                    <span className="text-[11px] font-semibold text-slate-400">
+                      {formatRelativeTime(item.updatedAt)}
                     </span>
                   ) : null}
-                  <span className={deliveryStatusClass[item.status]}>
-                    {deliveryStatusLabel[item.status]}
-                  </span>
                 </span>
               </li>
             ))}
@@ -357,13 +364,13 @@ export function NotificationCenter() {
               key={item._id}
               className={`rounded-lg border p-3 ${item.read ? "border-slate-200 bg-white" : "border-blue-200 bg-blue-50"}`}
             >
-              <p className="text-sm font-extrabold text-slate-900">{item.title}</p>
-              <p className="mt-1 text-sm leading-5 text-slate-600">{item.body}</p>
+              <p className="text-sm font-extrabold tracking-[-0.01em] text-slate-900">{item.title}</p>
+              <p className="dash-sub mt-1 text-sm leading-5">{item.body}</p>
             </div>
           ))}
         </div>
       ) : (
-        <p className="mt-4 text-sm leading-6 text-slate-600">
+        <p className="dash-sub mt-4 text-sm">
           Belum ada notifikasi. Pilihan di atas bisa diubah kapan saja.
         </p>
       )}

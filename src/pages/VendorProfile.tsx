@@ -452,6 +452,17 @@ function VendorProfileContent() {
                         </span>
                       </div>
                       <p className="mt-2 text-base leading-7 text-slate-700">{item.body}</p>
+                      {item.reply ? (
+                        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                          <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-emerald-700">
+                            Tanggapan pemilik usaha
+                          </p>
+                          <p className="mt-1 text-sm leading-6 text-slate-700">{item.reply.body}</p>
+                          <time className="mt-2 block text-xs font-semibold text-slate-500">
+                            {new Intl.DateTimeFormat("id-ID", { dateStyle: "long" }).format(new Date(item.reply.createdAt))}
+                          </time>
+                        </div>
+                      ) : null}
                       <time className="mt-3 block text-xs font-semibold text-slate-500">
                         {new Intl.DateTimeFormat("id-ID", { dateStyle: "long" }).format(new Date(item.createdAt))}
                       </time>

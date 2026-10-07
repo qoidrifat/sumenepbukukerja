@@ -14,6 +14,9 @@ export type VendorReview = {
   rating: number;
   body: string;
   createdAt: number;
+  // Hak jawab pemilik (`vendors:replyReview`): satu balasan per ulasan,
+  // panggil ulang = edit. Opsional supaya ulasan lama tetap valid.
+  reply?: { body: string; createdAt: number; updatedAt?: number };
 };
 
 export type VendorRecord = Vendor & {

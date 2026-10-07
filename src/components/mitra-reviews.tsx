@@ -1,9 +1,122 @@
+import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { Star } from "lucide-react";
-import { useOwnerVendors, useVendor } from "@/lib/catalog-store";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { useOwnerVendors, useVendor, type VendorReview } from "@/lib/catalog-store";
 import { EmptyStateCard } from "@/components/empty-state-card";
 import { DashPanel, DashSection } from "@/components/dashboard-ui";
 import { focusRing } from "@/lib/focus-ring";
+
+/**
+ * Balasan pemilik atas satu ulasan (bukan file baru — anak dalam berkas ini).
+ *
+ * Tanpa reply: textarea + tombol "Balas". Sudah ada reply: tampilkan +
+ * tombol "Ubah" yang mengisi textarea untuk edit. Sukses tidak memakai
+ * refetch manual — `useVendor(slug)` di induk bersifat reaktif, jadi balasan
+ * yang tersimpan langsung tampil lewat query yang sama.
+ */
+function MitraReviewReplyForm({ item }: { item: VendorReview }) {
+  const replyReview = useMutation(api.vendors.replyReview);
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const body = draft.trim();
+    if (!body || busy) return;
+    setBusy(true);
+    setError("");
+    setSaved(false);
+    try {
+      await replyReview({ reviewId: item._id as never, body });
+      setDraft("");
+      setEditing(false);
+      setSaved(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Balasan gagal dikirim.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (item.reply && !editing) {
+    return (
+      <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+        <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-emerald-700">
+          Tanggapan Anda
+        </p>
+        <p className="mt-1 text-sm leading-6 text-slate-700">{item.reply.body}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(item.reply?.body ?? "");
+            setEditing(true);
+            setSaved(false);
+            setError("");
+          }}
+          className={`mt-2 inline-flex min-h-12 items-center rounded-lg px-3 text-sm font-extrabold text-blue-700 hover:text-blue-900 ${focusRing}`}
+        >
+          Ubah
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-2">
+      <label className="flex flex-col gap-2">
+        <span className="text-xs font-extrabold text-slate-700">
+          {item.reply ? "Ubah tanggapan" : "Tanggapi ulasan ini"}
+        </span>
+        <textarea
+          aria-label={`Balas ulasan dari ${item.authorName}`}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Tulis tanggapan singkat (maksimal 500 karakter)."
+          rows={3}
+          maxLength={500}
+          className={`min-h-12 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 ${focusRing}`}
+        />
+      </label>
+      {error ? (
+        <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+          {error}
+        </p>
+      ) : null}
+      {saved ? (
+        <p role="status" className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">
+          Balasan tersimpan.
+        </p>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="submit"
+          disabled={!draft.trim() || busy}
+          className={`inline-flex min-h-12 items-center rounded-lg bg-blue-700 px-4 text-sm font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+        >
+          Balas
+        </button>
+        {item.reply && editing ? (
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(false);
+              setDraft("");
+              setError("");
+            }}
+            className={`inline-flex min-h-12 items-center rounded-lg px-3 text-sm font-extrabold text-slate-600 hover:text-slate-900 ${focusRing}`}
+          >
+            Batal
+          </button>
+        ) : null}
+      </div>
+    </form>
+  );
+}
 
 /**
  * Satu baris ulasan per listing (bukan file baru — anak dalam berkas ini).
@@ -53,6 +166,7 @@ function MitraVendorReview({ slug, name }: { slug: string; name: string }) {
                 {item.authorName} <span className="font-bold tabular-nums text-amber-600">{item.rating} ★</span>
               </p>
               <p className="dash-sub mt-1 line-clamp-3 text-sm">{item.body}</p>
+              <MitraReviewReplyForm item={item} />
             </li>
           ))}
         </ul>
@@ -72,8 +186,8 @@ function reviewCountOf(row: { reviews?: number; reviewsCount?: number }): number
 }
 
 /**
- * Ulasan pelanggan read-only untuk mitra: semua listing milik, ≤3 terbaru
- * per listing. Tanpa mutation; rating dirender sebagai angka + ★.
+ * Ulasan pelanggan untuk mitra: semua listing milik, ≤3 terbaru per listing,
+ * plus hak jawab pemilik per ulasan. Rating dirender sebagai angka + ★.
  */
 export function MitraReviews() {
   const owned = useOwnerVendors();

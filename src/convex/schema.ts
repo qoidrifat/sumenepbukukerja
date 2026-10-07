@@ -193,6 +193,14 @@ const schema = defineSchema(
       rating: v.number(),
       body: v.string(),
       helpful: v.optional(v.number()),
+      // Hak jawab pemilik: SATU balasan per ulasan, panggil ulang = edit
+      // (`updatedAt` terisi). Tanpa tabel/migrasi/indeks baru; baris lama
+      // tanpa field ini tetap valid karena opsional.
+      reply: v.optional(v.object({
+        body: v.string(),
+        createdAt: v.number(),
+        updatedAt: v.optional(v.number()),
+      })),
       createdAt: v.number(),
     })
       .index("byVendor", ["vendorId"])

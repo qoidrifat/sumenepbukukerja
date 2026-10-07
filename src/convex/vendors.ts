@@ -1301,7 +1301,7 @@ export const addReview = mutation({
  * `createdAt` asli dipertahankan). Tanpa thread, tanpa hapus-khusus —
  * penghapusan penyalahgunaan lewat audit log + peran staf yang sudah ada.
  *
- * Otorisasi: pemilik listing itu (`ownerId === userId`) ATAU staf
+ * Otorisasi: pemilik listing itu (`ownerId === userId`) ATAU staf non-viewer (viewer read-only, cermin seluruh sistem)
  * (`getStaffAccess` — operasional). Listing harus `active`, cermin
  * `addReview`: balasan pada listing arsip/draf ditolak.
  */
@@ -1317,7 +1317,7 @@ export const replyReview = mutation({
     const vendor = await ctx.db.get(review.vendorId);
     if (!vendor || vendor.status !== "active") throw new Error("Listing tidak ditemukan");
     const access = await getStaffAccess(ctx, userId);
-    if (vendor.ownerId !== userId && !access) {
+    if (vendor.ownerId !== userId && (!access || access.role === "viewer")) {
       throw new Error("Hanya pemilik listing atau pengelola yang dapat membalas ulasan");
     }
     // Balasan harus ringkas (≤500, lebih pendek dari ulasan 600): ini

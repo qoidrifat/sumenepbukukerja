@@ -262,6 +262,26 @@ describe("replyReview", () => {
     expect(bell).toHaveLength(0);
   });
 
+  test("viewer (read-only) ditolak membalas", async () => {
+    const t = convexTest(schema, modules);
+    const { reviewId } = await listingWithReview(t);
+    // seedUser hanya menerima "admin" | "staff" — sisipkan viewer langsung
+    // (read-only di seluruh sistem, cermin access.ts).
+    const viewerUserId = await t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+      };
+      const id = await db.insert("users", { name: "Viewer Baca", email: `viewer-baca-${Math.random().toString(36).slice(2, 8)}@sumenep.co.id` });
+      await db.insert("staffMembers", { userId: id, role: "viewer", createdAt: Date.now(), updatedAt: Date.now() });
+      return id;
+    });
+    const viewer = t.withIdentity({ subject: viewerUserId });
+
+    await expect(
+      viewer.mutation(api.vendors.replyReview, { reviewId, body: "Terima kasih" }),
+    ).rejects.toThrow("Hanya pemilik listing atau pengelola");
+  });
+
   test("getBySlug menyertakan reply (display publik gratis)", async () => {
     const t = convexTest(schema, modules);
     const { owner, reviewId, slug } = await listingWithReview(t);

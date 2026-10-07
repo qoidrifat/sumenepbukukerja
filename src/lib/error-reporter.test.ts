@@ -241,6 +241,67 @@ describe("describeErrorDialog", () => {
     expect(view.showReportId).toBe(false);
     expect(view.tone).toContain("amber");
   });
+
+  test("tombol WA hanya tampil bila tautan handoff siap", () => {
+    expect(
+      describeErrorDialog({ ...base, phase: "reported", canRetry: false }).showWhatsapp,
+    ).toBe(false);
+    expect(
+      describeErrorDialog({
+        ...base,
+        phase: "reported",
+        canRetry: false,
+        reportId: "ERR-1",
+        adminWhatsappUrl: "https://wa.me/6287869512332?text=halo",
+      }).showWhatsapp,
+    ).toBe(true);
+  });
+
+  test("setelah tautan ditekan, WA diganti Tutup Pesan (tanpa jalan tutup lain)", () => {
+    const sebelum = describeErrorDialog({
+      ...base,
+      phase: "reported",
+      canRetry: false,
+      reportId: "ERR-1",
+      adminWhatsappUrl: "https://wa.me/6287869512332?text=halo",
+    });
+    expect(sebelum.showWhatsapp).toBe(true);
+    expect(sebelum.showTutupPesan).toBe(false);
+    const sesudah = describeErrorDialog({
+      ...base,
+      phase: "reported",
+      canRetry: false,
+      reportId: "ERR-1",
+      adminWhatsappUrl: "https://wa.me/6287869512332?text=halo",
+      adminShared: true,
+    });
+    expect(sesudah.showWhatsapp).toBe(false);
+    expect(sesudah.showTutupPesan).toBe(true);
+  });
+});
+
+describe("handoff WhatsApp admin", () => {
+  test("laporan tercatat menyiapkan tautan wa.me berisi ID + template premium", async () => {
+    await reportAndNotify(reporterOk("ERR-WA-1"), {
+      caught: new Error(baseInput.message),
+      ...baseInput,
+    });
+    const state = getErrorDialog();
+    expect(state.phase).toBe("reported");
+    expect(state.adminWhatsappUrl).toMatch(/^https:\/\/wa\.me\/6287869512332\?text=/);
+    const text = decodeURIComponent(state.adminWhatsappUrl!.split("?text=")[1] ?? "");
+    expect(text).toContain("LAPORAN ERROR");
+    expect(text).toContain("ERR-WA-1");
+  });
+
+  test("laporan gagal tidak menyiapkan tautan (tanpa ID admin tak bisa menelusuri)", async () => {
+    await reportAndNotify(reporterThrows, {
+      caught: new Error(baseInput.message),
+      ...baseInput,
+    });
+    expect(getErrorDialog().phase).toBe("failed");
+    expect(getErrorDialog().adminWhatsappUrl).toBeUndefined();
+  });
 });
 
 describe("registerErrorReporter", () => {

@@ -546,12 +546,13 @@ describe("buildAdminAlertMessage", () => {
   test("memuat seluruh bagian yang dibutuhkan operator", () => {
     const text = buildAdminAlertMessage(report);
     for (const expected of [
-      "🚨 SYSTEM ERROR REPORT",
-      "🟠 ERROR",
-      "WhatsApp Notification Settings",
-      "WHATSAPP_SEND_FAILED",
+      "LAPORAN ERROR",
+      "*ID:*",
       "ERR-20260928-A7F3K9",
       "28 September 2026 10.32 WIB",
+      "ERROR",
+      "WhatsApp Notification Settings",
+      "WHATSAPP_SEND_FAILED",
       "prod:rare-scorpion",
       "/dashboard",
       "whatsapp.sendTestWhatsapp",
@@ -562,10 +563,15 @@ describe("buildAdminAlertMessage", () => {
       "user:k7h2m9ab",
       "Chrome / Windows",
       "Periksa template WhatsApp Utility.",
-      "OPEN",
+      "Status: OPEN",
     ]) {
       expect(text).toContain(expected);
     }
+  });
+
+  test("tanpa emoji yang berisiko jadi kotak di perangkat penerima", () => {
+    const text = buildAdminAlertMessage(report);
+    expect(text).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u);
   });
 
   test("kejadian berulang diringkas jadi satu blok", () => {
@@ -574,7 +580,7 @@ describe("buildAdminAlertMessage", () => {
       occurrences: 17,
       lastSeenAt: report.occurredAt + 600_000,
     });
-    expect(text).toContain("17× · first 28 September 2026 10.32 WIB · last 28 September 2026 10.42 WIB");
+    expect(text).toContain("17× · pertama 28 September 2026 10.32 WIB · terakhir 28 September 2026 10.42 WIB");
   });
 
   test("tidak pernah membocorkan nilai rahasia", () => {
@@ -587,6 +593,13 @@ describe("buildAdminAlertMessage", () => {
 });
 
 describe("whatsappRecommendedAction", () => {
+  test("kegagalan auth menunjuk rotasi token, bukan template", () => {
+    const action = whatsappRecommendedAction({ providerCode: "190", templateConfigured: false });
+    expect(action).toContain("WHATSAPP_ACCESS_TOKEN");
+    expect(action).toContain("System User");
+    expect(action).not.toContain("WHATSAPP_TEMPLATE_NAME");
+  });
+
   test("menyarankan template ketika template belum ada", () => {
     const action = whatsappRecommendedAction({ templateConfigured: false });
     expect(action).toContain("WHATSAPP_TEMPLATE_NAME");

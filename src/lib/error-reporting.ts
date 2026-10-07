@@ -680,13 +680,6 @@ export const shouldAlert = (input: {
 /* Pesan alert admin                                                   */
 /* ------------------------------------------------------------------ */
 
-const SEVERITY_BADGE: Record<ErrorSeverity, string> = {
-  info: "⚪ INFO",
-  warning: "🟡 WARNING",
-  error: "🟠 ERROR",
-  critical: "🔴 CRITICAL",
-};
-
 const providerLabel = (provider?: string) => {
   if (!provider) return undefined;
   if (provider === "meta") return "Meta WhatsApp Cloud API";
@@ -714,6 +707,10 @@ const line = (label: string, value?: string | number) => {
 /**
  * Pesan alert untuk admin. Disusun di sini, bukan di adapter WhatsApp,
  * supaya isinya bisa diuji tanpa provider apa pun.
+ *
+ * Format disengaja ramah WhatsApp: tanpa emoji (banyak perangkat penerima
+ * menampilkannya sebagai kotak), hanya *bold* dan garis ━ yang terbukti
+ * tampil utuh di aplikasi. Label Indonesia, nilai kode apa adanya.
  */
 export const buildAdminAlertMessage = (report: {
   reportId: string;
@@ -742,34 +739,45 @@ export const buildAdminAlertMessage = (report: {
   firstSeenAt: number;
   lastSeenAt: number;
 }): string => {
+  const providerRows = report.provider
+    ? [
+        line(`*Provider:* `, providerLabel(report.provider)),
+        line(`*Kode provider:* `, report.providerCode),
+        line(`*Detail provider:* `, report.providerMessage),
+      ]
+    : [];
   const rows = [
-    `🚨 SYSTEM ERROR REPORT`,
+    `*LAPORAN ERROR — BUKU KERJA*`,
     `━━━━━━━━━━━━━━━━━━━━`,
-    line(`🔴 Severity\n`, SEVERITY_BADGE[report.severity]),
-    line(`📍 Feature\n`, report.feature),
-    line(`🧩 Error Code\n`, report.errorCode),
-    line(`🆔 Report ID\n`, report.reportId),
-    line(`🕐 Occurred At\n`, formatWibLong(report.occurredAt)),
-    line(`🌐 Environment\n`, report.environment),
-    line(`📄 Route\n`, report.route ?? "-"),
-    line(`⚙️ Operation\n`, report.operation),
-    line(`💬 User Message\n`, report.userMessage ?? report.message),
-    line(`🔎 Provider\n`, providerLabel(report.provider)),
-    line(`🔢 Provider Code\n`, report.providerCode),
-    line(`📋 Provider Message\n`, report.providerMessage),
-    line(`📦 Request ID\n`, report.requestId),
-    line(`👤 User\n`, report.userRef),
-    line(`📱 Device\n`, [report.browser, report.os].filter(Boolean).join(" / ") || undefined),
-    line(`🔗 Context\n`, report.component),
-    line(`🔁 Occurrences\n`, report.occurrences > 1
-      ? `${report.occurrences}× · first ${formatWibLong(report.firstSeenAt)} · last ${formatWibLong(report.lastSeenAt)}`
-      : undefined),
-    line(`♻️ Retryable\n`, report.retryable ? "yes" : "no"),
+    line(`*ID:* `, report.reportId),
+    line(`*Waktu:* `, formatWibLong(report.occurredAt)),
+    line(`*Keparahan:* `, report.severity.toUpperCase()),
+    line(`*Fitur:* `, report.feature),
+    line(`*Operasi:* `, report.operation),
+    line(`*Rute:* `, report.route ?? "-"),
+    line(`*Lingkungan:* `, report.environment),
+    ``,
+    `*Pesan:*`,
+    safe(report.userMessage ?? report.message),
+    ``,
+    line(`*Kode:* `, report.errorCode),
+    `*Dapat diulang:* ${report.retryable ? "Ya" : "Tidak"}`,
+    ...providerRows,
+    line(`*Request ID:* `, report.requestId),
+    line(`*Pengguna:* `, report.userRef),
+    line(
+      `*Perangkat:* `,
+      [report.browser, report.os].filter(Boolean).join(" / ") || undefined,
+    ),
+    line(`*Konteks:* `, report.component),
+    report.occurrences > 1
+      ? `*Terjadi:* ${report.occurrences}× · pertama ${formatWibLong(report.firstSeenAt)} · terakhir ${formatWibLong(report.lastSeenAt)}`
+      : undefined,
     `━━━━━━━━━━━━━━━━━━━━`,
-    `🛠 Recommended Action`,
+    `*Tindak lanjut:*`,
     safe(report.recommendedAction),
     `━━━━━━━━━━━━━━━━━━━━`,
-    `Status\nOPEN`,
+    `Status: OPEN`,
   ];
   return rows.filter((row): row is string => row !== undefined).join("\n");
 };
@@ -778,14 +786,25 @@ export const buildAdminAlertMessage = (report: {
 /* Saran tindakan untuk operator                                       */
 /* ------------------------------------------------------------------ */
 
+/** Kode provider yang berarti template belum ada / bahasa tidak cocok. */
+const TEMPLATE_LOOKUP_CODES = new Set(["132001", "133000"]);
+/** Kode provider yang berarti kredensial mati, bukan isi pesan salah. */
+const AUTH_FAILURE_CODES = new Set(["190", "0"]);
+
 /** Petunjuk yang bisa ditindaklanjuti untuk kegagalan integrasi WhatsApp. */
 export const whatsappRecommendedAction = (input: {
   providerCode?: string;
   templateConfigured: boolean;
   providerIssue?: string;
 }): string => {
+  if (input.providerCode && AUTH_FAILURE_CODES.has(input.providerCode)) {
+    return `Access token Meta tidak sah (kode ${input.providerCode}). Buat token baru di Meta App Dashboard — disarankan System User token yang tidak kedaluwarsa — lalu perbarui WHATSAPP_ACCESS_TOKEN di tab Keys/API keys. Template tidak terkait dengan kegagalan ini.`;
+  }
   if (input.providerIssue) {
     return `${input.providerIssue} Alert admin tidak dapat dikirim sampai konfigurasi provider diperbaiki.`;
+  }
+  if (input.providerCode && TEMPLATE_LOOKUP_CODES.has(input.providerCode)) {
+    return `Meta tidak menemukan template "WHATSAPP_TEMPLATE_NAME" untuk bahasa yang diminta (kode ${input.providerCode}). Periksa nama persis dan bahasa persetujuan template di WhatsApp Manager, lalu set WHATSAPP_TEMPLATE_LANGUAGE (contoh: en_US bila disetujui sebagai en_US) di tab Keys/API keys.`;
   }
   if (!input.templateConfigured) {
     return "Buat dan setujui template kategori UTILITY di WhatsApp Manager, lalu isi WHATSAPP_TEMPLATE_NAME. Tanpa template, Meta menolak pesan dari server di luar jendela layanan 24 jam (kode 131008).";

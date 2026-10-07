@@ -35,10 +35,11 @@ export function useOtpStatus(): OtpStatus {
     // (provisional), bukan skeleton abadi. Tanpa tangkapan, lemparan naik ke
     // RootErrorBoundary dan SELURUH /auth mati (regresi ERR-20261005-0O72S0A).
   }
+  const pending = status === undefined;
   useEffect(() => {
-    if (status !== undefined) return;
+    if (!pending) return;
     const timer = setTimeout(() => setTimedOut(true), OTP_STATUS_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [status === undefined]);
+  }, [pending]);
   return resolveOtpGate(status, timedOut);
 }

@@ -13,8 +13,10 @@
 // pernah dirender di dalam ruang admin yang sudah dijaga server.
 
 import { useState } from "react";
-import { AlertTriangle, Bug, CircleAlert, ExternalLink, OctagonAlert, ShieldCheck } from "lucide-react";
+import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
+import { AlertTriangle, Bug, CircleAlert, ExternalLink, OctagonAlert, ShieldCheck, Trash2 } from "lucide-react";
 import {
+  useCurrentAccess,
   useErrorReportActions,
   useErrorReportSummary,
   useErrorReports,
@@ -94,14 +96,41 @@ function AlertCell({ report }: { report: AdminErrorReport }) {
 export function AdminErrorReports() {
   const reports = useErrorReports();
   const summary = useErrorReportSummary();
-  const { setStatus } = useErrorReportActions();
+  const { setStatus, remove } = useErrorReportActions();
+  // Hapus butuh ADMIN, bukan sekadar canModerate (staff boleh ubah status tapi
+  // tidak boleh memusnahkan bukti). `currentAccess` sudah dilanggan gerbang
+  // Admin di atas tree ini; Convex memakai satu langganan per query yang sama,
+  // jadi ini bukan permintaan jaringan tambahan.
+  const access = useCurrentAccess();
+  const isAdmin = access?.role === "admin";
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<AdminErrorReport | null>(null);
+  const [deleteError, setDeleteError] = useState("");
 
   const run = async (id: string, next: "acknowledged" | "resolved" | "ignored") => {
     setBusy(id);
     try {
       await setStatus(id, next);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  // Kunci busy hapus memakai sufiks `:delete` supaya alur hapus dan alur
+  // ubah-status tidak saling mengunci tombolnya. Sukses tidak menutup panel
+  // dan tidak menyentuh state baris: daftar memakai `useQuery` yang reaktif,
+  // jadi barisnya hilang sendiri saat mutasi berhasil.
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const id = pendingDelete._id;
+    setBusy(`${id}:delete`);
+    setDeleteError("");
+    try {
+      await remove(id);
+      setPendingDelete(null);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Gagal menghapus laporan.");
     } finally {
       setBusy("");
     }
@@ -263,6 +292,40 @@ export function AdminErrorReports() {
                         ) : null}
                       </div>
                     ) : null}
+
+                    {isAdmin ? (
+                      <div className="mt-3">
+                        {report.status === "open" ? (
+                          <p className="text-sm font-bold text-[#525252]">
+                            Selesaikan dulu status laporan ini.
+                          </p>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy === `${report._id}:delete`}
+                              onClick={() => {
+                                setDeleteError("");
+                                setPendingDelete(report);
+                              }}
+                              aria-label={`Hapus laporan ${report.reportId}`}
+                              className="admin-btn admin-btn-danger min-h-12 text-xs"
+                            >
+                              <Trash2 className="size-4" aria-hidden="true" />
+                              Hapus laporan
+                            </button>
+                            {deleteError ? (
+                              <p
+                                className="mt-2 border-2 border-[#121212] bg-[#E9B4A7] px-3 py-2 text-sm font-black text-[#7C2D12]"
+                                role="alert"
+                              >
+                                {deleteError}
+                              </p>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -270,6 +333,45 @@ export function AdminErrorReports() {
           })}
         </div>
       )}
+
+      <AlertDialogPrimitive.Root
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && busy === "") setPendingDelete(null);
+        }}
+      >
+        <AlertDialogPrimitive.Portal>
+          <AlertDialogPrimitive.Overlay className="admin-confirm-overlay" />
+          <AlertDialogPrimitive.Content className="admin-confirm-content">
+            <div className="border-b-2 border-[#121212] bg-[#FFE662] p-5">
+              <AlertDialogPrimitive.Title className="text-[clamp(1.25rem,3vw,1.75rem)] font-black tracking-[-0.03em] text-[#1A1A1A]">
+                Hapus laporan ini?
+              </AlertDialogPrimitive.Title>
+              <AlertDialogPrimitive.Description className="mt-2 text-base leading-7 text-[#1A1A1A]">
+                Laporan <strong>{pendingDelete?.reportId}</strong> akan dihapus
+                permanen dari riwayat. Tindakan ini tidak dapat dibatalkan.
+              </AlertDialogPrimitive.Description>
+            </div>
+            <div className="grid gap-3 p-5 sm:grid-cols-2">
+              <AlertDialogPrimitive.Cancel
+                disabled={busy !== ""}
+                className="admin-btn admin-btn-secondary"
+              >
+                Batalkan
+              </AlertDialogPrimitive.Cancel>
+              <button
+                type="button"
+                onClick={() => void confirmDelete()}
+                disabled={busy !== ""}
+                className="admin-btn admin-btn-danger"
+              >
+                <Trash2 className="size-5" />
+                {busy !== "" ? "Menghapus..." : "Ya, hapus laporan"}
+              </button>
+            </div>
+          </AlertDialogPrimitive.Content>
+        </AlertDialogPrimitive.Portal>
+      </AlertDialogPrimitive.Root>
     </article>
   );
 }

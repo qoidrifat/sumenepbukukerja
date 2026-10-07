@@ -769,12 +769,17 @@ export function useErrorReportSummary() {
 
 export function useErrorReportActions() {
   const setErrorReportStatus = useMutation(api.errorReports.setErrorReportStatus);
+  const deleteErrorReport = useMutation(api.errorReports.deleteErrorReport);
   const setStatus = useCallback(
     (id: string, status: "open" | "acknowledged" | "resolved" | "ignored") =>
       setErrorReportStatus({ id: id as never, status }),
     [setErrorReportStatus],
   );
-  return { setStatus };
+  const remove = useCallback(
+    (id: string) => deleteErrorReport({ id: id as never }),
+    [deleteErrorReport],
+  );
+  return { setStatus, remove };
 }
 
 export function useOpenReports() {

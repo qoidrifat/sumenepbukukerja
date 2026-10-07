@@ -585,3 +585,27 @@ export const setErrorReportStatus = mutation({
     return true;
   },
 });
+
+/**
+ * Hapus permanen satu laporan. Gerbangnya SENGAJA lebih ketat dari
+ * `setErrorReportStatus` (staff boleh): hapus = musnahkan bukti, jadi hanya
+ * admin. UI menyembunyikan tombolnya untuk non-admin, tapi penolakan yang
+ * mengikat tetap di sini.
+ */
+export const deleteErrorReport = mutation({
+  args: { id: v.id("errorReports") },
+  handler: async (ctx, args) => {
+    const access = await requireStaff(ctx, "admin");
+    const current = await ctx.db.get(args.id);
+    if (!current) throw new Error("Laporan tidak ditemukan");
+    await ctx.db.delete(args.id);
+    await ctx.db.insert("auditLogs", {
+      action: "error_report.deleted",
+      ...(await resolveAuditActor(ctx, access.userId)),
+      entityId: current.reportId,
+      metadata: { status: current.status, title: current.title },
+      createdAt: Date.now(),
+    });
+    return true;
+  },
+});

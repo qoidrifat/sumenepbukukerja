@@ -1,5 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test, vi } from "vitest";
 
 /**
@@ -19,12 +22,13 @@ import { expect, test, vi } from "vitest";
  * yang diuji di sini.
  */
 
-const state = vi.hoisted(() => ({ reports: [] as unknown }));
+const state = vi.hoisted(() => ({ reports: [] as unknown, access: null as unknown }));
 
 vi.mock("@/lib/catalog-store", () => ({
   useErrorReports: () => state.reports,
   useErrorReportSummary: () => ({ open: 1, critical: 1, blocked: 0 }),
-  useErrorReportActions: () => ({ setStatus: async () => undefined }),
+  useErrorReportActions: () => ({ setStatus: async () => undefined, remove: async () => undefined }),
+  useCurrentAccess: () => state.access,
 }));
 
 const { AdminErrorReports } = await import("./admin-error-reports");
@@ -96,4 +100,57 @@ test("isi laporan tetap utuh setelah pembungkusnya diubah", () => {
   expect(html).toContain("Gangguan sistem");
   expect(html).toContain("Critical");
   expect(html).toContain("Siap dibuka");
+});
+
+/**
+ * Hapus laporan oleh admin — kontrak source-content.
+ *
+ * Baris yang diperluas hanya muncul setelah klik, dan `renderToStaticMarkup`
+ * tidak bisa mengeklik. Jadi yang dikunci di sini adalah pola sumbernya:
+ * tombol ber-`aria-label` per laporan, confirm Radix (bukan
+ * `window.confirm`), hint triase untuk status open, hook `remove`, gerbang
+ * `role === "admin"` (bukan sekadar `canModerate`), dan tema
+ * `admin-btn-danger`. Perilaku servernya (penolakan non-admin, audit)
+ * dikunci di `src/convex/errorReportDelete.test.ts`.
+ */
+const componentSource = () =>
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "admin-error-reports.tsx"), "utf8");
+
+const storeSource = () =>
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "lib", "catalog-store.ts"),
+    "utf8",
+  );
+
+test("tombol hapus memakai aria-label per laporan", () => {
+  expect(componentSource()).toContain("Hapus laporan ${report.reportId}");
+});
+
+test("konfirmasi hapus memakai AlertDialog Radix dengan teks permanen + Batal", () => {
+  const source = componentSource();
+  expect(source).toContain("AlertDialogPrimitive");
+  expect(source).toContain("admin-confirm-overlay");
+  expect(source).toContain("admin-confirm-content");
+  expect(source).toContain("permanen");
+  expect(source).toContain("Batal");
+  expect(source).not.toContain("window.confirm");
+});
+
+test("status open menampilkan hint triase, bukan tombol hapus tanpa penjelasan", () => {
+  expect(componentSource()).toContain("Selesaikan dulu status laporan ini.");
+});
+
+test("hapus lewat hook remove yang memanggil mutation deleteErrorReport", () => {
+  expect(componentSource()).toContain("remove");
+  expect(storeSource()).toContain("deleteErrorReport");
+});
+
+test("tombol hapus memakai tema admin destruktif", () => {
+  expect(componentSource()).toContain("admin-btn-danger");
+});
+
+test("tombol hapus digerbang role admin, bukan sekadar canModerate", () => {
+  const source = componentSource();
+  expect(source).toContain("useCurrentAccess");
+  expect(source).toContain('role === "admin"');
 });

@@ -124,8 +124,9 @@ export const storeOtpCode = internalMutation({
 });
 
 /**
- * Retensi `emailOtpCodes`: hapus baris mati (terpakai/kedaluwarsa) yang
- * umurnya lewat 7 hari. Dipanggil cron harian (lihat `crons.ts`).
+ * Retensi `emailOtpCodes` + `phoneVerificationCodes`: hapus baris mati
+ * (terpakai/kedaluwarsa) yang umurnya lewat 7 hari. Dipanggil cron harian
+ * (lihat `crons.ts`).
  *
  * Yang TIDAK dihapus: baris yang masih hidup (belum dipakai + belum
  * kedaluwarsa) — umurnya tidak mungkin lewat 7 hari (TTL 10 menit), tapi
@@ -138,17 +139,19 @@ export const pruneOtpCodes = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
     const cutoff = now - 7 * 24 * 60 * 60_000;
-    const rows = await ctx.db
-      .query("emailOtpCodes")
-      .withIndex("byCreatedAt")
-      .order("asc")
-      .take(200);
     let removed = 0;
-    for (const row of rows) {
-      if (row.createdAt >= cutoff) break;
-      if (!row.consumedAt && row.expiresAt >= now) continue;
-      await ctx.db.delete(row._id);
-      removed += 1;
+    for (const table of ["emailOtpCodes", "phoneVerificationCodes"] as const) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("byCreatedAt")
+        .order("asc")
+        .take(200);
+      for (const row of rows) {
+        if (row.createdAt >= cutoff) break;
+        if (!row.consumedAt && row.expiresAt >= now) continue;
+        await ctx.db.delete(row._id);
+        removed += 1;
+      }
     }
     return removed;
   },

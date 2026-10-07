@@ -7,7 +7,6 @@ import {
   MessageCircle,
   Store,
 } from "lucide-react";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { landmarkLabel } from "@/lib/catalog";
 import {
   useCatalogVendors,
@@ -18,16 +17,28 @@ import {
 } from "@/lib/catalog-store";
 import { categoryActionLabel } from "@/lib/catalog-data";
 import { AccountMenu } from "@/components/account-menu";
+import { SyncIndicator } from "@/components/sync-indicator";
 import { EmptyStateCard } from "@/components/empty-state-card";
 import { useAuth } from "@/hooks/use-auth";
 import { recommendedWhatsAppIntent } from "@/lib/whatsapp";
 import { useContactHandoff } from "@/lib/contact-handoff";
 import { useNavigate } from "react-router";
-import { AnimatedContent, BorderGlow, Counter } from "@/components/react-bits";
+import { AnimatedContent, BorderGlow } from "@/components/react-bits";
 import { InteractionHistory, MyRequestHistory, PwaControls } from "@/components/community-widgets";
 import { ProfileCompletionGate } from "@/components/profile-completion-gate";
-import { SyncIndicator } from "@/components/sync-indicator";
 import { NotificationCenter } from "@/components/community-notification-center";
+import {
+  DashBody,
+  DashHero,
+  DashSection,
+  DashShell,
+  DashStat,
+} from "@/components/dashboard-ui";
+import { dashButtonClass } from "@/lib/dash-button-class";
+
+function scrollToSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 export default function WargaDashboard() {
   const { user } = useAuth();
@@ -43,169 +54,180 @@ export default function WargaDashboard() {
   const interactions = useMyInteractions();
 
   return (
-    <main className="min-h-dvh min-h-[100svh] bg-[#f7f8fc] px-4 py-6 text-foreground sm:px-6 sm:py-10 lg:px-10">
+    <DashShell>
       {/* Gate data diri warga: tampil menutupi dashboard sampai profil
           lengkap (server yang memutuskan, realtime). Staf dikecualikan di
           dalam komponennya sendiri. */}
       <ProfileCompletionGate />
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">
-              Ruang warga
-            </p>
-            <h1 className="mt-2 text-3xl font-black tracking-[-0.045em] text-slate-950 sm:text-4xl">
-              Halo{user?.name ? `, ${user.name}` : ""}.
-            </h1>
-            <p className="mt-2 text-base leading-7 text-slate-600">
-              Simpan usaha yang sering Anda gunakan dan lanjutkan chatting dari satu tempat.
-            </p>
+
+      {/* Header sengaja ditulis inline, bukan lewat `DashBar`: kontrak
+          `sync-indicator.test.ts` meminta indikator sinkronisasi berada di
+          KIRI AccountMenu DI DALAM elemen <header> yang sama, dan urutan itu
+          dibaca langsung dari berkas ini. */}
+      <header className="dash-topbar">
+        <div className="mx-auto flex min-h-16 w-full max-w-7xl items-center justify-between gap-3 px-4 py-2.5 sm:px-6 lg:px-10">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-sm font-extrabold tracking-[-0.02em] text-slate-950">Ruang warga</span>
+            <span className="hidden truncate text-xs font-bold uppercase tracking-[0.12em] text-slate-500 lg:inline">Sumenep Buku Kerja</span>
           </div>
-          <div className="flex items-center gap-2 self-start">
+          <div className="flex shrink-0 items-center gap-2">
             <SyncIndicator />
             <AccountMenu />
           </div>
-        </header>
+        </div>
+      </header>
+
+      <DashBody>
+        <DashHero
+          eyebrow="Ruang warga"
+          title={<>Halo{user?.name ? `, ${user.name}` : ""}.</>}
+          description="Simpan usaha yang sering Anda gunakan dan lanjutkan chatting dari satu tempat."
+        />
 
         <PwaControls />
 
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <BorderGlow className="h-full rounded-xl" intensity={0.08}>
-          <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <div className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-                <Store className="size-5" />
-              </div>
-              <CardTitle className="text-lg">Katalog lokal</CardTitle>
-            </CardHeader>
-            <CardContent className="flex-1">
-              <Counter value={vendors.length} className="text-3xl font-black text-slate-950" />
-              <p className="mt-1 text-sm text-muted-foreground">usaha tersedia</p>
-            </CardContent>
-          </Card>
-          </BorderGlow>
-          <BorderGlow className="h-full rounded-xl" glowColor="180,83,9" intensity={0.08}>
-          <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <div className="flex size-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
-                <Bookmark className="size-5" />
-              </div>
-              <CardTitle className="text-lg">Tersimpan</CardTitle>
-            </CardHeader>
-            <CardContent className="flex-1">
-              <Counter value={savedVendors.length} className="text-3xl font-black text-slate-950" />
-              <p className="mt-1 text-sm text-muted-foreground">listing pilihan Anda</p>
-            </CardContent>
-          </Card>
-          </BorderGlow>
-          <BorderGlow className="h-full rounded-xl" glowColor="4,120,87" intensity={0.08}>
-          <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <div className="flex size-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-                <ClipboardList className="size-5" />
-              </div>
-              <CardTitle className="text-lg">Permintaan saya</CardTitle>
-            </CardHeader>
-            <CardContent className="flex-1">
-              {myRequests === undefined ? (
-                <span
-                  role="status"
-                  aria-label="Memuat permintaan saya"
-                  className="block h-9 w-20 rounded bg-slate-200 motion-safe:animate-pulse"
-                />
-              ) : (
-                <Counter value={myRequests.length} className="text-3xl font-black text-slate-950" />
-              )}
-              <p className="mt-1 text-sm text-muted-foreground">permintaan yang Anda buat</p>
-            </CardContent>
-            <CardFooter>
-              <button type="button" onClick={() => document.getElementById("permintaan-saya")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="inline-flex min-h-12 items-center gap-2 text-base font-extrabold text-blue-700">
-                Lihat permintaan <ArrowRight className="size-4" />
+        <DashSection
+          eyebrow="Ringkasan"
+          title="Sekilas aktivitas Anda"
+          description="Empat angka yang berubah mengikuti apa yang Anda simpan, minta, dan hubungi."
+          grid="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        >
+          <DashStat
+            index={0}
+            icon={<Store className="size-5" />}
+            tone="blue"
+            label="Katalog lokal"
+            value={vendors.length}
+            hint="usaha tersedia di sekitar Anda"
+            action={
+              <Link to="/#katalog" className="inline-flex min-h-11 items-center gap-1.5 text-sm font-extrabold text-blue-700 hover:text-blue-900">
+                Jelajahi katalog <ArrowRight className="size-4" aria-hidden="true" />
+              </Link>
+            }
+          />
+          <DashStat
+            index={1}
+            icon={<Bookmark className="size-5" />}
+            tone="amber"
+            label="Tersimpan"
+            value={savedVendors.length}
+            hint="listing pilihan Anda"
+            action={
+              <button
+                type="button"
+                onClick={() => scrollToSection("favorit-saya")}
+                className="inline-flex min-h-11 items-center gap-1.5 text-sm font-extrabold text-blue-700 hover:text-blue-900"
+              >
+                Buka favorit <ArrowRight className="size-4" aria-hidden="true" />
               </button>
-            </CardFooter>
-          </Card>
-          </BorderGlow>
-          <BorderGlow className="h-full rounded-xl" glowColor="37,99,235" intensity={0.08}>
-          <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <div className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-                <MessageCircle className="size-5" />
-              </div>
-              <CardTitle className="text-lg">{"Interaksi"}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex-1">
-              {interactions === undefined ? (
-                <span
-                  role="status"
-                  aria-label="Memuat interaksi saya"
-                  className="block h-9 w-20 rounded bg-slate-200 motion-safe:animate-pulse"
-                />
-              ) : (
-                <Counter value={interactions.length} className="text-3xl font-black text-slate-950" />
-              )}
-              <p className="mt-1 text-sm text-muted-foreground">chatting & kunjungan terakhir Anda</p>
-            </CardContent>
-            <CardFooter>
-              <button type="button" onClick={() => document.getElementById("aktivitas-saya")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="inline-flex min-h-12 items-center gap-2 text-base font-extrabold text-blue-700">
-                Lihat aktivitas <ArrowRight className="size-4" />
+            }
+          />
+          <DashStat
+            index={2}
+            icon={<ClipboardList className="size-5" />}
+            tone="emerald"
+            label="Permintaan saya"
+            value={myRequests?.length}
+            hint="permintaan yang Anda buat"
+            action={
+              <button
+                type="button"
+                onClick={() => scrollToSection("permintaan-saya")}
+                className="inline-flex min-h-11 items-center gap-1.5 text-sm font-extrabold text-blue-700 hover:text-blue-900"
+              >
+                Lihat permintaan <ArrowRight className="size-4" aria-hidden="true" />
               </button>
-            </CardFooter>
-          </Card>
-          </BorderGlow>
-        </section>
+            }
+          />
+          <DashStat
+            index={3}
+            icon={<MessageCircle className="size-5" />}
+            tone="slate"
+            label="Interaksi"
+            value={interactions?.length}
+            hint="chatting & kunjungan terakhir Anda"
+            action={
+              <button
+                type="button"
+                onClick={() => scrollToSection("aktivitas-saya")}
+                className="inline-flex min-h-11 items-center gap-1.5 text-sm font-extrabold text-blue-700 hover:text-blue-900"
+              >
+                Lihat aktivitas <ArrowRight className="size-4" aria-hidden="true" />
+              </button>
+            }
+          />
+        </DashSection>
 
-        <section id="favorit-saya" className="scroll-mt-6">
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Daftar tersimpan</p>
-              <h2 className="mt-1 text-2xl font-black tracking-[-0.035em] text-slate-950">Lanjutkan dari favorit Anda</h2>
-            </div>
-            <Link to="/#katalog" className="hidden min-h-12 items-center gap-2 rounded-lg px-3 text-base font-extrabold text-blue-700 sm:flex">
-              Cari lainnya <ArrowRight className="size-4" />
+        <DashSection
+          id="favorit-saya"
+          eyebrow="Daftar tersimpan"
+          title="Lanjutkan dari favorit Anda"
+          description="Yang Anda simpan tersimpan di perangkat ini dan ikut tersinkron setelah masuk."
+          action={
+            <Link to="/#katalog" className={dashButtonClass("secondary", "hidden sm:inline-flex")}>
+              Cari lainnya <ArrowRight className="size-4" aria-hidden="true" />
             </Link>
-          </div>
-
+          }
+        >
           <AnimatedContent animationKey={savedVendors.map((vendor) => vendor.slug).join("-") || "kosong"}>
-          {savedVendors.length > 0 ? (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {savedVendors.map((vendor) => {
-                const landmark = landmarkLabel(vendor.landmark);
-                return (
-                  <article key={vendor.slug} className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex items-start gap-3">
-                      <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${vendor.accent} text-sm font-black text-white`}>{vendor.mark}</span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-extrabold text-blue-700">{vendor.category}</p>
-                        <p className="mt-1 text-xs font-bold text-slate-500">Koleksi: {favorites.collectionFor(vendor.slug)}</p>
-                        <h3 className="mt-1 text-lg font-black leading-snug text-slate-950">{vendor.name}</h3>
-                      </div>
-                    </div>
-                    <p className="mt-4 line-clamp-2 text-base leading-6 text-slate-600">{vendor.description}</p>
-                    <p className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-slate-600"><MapPin className="size-4 text-blue-600" />{landmark}</p>
-                    <div className="mt-auto grid grid-cols-[1fr_3rem] gap-2 pt-5">
-                      <button type="button" disabled={!vendor.contactRef} onClick={() => { openContactWithFeedback({ contactRef: vendor.contactRef, intent: recommendedWhatsAppIntent(vendor.category) }); if (vendor._id) { void click({ id: vendor._id as never, kind: "whatsapp" }).catch(() => undefined); void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined); } }} className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 text-base font-extrabold text-[#082f1e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
-                        <MessageCircle className="size-5" />{categoryActionLabel[vendor.category]}
-                      </button>
-                      <Link to={`/v/${vendor.slug}`} className="flex min-h-12 items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50" aria-label={`Lihat ${vendor.name}`}>
-                        <ArrowRight className="size-5" />
-                      </Link>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <EmptyStateCard title="Belum ada favorit tersimpan" body="Klik ikon bookmark pada listing untuk menyimpannya di perangkat dan menyinkronkannya setelah Anda masuk." actionLabel="Jelajahi katalog" onAction={() => navigate("/#katalog")} />
-          )}
+            {savedVendors.length > 0 ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {savedVendors.map((vendor) => {
+                  const landmark = landmarkLabel(vendor.landmark);
+                  return (
+                    <BorderGlow key={vendor.slug} className="h-full rounded-xl" intensity={0.08}>
+                      <article className="dash-panel dash-panel--interactive flex h-full min-w-0 flex-col p-5">
+                        <div className="flex items-start gap-3">
+                          <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${vendor.accent} text-sm font-black text-white`}>{vendor.mark}</span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-extrabold text-blue-700">{vendor.category}</p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">Koleksi: {favorites.collectionFor(vendor.slug)}</p>
+                            <h3 className="mt-1 text-lg font-black leading-snug tracking-[-0.02em] text-slate-950">{vendor.name}</h3>
+                          </div>
+                        </div>
+                        <p className="mt-4 line-clamp-2 text-base leading-6 text-slate-600">{vendor.description}</p>
+                        <p className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-slate-600"><MapPin className="size-4 text-blue-600" aria-hidden="true" />{landmark}</p>
+                        <div className="mt-auto grid grid-cols-[1fr_3rem] gap-2 pt-5">
+                          <button
+                            type="button"
+                            disabled={!vendor.contactRef}
+                            onClick={() => {
+                              openContactWithFeedback({ contactRef: vendor.contactRef, intent: recommendedWhatsAppIntent(vendor.category) });
+                              if (vendor._id) {
+                                void click({ id: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
+                                void interaction({ vendorId: vendor._id as never, kind: "whatsapp" }).catch(() => undefined);
+                              }
+                            }}
+                            className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 text-base font-extrabold text-[#082f1e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                          >
+                            <MessageCircle className="size-5" aria-hidden="true" />{categoryActionLabel[vendor.category]}
+                          </button>
+                          <Link
+                            to={`/v/${vendor.slug}`}
+                            className="flex min-h-12 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition-colors hover:bg-slate-50"
+                            aria-label={`Lihat ${vendor.name}`}
+                          >
+                            <ArrowRight className="size-5" aria-hidden="true" />
+                          </Link>
+                        </div>
+                      </article>
+                    </BorderGlow>
+                  );
+                })}
+              </div>
+            ) : (
+              <EmptyStateCard title="Belum ada favorit tersimpan" body="Klik ikon bookmark pada listing untuk menyimpannya di perangkat dan menyinkronkannya setelah Anda masuk." actionLabel="Jelajahi katalog" onAction={() => navigate("/#katalog")} />
+            )}
           </AnimatedContent>
-        </section>
+        </DashSection>
 
-        <div id="aktivitas-saya" className="grid scroll-mt-6 gap-6 lg:grid-cols-2">
+        <div id="aktivitas-saya" className="grid scroll-mt-20 gap-6 lg:grid-cols-2">
           <InteractionHistory />
           <NotificationCenter />
         </div>
-        <div id="permintaan-saya" className="scroll-mt-6"><MyRequestHistory /></div>
-      </div>
-    </main>
+
+        <div id="permintaan-saya" className="scroll-mt-20"><MyRequestHistory /></div>
+      </DashBody>
+    </DashShell>
   );
 }

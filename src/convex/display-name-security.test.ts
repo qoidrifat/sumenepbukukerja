@@ -244,9 +244,45 @@ describe("F-05 - jalur koreksi tidak bisa dipakai untuk menulis milik orang lain
     const { userId } = await seedRequester(t, { email: "budi.santoso@gmail.com" });
     const caller = t.withIdentity({ subject: `${userId}|sesi-uji-6` });
 
+    // Isi yang hilang (spasi ganda, angka, tanda baca, HTML) tetap ditolak.
     await expect(
       caller.mutation(api.users.setMyDisplayName, { name: "budi  santoso" }),
     ).rejects.toThrow(/Coba: Budi Santoso/);
+    await expect(
+      caller.mutation(api.users.setMyDisplayName, { name: "budi santoso 99" }),
+    ).rejects.toThrow(/Coba: Budi Santoso/);
+    await expect(
+      caller.mutation(api.users.setMyDisplayName, { name: "budi<script>" }),
+    ).rejects.toThrow(/Coba: Budi Script/);
+  });
+
+  test("kapitalisasi bukan alasan menolak: isian huruf kecil langsung disimpan", async () => {
+    // Laporan ERR F-14: "Shina suka matcha" ditolak dengan balasan "Coba:
+    // Shina Suka Matcha", jadi pengguna harus mengetik ulang. Isian huruf
+    // kecil adalah bentuk paling normal dari mengetik nama - menolaknya
+    // memaksa pengguna menebak aturan yang tidak pernah ditampilkan.
+    const t = convexTest(schema, modules);
+    const { userId } = await seedRequester(t, { email: "shina@mail.com" });
+    const caller = t.withIdentity({ subject: `${userId}|sesi-uji-9` });
+
+    const tersimpan = await caller.mutation(api.users.setMyDisplayName, {
+      name: "Shina suka matcha",
+    });
+    expect(tersimpan).toBe("Shina Suka Matcha");
+
+    // Yang tersimpan harus benar-benar yang dipanggil papan publik, bukan
+    // hanya nilai balasan.
+    expect(await caller.query(api.users.myDisplayName, {})).toMatchObject({
+      publicName: "Shina Suka Matcha",
+      current: "Shina Suka Matcha",
+    });
+
+    // Menulis ulang dengan bentuk kapital yang sama tetap idempoten.
+    expect(
+      await caller.mutation(api.users.setMyDisplayName, {
+        name: "shina suka matcha",
+      }),
+    ).toBe("Shina Suka Matcha");
   });
 
   test("ensureMyDisplayName idempoten dan tidak menimpa koreksi", async () => {

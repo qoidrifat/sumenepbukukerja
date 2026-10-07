@@ -59,9 +59,9 @@ export function AccountMenu() {
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`Menu akun ${displayName}`}
-          className={`flex min-h-12 min-w-0 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3 shadow-sm hover:border-blue-300 hover:bg-blue-50 ${focusRing}`}
+          className={`flex min-h-12 min-w-0 shrink-0 items-center gap-2 rounded-full border border-slate-200/90 bg-white py-1 pl-1 pr-3 shadow-[0_1px_2px_rgb(15_23_42/6%)] transition-colors hover:border-blue-300 hover:bg-blue-50 ${focusRing}`}
         >
-          <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-600 text-sm font-black text-white">
+          <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-600 text-sm font-black text-white ring-1 ring-inset ring-white/25">
             {profile?.imageUrl ? (
               <img src={profile.imageUrl} alt="" className="size-full object-cover" />
             ) : (
@@ -72,7 +72,7 @@ export function AccountMenu() {
             {displayName}
           </span>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-56">
+        <DropdownMenuContent align="end" className="min-w-60 rounded-2xl border-slate-200/80 p-1.5 shadow-[0_18px_44px_-26px_rgb(15_23_42/38%)]">
           <DropdownMenuItem disabled={target === null} asChild={target !== null}>
             {target === null ? (
               <span className="flex min-h-12 items-center gap-2"><span>Dashboard</span></span>

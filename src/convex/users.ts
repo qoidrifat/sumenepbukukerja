@@ -8,7 +8,7 @@ import { writeAudit } from "./audit";
 import { noteSecurityDenial } from "./securitySignal";
 import { isOwnerAccount } from "../lib/owner-account";
 import { imageRejection } from "../lib/image-upload";
-import { resolveDisplayName, sanitizeDisplayName } from "../lib/display-name";
+import { checkDisplayNameInput, resolveDisplayName } from "../lib/display-name";
 
 /**
  * Read-only user query used by the existing auth UI. Role assignment is never
@@ -369,15 +369,21 @@ export const setMyDisplayName = mutation({
   args: { name: v.string() },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
-    const cleaned = sanitizeDisplayName(args.name);
-    if (!cleaned) return denied("Nama tampilan minimal 2 huruf.");
-    if (cleaned !== args.name.trim()) {
-      // Dijawab dengan nilai yang benar-benar dipakai, bukan ditolak diam-diam
-      // supaya pengguna tidak menebak apa yang salah.
-      return denied(`Nama tampilan itu tidak bisa dipakai. Coba: ${cleaned}`);
+    // Huruf besar-kecil bukan alasan menolak: `Shina suka matcha` disimpan
+    // sebagai `Shina Suka Matcha`. Yang ditolak hanya isian yang isinya hilang
+    // (angka, tanda baca, HTML, spasi ganda, nama terpotong) - isian itu
+    // dijawab dengan nilai yang benar-benar akan dipakai, bukan ditolak
+    // diam-diam supaya pengguna tidak menebak apa yang salah.
+    const checked = checkDisplayNameInput(args.name);
+    if (!checked.ok) {
+      return denied(
+        checked.suggestion
+          ? `Nama tampilan itu tidak bisa dipakai. Coba: ${checked.suggestion}`
+          : "Nama tampilan minimal 2 huruf.",
+      );
     }
-    await ctx.db.patch(userId, { publicName: cleaned });
-    return cleaned;
+    await ctx.db.patch(userId, { publicName: checked.value });
+    return checked.value;
   },
 });
 

@@ -850,7 +850,7 @@ sebagai kemalasan:
 Item 11 naik dari `BLOCKED` ke `IMPLEMENTED - EXTERNAL VERIFICATION PENDING`
 karena gap internalnya sudah ditutup (lihat catatan di bawah). Yang tersisa
 hanya bukti pengiriman nyata, dan itu bergantung item 1.
-| 14 E2E | kredensial di atas, supaya 4 skip kredensial jadi dieksekusi | Keys |
+| 14 E2E | kredensial di atas, supaya 4 skip kredensial jadi dieksekusi. Penjaga luapan dasbor (`e2e/dashboard-responsive.spec.ts`) juga butuh sesi jadi lewat `E2E_STORAGE_STATE`, supaya 4 skip-nya ikut dieksekusi | Keys |
 
 ## Performa katalog (Fase 4)
 

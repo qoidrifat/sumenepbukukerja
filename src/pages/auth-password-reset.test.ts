@@ -41,23 +41,25 @@ test("tidak ada penangan, state, atau impor sandi yang tersisa di Auth", () => {
   expect(auth).not.toMatch(/sandi/i);
 });
 
-test("penggantinya ada: dialog OTP dibuka dari tombol Gunakan Email", () => {
-  expect(auth).toContain("EmailOtpDialog");
-  expect(auth).toContain("Gunakan Email");
+test("penggantinya ada: halaman /auth/email dibuka dari tombol Masuk dengan Email", () => {
+  expect(auth).toContain("/auth/email");
+  expect(auth).toContain("Masuk dengan Email");
   // Status OTP dibaca saat render untuk matriks ketersediaan; query yang
   // belum terjawab tidak boleh mem-flash fallback.
-  expect(auth).toContain("otpEmail");
-  expect(auth).toContain("setOtpOpen(true)");
-  // Selesai OTP = tutup + navigasi tepat sekali ke tujuan semula.
-  expect(auth).toContain("onVerified");
-  expect(auth).toContain("setOtpDone(true)");
+  expect(auth).toContain("useOtpStatus");
+  // Tidak ada lagi popup: tidak ada dialog, tidak ada state buka/tutupnya.
+  expect(auth).not.toContain("EmailOtpDialog");
+  expect(auth).not.toContain("setOtpOpen");
+  expect(auth).not.toContain("otpDone");
+  expect(auth).not.toContain("onVerified");
+  // returnTo diteruskan supaya selesai verifikasi kembali ke tujuan semula.
+  expect(auth).toContain("returnTo=");
 });
 
-test("navigasi otomatis tidak memotong sekuens sukses OTP", () => {
-  // Efek sesi yang sudah ada menavigasi langsung - benar untuk Google,
-  // salah untuk OTP yang dialognya masih terbuka (animasi sukses Task 5
-  // akan terpotong sebelum terlihat).
-  expect(auth).toContain("!otpOpen");
+test("navigasi otomatis tidak butuh penahan dialog", () => {
+  // Halaman email terpisah: efek sesi menavigasi langsung begitu sesi ada.
+  // Tidak ada dialog yang bisa terpotong, jadi tidak ada penjaga `otpOpen`.
+  expect(auth).not.toContain("otpOpen");
 });
 
 test("semua navigasi pasca-masuk tepat sekali tanpa entri ganda", () => {

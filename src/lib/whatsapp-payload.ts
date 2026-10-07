@@ -13,9 +13,9 @@ export type TemplateOptions = {
   name: string;
   /** WHATSAPP_TEMPLATE_LANGUAGE, default `id` */
   language: string;
-  /** WHATSAPP_TEMPLATE_PARAM_TITLE, default `judul` */
+  /** WHATSAPP_TEMPLATE_PARAM_TITLE, default `judul`. Kosongkan (`""`) bila template tanpa variabel. */
   titleParam: string;
-  /** WHATSAPP_TEMPLATE_PARAM_BODY, default `isi` */
+  /** WHATSAPP_TEMPLATE_PARAM_BODY, default `isi`. Kosongkan (`""`) bila template tanpa variabel. */
   bodyParam: string;
 };
 
@@ -37,30 +37,40 @@ export const buildTextPayload = (input: MessageInput) => ({
  * Header, footer, dan tombol sengaja tidak dikirim: kode tidak punya nilai untuk
  * komponen itu, dan Meta menolak bila template punya komponen yang tidak diisi.
  */
-export const buildTemplatePayload = (input: MessageInput, options: TemplateOptions) => ({
-  messaging_product: "whatsapp",
-  recipient_type: "individual",
-  to: input.phone,
-  type: "template",
-  template: {
-    name: options.name,
-    language: { code: options.language },
-    components: [
-      {
-        type: "body",
-        parameters: [
-          {
-            type: "text",
-            parameter_name: options.titleParam,
-            text: input.title.slice(0, TITLE_MAX),
-          },
-          {
-            type: "text",
-            parameter_name: options.bodyParam,
-            text: input.body.slice(0, BODY_MAX),
-          },
-        ],
-      },
-    ],
-  },
-});
+export const buildTemplatePayload = (input: MessageInput, options: TemplateOptions) => {
+  // Template tanpa variabel dilarang diberi parameter: Meta menolak dengan
+  // 132000 ("number of localizable_params does not match"). Jadi komponen body
+  // hanya dikirim bila kedua nama parameter diisi.
+  const hasParams = Boolean(options.titleParam && options.bodyParam);
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: input.phone,
+    type: "template",
+    template: {
+      name: options.name,
+      language: { code: options.language },
+      ...(hasParams
+        ? {
+            components: [
+              {
+                type: "body",
+                parameters: [
+                  {
+                    type: "text",
+                    parameter_name: options.titleParam,
+                    text: input.title.slice(0, TITLE_MAX),
+                  },
+                  {
+                    type: "text",
+                    parameter_name: options.bodyParam,
+                    text: input.body.slice(0, BODY_MAX),
+                  },
+                ],
+              },
+            ],
+          }
+        : {}),
+    },
+  };
+};

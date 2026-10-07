@@ -8,7 +8,6 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { staffRoleLongLabel } from "@/lib/select-options";
 import {
   MAX_IMAGE_LABEL,
@@ -16,6 +15,8 @@ import {
   uploadWithDedup,
 } from "@/lib/image-upload";
 import { focusRing } from "@/lib/focus-ring";
+import { dashButtonClass } from "@/lib/dash-button-class";
+import { publicInputClass } from "@/lib/public-field-classes";
 
 /**
  * Pengaturan profil warga di tema publik.
@@ -26,8 +27,10 @@ import { focusRing } from "@/lib/focus-ring";
  * `picked`, `error`/`notice`/`busy`, `fileRef`, `pickPhoto` via
  * `uploadWithDedup`, dan `save` via mutation profil.
  *
- * Hanya tampilannya yang berbeda: rangka `ui/dialog`, tombol shadcn,
- * dan permukaan terang dengan sudut membulat.
+ * Hanya tampilannya yang berbeda: rangka `ui/dialog` dengan lapisan permukaan
+ * `dash-dialog-content` (lihat komentar blok "Dialog warga & mitra" di
+ * `index.css`) - jadi dialog ini memakai garis, sudut, dan bayangan yang sama
+ * dengan kartu di Ruang Warga, bukan material bawaan shadcn.
  *
  * `open`/`onOpenChange` dikendalikan PEMANGGIL, bukan state internal,
  * supaya dialog boleh hidup di luar subtree yang bisa dicabut pemicunya.
@@ -153,23 +156,31 @@ export function ProfileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[calc(100%-1.5rem)] rounded-2xl border-slate-200 bg-white p-0 shadow-xl sm:max-w-md">
-        <div className="border-b border-slate-100 px-5 py-4 sm:px-6">
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
+      <DialogContent
+        overlayClassName="dash-dialog-overlay"
+        className="dash-dialog-content max-w-[calc(100%-1.5rem)] sm:max-w-md"
+      >
+        {/* `pe` disengaja dipisah dari `ps` (bukan `px` + `pe`) supaya nilainya
+            tidak ditimpa lagi oleh `sm:px-6` pada layar >=640px: aturan
+            ber-`@media` selalu berada setelah utilitas dasar di stylesheet.
+            Ruang 64px ini memberi tempat tombol tutup 44px milik primitif,
+            tanpa itu deskripsi dua baris bisa tersambung di bawah tombolnya. */}
+        <div className="border-b border-slate-200/70 py-4 ps-5 pe-16 sm:ps-6">
+          <p className="dash-eyebrow">
             Akun
           </p>
-          <DialogTitle className="mt-1 text-lg font-bold text-slate-950">
+          <DialogTitle className="dash-title mt-2 text-lg">
             Profil saya
           </DialogTitle>
-          <DialogDescription id={hintId} className="mt-1 text-sm leading-6 text-slate-600">
+          <DialogDescription id={hintId} className="dash-sub mt-1.5 text-sm">
             Nama dan foto profil tampil di ruang warga Anda.
             Email tidak bisa diubah di sini.
           </DialogDescription>
         </div>
 
-        <div className="space-y-4 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
+        <div className="space-y-5 px-5 py-5 sm:px-6">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-blue-50 text-xl font-bold text-blue-700">
+            <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-blue-200/60 bg-blue-50 text-xl font-extrabold text-blue-700">
               {profile?.imageUrl ? (
                 <img src={profile.imageUrl} alt="" className="size-full object-cover" />
               ) : (
@@ -177,23 +188,23 @@ export function ProfileDialog({
               )}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-slate-900">
+              <span className="dash-pill dash-pill--blue">
                 {profile?.role ? staffRoleLongLabel(profile.role) : "Warga"}
-              </p>
-              <p className="break-all text-sm text-slate-500">{profile?.email}</p>
+              </span>
+              <p className="dash-sub mt-1.5 break-all text-sm">{profile?.email}</p>
             </div>
           </div>
 
           <div>
             <label
-              className="text-xs font-bold uppercase tracking-widest text-slate-500"
+              className="text-[0.6875rem] font-extrabold uppercase tracking-[0.14em] text-slate-500"
               htmlFor={nameId}
             >
               Nama profil
             </label>
             <input
               id={nameId}
-              className={`mt-1.5 min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 ${focusRing}`}
+              className={`mt-1.5 ${publicInputClass}`}
               value={name}
               maxLength={80} // = MAX_PROFILE_NAME_length server
               onChange={(event) => setName(event.target.value)}
@@ -203,24 +214,22 @@ export function ProfileDialog({
           </div>
 
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
+            <p className="text-[0.6875rem] font-extrabold uppercase tracking-[0.14em] text-slate-500">
               Foto profil
             </p>
-            <div className="mt-1.5 flex flex-wrap gap-2">
-              <Button
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
                 type="button"
-                variant="outline"
-                className="min-h-12"
+                className={dashButtonClass("secondary", focusRing)}
                 onClick={() => fileRef.current?.click()}
               >
                 <Camera className="size-4" aria-hidden="true" />
                 Pilih foto
-              </Button>
+              </button>
               {profile?.hasImage || pending ? (
-                <Button
+                <button
                   type="button"
-                  variant="outline"
-                  className="min-h-12"
+                  className={dashButtonClass("danger", focusRing)}
                   onClick={() => {
                     setPending(null);
                     setPicked(null);
@@ -231,7 +240,7 @@ export function ProfileDialog({
                 >
                   <Trash2 className="size-4" aria-hidden="true" />
                   Hapus foto
-                </Button>
+                </button>
               ) : null}
             </div>
             <p className="mt-2 text-xs leading-5 text-slate-500">
@@ -242,8 +251,7 @@ export function ProfileDialog({
               <p className="mt-2 break-all text-xs font-bold text-slate-500">
                 {picked.name}, {formatBytes(picked.size)}, siap disimpan
               </p>
-            ) : null}
-            <input
+            ) : null}            <input
               ref={fileRef}
               type="file"
               accept="image/*"
@@ -256,33 +264,32 @@ export function ProfileDialog({
           </div>
 
           {error ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700" role="alert">
+            <p className="rounded-xl border border-red-200/80 bg-red-50/80 px-3.5 py-2.5 text-sm font-bold text-red-800" role="alert">
               {error}
             </p>
           ) : null}
           {notice ? (
-            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700" role="status">
+            <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3.5 py-2.5 text-sm font-bold text-emerald-800" role="status">
               {notice}
             </p>
           ) : null}
 
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <Button
+            <button
               type="button"
-              variant="outline"
-              className="order-2 min-h-12 w-full sm:order-1 sm:w-auto"
+              className={dashButtonClass("secondary", `order-2 w-full sm:order-1 sm:w-auto ${focusRing}`)}
               onClick={() => onOpenChange(false)}
             >
               Tutup
-            </Button>
-            <Button
+            </button>
+            <button
               type="button"
-              className="order-1 min-h-12 w-full sm:order-2 sm:w-auto"
+              className={dashButtonClass("primary", `order-1 w-full sm:order-2 sm:w-auto ${focusRing}`)}
               disabled={busy || name.trim().length < 2}
               onClick={() => void save()}
             >
               {busy ? "Menyimpan..." : "Simpan profil"}
-            </Button>
+            </button>
           </div>
         </div>
       </DialogContent>

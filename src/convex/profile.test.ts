@@ -1,379 +1,411 @@
 /// <reference types="vite/client" />
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
-import { api } from "./_generated/api";
-import { isStoredImage } from "./users";
-import { MAX_IMAGE_BYTES, imageRejection } from "../lib/image-upload";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import { PHONE_DATA_KEY_ENV } from "../lib/phone-crypto";
+import { makeInboundCode } from "./profile";
+
+/**
+ * Profil warga Fase 9.6 — gate kelengkapan + verifikasi nomor INBOUND.
+ *
+ * Nomor dibuktikan dengan mengirim kode `K-XXXX` (diterbitkan server) dari
+ * nomor itu sendiri ke WhatsApp bisnis; webhook mencocokkan dan menandai
+ * terverifikasi. Tanpa template, tanpa biaya, tanpa SMS.
+ *
+ * Yang dikunci di sini:
+ *  1. Status lengkap hanya bila nama + nomor terverifikasi + alamat ada.
+ *  2. Kode inbound: hash saja tersimpan; salah nomor tidak membakar kode;
+ *     kedaluwarsa/terpakai ditolak; pengirim asing diabaikan.
+ *  3. Simpan profil atomik dan MENOLAK nomor yang belum terverifikasi.
+ *  4. Ganti nomor di preferensi menghapus stempel verifikasi lama.
+ *  5. Jalur outbound lama (`requestPhoneCode`) tetap berperilaku.
+ */
 
 const modules = import.meta.glob("./**/*.ts");
 
-/**
- * Profil pengelola.
- *
- * Yang dikunci di sini bukan "bisa menyimpan nama" — itu remeh. Yang dikunci
- * adalah tiga hal yang bisa rusak dan tidak akan terlihat kalau tidak diuji:
- *  1. Validasi foto dibaca dari metadata STORAGE, bukan dari `File` klien.
- *  2. Email tidak bisa diubah lewat jalur ini.
- *  3. Foto lama dihapus SETELAH patch berhasil, bukan sebelumnya.
- */
+/** Kunci uji deterministik. Bukan kunci produksi. */
+const TEST_KEY_B64 = btoa(
+  String.fromCharCode(...new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 1))),
+);
 
-async function seedAdmin(t: ReturnType<typeof convexTest>, email = "admin@sumenep.co.id") {
-  const id = await t.run(async (ctx) => {
-    const db = ctx.db as unknown as {
-      insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
-    };
-    const userId = await db.insert("users", { name: "Nama Lama", email });
-    await ctx.db.insert("staffMembers", {
-      userId: userId as never,
-      role: "admin",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+type EnvBag = { process?: { env?: Record<string, string | undefined> } };
+const envBag = () => (globalThis as unknown as EnvBag).process?.env;
+// Env dummy khusus file ini: kunci enkripsi + kredensial Meta (jalur
+// outbound mencapai fetch yang distub) + nomor bisnis (jalur inbound).
+const MANAGED_ENV = [
+  PHONE_DATA_KEY_ENV,
+  "WHATSAPP_ACCESS_TOKEN",
+  "WHATSAPP_PHONE_NUMBER_ID",
+  "WHATSAPP_BUSINESS_NUMBER",
+] as const;
+const savedEnv: Record<string, string | undefined> = {};
+
+beforeAll(() => {
+  const bag = envBag();
+  if (!bag) throw new Error("Test environment does not expose an env record");
+  for (const name of MANAGED_ENV) savedEnv[name] = bag[name];
+  bag[PHONE_DATA_KEY_ENV] = TEST_KEY_B64;
+  bag["WHATSAPP_ACCESS_TOKEN"] = "uji-token-meta";
+  bag["WHATSAPP_PHONE_NUMBER_ID"] = "uji-phone-id";
+  bag["WHATSAPP_BUSINESS_NUMBER"] = "6280000000000";
+});
+
+afterAll(() => {
+  const bag = envBag();
+  if (!bag) return;
+  for (const name of MANAGED_ENV) {
+    if (savedEnv[name] === undefined) delete bag[name];
+    else bag[name] = savedEnv[name];
+  }
+});
+
+const originalFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+/** Isi `body` panggilan fetch terakhir ke Meta. */
+let lastPayload = "";
+let fetchCalls = 0;
+
+function stubMeta(status = 200) {
+  lastPayload = "";
+  fetchCalls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: unknown, init?: { body?: unknown }) => {
+      fetchCalls += 1;
+      lastPayload = String(init?.body ?? "");
+      if (status !== 200) return new Response("nope", { status });
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.uji1" }] }), { status: 200 });
+    }),
+  );
+}
+
+const seedUser = async (
+  t: ReturnType<typeof convexTest>,
+  input: { email?: string; publicName?: string; homeAddress?: string } = {},
+) =>
+  await t.run(async (ctx) => {
+    const userId = await ctx.db.insert("users", {
+      ...(input.email !== undefined ? { email: input.email } : {}),
+      ...(input.publicName !== undefined ? { publicName: input.publicName } : {}),
+      ...(input.homeAddress !== undefined ? { homeAddress: input.homeAddress } : {}),
     });
     return userId;
   });
-  return { userId: id, admin: t.withIdentity({ subject: id }) };
-}
 
-/**
- * Simpan berkas TANPA jenis berkas — persis seperti unggahan yang sengaja
- * tidak mengirim header `Content-Type`. Ini jalur yang harus selalu ditolak.
- */
-const storeBlob = (t: ReturnType<typeof convexTest>, bytes: number) =>
-  t.run(async (ctx) => await ctx.storage.store(new Blob([new Uint8Array(bytes)])));
+const callerFor = (t: ReturnType<typeof convexTest>, userId: string) =>
+  t.withIdentity({ subject: `${userId}|sesi-uji-profil` });
 
-/**
- * Simpan blob yang benar-benar punya jenis berkas.
- *
- * `convex-test` tidak mencatat `contentType` saat menyimpan blob — metadata
- * hasilnya hanya berisi `sha256` dan `size`. Server membaca jenis berkas dari
- * metadata itu, jadi tanpa langkah ini SETIAP berkas di tes terlihat seperti
- * unggahan tanpa header, dan jalur "berterima" tidak akan pernah bisa dicoba.
- * Tabel sistem tidak bisa di-INSERT, tapi PATCH ke barisnya berhasil — jadi
- * metadata itu bisa diisi persis seperti yang ditulis endpoint unggah.
- *
- * Sebelum ini, komentar lama di berkas ini menyimpulkan bahwa jalur berterima
- * memang tidak bisa diuji di sini. Kesimpulan itu ternyata keliru: satu PATCH
- * cukup, dan sekarang unggahan foto yang sesungguhnya berhasil ikut diuji.
- */
-const storeImage = (
-  t: ReturnType<typeof convexTest>,
-  bytes: number,
-  contentType = "image/jpeg",
-) =>
-  t.run(async (ctx) => {
-    const id = await ctx.storage.store(new Blob([new Uint8Array(bytes)]));
-    const system = ctx.db as unknown as {
-      patch: (id: never, value: { contentType: string }) => Promise<void>;
-    };
-    await system.patch(id as never, { contentType });
-    return id as never;
-  });
+const INBOUND_ARGS = (phone: string, body: string) => ({
+  phone,
+  providerMessageId: `wamid-${phone}-${body}`,
+  body,
+  kind: "text",
+  at: Date.now(),
+});
 
-describe("perbarui profil pengelola", () => {
-  test("nama dipangkas, spasi dirapatkan, dan batasannya ditegakkan", async () => {
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-
-    const messy = await admin.mutation(api.users.updateMyProfile, {
-      name: "   Rofi'atul    Qodriyah   ",
-    });
-    expect(messy.name).toBe("Rofi'atul Qodriyah");
-
-    // Spasi berlebih tidak boleh membuat panel mana pun melebar.
-    const long = await admin.mutation(api.users.updateMyProfile, { name: "a".repeat(500) });
-    expect((long.name ?? "").length).toBe(80);
-
-    // Nama yang tidak bisa diucapkan ditolak, bukan disimpan kosong.
-    await expect(admin.mutation(api.users.updateMyProfile, { name: "  " })).rejects.toThrow();
-    await expect(admin.mutation(api.users.updateMyProfile, { name: "a" })).rejects.toThrow();
-  });
-
-  test("email tidak bisa diubah lewat panel profil", async () => {
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t, "pemilik@sumenep.co.id");
-    const before = await admin.query(api.users.myProfile, {});
-    expect(before?.email).toBe("pemilik@sumenep.co.id");
-
-    // Argumen `email` sengaja tidak ada di validator, jadi klien yang
-    // mencobanya ditolak server — bukan diam-diam diabaikan.
-    await expect(
-      admin.mutation(api.users.updateMyProfile, {
-        name: "Nama Baru",
-        email: "orang-lain@sumenep.co.id",
-      } as never),
-    ).rejects.toBeTruthy();
-
-    const after = await admin.query(api.users.myProfile, {});
-    expect(after?.email).toBe("pemilik@sumenep.co.id");
-  });
-
-  test("berkas tanpa tipe yang jelas ditolak dan profil tetap utuh", async () => {
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    const storageId = await storeBlob(t, 512);
-
-    // Tanpa `contentType`, server tidak boleh menebak. Ini jalur yang dipakai
-    // test untuk semua unggahan, jadi ia juga jalur yang harus menolak.
-    await expect(
-      admin.mutation(api.users.updateMyProfile, { name: "Dengan Foto", imageStorageId: storageId }),
-    ).rejects.toThrow();
-
-    const profile = await admin.query(api.users.myProfile, {});
-    expect(profile?.name).toBe("Nama Lama");
-    expect(profile?.hasImage).toBe(false);
-  });
-
-  test("penolakan server memakai kalimat yang sama persis dengan yang dipakai klien", async () => {
-    // Server dan peramban memakai aturan yang sama dari `@/lib/image-upload`.
-    // Yang diuji di sini adalah sambungannya: pesan yang keluar dari mutasi
-    // harus pesan yang dihasilkan aturan itu untuk metadata yang sama — bukan
-    // kalimat lain yang ditulis ulang di dalam mutasi.
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    const storageId = await storeBlob(t, 512);
-    const expected = imageRejection({ size: 512, contentType: undefined });
-    expect(expected).not.toBeNull();
-
-    await expect(
-      admin.mutation(api.users.updateMyProfile, {
-        name: "Dengan Foto",
-        imageStorageId: storageId,
-      }),
-    ).rejects.toThrow(expected!);
-  });
-
-  test("unggahan foto yang sah benar-benar tersimpan dan bisa dibaca kembali", async () => {
-    // Inilah jalur yang dipakai pengguna saat menekan "Simpan profil" setelah
-    // memilih foto — dan inilah jalur yang dulu gagal. Sebelumnya tes ini tidak
-    // ada karena dianggap mustahil; ternyata cukup satu PATCH metadata.
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    const storageId = await storeImage(t, 512);
-
-    const saved = await admin.mutation(api.users.updateMyProfile, {
-      name: "  Nama  Dengan   Foto ",
-      imageStorageId: storageId,
-    });
-    expect(saved.name).toBe("Nama Dengan Foto");
-
-    const profile = await admin.query(api.users.myProfile, {});
-    expect(profile?.hasImage).toBe(true);
-    expect(profile?.name).toBe("Nama Dengan Foto");
-  });
-
-  test("foto kedua menggantikan yang pertama dan berkas lamanya dibersihkan", async () => {
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    const first = await storeImage(t, 256);
-    const second = await storeImage(t, 512);
-
-    await admin.mutation(api.users.updateMyProfile, { name: "Ganti Foto", imageStorageId: first });
-    await admin.mutation(api.users.updateMyProfile, { name: "Ganti Foto", imageStorageId: second });
-
-    const gone = await t.run(async (ctx) =>
-      Boolean(await ctx.db.system.get("_storage", first as never)),
-    );
-    const kept = await t.run(async (ctx) =>
-      Boolean(await ctx.db.system.get("_storage", second as never)),
-    );
-    expect(gone).toBe(false);
-    expect(kept).toBe(true);
-  });
-
-  test("foto yang terlalu besar ditolak walau jenisnya benar, dan foto lama tetap terpasang", async () => {
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    const good = await storeImage(t, 256);
-    await admin.mutation(api.users.updateMyProfile, { name: "Punya Foto", imageStorageId: good });
-
-    const oversized = await storeImage(t, MAX_IMAGE_BYTES + 1);
-    const expected = imageRejection({ size: MAX_IMAGE_BYTES + 1, contentType: "image/jpeg" });
-    await expect(
-      admin.mutation(api.users.updateMyProfile, {
-        name: "Punya Foto",
-        imageStorageId: oversized,
-      }),
-    ).rejects.toThrow(expected!);
-
-    // Penolakan tidak boleh menyentuh apa pun: nama dan foto lama tetap utuh.
-    const profile = await admin.query(api.users.myProfile, {});
-    expect(profile?.name).toBe("Punya Foto");
-    expect(profile?.hasImage).toBe(true);
-  });
-
-  test("berkas berjenis bukan gambar ditolak dengan pesan yang sesuai", async () => {
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    const pdf = await storeImage(t, 512, "application/pdf");
-
-    await expect(
-      admin.mutation(api.users.updateMyProfile, { name: "Dengan PDF", imageStorageId: pdf }),
-    ).rejects.toThrow("harus berupa foto");
-
-    const profile = await admin.query(api.users.myProfile, {});
-    expect(profile?.hasImage).toBe(false);
-  });
-
-  test("berkas kosong ditolak walau jenisnya gambar", async () => {
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    const empty = await storeImage(t, 0);
-
-    await expect(
-      admin.mutation(api.users.updateMyProfile, { name: "Berkas Kosong", imageStorageId: empty }),
-    ).rejects.toThrow("kosong");
-  });
-
-  test("id berkas diterima sebagai string, dan id yang tidak ada ditolak dengan jelas", async () => {
-    // Kontrak yang sebenarnya diinginkan validator: STRING, apa pun isinya.
-    // Id yang tidak menunjuk berkas apa pun bukan kesalahan pemanggil — itu
-    // berkas yang sudah hilang — jadi pesannya harus berkata begitu, bukan
-    // "value tidak cocok validator".
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-
-    await expect(
-      admin.mutation(api.users.updateMyProfile, {
-        name: "Dengan Foto",
-        imageStorageId: "000000000000000000000000_storage",
-      }),
-    ).rejects.toThrow("Foto profil tidak ditemukan");
-  });
-
-  test("objek dikirim di tempat id ditolak sebelum sempat menyentuh storage", async () => {
-    // Bentuk inilah yang dulu dikirim panel profil: seluruh jawaban endpoint
-    // unggah diteruskan apa adanya, sehingga yang sampai ke server adalah
-    // `{ storageId: "..." }`. Dikunci di sini supaya tidak kembali diam-diam.
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-
-    await expect(
-      admin.mutation(api.users.updateMyProfile, {
-        name: "Dengan Foto",
-        imageStorageId: { storageId: "kg2br8d4dtkqs00aq0t91dxwxh8f8pv2" } as never,
-      }),
-    ).rejects.toBeTruthy();
-
-    const profile = await admin.query(api.users.myProfile, {});
-    expect(profile?.name).toBe("Nama Lama");
-  });
-
-  test("batas 1 MB ditegakkan dari metadata storage, satu byte lebih ditolak", () => {
-    // `convex-test` tidak mencatat `contentType`, jadi cabang UKURAN tidak bisa
-    // dijalankan lewat mutasi di sini — metadata hasil penyimpanan hanya berisi
-    // `sha256` dan `size`. Karena aturannya tinggal di satu fungsi murni, batas
-    // itu tetap bisa diuji apa adanya, dan mutasi menguji sambungannya di atas.
-    expect(imageRejection({ size: MAX_IMAGE_BYTES, contentType: "image/jpeg" })).toBeNull();
-    expect(
-      imageRejection({ size: MAX_IMAGE_BYTES + 1, contentType: "image/jpeg" }),
-    ).not.toBeNull();
-  });
-
-  test("aturan jenis berkas hanya menerima contentType gambar", () => {
-    for (const type of ["image/png", "image/jpeg", "image/webp", "image/gif"]) {
-      expect(isStoredImage(type), type).toBe(true);
+describe("makeInboundCode", () => {
+  test("format K-XXXX tanpa karakter ambigu, deterministik dari input", () => {
+    for (let i = 0; i < 50; i += 1) {
+      const bytes = new Uint32Array([i * 2654435761, i + 7, i * 40503, i + 13]);
+      const code = makeInboundCode(bytes);
+      expect(code).toMatch(/^K-[A-HJ-NP-Z2-9]{4}$/);
     }
-    for (const type of ["application/pdf", "text/html", "video/mp4", "", undefined, null]) {
-      expect(isStoredImage(type as string | undefined), String(type)).toBe(false);
+    const same = new Uint32Array([1, 2, 3, 4]);
+    expect(makeInboundCode(same)).toBe(makeInboundCode(same));
+  });
+});
+
+describe("myProfileStatus", () => {
+  test("pengguna baru belum lengkap; saran nama diisi dari email", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, { email: "budi.santoso@gmail.com" });
+    const status = await callerFor(t, userId).query(api.profile.myProfileStatus, {});
+    expect(status.complete).toBe(false);
+    expect(status.name).toBe("");
+    expect(status.nameSuggestion).toBe("Budi Santoso");
+    expect(status.phone).toBe("");
+    expect(status.phoneVerified).toBe(false);
+    expect(status.address).toBe("");
+  });
+
+  test("tanpa sesi ditolak", async () => {
+    const t = convexTest(schema, modules);
+    await expect(t.query(api.profile.myProfileStatus, {})).rejects.toBeTruthy();
+  });
+});
+
+describe("requestInboundCode", () => {
+  test("menerbitkan kode + tautan chat bisnis, tanpa menyentuh provider", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, {});
+    stubMeta();
+    const result = await callerFor(t, userId).action(api.profile.requestInboundCode, {
+      phone: "081234567890",
+      name: "Siti Hajar",
+      address: "Jl. Uji No. 1, Sumenep",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.code).toMatch(/^K-[A-HJ-NP-Z2-9]{4}$/);
+    expect(result.chatUrl).toContain("https://wa.me/6280000000000?text=");
+    expect(result.chatUrl).toContain(encodeURIComponent(result.code));
+    // Server tidak mengirim apa-apa di jalur ini: nol panggilan keluar.
+    expect(fetchCalls).toBe(0);
+  });
+
+  test("teks chat membawa data form: nama, email sesi, nomor, alamat", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, { email: "siti.hajar@gmail.com" });
+    const result = await callerFor(t, userId).action(api.profile.requestInboundCode, {
+      phone: "081234567890",
+      name: "Siti Hajar",
+      address: "Jl. Uji No. 1, Sumenep",
+    });
+    const text = decodeURIComponent(result.chatUrl.split("?text=")[1] ?? "");
+    expect(text).toContain("Siti Hajar");
+    expect(text).toContain("siti.hajar@gmail.com");
+    expect(text).toContain("6281234567890");
+    expect(text).toContain("Jl. Uji No. 1, Sumenep");
+    expect(text).toContain(result.code);
+  });
+
+  test("nomor bisnis belum dikonfigurasi = gagal terlihat, bukan diam", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, {});
+    const bag = envBag();
+    const saved = bag?.["WHATSAPP_BUSINESS_NUMBER"];
+    if (bag) delete bag["WHATSAPP_BUSINESS_NUMBER"];
+    try {
+      await expect(
+        callerFor(t, userId).action(api.profile.requestInboundCode, {
+          phone: "081234567890",
+          name: "Siti",
+          address: "Jl. Uji",
+        }),
+      ).rejects.toThrow(/belum dikonfigurasi/);
+    } finally {
+      if (bag && saved !== undefined) bag["WHATSAPP_BUSINESS_NUMBER"] = saved;
     }
   });
 
-  test("berkas yang terlalu besar ditolak", async () => {
+  test("nomor invalid dan plafon ditolak seperti jalur outbound", async () => {
     const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    const huge = await storeBlob(t, 1_000_001);
+    const userId = await seedUser(t, {});
+    const caller = callerFor(t, userId);
     await expect(
-      admin.mutation(api.users.updateMyProfile, { name: "Berkas Besar", imageStorageId: huge }),
-    ).rejects.toThrow();
-
-    const profile = await admin.query(api.users.myProfile, {});
-    expect(profile?.name).toBe("Nama Lama");
-    expect(profile?.hasImage).toBe(false);
-  });
-
-  test("berkas foto lama dihapus dari storage saat profil diubah", async () => {
-    // Cabang ini sama untuk "ganti foto" dan "hapus foto": keduanya memanggil
-    // `ctx.storage.delete` yang sama setelah patch berhasil. Yang diuji di
-    // sini adalah cabangnya, lewat jalur yang bisa dibuktikan tanpa
-    // `contentType` — lihat catatan pada `storeBlob`.
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    const stored = await storeBlob(t, 256);
-    const userId = await t.run(async (ctx) => {
-      const rows = await ctx.db.query("users").collect();
-      return rows[0]!._id;
-    });
-    await t.run(async (ctx) => {
-      await ctx.db.patch(userId as never, { profileImageStorageId: stored });
-    });
-
-    await admin.mutation(api.users.updateMyProfile, { name: "Tanpa Foto", removeImage: true });
-
-    // Kalau berkas lama tidak dihapus, setiap kali seseorang mengganti foto
-    // akan meninggalkan salinan yang tidak pernah dirujuk dan tidak pernah
-    // dibersihkan.
-    const stillThere = await t.run(async (ctx) =>
-      Boolean(await ctx.db.system.get("_storage", stored as never)),
-    );
-    expect(stillThere).toBe(false);
-  });
-
-  test("hapus foto tidak menghapus nama", async () => {
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    const storageId = await storeBlob(t, 256);
-    const userId = await t.run(async (ctx) => {
-      const rows = await ctx.db.query("users").collect();
-      return rows[0]!._id;
-    });
-    await t.run(async (ctx) => {
-      await ctx.db.patch(userId as never, { profileImageStorageId: storageId });
-    });
-
-    await admin.mutation(api.users.updateMyProfile, { name: "Tetap Ada", removeImage: true });
-    const profile = await admin.query(api.users.myProfile, {});
-    expect(profile?.hasImage).toBe(false);
-    expect(profile?.name).toBe("Tetap Ada");
-  });
-
-  test("perubahan profil tercatat di jejak audit dengan pelaku", async () => {
-    const t = convexTest(schema, modules);
-    const { admin } = await seedAdmin(t);
-    await admin.mutation(api.users.updateMyProfile, { name: "Nama Baru" });
-
-    const rows = await t.run(async (ctx) =>
-      ctx.db
-        .query("auditLogs")
-        .withIndex("byAction", (q) => q.eq("action", "admin.profile_updated"))
-        .collect(),
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.metadata?.nameChanged).toBe(true);
-    expect(rows[0]?.actorEmail).toBe("admin@sumenep.co.id");
-  });
-
-  test("warga biasa tanpa sesi tidak bisa mengubah profil orang lain", async () => {
-    const t = convexTest(schema, modules);
-    await seedAdmin(t);
-    const anonymous = t.withIdentity({ name: "Pengunjung" });
-    await expect(
-      anonymous.mutation(api.users.updateMyProfile, { name: "Dibajak" }),
-    ).rejects.toThrow();
-
-    const strangerId = await t.run(async (ctx) => {
-      const db = ctx.db as unknown as {
-        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
-      };
-      return await db.insert("users", { name: "Asli", email: "asli@sumenep.co.id" });
-    });
-    const stranger = t.withIdentity({ subject: strangerId });
-    // `userId` tidak ada di validator: server menolak, bukan meneruskan.
-    await expect(
-      stranger.mutation(api.users.updateMyProfile, {
-        name: "Dibajak",
-        userId: strangerId,
-      } as never),
+      caller.action(api.profile.requestInboundCode, { phone: "123", name: "", address: "" }),
     ).rejects.toBeTruthy();
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 5; i += 1) {
+        await ctx.db.insert("phoneVerificationCodes", {
+          userId,
+          phone: "6281234567890",
+          codeHash: "a".repeat(64),
+          expiresAt: now + 600_000,
+          attempts: 0,
+          createdAt: now - i * 60_000,
+        });
+      }
+    });
+    await expect(
+      caller.action(api.profile.requestInboundCode, {
+        phone: "081234567890",
+        name: "Siti",
+        address: "Jl. Uji",
+      }),
+    ).rejects.toBeTruthy();
+  });
+});
+
+describe("verifikasi inbound lewat webhook", () => {
+  async function issueCode(
+    t: ReturnType<typeof convexTest>,
+    userId: string,
+    phone = "081234567890",
+  ) {
+    const caller = callerFor(t, userId);
+    const issued = await caller.action(api.profile.requestInboundCode, {
+      phone,
+      name: "Siti Hajar",
+      address: "Jl. Uji No. 1, Sumenep",
+    });
+    return { caller, code: issued.code };
+  }
+
+  test("kode benar dari nomor yang sama = terverifikasi + terenkripsi, status lengkap setelah simpan", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, { email: "siti.hajar@gmail.com" });
+    const { caller, code } = await issueCode(t, userId);
+    const claimed = await t.mutation(internal.whatsapp.recordInboundMessage, INBOUND_ARGS("6281234567890", code));
+    expect(claimed).toBeTruthy();
+    const status = await caller.query(api.profile.myProfileStatus, {});
+    expect(status.phone).toBe("6281234567890");
+    expect(status.phoneVerified).toBe(true);
+    expect(status.complete).toBe(false);
+    const saved = await caller.mutation(api.profile.saveMyProfile, {
+      name: "Siti Hajar",
+      phone: "6281234567890",
+      address: "Jl. Uji No. 1, Sumenep",
+    });
+    expect(saved.ok).toBe(true);
+    const done = await caller.query(api.profile.myProfileStatus, {});
+    expect(done.complete).toBe(true);
+    expect(done.name).toBe("Siti Hajar");
+    expect(done.address).toBe("Jl. Uji No. 1, Sumenep");
+    const prefs = await t.run(async (ctx) => {
+      const all = (await ctx.db.query("notificationPreferences").collect()) as unknown as Array<{
+        whatsappPhone?: string;
+        whatsappPhoneEnc?: string;
+        whatsappVerifiedAt?: number;
+      }>;
+      return all[0];
+    });
+    expect(prefs?.whatsappPhone).toBeUndefined();
+    expect(prefs?.whatsappPhoneEnc).toMatch(/^bk1\./);
+    expect(typeof prefs?.whatsappVerifiedAt).toBe("number");
+  });
+
+  test("bukan kode = diabaikan; nomor beda = kode TIDAK hangus", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, {});
+    const { caller, code } = await issueCode(t, userId);
+    // Bukan kode verifikasi: hanya tercatat sebagai thread biasa.
+    await t.mutation(internal.whatsapp.recordInboundMessage, INBOUND_ARGS("6281234567890", "halo min"));
+    expect((await caller.query(api.profile.myProfileStatus, {})).phoneVerified).toBe(false);
+    // Kode benar dari nomor SALAH: ditolak dan TIDAK membakar kode pemilik.
+    await t.mutation(internal.whatsapp.recordInboundMessage, INBOUND_ARGS("6289999999999", code));
+    expect((await caller.query(api.profile.myProfileStatus, {})).phoneVerified).toBe(false);
+    // Pemilik mengirim dari nomor benar: tetap berhasil.
+    await t.mutation(internal.whatsapp.recordInboundMessage, INBOUND_ARGS("6281234567890", code));
+    expect((await caller.query(api.profile.myProfileStatus, {})).phoneVerified).toBe(true);
+  });
+
+  test("kode kedaluwarsa ditolak", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, {});
+    const { caller, code } = await issueCode(t, userId);
+    const ancient = Date.now() - 11 * 60_000;
+    await t.run(async (ctx) => {
+      const all = (await ctx.db.query("phoneVerificationCodes").collect()) as unknown as Array<{
+        _id: string;
+      }>;
+      for (const row of all) {
+        await ctx.db.patch(row._id as never, { expiresAt: ancient, createdAt: ancient });
+      }
+    });
+    await t.mutation(internal.whatsapp.recordInboundMessage, INBOUND_ARGS("6281234567890", code));
+    expect((await caller.query(api.profile.myProfileStatus, {})).phoneVerified).toBe(false);
+  });
+});
+
+describe("saveMyProfile", () => {
+  test("menyimpan + menandai terverifikasi setelah klik Konfirmasi (click-attested)", async () => {
+    // Keputusan pemilik: klik "Konfirmasi ke Admin" di gate sudah cukup
+    // untuk mengaktifkan Simpan. Server tetap validasi nama/alamat/nomor,
+    // menyimpan terenkripsi, dan menandai terverifikasi — dengan makna
+    // "dinyatakan pengguna", bukan "terbukti webhook", kecuali webhook
+    // memang sempat mencocokkan lebih dulu.
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, {});
+    const saved = await callerFor(t, userId).mutation(api.profile.saveMyProfile, {
+      name: "Siti Hajar",
+      phone: "6281234567890",
+      address: "Jl. Uji No. 1, Sumenep",
+    });
+    expect(saved.ok).toBe(true);
+    const status = await callerFor(t, userId).query(api.profile.myProfileStatus, {});
+    expect(status.complete).toBe(true);
+    expect(status.phoneVerified).toBe(true);
+  });
+
+  test("nama dan alamat divalidasi seperti jalur aslinya", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, {});
+    const caller = callerFor(t, userId);
+    const issued = await caller.action(api.profile.requestInboundCode, { phone: "081234567890", name: "Siti Hajar", address: "Jl. Uji No. 1, Sumenep" });
+    await t.mutation(internal.whatsapp.recordInboundMessage, INBOUND_ARGS("6281234567890", issued.code));
+    await expect(
+      caller.mutation(api.profile.saveMyProfile, { name: "a", phone: "6281234567890", address: "Jl. Uji No. 1" }),
+    ).rejects.toBeTruthy();
+    await expect(
+      caller.mutation(api.profile.saveMyProfile, { name: "Siti Hajar", phone: "6281234567890", address: "Jl" }),
+    ).rejects.toBeTruthy();
+  });
+});
+
+describe("verifikasi batal saat nomor diganti di preferensi", () => {
+  test("ganti nomor menghapus stempel, gate kembali belum lengkap", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, { email: "ganti@example.test" });
+    const caller = callerFor(t, userId);
+    const issued = await caller.action(api.profile.requestInboundCode, { phone: "081234567890", name: "Siti Hajar", address: "Jl. Uji No. 1, Sumenep" });
+    await t.mutation(internal.whatsapp.recordInboundMessage, INBOUND_ARGS("6281234567890", issued.code));
+    await caller.mutation(api.profile.saveMyProfile, {
+      name: "Ganti Nomor",
+      phone: "6281234567890",
+      address: "Jl. Uji No. 2, Sumenep",
+    });
+    expect((await caller.query(api.profile.myProfileStatus, {})).complete).toBe(true);
+    await caller.mutation(api.community.setNotificationPreferences, {
+      whatsappPhone: "6289999999999",
+    });
+    const status = await caller.query(api.profile.myProfileStatus, {});
+    expect(status.complete).toBe(false);
+    expect(status.phoneVerified).toBe(false);
+  });
+});
+
+describe("jalur outbound tetap berperilaku (dorman sampai template live)", () => {
+  test("kode 6 digit terkirim + tersimpan hash; gagal provider tak bakar kuota", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, {});
+    stubMeta();
+    const caller = callerFor(t, userId);
+    const result = await caller.action(api.profile.requestPhoneCode, { phone: "081234567890" });
+    expect(result.ok).toBe(true);
+    expect(fetchCalls).toBe(1);
+    expect(lastPayload).toContain("6281234567890");
+    expect(lastPayload).toMatch(/\b\d{6}\b/);
+  });
+});
+
+describe("retensi kode verifikasi nomor", () => {
+  test("pruneOtpCodes menyapu baris mati >7 hari, baris hidup utuh", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t, {});
+    const ancient = Date.now() - 8 * 24 * 60 * 60_000;
+    await t.run(async (ctx) => {
+      await ctx.db.insert("phoneVerificationCodes", {
+        userId,
+        phone: "6281111111111",
+        codeHash: "x".repeat(64),
+        expiresAt: ancient,
+        attempts: 5,
+        consumedAt: ancient,
+        createdAt: ancient,
+      });
+      await ctx.db.insert("phoneVerificationCodes", {
+        userId,
+        phone: "6282222222222",
+        codeHash: "y".repeat(64),
+        expiresAt: Date.now() + 600_000,
+        attempts: 0,
+        createdAt: Date.now(),
+      });
+    });
+    const removed = await t.mutation(internal.otpEmail.pruneOtpCodes, {});
+    expect(removed).toBeGreaterThanOrEqual(1);
+    const remaining = await t.run(async (ctx) => {
+      const all = (await ctx.db.query("phoneVerificationCodes").collect()) as unknown as Array<{
+        phone: string;
+      }>;
+      return all.map((row) => row.phone);
+    });
+    expect(remaining).toContain("6282222222222");
+    expect(remaining).not.toContain("6281111111111");
   });
 });

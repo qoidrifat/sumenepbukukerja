@@ -1577,3 +1577,757 @@
     box-shadow: none;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Ruang pengelola: pemolesan premium di atas Warm Brutalism.
+
+   Ini BUKAN tema kedua. Palet, bentuk (radius 2px), garis 2px, dan bayangan
+   keras tanpa blur tetap persis seperti sebelumnya - yang ditambah hanya
+   kualitas bahan dan gerak, dan semuanya memakai token `--admin-*` yang
+   sudah ada. Tiga hal yang berubah, dan alasan masing-masing:
+
+   1. Ketinggian bertingkat, bukan satu nilai untuk semua.
+      Sebelumnya panel, kartu, dan metrik sama-sama memakai bayangan keras 3px
+      (varian `-lg` 4px). Kalau setiap permukaan duduk di ketinggian yang
+      sama, tidak ada yang benar-benar terbaca "di depan" - mata tidak punya
+      urutan. Sekarang ada tiga tingkat: 2px untuk permukaan yang dibaca
+      sebagai isi (kartu), 3px untuk panel, dan 5px untuk panel utama.
+
+   2. Angka rata kolom.
+      Tanpa `tabular-nums`, lebar digit berbeda-beda, jadi setiap angka yang
+      berubah (penghitung antrean, metrik langsung, stempel waktu) menggeser
+      dirinya sendiri. Satu deklarasi di sini memperbaiki seluruh meja kerja,
+      termasuk tabel audit dan log keamanan yang tidak bisa disentuh satu per
+      satu.
+
+   3. Kedalaman kanvas.
+      Kisi titiknya tetap, tapi sekarang duduk di atas dua titik cahaya hangat
+      dari palet yang sama (kuning dan oranye, masing-masing 8% dan 4%).
+      Tujuannya yang disebut `minimalist-ui`: bagian yang lapang tidak terbaca
+      sebagai ruang kosong, sementara alfanya tetap di bawah ambang yang
+      membuatnya terbaca sebagai noda. Pada 8% kanal biru kanvas turun sekitar
+      11 tingkat di puncaknya - terasa hangat, bukan terlihat kuning.
+      Kontras teks di atasnya diperiksa, bukan dikira: `#525252` tetap 6,5:1
+      di titik paling terang, `#1A1A1A` 14,6:1.
+
+   `background-image`/`background-size` ditulis ulang lengkap di sini (kisi
+   titiknya ikut disebut) karena satu deklarasi menimpa seluruh daftar, bukan
+   menambah lapisan. Menu select yang di-portal TIDAK ikut berubah: aturan
+   `.admin-workspace.admin-select-portal` di atas memakai dua kelas, jadi ia
+   tetap menang dan tetap rata.
+   -------------------------------------------------------------------------- */
+.admin-workspace {
+  --admin-lift-1: 2px 2px 0 0 var(--admin-line);
+  --admin-lift-2: 3px 3px 0 0 var(--admin-line);
+  --admin-lift-3: 5px 5px 0 0 var(--admin-line);
+  /* Sisi dalam yang menangkap cahaya, supaya permukaan yang ditinggikan
+     terbaca sebagai lembar yang tercetak, bukan kotak yang diwarnai. */
+  --admin-inner-edge: inset 1px 1px 0 rgb(255 255 255 / 45%);
+  font-variant-numeric: tabular-nums;
+  background-image:
+    radial-gradient(58rem 38rem at 6% -14%, rgb(255 230 98 / 8%), transparent 68%),
+    radial-gradient(46rem 32rem at 98% 2%, rgb(255 90 38 / 4%), transparent 66%),
+    radial-gradient(rgba(18, 18, 18, 0.075) 0.75px, transparent 0.75px);
+  background-size: auto, auto, 12px 12px;
+}
+
+/* Bilah perintah. Latar kertasnya dibuat sedikit tembus pandang lalu diberi
+   blur, sehingga isi yang bergulir di bawahnya terlihat sebagai lapisan yang
+   lewat - bukan hilang di balik blok padat. Warna dan garis bawah 2px tetap. */
+.admin-workspace > header {
+  background-color: color-mix(in srgb, var(--admin-canvas) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  backdrop-filter: blur(12px) saturate(150%);
+}
+
+/* Tiga tingkat ketinggian. Ditulis SESUDAH aturan panel di atas supaya dengan
+   kekhususan yang sama, urutan yang menentukan. */
+.admin-workspace .admin-card {
+  box-shadow: var(--admin-lift-1), var(--admin-inner-edge);
+}
+
+.admin-workspace .admin-panel {
+  box-shadow: var(--admin-lift-2), var(--admin-inner-edge);
+}
+
+.admin-workspace .admin-panel-lg {
+  box-shadow: var(--admin-lift-3), var(--admin-inner-edge);
+}
+
+.admin-workspace .admin-metric {
+  box-shadow: var(--admin-lift-2), var(--admin-inner-edge);
+}
+
+.admin-workspace .admin-metric-lg {
+  box-shadow: var(--admin-lift-3), var(--admin-inner-edge);
+}
+
+.admin-workspace .admin-frame-card {
+  box-shadow: var(--admin-lift-3), var(--admin-inner-edge);
+}
+
+/* Dua kartu metrik beraksen di papan numerator.
+
+   Ditulis sebagai kelas admin, bukan `bg-[#FF5A26]` di markup, karena aturan
+   `.admin-workspace .admin-metric` di atas berada DI LUAR `@layer`: ia
+   mengalahkan seluruh layer utility Tailwind. Utility `bg-[#FF5A26]` di
+   markup karena itu tidak pernah tercetak sama sekali - terukur, kartu
+   pertama tampil `rgb(253, 251, 247)` sementara teksnya `text-white`,
+   jadi kontrasnya 1,02:1 dan angkanya praktis tidak terbaca.
+
+   Warna teksnya tinta gelap, bukan putih, dan itu bukan selera: pasangan
+   oranye + tinta sudah jadi bahasa tema ini (`admin-status-warning`), dan
+   hanya pasangan itu yang lolos 4,5:1. Putih di atas `#FF5A26` hanya 3,1:1 -
+   cukup untuk angka besar, tidak cukup untuk label 16px di atasnya. */
+.admin-workspace .admin-metric--accent {
+  color: var(--admin-ink);
+  background: var(--admin-orange);
+}
+
+.admin-workspace .admin-metric--highlight {
+  color: var(--admin-ink);
+  background: var(--admin-yellow);
+}
+
+/* Panel lipat naik satu tingkat saat kursor di atasnya: satu-satunya
+   permukaan yang bisa disentuh tanpa berpindah halaman, jadi satu-satunya
+   yang perlu menjawab sentuhan. */
+@media (prefers-reduced-motion: no-preference) {
+  .admin-workspace .admin-disclosure {
+    transition: box-shadow 120ms ease;
+  }
+
+  .admin-workspace .admin-disclosure:hover {
+    box-shadow: var(--admin-lift-3), var(--admin-inner-edge);
+  }
+}
+
+/* Gerak masuk: satu kali per blok, dari bawah, bertahap dari atas ke bawah.
+
+   `backwards`, bukan `both` - alasan yang sama dengan dialog admin di atas:
+   `both` menahan hasil akhir animasi dan menang atas keadaan hover. Seluruh
+   blok ini juga tidak pernah jalan untuk pengguna yang meminta gerakan
+   minimal, dan blok reduce di atas sudah mematikan durasi animasi apa pun. */
+@keyframes admin-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* `main.admin-shell-frame`, bukan `.admin-shell-frame`: header juga memakai
+     kelas itu untuk barisnya sendiri, dan tombol menu di sana adalah chrome -
+     ia harus sudah ada sejak frame pertama, bukan menyusul 12px dari bawah. */
+  .admin-workspace main.admin-shell-frame > *,
+  .admin-workspace .admin-metric {
+    animation: admin-rise 380ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  /* Bertahap 55ms per blok, berhenti di blok keenam: cukup untuk terbaca
+     sebagai urutan, tidak cukup untuk terasa menunggu. */
+  .admin-workspace main.admin-shell-frame > *:nth-child(2) {
+    animation-delay: 55ms;
+  }
+
+  .admin-workspace main.admin-shell-frame > *:nth-child(3) {
+    animation-delay: 110ms;
+  }
+
+  .admin-workspace main.admin-shell-frame > *:nth-child(4) {
+    animation-delay: 165ms;
+  }
+
+  .admin-workspace main.admin-shell-frame > *:nth-child(5) {
+    animation-delay: 220ms;
+  }
+
+  .admin-workspace main.admin-shell-frame > *:nth-child(n + 6) {
+    animation-delay: 275ms;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Ruang warga & mitra: lapisan permukaan premium.
+
+   Kenapa lapisan TERPISAH, bukan token :root yang diubah:
+
+   1. `#F7F8FC` adalah HARD CONSTRAINT, bukan pilihan estetika. §8b
+      `public/brand/mascot-spec.md` hanya mengizinkan sekumpulan latar
+      tertentu untuk BrandMascot (Canvas #F7F8FC salah satunya), dan
+      `mascot-placement.test.ts` mengauditnya dari teks sumber. Kartu
+      kosong di kedua dashboard memuat maskot itu, jadi kanvasnya tetap.
+      Yang ditambahkan di sini hanya LAPISAN di ATAS kanvas itu: kabut
+      radial biru/amber beropasitas sangat rendah dan gradasi putih tipis
+      di tepi atas. Kompositnya tetap terbaca sebagai Canvas.
+
+   2. Landing, VendorProfile, Auth, dan ruang pengelola tidak boleh ikut
+      berubah. Semua aturan di bawah ber-scope `.dash-shell`, jadi halaman
+      publik tetap persis seperti sebelumnya.
+
+   3. Aturan ini SENGAJA ditulis tanpa `@layer` (seperti blok admin di
+      atas). Konsekuensinya harus dihormati saat memakainya: elemen yang
+      memakai `.dash-panel`, `.dash-btn`, `.dash-pill`, atau `.dash-icon`
+      TIDAK boleh sekaligus membawa utility Tailwind untuk properti yang
+      sama (border, radius, background, shadow). Padding tidak termasuk:
+      lapisan ini tidak pernah menulis `padding`, jadi `p-5 sm:p-6` tetap
+      milik komponen - pola yang sama dengan `.admin-input` dan slot
+      ikonnya di bawah.
+
+   4. Kontras terang/gelap dan mode kontras tinggi ikut dijaga di sini.
+      `html[data-high-contrast="true"]` menimpa utility Tailwind memakai
+      `!important`, jadi kelas baru ini wajib punya penimpa sendiri - kalau
+      tidak, pengguna mode kontras tinggi justru mendapat permukaan yang
+      tidak pernah mereka minta.
+   -------------------------------------------------------------------------- */
+.dash-shell {
+  --dash-line: rgb(15 23 42 / 8%);
+  --dash-line-strong: rgb(15 23 42 / 14%);
+  --dash-ink: #0b1220;
+  --dash-muted: #667487;
+  --dash-surface: #ffffff;
+  --dash-soft: #f8fafc;
+  --dash-accent: #2563eb;
+  --dash-radius: 1rem;
+  /* Bayangan sengaja berlapis dan sangat menyebar: satu lapis kontak 1px
+     untuk menempelkan kartu ke kanvas, satu lapis jauh beropasitas rendah
+     untuk kedalaman. Tidak ada nilai `shadow-md/lg` Tailwind di sini. */
+  --dash-shadow: 0 1px 2px rgb(15 23 42 / 4%), 0 12px 32px -20px rgb(15 23 42 / 18%);
+  --dash-shadow-lift: 0 2px 6px rgb(15 23 42 / 5%), 0 22px 48px -24px rgb(15 23 42 / 26%);
+  position: relative;
+  isolation: isolate;
+}
+
+/* Kabut ambient. `pointer-events: none` + `z-index: -1` di dalam lapisan
+   ber-`isolation`, jadi ia duduk di atas latar `.dash-shell` dan di bawah
+   seluruh isinya - tanpa satu pun elemen yang perlu diposisikan ulang. */
+.dash-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: -1;
+  height: 30rem;
+  pointer-events: none;
+  background:
+    radial-gradient(58rem 22rem at 10% -8rem, rgb(37 99 235 / 7%), transparent 72%),
+    radial-gradient(44rem 20rem at 94% -6rem, rgb(245 158 11 / 6%), transparent 72%),
+    linear-gradient(180deg, rgb(255 255 255 / 78%), rgb(255 255 255 / 0%));
+}
+
+/* Bilah atas yang menempel. Latarnya translusen dan di-blur supaya isi yang
+   lewat di bawahnya masih terbaca sebagai konteks, bukan hilang. */
+.dash-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: rgb(255 255 255 / 74%);
+  border-bottom: 1px solid var(--dash-line);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+}
+
+.dash-panel {
+  border: 1px solid var(--dash-line);
+  border-radius: var(--dash-radius);
+  background: var(--dash-surface);
+  box-shadow: var(--dash-shadow);
+}
+
+/* Permukaan untuk blok isi yang lebih tenang daripada kartu (baris riwayat,
+   pratinjau draf): tetap hairline, tanpa bayangan. */
+.dash-panel--soft {
+  background: var(--dash-soft);
+  box-shadow: none;
+}
+
+.dash-panel--flat {
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dash-panel--interactive {
+    transition:
+      box-shadow 200ms ease,
+      border-color 200ms ease,
+      transform 200ms ease;
+  }
+
+  .dash-panel--interactive:hover {
+    border-color: var(--dash-line-strong);
+    box-shadow: var(--dash-shadow-lift);
+    transform: translateY(-2px);
+  }
+}
+
+/* Label kecil di atas judul section. Guratan pendek di kiri bukan hiasan:
+   ia memisahkan label dari judul yang mengikuti tanpa menambah tinggi. */
+.dash-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--dash-accent);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.dash-eyebrow::before {
+  content: "";
+  width: 1.25rem;
+  height: 1px;
+  flex: 0 0 auto;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+/* Judul besar memakai serif sistem. Bukan webfont: halaman ini dipakai di
+   ponsel dengan koneksi tidak stabil lewat jalur kritis katalog, dan satu
+   berkas font tambahan di header menunda render seluruh halaman. Serif
+   sistem memberi nada editorial yang sama tanpa biaya jaringan. */
+.dash-display {
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.1;
+  color: var(--dash-ink);
+  text-wrap: balance;
+}
+
+.dash-title {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--dash-ink);
+}
+
+.dash-sub {
+  color: var(--dash-muted);
+  line-height: 1.65;
+}
+
+/* Angka metrik. `tabular-nums` wajib: tanpa itu lebar digit berubah saat
+   nilai beranimasi dan seluruh baris ikut bergeser. */
+.dash-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  color: var(--dash-ink);
+}
+
+.dash-icon {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+}
+
+.dash-icon--blue {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: rgb(29 78 216 / 10%);
+}
+
+.dash-icon--amber {
+  color: #b45309;
+  background: #fffbeb;
+  border-color: rgb(180 83 9 / 14%);
+}
+
+.dash-icon--emerald {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: rgb(4 120 87 / 12%);
+}
+
+.dash-icon--slate {
+  color: #334155;
+  background: #f1f5f9;
+  border-color: rgb(51 65 85 / 10%);
+}
+
+.dash-icon--ink {
+  color: #ffffff;
+  background: #0b1220;
+  border-color: transparent;
+}
+
+.dash-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  /* Sebuah label status TIDAK BOLEH menyusut di bawah lebar teksnya.
+
+     Di bawah 640px, blok ponsel di berkas ini memasang `min-width: 0` pada
+     setiap anak `.flex`/`.grid` supaya kolom mau menyusut. Digabung dengan
+     `white-space: nowrap` di bawah, hasilnya justru sebaliknya: pil sepanjang
+     "Menunggu verifikasi" ditekan menjadi 112px padahal teksnya butuh 157px,
+     dan kelebihan 45px itu meluber keluar kartu lalu keluar halaman.
+     Terukur di browser: `documentElement.scrollWidth` 382px pada viewport
+     374px, bersumber dari satu pil di baris riwayat.
+
+     `flex: none` mengembalikan janji label: ia mengambil lebar isinya. Wadah
+     yang tetap tidak muat akan membungkus (flex-wrap) atau menggulir sendiri
+     (tabel performa sudah dibungkus `overflow-x-auto`), bukan mendorong
+     halaman melebar. */
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dash-pill--blue {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #dbeafe;
+}
+
+.dash-pill--green {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: #d1fae5;
+}
+
+.dash-pill--amber {
+  color: #b45309;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.dash-pill--red {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.dash-pill--neutral {
+  color: #475569;
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+/* Tombol aksi utama di kedua dashboard memakai hampir-hitam, bukan biru.
+   Biru tetap dimiliki tautan, label, dan ikon - jadi satu halaman punya satu
+   saja warna yang berteriak, dan itu tombol yang memang ingin ditekan. */
+.dash-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  padding-inline: 1rem;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+
+.dash-btn--primary {
+  color: #ffffff;
+  background: #0b1220;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 18%), 0 12px 26px -18px rgb(15 23 42 / 55%);
+}
+
+.dash-btn--primary:hover {
+  background: #1b2638;
+}
+
+.dash-btn--secondary {
+  color: #0f172a;
+  background: #ffffff;
+  border-color: var(--dash-line-strong);
+}
+
+.dash-btn--secondary:hover {
+  background: #f8fafc;
+  border-color: rgb(15 23 42 / 22%);
+}
+
+.dash-btn--ghost {
+  color: #1d4ed8;
+  background: transparent;
+}
+
+.dash-btn--ghost:hover {
+  background: #eff6ff;
+}
+
+.dash-btn--danger {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.dash-btn:focus-visible {
+  outline: 2px solid var(--dash-accent);
+  outline-offset: 2px;
+}
+
+.dash-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dash-btn {
+    transition:
+      background-color 180ms ease,
+      border-color 180ms ease,
+      box-shadow 180ms ease,
+      transform 180ms ease;
+  }
+
+  .dash-btn--primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .dash-btn:active:not(:disabled) {
+    transform: scale(0.985);
+  }
+}
+
+/* Kemunculan berjenjang untuk baris metrik.
+
+   `backwards`, BUKAN `both`: dengan `both`, `transform` hasil animasi terus
+   menempel setelah animasi selesai dan mengalahkan `.dash-panel--interactive:hover`
+   - kartu berhenti terangkat saat kursor lewat. Pelajaran yang sama sudah
+   tercatat di blok dialog admin di atas.
+
+   Reduce-motion tidak butuh blok `no-preference` sendiri di sini karena
+   aturan global di bawah sudah mematikan durasinya; yang penting animasinya
+   TIDAK pernah dipasang saat pengguna meminta gerak minimal. */
+@keyframes dash-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dash-stagger > * {
+    animation: dash-rise 620ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    animation-delay: calc(var(--dash-i, 0) * 70ms);
+  }
+}
+
+/* Mode kontras tinggi: pengguna yang menyalakannya meminta batas hitam di
+   atas putih, bukan nuansa. Bayangan dan kabut dimatikan, garis dan tinta
+   dikunci ke hitam. */
+html[data-high-contrast="true"] .dash-shell {
+  /* Kanvas `#F7F8FC` adalah latar sah untuk maskot, tapi di mode kontras
+     tinggi latar berwarna apa pun bertentangan dengan permintaan pengguna.
+     Karena `.dash-shell` ditulis tanpa `@layer`, satu deklarasi di sini
+     mengalahkan utility `bg-[#f7f8fc]` di elemen yang sama. */
+  background-color: #ffffff;
+  --dash-line: #000000;
+  --dash-line-strong: #000000;
+  --dash-ink: #000000;
+  --dash-muted: #1f2937;
+  --dash-surface: #ffffff;
+  --dash-soft: #ffffff;
+  --dash-accent: #0000cc;
+  --dash-shadow: none;
+  --dash-shadow-lift: none;
+}
+
+html[data-high-contrast="true"] .dash-shell::before {
+  display: none;
+}
+
+html[data-high-contrast="true"] .dash-topbar {
+  background: #ffffff;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-high-contrast="true"] :where(.dash-pill, .dash-icon) {
+  color: #000000;
+  background: #ffffff;
+  border-color: #000000 !important;
+}
+
+html[data-high-contrast="true"] :where(.dash-btn--primary, .dash-icon--ink) {
+  color: #ffffff;
+  background: #000000;
+}
+
+html[data-high-contrast="true"] :where(.dash-num, .dash-title, .dash-display, .dash-sub) {
+  color: #000000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-shell *,
+  .dash-shell *::before,
+  .dash-shell *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Dialog warga & mitra (portal Radix).
+
+   Radix merender overlay dan isi dialog ke `document.body`, jadi keduanya
+   berada DI LUAR `.dash-shell` dan tidak mewarisi satu pun token `--dash-*`.
+   Karena itu scope portal ini mendeklarasikan ulang tokennya sendiri - pola
+   dan alasan yang sama dengan blok `.admin-dialog-*` di atas.
+
+   Yang SENGAJA TIDAK ditulis di sini, dan kenapa:
+
+   - `position`, `inset`, `margin`, `width`, `max-width`, `translate`, dan
+     animasi masuk/keluar tetap milik primitif `ui/dialog` plus
+     `tw-animate-css`. Semuanya sudah bekerja di produksi untuk dialog-dialog
+     ini, jadi tidak ada alasan menyentuhnya. Blok admin di atas justru harus
+     menimpa `translate`/`transform` satu per satu karena admin memakai pola
+     pemusatan sendiri (`margin: auto` + `height: fit-content`) - dan catatan
+     panjang di sana adalah daftar empat kali percobaan yang gagal. Scope ini
+     sengaja memilih pola yang sudah terbukti: yang berganti HANYA bahannya
+     (garis, sudut, permukaan, bayangan, warna tinta).
+
+   - `overflow` juga tidak disentuh. Dua dari tiga dialog sudah membawa
+     `overflow-hidden` di markup-nya, dan menambahkan kliping di sini berarti
+     mengubah perilaku gulir dialog yang isinya panjang - padahal permintaan
+     untuk pekerjaan ini adalah tampilan yang berubah, bukan perilakunya.
+     Karena itu bingkai bawaannya dibuat tanpa pita latar di kaki dialog,
+     supaya tidak ada sudut kotak yang perlu dipotong.
+   -------------------------------------------------------------------------- */
+.dash-dialog-overlay,
+.dash-dialog-content {
+  --dash-line: rgb(15 23 42 / 8%);
+  --dash-line-strong: rgb(15 23 42 / 14%);
+  --dash-ink: #0b1220;
+  --dash-muted: #667487;
+  --dash-surface: #ffffff;
+  --dash-soft: #f8fafc;
+  --dash-accent: #2563eb;
+}
+
+.dash-dialog-overlay {
+  background: rgb(15 23 42 / 48%);
+  -webkit-backdrop-filter: blur(10px) saturate(115%);
+  backdrop-filter: blur(10px) saturate(115%);
+}
+
+.dash-dialog-content {
+  /* Primitif `ui/dialog` membawa `gap-4` karena isinya sering dipakai sebagai
+     satu tumpukan bebas. Ketiga dialog di sini sudah memisahkan kepala, isi,
+     dan kaki dengan garis rambut sendiri, jadi jarak antar-section harus nol -
+     kalau tidak, garis itu menggantung jauh dari bagian yang dipisahkannya.
+     Ditulis di sini, bukan di markup, supaya pemanggil berikutnya tidak perlu
+     tahu tentang `gap-4` bawaan primitif. */
+  gap: 0;
+  border: 1px solid var(--dash-line);
+  border-radius: 1.25rem;
+  color: var(--dash-ink);
+  background: var(--dash-surface);
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 5%),
+    0 32px 72px -32px rgb(15 23 42 / 40%);
+  /* Baris aman untuk bilah gestur Android; nilai 0px membuat properti ini
+     tidak berpengaruh di perangkat tanpa bilah gestur. */
+  padding: 0 0 env(safe-area-inset-bottom, 0px);
+}
+
+/* Tombol tutup bawaan primitif: 16px di sudut, sulit dikenai jari dan warnanya
+   abu-abu bawaan aplikasi. Di sini ia jadi chip 44px yang mengikuti token.
+   Selektornya `[data-slot="dialog-close"]` karena tombol itu dirender
+   primitif, bukan pemanggil - pola yang sama dengan blok admin. */
+.dash-dialog-content [data-slot="dialog-close"] {
+  top: 0.75rem;
+  right: 0.75rem;
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--dash-line);
+  border-radius: 0.75rem;
+  color: var(--dash-muted);
+  background: var(--dash-surface);
+  opacity: 1;
+}
+
+.dash-dialog-content [data-slot="dialog-close"] svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.dash-dialog-content [data-slot="dialog-close"]:hover {
+  color: var(--dash-ink);
+  background: var(--dash-soft);
+  border-color: var(--dash-line-strong);
+}
+
+.dash-dialog-content [data-slot="dialog-close"]:focus-visible {
+  outline: 2px solid var(--dash-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dash-dialog-content [data-slot="dialog-close"] {
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease;
+  }
+}
+
+/* Nada merah untuk kotak ikon: pesan galat adalah satu-satunya tempat di
+   lapisan ini yang butuh makna "gagal", dan paletnya tidak punya merah. */
+.dash-icon--red {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: rgb(185 28 28 / 14%);
+}
+
+html[data-high-contrast="true"] .dash-dialog-content {
+  --dash-line: #000000;
+  --dash-line-strong: #000000;
+  --dash-ink: #000000;
+  --dash-muted: #1f2937;
+  --dash-accent: #0000cc;
+  border-color: #000000;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+html[data-high-contrast="true"] .dash-dialog-overlay {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-high-contrast="true"] .dash-dialog-content [data-slot="dialog-close"] {
+  border-color: #000000;
+  color: #000000;
+  background: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-dialog-overlay,
+  .dash-dialog-content,
+  .dash-dialog-content * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

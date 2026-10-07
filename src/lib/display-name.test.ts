@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   DISPLAY_NAME_MAX,
+  checkDisplayNameInput,
   deriveDisplayName,
   resolveDisplayName,
   sanitizeDisplayName,
@@ -86,6 +87,42 @@ describe("sanitizeDisplayName", () => {
     expect(sanitizeDisplayName(null)).toBeNull();
     expect(sanitizeDisplayName(undefined)).toBeNull();
     expect(sanitizeDisplayName("123")).toBeNull();
+  });
+});
+
+describe("checkDisplayNameInput", () => {
+  test("huruf besar-kecil tidak menolak isian yang isinya utuh", () => {
+    // Kasus yang dilaporkan: "Shina suka matcha" adalah isian normal.
+    expect(checkDisplayNameInput("Shina suka matcha")).toEqual({
+      ok: true,
+      value: "Shina Suka Matcha",
+    });
+    expect(checkDisplayNameInput("shina suka matcha").ok).toBe(true);
+    expect(checkDisplayNameInput("  Shina Suka Matcha  ")).toEqual({
+      ok: true,
+      value: "Shina Suka Matcha",
+    });
+  });
+
+  test("isi yang hilang tetap ditolak, dengan bentuk yang benar-benar disimpan", () => {
+    expect(checkDisplayNameInput("budi  santoso")).toEqual({
+      ok: false,
+      suggestion: "Budi Santoso",
+    });
+    expect(checkDisplayNameInput("budi<script>")).toEqual({
+      ok: false,
+      suggestion: "Budi Script",
+    });
+    // Terpotong oleh batas panjang: nama yang benar adalah 60 huruf pertama.
+    const panjang = `${"budi ".repeat(20)}santoso`;
+    expect(checkDisplayNameInput(panjang)).toMatchObject({ ok: false });
+    expect(sanitizeDisplayName(panjang)).toHaveLength(DISPLAY_NAME_MAX);
+  });
+
+  test("nama yang tidak menghasilkan nama ditolak tanpa saran", () => {
+    for (const nama of ["", "  ", "a", "123", "..."]) {
+      expect(checkDisplayNameInput(nama)).toEqual({ ok: false, suggestion: null });
+    }
   });
 });
 

@@ -14,7 +14,7 @@ import { AuthAdminPanel, type AuthAdminPanelProps } from "./auth-admin-panel";
  * Pembatas itu tadinya dirender SESUDAH kedua tombol, padahal di cabang ini
  * tidak ada apa pun lagi di bawahnya. Jadi ia tidak memisahkan apa pun -
  * pembaca mengira masih ada pilihan ketiga, lalu mendapat baris kosong.
- * Yang benar: satu garis antara "Masuk dengan Google" dan "Gunakan Email"
+ * Yang benar: satu garis antara "Masuk dengan Google" dan "Masuk dengan Email"
  * HANYA bila keduanya hidup. Satu pintu tampil tanpa pembatas.
  *
  * `flex-1` pada kedua garis sebenarnya juga bisa memusatkan teks, tapi angka
@@ -57,7 +57,7 @@ const render = (ubah: Partial<AuthAdminPanelProps> = {}) =>
 const posisi = (html: string) => ({
   google: html.indexOf("Masuk dengan Google"),
   pembatas: html.indexOf(">atau<"),
-  email: html.indexOf("Gunakan Email"),
+  email: html.indexOf("Masuk dengan Email"),
 });
 
 /** Token dan primitive admin dibaca dari CSS asli, bukan dari ingatan test. */
@@ -106,10 +106,10 @@ test("satu pintu mati menyembunyikan tombolnya, bukan menonaktifkannya", () => {
   // Tombol mati yang pasti gagal diklik berkali-kali tanpa terjadi apa-apa.
   const tanpaOtp = render({ firebaseEnabled: true, otpEnabled: false });
   expect(tanpaOtp).toContain("Masuk dengan Google");
-  expect(tanpaOtp).not.toContain("Gunakan Email");
+  expect(tanpaOtp).not.toContain("Masuk dengan Email");
   expect(tanpaOtp).not.toMatch(/<button[^>]*disabled/);
   const tanpaGoogle = render({ firebaseEnabled: false, otpEnabled: true });
-  expect(tanpaGoogle).toContain("Gunakan Email");
+  expect(tanpaGoogle).toContain("Masuk dengan Email");
   expect(tanpaGoogle).not.toContain("Masuk dengan Google");
 });
 
@@ -126,10 +126,23 @@ test("fallback ditahan selama status OTP belum diketahui", () => {
   // tombol dibaca sebagai situs rusak.
   const loading = render({ firebaseEnabled: false, otpEnabled: false, otpKnown: false });
   expect(loading).not.toContain("Pintu masuk belum siap");
-  expect(loading).not.toContain("Gunakan Email");
+  expect(loading).not.toContain("Masuk dengan Email");
+  expect(loading).toContain('aria-label="Memuat opsi masuk"');
   const mati = render({ firebaseEnabled: false, otpEnabled: false, otpKnown: true });
   expect(mati).toContain("Pintu masuk belum siap di lingkungan ini.");
   expect(mati).toContain("Email OTP");
+});
+
+test("tombol Email di panel memakai ikon amplop mono sewarna teks", () => {
+  // Tema ruang kerja melarang warna palet publik: ikon memakai currentColor
+  // supaya selalu mengikuti warna tombolnya, bukan biru brand.
+  const html = render({ firebaseEnabled: false, otpEnabled: true });
+  const at = html.indexOf("Masuk dengan Email");
+  const svgAt = html.indexOf("<svg", html.lastIndexOf("<button", at));
+  expect(svgAt).toBeGreaterThan(-1);
+  expect(svgAt).toBeLessThan(at);
+  expect(html).toContain('stroke="currentColor"');
+  expect(html).not.toContain("#2563EB");
 });
 
 test("tombol Email di panel memakai cincin fokus tema ruang kerja", () => {

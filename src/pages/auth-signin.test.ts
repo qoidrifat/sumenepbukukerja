@@ -10,7 +10,7 @@ import { expect, test, vi } from "vitest";
  * adalah matriks ketersediaan dua pintu yang tersisa:
  *
  *  - Keduanya hidup (`firebaseEnabled && otpEnabled`) -> Google, pembatas
- *    "atau", lalu "Gunakan Email". Pembatas memisahkan keduanya, bukan
+ *    "atau", lalu "Masuk dengan Email". Pembatas memisahkan keduanya, bukan
  *    menggantung di bawah.
  *  - Hanya satu yang hidup -> hanya pintu itu, TANPA pembatas. Pembatas
  *    yang tidak memisahkan apa pun membuat orang mengira masih ada pilihan
@@ -26,6 +26,7 @@ import { expect, test, vi } from "vitest";
 const envState = vi.hoisted(() => ({
   firebase: true,
   otpStatus: { enabled: true } as { enabled: boolean } | undefined,
+  otpThrow: false,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -42,7 +43,14 @@ vi.mock("@/lib/admin-gate-client", () => ({
 }));
 
 vi.mock("convex/react", () => ({
-  useQuery: () => envState.otpStatus,
+  // Satu-satunya `useQuery` langsung di Auth adalah `api.otpEmail.status`
+  // (`useAuth` dan admin-gate di-mock terpisah), jadi flag ini tepat
+  // mensimulasikan query status yang melempar. Ref Convex adalah Proxy yang
+  // tidak bisa diidentifikasi via JSON — karena itu tanpa pencocokan ref.
+  useQuery: () => {
+    if (envState.otpThrow) throw new Error("Server Error Called by client");
+    return envState.otpStatus;
+  },
   useAction: () => async () => ({ retryAfterMs: 0 }),
 }));
 
@@ -68,7 +76,7 @@ const render = (path = "/auth") =>
 const posisi = (html: string) => ({
   google: html.indexOf("Masuk dengan Google"),
   pembatas: html.indexOf(">atau<"),
-  email: html.indexOf("Gunakan Email"),
+  email: html.indexOf("Masuk dengan Email"),
 });
 
 test("dua pintu hidup: pembatas atau memisahkan Google dan Email OTP", () => {
@@ -106,7 +114,7 @@ test("kedua tombol tetap punya tinggi sentuh yang sama", () => {
     return html.slice(html.lastIndexOf("<button", at), html.indexOf(">", at) + 1);
   };
   expect(tag("Masuk dengan Google")).toContain("min-h-12");
-  expect(tag("Gunakan Email")).toContain("min-h-12");
+  expect(tag("Masuk dengan Email")).toContain("min-h-12");
 });
 
 test("tombol Email OTP punya cincin fokus yang terlihat", () => {
@@ -117,7 +125,7 @@ test("tombol Email OTP punya cincin fokus yang terlihat", () => {
   envState.firebase = true;
   envState.otpStatus = { enabled: true };
   const html = render();
-  const at = html.indexOf("Gunakan Email");
+  const at = html.indexOf("Masuk dengan Email");
   const tag = html.slice(html.lastIndexOf("<button", at), html.indexOf(">", at) + 1);
   expect(tag).toContain("focus-visible:ring");
 });
@@ -127,7 +135,7 @@ test("hanya Google hidup: tanpa pembatas yang menggantung", () => {
   envState.otpStatus = { enabled: false };
   const html = render();
   expect(html).toContain("Masuk dengan Google");
-  expect(html).not.toContain("Gunakan Email");
+  expect(html).not.toContain("Masuk dengan Email");
   expect(html).not.toContain(">atau<");
 });
 
@@ -136,16 +144,42 @@ test("hanya Email OTP hidup: tanpa pembatas yang menggantung", () => {
   envState.otpStatus = { enabled: true };
   const html = render();
   expect(html).not.toContain("Masuk dengan Google");
-  expect(html).toContain("Gunakan Email");
+  expect(html).toContain("Masuk dengan Email");
   expect(html).not.toContain(">atau<");
 });
 
-test("OTP belum terjawab: Google tampil dulu, fallback tidak flash", () => {
+test("OTP belum terjawab: Google tampil dulu, slot Email berupa skeleton, fallback tidak flash", () => {
   envState.firebase = true;
   envState.otpStatus = undefined;
   const html = render();
   expect(html).toContain("Masuk dengan Google");
+  expect(html).not.toContain("Masuk dengan Email");
+  expect(html).toContain('aria-label="Memuat opsi masuk"');
   expect(html).not.toContain("Pintu masuk belum siap");
+});
+
+test("keduanya belum diketahui: skeleton netral, bukan fallback, bukan tombol", () => {
+  envState.firebase = false;
+  envState.otpStatus = undefined;
+  const html = render();
+  expect(html).toContain('aria-label="Memuat opsi masuk"');
+  expect(html).toContain("border-dashed");
+  expect(html).not.toContain("Masuk dengan Google</");
+  expect(html).not.toContain("Masuk dengan Email");
+  expect(html).not.toContain("Pintu masuk belum siap");
+});
+
+test("tombol Email memakai ikon amplop premium + cincin fokus terlihat", () => {
+  envState.firebase = true;
+  envState.otpStatus = { enabled: true };
+  const html = render();
+  const at = html.indexOf("Masuk dengan Email");
+  const tag = html.slice(html.lastIndexOf("<button", at), html.indexOf(">", at) + 1);
+  const svgAt = html.indexOf("<svg", html.lastIndexOf("<button", at));
+  expect(svgAt).toBeGreaterThan(-1);
+  expect(svgAt).toBeLessThan(at);
+  expect(html).toContain('fill="#2563EB"');
+  expect(tag).toContain("focus-visible:ring");
 });
 
 test("keduanya mati: fallback menyebut Google + Email OTP", () => {
@@ -156,7 +190,7 @@ test("keduanya mati: fallback menyebut Google + Email OTP", () => {
   expect(html).toContain("Google");
   expect(html).toContain("Email OTP");
   expect(html).not.toContain("Masuk dengan Google</");
-  expect(html).not.toContain("Gunakan Email");
+  expect(html).not.toContain("Masuk dengan Email");
 });
 
 test("tujuan ke admin tidak ikut memakai pembatas warga", () => {
@@ -168,4 +202,26 @@ test("tujuan ke admin tidak ikut memakai pembatas warga", () => {
   expect(posisi(render("/auth")).email).toBeGreaterThan(-1);
   const admin = render("/auth?returnTo=%2Fadmin");
   expect(admin).toContain("Passcode");
+});
+
+test("query status gagal: halaman tidak mati, Google tetap tampil", () => {
+  // Regresi ERR-20261005-0O72S0A: `api.otpEmail.status` melempar (backend
+  // belum di-deploy / gagal sesaat). Tanpa guard, lemparan naik ke
+  // RootErrorBoundary dan SELURUH /auth mati dengan dialog "mengalami
+  // gangguan" — padahal pintu Google sehat. Yang dikunci: render tidak
+  // melempar, Google tampil, Email hilang, fallback tidak tampil (Google
+  // hidup, jadi tidak ada yang perlu dijelaskan).
+  envState.firebase = true;
+  envState.otpThrow = true;
+  try {
+    let html = "";
+    expect(() => {
+      html = render();
+    }).not.toThrow();
+    expect(html).toContain("Masuk dengan Google");
+    expect(html).not.toContain("Masuk dengan Email");
+    expect(html).not.toContain("Pintu masuk belum siap");
+  } finally {
+    envState.otpThrow = false;
+  }
 });

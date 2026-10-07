@@ -475,29 +475,29 @@ export function MitraListingManager() {
   };
 
   return (
-    <section id="listing-saya" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <section id="listing-saya" className="dash-panel scroll-mt-20 p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-blue-600">Ruang mitra</p>
-          <h2 className="mt-1 text-2xl font-black tracking-[-0.035em] text-slate-950">Kelola listing Anda</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Perbarui harga, jam, ketersediaan, foto, dan paket. Perubahan langsung tersinkron ke katalog publik.</p>
+        <div className="min-w-0">
+          <p className="dash-eyebrow">Ruang mitra</p>
+          <h2 className="dash-title mt-2 text-xl sm:text-2xl">Kelola listing Anda</h2>
+          <p className="dash-sub mt-2 max-w-2xl text-sm">Perbarui harga, jam, ketersediaan, foto, dan paket. Perubahan langsung tersinkron ke katalog publik.</p>
         </div>
-        <button type="button" onClick={startNew} className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white hover:bg-blue-700">
-          <Plus className="size-4" />Tambah listing
+        <button type="button" onClick={startNew} className="dash-btn dash-btn--primary">
+          <Plus className="size-4" aria-hidden="true" />Tambah listing
         </button>
       </div>
 
-      {notice ? <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700" role="status">{notice}</p> : null}
-      {error ? <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700" role="alert">{error}</p> : null}
+      {notice ? <p className="mt-4 rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3.5 py-2.5 text-sm font-bold text-emerald-800" role="status">{notice}</p> : null}
+      {error ? <p className="mt-4 rounded-xl border border-red-200/80 bg-red-50/80 px-3.5 py-2.5 text-sm font-bold text-red-800" role="alert">{error}</p> : null}
 
       {owned !== undefined && (activeVendors.length > 0 || closedVendors.length > 0) ? (
         <div className="mt-5 flex flex-wrap gap-2">
           {activeVendors.length > 0 ? (
-            <button type="button" disabled={liburBusy} onClick={() => void toggleAllAvailability(true)} className={`inline-flex min-h-12 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-50 ${focusRing}`}>
+            <button type="button" disabled={liburBusy} onClick={() => void toggleAllAvailability(true)} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50 ${focusRing}`}>
               <Power className="size-4" aria-hidden="true" />{liburBusy ? "Menutup..." : "Tutup sementara semua"}
             </button>
           ) : (
-            <button type="button" disabled={liburBusy} onClick={() => void toggleAllAvailability(false)} className={`inline-flex min-h-12 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-50 ${focusRing}`}>
+            <button type="button" disabled={liburBusy} onClick={() => void toggleAllAvailability(false)} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50 ${focusRing}`}>
               <RotateCcw className="size-4" aria-hidden="true" />{liburBusy ? "Membuka..." : "Buka kembali semua"}
             </button>
           )}
@@ -505,21 +505,21 @@ export function MitraListingManager() {
       ) : null}
 
       {owned === undefined ? (
-        <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">Memuat listing milik Anda...</p>
+        <p className="dash-sub mt-5 rounded-xl bg-slate-50/80 p-4 text-sm font-semibold">Memuat listing milik Anda...</p>
       ) : owned.length > 0 ? (
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
           {owned.map((vendor) => (
-            <article key={vendor._id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <article key={vendor._id} className="dash-panel dash-panel--soft p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="flex items-center gap-1.5 text-sm font-extrabold text-blue-700">
                     <CategoryMascot category={vendor.category} size="xs" animated={false} />
                     {vendor.category}
                   </p>
-                  <h3 className="mt-1 truncate text-lg font-black text-slate-950">{vendor.name}</h3>
-                  <p className="mt-1 text-sm text-slate-600">{landmarkLabel(vendor.landmark)} · {vendor.price}</p>
+                  <h3 className="mt-1 truncate text-lg font-extrabold tracking-[-0.02em] text-slate-950">{vendor.name}</h3>
+                  <p className="dash-sub mt-1 text-sm">{landmarkLabel(vendor.landmark)} · {vendor.price}</p>
                 </div>
-                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-extrabold ${vendor.status === "active" ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
+                <span className={`dash-pill shrink-0 ${vendor.status === "active" ? "dash-pill--green" : "dash-pill--neutral"}`}>
                   {vendor.status === "active" ? "Tayang" : vendor.status === "draft" ? "Draft" : "Nonaktif"}
                 </span>
               </div>
@@ -561,13 +561,13 @@ export function MitraListingManager() {
       )}
 
       {draft ? (
-        <form onSubmit={save} className="mt-6 rounded-xl border-2 border-blue-200 bg-blue-50/40 p-4 sm:p-5">
+        <form onSubmit={save} className="mt-6 rounded-2xl border border-blue-200/70 bg-blue-50/40 p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-lg font-black text-slate-950">{draft.id ? "Edit listing" : "Listing baru"}</h3>
-              <p className="mt-1 text-sm text-slate-600">Isi data yang tampil di halaman publik.</p>
+              <h3 className="text-lg font-extrabold tracking-[-0.02em] text-slate-950">{draft.id ? "Edit listing" : "Listing baru"}</h3>
+              <p className="dash-sub mt-1 text-sm">Isi data yang tampil di halaman publik.</p>
             </div>
-            <button type="button" onClick={resetDraft} className="flex size-10 items-center justify-center rounded-lg text-slate-600 hover:bg-white" aria-label="Batal edit listing"><X className="size-5" /></button>
+            <button type="button" onClick={resetDraft} className="flex size-10 items-center justify-center rounded-lg text-slate-600 hover:bg-white" aria-label="Batal edit listing"><X className="size-5" aria-hidden="true" /></button>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <TextField label="Nama usaha *" value={draft.name} onValueChange={(name) => updateDraft({ name })} controlClassName={ownerInputClass} span required />
@@ -602,8 +602,8 @@ export function MitraListingManager() {
             )} />
           </div>
           <div className="mt-5 flex flex-wrap gap-2">
-            <button type="submit" disabled={saving} className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white hover:bg-blue-700 disabled:opacity-50"><Save className="size-4" />{saving ? "Menyimpan..." : "Simpan listing"}</button>
-            <button type="button" onClick={resetDraft} className="min-h-12 rounded-lg border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-50">Batal</button>
+            <button type="submit" disabled={saving} className="dash-btn dash-btn--primary"><Save className="size-4" aria-hidden="true" />{saving ? "Menyimpan..." : "Simpan listing"}</button>
+            <button type="button" onClick={resetDraft} className="dash-btn dash-btn--secondary">Batal</button>
           </div>
         </form>
       ) : null}

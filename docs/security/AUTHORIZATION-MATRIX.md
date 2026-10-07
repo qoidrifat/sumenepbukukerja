@@ -116,7 +116,7 @@ baru yang ditambahkan tanpa gerbang. Karena itu pemindaiannya dipindah ke
 menyentuh gerbang yang dikenal ATAU ada di daftar pengecualian yang
 alasannya ditulis di dalam test.
 
-Hasil pemindaian terakhir: **115 fungsi publik**, 106 bergerbang, 9
+Hasil pemindaian terakhir: **118 fungsi publik**, 109 bergerbang, 9
 pengecualian (sembilan baris terakhir di bagian 3).
 
 Empat pengaman di test tersebut:

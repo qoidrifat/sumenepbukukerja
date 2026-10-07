@@ -1,7 +1,19 @@
-import { Card, CardContent } from "@/components/ui/card";
 import { BrandMascot } from "@/components/brand-mascot";
-import { focusRing } from "@/lib/focus-ring";
+import { dashButtonClass } from "@/lib/dash-button-class";
 
+/**
+ * Filled-state seragam untuk kedua dashboard: judul, kalimat ajakan, dan satu
+ * aksi primer di dalam bingkai setinggi kartu yang berisi.
+ *
+ * Catatan yang gampang hilang saat berkas ini disentuh lagi: `bg-white` di
+ * elemen pembungkus BUKAN sisa gaya lama. §8b `public/brand/mascot-spec.md`
+ * hanya mengizinkan sekumpulan latar untuk BrandMascot, dan
+ * `mascot-placement.test.ts` membaca latar itu sebagai token `bg-*` terakhir
+ * sebelum call-site maskot di berkas ini. Menghapus `bg-white` membuat
+ * latar maskot terbaca sebagai string kosong dan kontraknya gagal.
+ * Warnanya sama dengan permukaan `.dash-panel`, jadi tidak ada perubahan
+ * tampilan - yang dijaga adalah keterbacaan kontraknya.
+ */
 export function EmptyStateCard({
   title,
   body,
@@ -14,19 +26,13 @@ export function EmptyStateCard({
   onAction: () => void;
 }) {
   return (
-    <Card className="flex h-full flex-col border-slate-200 bg-white shadow-sm">
-      <CardContent className="flex flex-1 flex-col items-center py-8 text-center">
-        <BrandMascot state="empty" size="md" animated={false} className="mx-auto" />
-        <p className="mt-4 text-lg font-black text-slate-950">{title}</p>
-        <p className="mt-1 max-w-sm text-sm leading-6 text-slate-600">{body}</p>
-        <button
-          type="button"
-          onClick={onAction}
-          className={`mt-4 inline-flex min-h-12 items-center justify-center rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white hover:bg-blue-700 ${focusRing}`}
-        >
-          {actionLabel}
-        </button>
-      </CardContent>
-    </Card>
+    <div className="dash-panel flex h-full flex-col items-center justify-center bg-white px-6 py-10 text-center sm:px-8 sm:py-12">
+      <BrandMascot state="empty" size="md" animated={false} className="mx-auto" />
+      <p className="dash-title mt-5 text-lg">{title}</p>
+      <p className="dash-sub mt-2 max-w-sm text-sm">{body}</p>
+      <button type="button" onClick={onAction} className={dashButtonClass("primary", "mt-5")}>
+        {actionLabel}
+      </button>
+    </div>
   );
 }

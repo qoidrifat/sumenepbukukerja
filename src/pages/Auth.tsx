@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldOff } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
+import { useOtpStatus } from "@/hooks/use-otp-status";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,10 +16,10 @@ import { Input } from "@/components/ui/input";
 /* Sumber logo yang sama dengan navbar dan admin: /brand/logo-mark.svg. */
 const BRAND_LOGO = "/brand/logo-mark.svg";
 import { useAuth } from "@/hooks/use-auth";
+import { resolveRedirectAfterAuth } from "@/lib/auth-redirect";
 import { AnimatedContent, GlassSurface, ScrollReveal, ShinyText } from "@/components/react-bits";
 import { useAdminPasscodeGate } from "@/lib/admin-gate-client";
 import { AuthAdminPanel } from "@/components/auth-admin-panel";
-import { EmailOtpDialog } from "@/components/email-otp-dialog";
 import {
   currentFirebaseEmail,
   firebaseAvailable,
@@ -53,18 +52,31 @@ function GoogleMark() {
   );
 }
 
-interface AuthProps {
-  redirectAfterAuth?: string;
+/** Ikon amplop premium: badan biru brand + lipatan putih. Inline seperti GoogleMark. */
+function EmailMark() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="size-5">
+      <rect x="2" y="4.5" width="20" height="15" rx="3.5" fill="#2563EB" />
+      <path
+        d="M3.5 7.5 12 13.5 20.5 7.5"
+        fill="none"
+        stroke="#FFFFFF"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6 19.5 10.5 14.5"
+        stroke="#DBEAFE"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }
 
-function resolveRedirectAfterAuth(
-  returnTo: string | null,
-  fallback = "/dashboard",
-) {
-  if (returnTo?.startsWith("/") && !returnTo.startsWith("//")) {
-    return returnTo;
-  }
-  return fallback;
+interface AuthProps {
+  redirectAfterAuth?: string;
 }
 
 /** Halaman auth khusus menampilkan passcode hanya bila tujuan akhirnya /admin. */
@@ -104,22 +116,17 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [firebaseEnabled] = useState(() => firebaseAvailable());
-  // FASE 9.5: satu-satunya pintu selain Google adalah dialog OTP.
-  // `otpStatus` undefined = query belum terjawab, BUKAN mati. Tombol
-  // "Gunakan Email" hanya muncul setelah server menjawab hidup, supaya
-  // fallback "belum siap" tidak flash sekilas saat halaman dimuat.
-  const otpStatus = useQuery(api.otpEmail.status);
-  const otpEnabled = otpStatus?.enabled === true;
-  const otpKnown = otpStatus !== undefined;
-  const [otpOpen, setOtpOpen] = useState(false);
-  const [otpEmail, setOtpEmail] = useState("");
-  const [otpDone, setOtpDone] = useState(false);
-  // Navigasi pasca-masuk harus tepat sekali: dialog OTP menutup DULU lalu
-  // memanggil `onVerified`, dan di saat yang sama efek sesi ikut melihat
-  // sesi baru sudah terbentuk. Tanpa penjaga, dua navigasi ke tujuan yang
-  // sama meluncur dalam satu tick dan menumpuk entri riwayat yang sama.
-  // Stabil via `useCallback` supaya efek di bawah tidak re-subscribe tiap
-  // render (identitas `navigate` dari router memang stabil).
+  // FASE 9.6: pintu Email OTP hidup di halaman sendiri (`/auth/email`),
+  // bukan popup. `known=false` = query belum terjawab ATAU gagal (hook
+  // menelan lemparan server error supaya satu query mati tidak membunuh
+  // seluruh halaman — regresi ERR-20261005-0O72S0A). Tombol "Masuk dengan Email"
+  // hanya muncul setelah server menjawab hidup, supaya fallback "belum
+  // siap" tidak flash sekilas saat halaman dimuat.
+  const { enabled: otpEnabled, known: otpKnown } = useOtpStatus();
+  // Navigasi pasca-masuk harus tepat sekali: tombol Google dan sesama efek
+  // sesi bisa menembak tujuan yang sama dalam satu tick dan menumpuk entri
+  // riwayat yang sama. Stabil via `useCallback` supaya efek di bawah tidak
+  // re-subscribe tiap render (identitas `navigate` dari router memang stabil).
   const navigatedRef = useRef(false);
   const navigateOnce = useCallback(
     (target: string) => {
@@ -140,13 +147,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     : "mx-auto w-full max-w-md sm:max-w-lg";
 
   useEffect(() => {
-    // Dialog OTP yang masih terbuka menahan navigasi otomatis: sesi baru
-    // sudah terbentuk saat kode benar, dan tanpa penahan ini efek langsung
-    // navigasi sehingga sekuens sukses Task 5 terpotong sebelum terlihat.
-    // Navigasi pasca-OTP milik `onVerified` dialog. Semua lewat
-    // `navigateOnce` supaya tidak ada entri riwayat ganda ke tujuan sama.
-    if (!authLoading && isAuthenticated && !otpOpen) navigateOnce(redirect);
-  }, [authLoading, isAuthenticated, navigateOnce, redirect, otpOpen]);
+    if (!authLoading && isAuthenticated) navigateOnce(redirect);
+  }, [authLoading, isAuthenticated, navigateOnce, redirect]);
 
   const handlePasscodeSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -229,19 +231,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   };
 
-  // Dipanggil dari ujung sekuens sukses OTP (tepat sekali, dijamin
-  // komponen): tutup dialog lalu buka tujuan semula. Tepat-sekali ganda —
-  // efek sesi di atas juga melihat sesi baru — ditahan `navigateOnce`.
-  const handleOtpVerified = () => {
-    setOtpDone(true);
-    setOtpOpen(false);
-    navigateOnce(redirect);
-  };
-
+  // Tombol "Masuk dengan Email" membuka halaman `/auth/email` (halaman penuh,
+  // bukan popup) dengan `returnTo` yang sama supaya selesai verifikasi
+  // pengguna kembali ke tujuan semula.
   const handleOtpOpen = () => {
     setError(null);
-    setOtpEmail("");
-    setOtpOpen(true);
+    navigate(`/auth/email?returnTo=${encodeURIComponent(redirect)}`);
   };
 
   // Hati-hati: tujuan `/admin` mendapat layar bertema admin. "Sedang menuju ruang
@@ -271,17 +266,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         onGoHome={() => navigate("/")}
         formatLockRemaining={formatLockRemaining}
         />
-        {/* Dialog yang sama dengan layar warga: panel admin hanya
-            presentasi, state dan dialog tetap milik halaman ini. */}
-        {otpDone ? null : (
-          <EmailOtpDialog
-            open={otpOpen}
-            onOpenChange={setOtpOpen}
-            initialEmail={otpEmail}
-            redirect={redirect}
-            onVerified={handleOtpVerified}
-          />
-        )}
       </>
     );
   }
@@ -484,7 +468,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   {/* FASE 9.5 - dua pintu masuk: Google dan Email OTP.
 
                       Pintu lama dihapus total (keputusan pemilik), jadi tombol
-                      Google dan "Gunakan Email" ini sekarang SELURUH isi layar
+                      Google dan "Masuk dengan Email" ini sekarang SELURUH isi layar
                       ini. Pembatas "atau" hanya tampil bila KEDUA pintu hidup:
                       pembatas yang tidak memisahkan apa pun membuat orang
                       mengira masih ada pilihan ketiga yang belum tampil.
@@ -527,10 +511,23 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                           onClick={handleOtpOpen}
                           disabled={isLoading}
                         >
-                          Gunakan Email
+                          <EmailMark />
+                          Masuk dengan Email
                         </Button>
+                      ) : !otpKnown ? (
+                        <div
+                          role="status"
+                          aria-label="Memuat opsi masuk"
+                          className="min-h-12 w-full rounded-lg bg-slate-200 motion-safe:animate-pulse"
+                        />
                       ) : null}
                     </>
+                  ) : !otpKnown ? (
+                    <div
+                      role="status"
+                      aria-label="Memuat opsi masuk"
+                      className="min-h-12 w-full rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 motion-safe:animate-pulse"
+                    />
                   ) : otpKnown ? (
                     <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-4">
                       <p className="text-sm font-black text-slate-900">
@@ -567,20 +564,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           </GlassSurface>
         </ScrollReveal>
       </div>
-      {/* Satu Dialog OTP untuk seluruh halaman ini (warga maupun pengelola
-          setelah passcode). Tahap sukses dirender DI DALAM dialog yang sama
-          oleh komponennya sendiri - tidak ada Dialog bersarang di sini.
-          Dilepas dari pohon setelah selesai supaya tidak bisa dibuka ulang
-          dalam keadaan basi. */}
-      {otpDone ? null : (
-        <EmailOtpDialog
-          open={otpOpen}
-          onOpenChange={setOtpOpen}
-          initialEmail={otpEmail}
-          redirect={redirect}
-          onVerified={handleOtpVerified}
-        />
-      )}
     </main>
   );
 }

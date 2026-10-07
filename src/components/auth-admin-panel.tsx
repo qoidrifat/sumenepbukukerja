@@ -360,10 +360,23 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
                         onClick={onOtpOpen}
                         disabled={isLoading}
                       >
-                        Gunakan Email
+                        <EmailGlyph />
+                        Masuk dengan Email
                       </button>
+                    ) : !otpKnown ? (
+                      <div
+                        role="status"
+                        aria-label="Memuat opsi masuk"
+                        className="h-12 w-full border-2 border-[#121212] bg-[#F5F0E5] motion-safe:animate-pulse"
+                      />
                     ) : null}
                   </>
+                ) : !otpKnown ? (
+                  <div
+                    role="status"
+                    aria-label="Memuat opsi masuk"
+                    className="h-12 w-full border-2 border-dashed border-[#121212] bg-[#F5F0E5] motion-safe:animate-pulse"
+                  />
                 ) : otpKnown ? (
                   <div className="border-2 border-dashed border-[#121212] bg-[#F5F0E5] p-4">
                     <p className="text-sm font-black text-[#1A1A1A]">
@@ -404,6 +417,32 @@ export function AuthAdminPanel(props: AuthAdminPanelProps) {
         </p>
       </div>
     </main>
+  );
+}
+
+/** Amplop mono currentColor: selaras tema meja kerja (tanpa warna palet publik). */
+function EmailGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="size-5 shrink-0">
+      <rect
+        x="2.5"
+        y="5"
+        width="19"
+        height="14"
+        rx="2.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <path
+        d="M4 7.5 12 13.5 20 7.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

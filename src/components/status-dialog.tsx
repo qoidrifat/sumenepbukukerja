@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AdminDialogContent } from "@/components/admin-dialog";
 import { useConnectionStatus } from "@/hooks/use-connection-status";
 import { buildAdminWhatsappLink, buildStatusHandoffMessage } from "@/lib/admin-whatsapp";
+import { resolveDialogVariant } from "@/lib/connection-status";
 import { focusRing } from "@/lib/focus-ring";
 import { dashButtonClass } from "@/lib/dash-button-class";
 import { cn } from "@/lib/utils";
@@ -13,16 +14,6 @@ import { cn } from "@/lib/utils";
 /* ------------------------------------------------------------------ */
 
 export type DialogVariant = "admin" | "warga";
-
-/**
- * Varian diputus murni dari pathname: /admin* -> admin, sisanya warga.
- * Mount global di luar BrowserRouter (main.tsx), jadi useLocation tak
- * tersedia — pemanggil membaca pathname SEKALI saat dialog dibuka lalu
- * meneruskannya ke sini.
- */
-export function resolveDialogVariant(pathname: string): DialogVariant {
-  return pathname.startsWith("/admin") ? "admin" : "warga";
-}
 
 type DialogShellProps = React.ComponentProps<typeof DialogContent> & {
   variant: DialogVariant;

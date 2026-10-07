@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { resolveDialogVariant } from "./status-dialog";
+import { resolveDialogVariant } from "@/lib/connection-status";
 
 /**
  * Dialog status bertema + host koneksi (Task S2).

@@ -11,7 +11,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { AlertTriangle, CheckCircle2, LifeBuoy, Loader2, MessageCircle, ShieldAlert, X } from "lucide-react";
 import { Dialog, DialogTitle } from "@/components/ui/dialog";
-import { DialogShell, resolveDialogVariant } from "@/components/status-dialog";
+import { DialogShell } from "@/components/status-dialog";
+import { resolveDialogVariant } from "@/lib/connection-status";
 import {
   closeErrorDialog,
   describeErrorDialog,

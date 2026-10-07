@@ -83,3 +83,21 @@ export function reportSyncStart(): () => void {
     emitSync();
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Resolver varian dialog (pindah dari status-dialog.tsx: fungsi murni */
+/* tak boleh tinggal di file komponen — react-refresh/only-export-     */
+/* components. Signature inline "admin" | "warga" agar tanpa siklus    */
+/* import; DialogVariant di status-dialog adalah alias yang sama —     */
+/* satu-satunya sumber string literal adalah fungsi ini.)              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Varian diputus murni dari pathname: /admin* -> admin, sisanya warga.
+ * Mount global di luar BrowserRouter (main.tsx), jadi useLocation tak
+ * tersedia — pemanggil membaca pathname SEKALI saat dialog dibuka lalu
+ * meneruskannya ke sini.
+ */
+export function resolveDialogVariant(pathname: string): "admin" | "warga" {
+  return pathname.startsWith("/admin") ? "admin" : "warga";
+}

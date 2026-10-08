@@ -66,6 +66,23 @@ export const RETENTION_LIMITS = {
    * panel status, dan itu jauh di dalam jendela 30 hari.
    */
   whatsappDeliveredDays: 30,
+  /**
+   * Kehadiran pengelola yang basi.
+   *
+   * Selaras dengan penyiangan 7 hari di `pruneAdminSecurityEvents`: baris yang
+   * pemiliknya tidak terlihat seminggu dianggap sesi yang ditinggalkan, bukan
+   * pengelola yang sedang aktif.
+   */
+  presenceDays: 7,
+  /**
+   * Notifikasi dalam aplikasi.
+   *
+   * Umurnya jauh lebih panjang dari log mentah karena notifikasi dibaca
+   * manusia (lonceng di panel), bukan sekadar jejak mesin. Batas jumlahnya
+   * menjaga tabel tetap kecil walau kirimannya sedang deras.
+   */
+  notificationDays: 90,
+  notificationKeepLatest: 2000,
 } as const;
 
 /**
@@ -319,6 +336,42 @@ export const pruneApplicationHistory = internalMutation({
     // sementara tabelnya sudah kosong — dan tidak ada yang menyadarinya.
     if (Object.keys(deletedDeliveries).length > 0) {
       await applyDeliveryDelta(ctx, deletedDeliveries);
+    }
+
+    // Kehadiran pengelola yang basi. Memakai indeks `byLastSeenAt` yang sudah
+    // ada, jadi yang dibaca hanya baris yang memang sudah lewat jendelanya.
+    const presenceCutoff = Date.now() - RETENTION_LIMITS.presenceDays * DAY;
+    const stalePresence = await ctx.db
+      .query("adminPresence")
+      .withIndex("byLastSeenAt", (q) => q.lt("lastSeenAt", presenceCutoff))
+      .collect();
+    for (const row of stalePresence) {
+      await ctx.db.delete(row._id);
+      removed += 1;
+    }
+
+    // Notifikasi lama. Batas jumlah dulu (2000 terbaru dipertahankan), lalu
+    // batas usia 90 hari — pola yang sama dengan `auditRows`/`errorRows`.
+    // `notifications` belum punya indeks `byCreatedAt` (itu urusan Task 8),
+    // jadi urutan tertua-dulu dirapikan di sini dari hasil `collect()`.
+    const notificationCutoff = Date.now() - RETENTION_LIMITS.notificationDays * DAY;
+    const notificationRows = await ctx.db.query("notifications").collect();
+    const oldestFirst = [...notificationRows].sort((a, b) => a.createdAt - b.createdAt);
+    let notificationOverflow = Math.max(
+      0,
+      oldestFirst.length - RETENTION_LIMITS.notificationKeepLatest,
+    );
+    for (const row of oldestFirst) {
+      if (notificationOverflow > 0) {
+        await ctx.db.delete(row._id);
+        removed += 1;
+        notificationOverflow -= 1;
+        continue;
+      }
+      if (row.createdAt < notificationCutoff) {
+        await ctx.db.delete(row._id);
+        removed += 1;
+      }
     }
 
     return removed;

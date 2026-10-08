@@ -278,7 +278,51 @@ describe("retensi riwayat aplikasi", () => {
       analyticsDays: 90,
       analyticsKeepLatest: 20_000,
       whatsappDeliveredDays: 30,
+      presenceDays: 7,
+      notificationDays: 90,
+      notificationKeepLatest: 2000,
     });
+  });
+
+  test("prune membuang presence basi dan notifikasi lama, baris hidup utuh", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const basiUser = await ctx.db.insert("users", { isAnonymous: true });
+      await ctx.db.insert("adminPresence", {
+        userId: basiUser,
+        lastSeenAt: now - 8 * 24 * 60 * 60_000,
+        firstSeenAt: now - 8 * 24 * 60 * 60_000,
+      });
+      const hidupUser = await ctx.db.insert("users", { isAnonymous: true });
+      await ctx.db.insert("adminPresence", {
+        userId: hidupUser,
+        lastSeenAt: now,
+        firstSeenAt: now,
+      });
+      await ctx.db.insert("notifications", {
+        kind: "lama",
+        title: "L",
+        body: "B",
+        createdAt: now - 91 * 24 * 60 * 60_000,
+      });
+      await ctx.db.insert("notifications", {
+        kind: "baru",
+        title: "L",
+        body: "B",
+        createdAt: now,
+      });
+    });
+
+    await t.mutation(internal.dataRetention.pruneApplicationHistory, {});
+
+    const state = await t.run(async (ctx) => ({
+      presence: await ctx.db.query("adminPresence").collect(),
+      notifications: await ctx.db.query("notifications").collect(),
+    }));
+    expect(state.presence).toHaveLength(1);
+    expect(state.notifications).toHaveLength(1);
+    expect(state.notifications[0].kind).toBe("baru");
   });
 
   test("pengiriman WhatsApp yang belum berakhir tidak pernah dihapus", async () => {

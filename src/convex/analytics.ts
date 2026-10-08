@@ -244,21 +244,29 @@ export const adminMetrics = query({
     const responseValues = active.map((vendor) => vendor.responseMinutes).filter((value): value is number => typeof value === "number" && value > 0);
     // "Paling responsif" hanya masuk akal untuk listing yang benar-benar tayang:
     // listing draft atau arsip tidak bisa dihubungi warga, jadi menyebutnya
-    // sebagai provider terbaik justru menyesatkan. Jumlah permintaan per vendor
-    // dibaca lewat indeks `byVendor` milik vendor itu saja.
+    // sebagai provider terbaik justru menyesatkan.
+    //
+    // Aturan 4: finalis (8 nama paling responsif) dipilih DULU, baru
+    // permintaannya dihitung. Menghitung `byVendor` untuk SEMUA kandidat lalu
+    // membuang semua kecuali 8 adalah pemindaian yang tidak pernah tampil di
+    // dashboard.
     const providerCandidates = active.filter((vendor) => vendor.ownerId);
-    const providerRequestCounts = await Promise.all(
-      providerCandidates.map(async (vendor) =>
+    const finalists = [...providerCandidates]
+      .sort((a, b) => (a.responseMinutes ?? 999999) - (b.responseMinutes ?? 999999))
+      .slice(0, 8);
+    // Jumlah permintaan per vendor dibaca lewat indeks `byVendor` milik vendor
+    // itu saja — dan hanya untuk 8 finalis di atas.
+    const finalistRequestCounts = await Promise.all(
+      finalists.map(async (vendor) =>
         (await ctx.db
           .query("serviceRequests")
           .withIndex("byVendor", (q) => q.eq("vendorId", vendor._id))
           .collect()).length,
       ),
     );
-    const topProviders = providerCandidates
-      .map((vendor, index) => ({ id: vendor._id, name: vendor.name, responseMinutes: vendor.responseMinutes ?? 999999, requests: providerRequestCounts[index] }))
+    const topProviders = finalists
+      .map((vendor, index) => ({ id: vendor._id, name: vendor.name, responseMinutes: vendor.responseMinutes ?? 999999, requests: finalistRequestCounts[index] ?? 0 }))
       .sort((a, b) => a.responseMinutes - b.responseMinutes || b.requests - a.requests)
-      .slice(0, 8)
       .map(({ responseMinutes, ...provider }) => ({ ...provider, responseMinutes: responseMinutes === 999999 ? undefined : responseMinutes }));
     return {
       events: {

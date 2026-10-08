@@ -30,6 +30,7 @@ import type { WhatsAppIntent } from "@/lib/whatsapp";
 import { useListingMetadata } from "@/lib/use-listing-metadata";
 import { BlurText, GlassSurface, ScrollReveal } from "@/components/react-bits";
 import { AvailabilityBadge, ClaimListingPanel, PackageList, ReportListingButton } from "@/components/community-widgets";
+import { PhotoImage } from "@/components/photo-image";
 import { enqueueOfflineMutation, flushOfflineQueue, registerOfflineHandlers, useOfflineQueue } from "@/lib/offline-queue";
 import { focusRing } from "@/lib/focus-ring";
 import NotFound from "./NotFound";
@@ -404,7 +405,7 @@ function VendorProfileContent() {
                     <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
                       {photos.map((photo) => (
                         <figure key={photo._id} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                          <img src={photo.url ?? ""} alt={photo.caption ?? `Foto hasil pekerjaan ${vendor.name}`} className="aspect-[4/3] w-full object-cover" loading="lazy" />
+                          <PhotoImage storageId={photo.storageId} alt={photo.caption ?? `Foto hasil pekerjaan ${vendor.name}`} className="aspect-[4/3] w-full object-cover" />
                           {photo.caption ? <figcaption className="px-3 py-2 text-xs font-semibold text-slate-600">{photo.caption}</figcaption> : null}
                         </figure>
                       ))}

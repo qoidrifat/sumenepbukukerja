@@ -399,6 +399,12 @@ export const getBySlug = query({
  * Selain itu jawabannya `null`, bukan error. Tidak ada lagi jalur yang
  * bergantung pada "anda tahu id-nya".
  *
+ * ATURAN 12 - AMBANG KEDUA UNTUK PENAYANG YANG BERHAK. Daftar galeri tidak
+ * lagi membawa `url`, jadi pemilik (foto pending milik sendiri) dan pengelola
+ * (antrean moderasi) me-resolve lewat query ini juga. Ambangnya sama dengan
+ * visibilitas daftar: baris masih aktif + pemanggil pemilik/pengelola.
+ * Anonim dan warga lain tetap `null` untuk foto yang belum tayang.
+ *
  * PEMAKAI YANG TIDAK BERUBAH: halaman profil publik listing (`/v/:slug`)
  * adalah satu-satunya pemanggil, dan listing di sana selalu `active`.
  */
@@ -422,6 +428,21 @@ export const getImageUrl = query({
       .unique();
     if (photo && photo.active !== false && photo.moderationStatus === "approved") {
       return (await ctx.storage.getUrl(storageId)) ?? null;
+    }
+    // Pratinjau yang berhak (aturan 12): daftar tidak lagi membawa `url`, jadi
+    // galeri pemilik (foto pending milik sendiri) dan antrean moderasi
+    // me-resolve lewat resolver yang SAMA ini, per foto yang tampil. Ambangnya
+    // sama dengan visibilitas daftar: baris harus masih aktif, dan pemanggil
+    // harus pemilik listingnya atau pengelola. Anonim dan warga lain tetap
+    // `null` — dikunci regression test. Jalur sampul di atas TIDAK berubah.
+    if (photo && photo.active !== false) {
+      const viewerId = await getAuthUserId(ctx);
+      if (viewerId) {
+        const vendor = await ctx.db.get(photo.vendorId);
+        if (vendor && (vendor.ownerId === viewerId || (await hasStaffAccess(ctx, viewerId)))) {
+          return (await ctx.storage.getUrl(storageId)) ?? null;
+        }
+      }
     }
     return null;
   },

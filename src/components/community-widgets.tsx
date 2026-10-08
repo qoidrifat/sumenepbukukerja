@@ -36,6 +36,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useContactHandoff } from "@/lib/contact-handoff";
 import { AnimatedContent, ScrollReveal } from "@/components/react-bits";
+import { PhotoImage } from "@/components/photo-image";
 import { DashIcon } from "@/components/dashboard-ui";
 import { PublicRequestMascot } from "@/components/public-request-mascot";
 import { ThemedSelect } from "@/components/ui/themed-select";
@@ -564,7 +565,7 @@ export function OwnerGalleryManager({ vendorId, vendorName }: { vendorId: string
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {photos.map((photo) => (
             <figure key={photo._id} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-              <img src={photo.url ?? ""} alt={photo.caption || `Foto ${vendorName}`} className="aspect-square w-full object-cover" loading="lazy" />
+              <PhotoImage storageId={photo.storageId} alt={photo.caption || `Foto ${vendorName}`} className="aspect-square w-full object-cover" />
               <figcaption className="flex items-center justify-between gap-1 px-2 py-1 text-[11px] text-slate-600">
                 <span>{photo.moderationStatus === "pending" ? "Menunggu moderasi" : photo.moderationStatus === "rejected" ? "Ditolak" : "Tampil"}</span>
                 <button type="button" disabled={busy} onClick={() => { if (window.confirm("Hapus foto ini?")) void removePhoto({ id: photo._id as never }).catch((caught) => setMessage(caught instanceof Error ? caught.message : "Foto belum dapat dihapus.")); }} className={`font-black text-red-700 ${focusRing}`} aria-label={`Hapus foto ${vendorName}`}>Hapus</button>

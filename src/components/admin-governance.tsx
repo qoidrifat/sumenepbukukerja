@@ -15,6 +15,7 @@ import {
   useWhatsappStatus,
 } from "@/lib/catalog-store";
 import { TimeStampLabel, inputClass } from "./admin-workspace";
+import { PhotoImage } from "@/components/photo-image";
 import { AdminSecurityLog } from "./admin-security-log";
 import { AdminSessionActions } from "./admin-session-actions";
 import { AdminErrorReports } from "./admin-error-reports";
@@ -229,7 +230,7 @@ export function AdminGovernance() {
 
         <article className="border-2 border-[#121212] bg-white p-4">
           <h3 className="text-lg font-black text-[#1A1A1A]">Moderasi foto ({photos ? photos.length : "…"})</h3>
-          {photos?.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{photos.map((photo) => <div key={photo._id} className="overflow-hidden border-2 border-[#121212] bg-[#F5F0E5]"><img src={photo.url ?? ""} alt={photo.caption || "Foto listing"} className="aspect-video w-full object-cover" /><div className="p-2"><p className="text-sm font-black">{photo.vendorName}</p><div className="mt-2 flex gap-2"><button type="button" disabled={busy === photo._id || !access.canModerate} onClick={() => void run(photo._id, () => moderatePhoto({ id: photo._id as never, decision: "approved" }), "Foto disetujui.")} className="admin-btn admin-btn-success px-2 text-xs disabled:opacity-50">Setujui</button><button type="button" disabled={busy === photo._id || !access.canModerate} onClick={() => void run(photo._id, () => moderatePhoto({ id: photo._id as never, decision: "rejected", note: "Tidak relevan" }), "Foto ditolak.")} className="admin-btn admin-btn-danger px-2 text-xs disabled:opacity-50">Tolak</button></div></div></div>)}</div> : <AdminQueueEmptyState status={photos === undefined ? "loading" : "empty"} variant="photos" loadingLabel="Memuat antrean foto" emptyCopy="Tidak ada foto menunggu moderasi." emptyHint="Tidak ada yang perlu ditinjau." />}
+          {photos?.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{photos.map((photo) => <div key={photo._id} className="overflow-hidden border-2 border-[#121212] bg-[#F5F0E5]"><PhotoImage storageId={photo.storageId} alt={photo.caption || "Foto listing"} className="aspect-video w-full object-cover" /><div className="p-2"><p className="text-sm font-black">{photo.vendorName}</p><div className="mt-2 flex gap-2"><button type="button" disabled={busy === photo._id || !access.canModerate} onClick={() => void run(photo._id, () => moderatePhoto({ id: photo._id as never, decision: "approved" }), "Foto disetujui.")} className="admin-btn admin-btn-success px-2 text-xs disabled:opacity-50">Setujui</button><button type="button" disabled={busy === photo._id || !access.canModerate} onClick={() => void run(photo._id, () => moderatePhoto({ id: photo._id as never, decision: "rejected", note: "Tidak relevan" }), "Foto ditolak.")} className="admin-btn admin-btn-danger px-2 text-xs disabled:opacity-50">Tolak</button></div></div></div>)}</div> : <AdminQueueEmptyState status={photos === undefined ? "loading" : "empty"} variant="photos" loadingLabel="Memuat antrean foto" emptyCopy="Tidak ada foto menunggu moderasi." emptyHint="Tidak ada yang perlu ditinjau." />}
         </article>
 
         {/* Panel Peran pengelola hanya dirender untuk akun pemilik.

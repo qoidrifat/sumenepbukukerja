@@ -300,21 +300,44 @@ export const listRequests = query({
       )
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, Math.min(Math.max(args.limit ?? 30, 1), 100));
-    return Promise.all(
-      visible.map(async (request) => {
-        const [requester, vendor, offerRows] = await Promise.all([
-          ctx.db.get(request.requesterId),
-          request.vendorId ? ctx.db.get(request.vendorId) : Promise.resolve(null),
-          ctx.db.query("requestOffers").withIndex("byRequest", (q) => q.eq("requestId", request._id)).collect(),
-        ]);
-        const offers = await Promise.all(
-          offerRows.map(async (offer) =>
-            toPublicRequestOffer(offer, {
-              viewerId,
-              vendorName: (await ctx.db.get(offer.vendorId))?.name ?? "Listing",
-            }),
-          ),
-        );
+    // Pengayaan di-batch per halaman (aturan 4): semua `vendorId` unik — vendor
+    // yang diklaim + semua penawar — diambil dalam SATU `Promise.all`, bukan
+    // satu `get` per tawaran. Vendor yang menawar di banyak permintaan hanya
+    // dibaca sekali. Nama pembuat permintaan di-batch dengan pola yang sama:
+    // satu warga yang memasang banyak permintaan hanya dibaca sekali.
+    const offerRowsByRequest = await Promise.all(
+      visible.map((request) =>
+        ctx.db
+          .query("requestOffers")
+          .withIndex("byRequest", (q) => q.eq("requestId", request._id))
+          .collect(),
+      ),
+    );
+    const vendorIdList = [
+      ...new Set([
+        ...visible.flatMap((request) => (request.vendorId ? [request.vendorId] : [])),
+        ...offerRowsByRequest.flatMap((offerRows) => offerRows.map((offer) => offer.vendorId)),
+      ]),
+    ];
+    const requesterIdList = [...new Set(visible.map((request) => request.requesterId))];
+    const [vendorDocs, requesterDocs] = await Promise.all([
+      Promise.all(vendorIdList.map((id) => ctx.db.get(id))),
+      Promise.all(requesterIdList.map((id) => ctx.db.get(id))),
+    ]);
+    const vendorNameById = new Map(
+      vendorDocs.flatMap((vendor) => (vendor ? [[vendor._id, vendor.name] as const] : [])),
+    );
+    const requesterById = new Map(
+      requesterDocs.flatMap((requester) => (requester ? [[requester._id, requester] as const] : [])),
+    );
+    return visible.map((request, index) => {
+      const requester = requesterById.get(request.requesterId) ?? null;
+      const offers = (offerRowsByRequest[index] ?? []).map((offer) =>
+        toPublicRequestOffer(offer, {
+          viewerId,
+          vendorName: vendorNameById.get(offer.vendorId) ?? "Listing",
+        }),
+      );
         // FASE 9.2 - F-05. `requesterName` tidak lagi memakai `users.name`
         // milik akun. Urutannya: koreksi pengguna, lalu tebakan dari email,
         // lalu fallback. Yang penting di sini adalah `email` TIDAK PERNAH
@@ -333,11 +356,10 @@ export const listRequests = query({
           requesterId: request.requesterId,
           isStaff: Boolean(staffAccess),
           requesterName: resolvePublicName(requester),
-          vendorName: vendor?.name,
+          vendorName: request.vendorId ? vendorNameById.get(request.vendorId) : undefined,
           offers,
         });
-      }),
-    );
+    });
   },
 });
 
@@ -1161,22 +1183,25 @@ export const listVendorPhotos = query({
     // pembaca anonim. Dua-duanya internal: catatan moderasi tidak pernah
     // ditampilkan ke publik, dan id pengelola tidak dibutuhkan galeri.
     // Sekarang field yang keluar dipilih satu per satu.
-    return Promise.all(
-      visible.map(async (photo) => ({
-        _id: photo._id,
-        vendorId: photo.vendorId,
-        caption: photo.caption,
-        createdAt: photo.createdAt,
-        ...(canSeePending
-          ? {
-              moderationStatus: photo.moderationStatus,
-              moderationNote: photo.moderationNote,
-              moderatedAt: photo.moderatedAt,
-            }
-          : {}),
-        url: await ctx.storage.getUrl(photo.storageId),
-      })),
-    );
+    //
+    // Aturan 12: daftar TIDAK me-resolve URL. Satu pemanggilan URL storage per
+    // baris di sini berarti belasan pemanggilan storage untuk galeri yang
+    // belum tentu dibuka. Daftar mengembalikan `storageId`; URL di-resolve di
+    // pemuatan detail lewat `vendors.getImageUrl` yang sudah ada.
+    return visible.map((photo) => ({
+      _id: photo._id,
+      vendorId: photo.vendorId,
+      storageId: photo.storageId,
+      caption: photo.caption,
+      createdAt: photo.createdAt,
+      ...(canSeePending
+        ? {
+            moderationStatus: photo.moderationStatus,
+            moderationNote: photo.moderationNote,
+            moderatedAt: photo.moderatedAt,
+          }
+        : {}),
+    }));
   },
 });
 
@@ -1304,11 +1329,18 @@ export const listPhotosForModeration = query({
       .query("vendorPhotos")
       .withIndex("byModeration", (q) => q.eq("moderationStatus", "pending"))
       .collect();
-    return Promise.all(photos.map(async (photo) => ({
+    // Nama vendor di-batch per vendor unik, bukan satu `get` per foto. URL
+    // juga TIDAK di-resolve di sini (aturan 12): antrean moderasi me-render
+    // pratinjau lewat `vendors.getImageUrl` per foto yang tampil.
+    const vendorIdList = [...new Set(photos.map((photo) => photo.vendorId))];
+    const vendorDocs = await Promise.all(vendorIdList.map((id) => ctx.db.get(id)));
+    const vendorNameById = new Map(
+      vendorDocs.flatMap((vendor) => (vendor ? [[vendor._id, vendor.name] as const] : [])),
+    );
+    return photos.map((photo) => ({
       ...photo,
-      url: await ctx.storage.getUrl(photo.storageId),
-      vendorName: (await ctx.db.get(photo.vendorId))?.name,
-    })));
+      vendorName: vendorNameById.get(photo.vendorId),
+    }));
   },
 });
 

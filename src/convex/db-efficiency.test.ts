@@ -1,7 +1,9 @@
 /// <reference types="vite/client" />
+import { readFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -281,5 +283,177 @@ describe("notifikasi WhatsApp tidak lagi tergandakan", () => {
 
     const notifications = await t.run(async (ctx) => await ctx.db.query("notifications").collect());
     expect(notifications).toHaveLength(0);
+  });
+});
+
+describe("daftar di-batch + URL foto pindah ke detail (aturan 4, 12)", () => {
+  const communitySource = () =>
+    readFileSync(new URL("./community.ts", import.meta.url), "utf8");
+  const analyticsSource = () =>
+    readFileSync(new URL("./analytics.ts", import.meta.url), "utf8");
+
+  /** Pembantu baris database langsung, mengikuti pola `metrics-index.test.ts`. */
+  const insert = (t: ReturnType<typeof convexTest>, table: string, doc: Record<string, unknown>) =>
+    t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+      };
+      return await db.insert(table, doc);
+    });
+
+  /** Simpan blob gambar di storage pengujian, sama seperti `security-surface.test.ts`. */
+  const storeImage = (t: ReturnType<typeof convexTest>) =>
+    t.run(async (ctx) => {
+      const storage = ctx.storage as unknown as { store: (blob: Blob) => Promise<unknown> };
+      const id = await storage.store(new Blob(["konten-foto"], { type: "image/jpeg" }));
+      const system = ctx.db as unknown as { patch: (id: never, value: { contentType: string }) => Promise<void> };
+      await system.patch(id as never, { contentType: "image/jpeg" });
+      return id as string;
+    });
+
+  const seedVendor = (t: ReturnType<typeof convexTest>, overrides: Record<string, unknown> = {}) =>
+    insert(t, "vendors", {
+      slug: `usaha-${Math.random().toString(36).slice(2, 10)}`,
+      name: "Usaha Uji",
+      category: "Servis Teknik",
+      description: "Deskripsi",
+      address: "Jl. Uji",
+      landmark: "kota",
+      price: "Mulai Rp50.000",
+      hours: "07.00–17.00",
+      phone: "628123456789",
+      rating: "4.8",
+      accent: "from-blue-500 to-blue-700",
+      mark: "UU",
+      tags: [],
+      status: "active",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      ...overrides,
+    });
+
+  test("query daftar tidak memanggil getUrl per baris", () => {
+    const community = communitySource();
+    const listBlock = community.slice(
+      community.indexOf("export const listVendorPhotos"),
+      community.indexOf("export const createVendorPhoto"),
+    );
+    expect(listBlock).not.toContain("ctx.storage.getUrl");
+  });
+
+  test("antrean moderasi tidak memanggil getUrl per baris", () => {
+    const community = communitySource();
+    const moderationBlock = community.slice(
+      community.indexOf("export const listPhotosForModeration"),
+      community.indexOf("export const listCommunityMetrics"),
+    );
+    expect(moderationBlock).not.toContain("ctx.storage.getUrl");
+  });
+
+  test("papan permintaan mengambil vendor lewat batch, bukan per tawaran", () => {
+    const community = communitySource();
+    const boardBlock = community.slice(
+      community.indexOf("export const listRequests"),
+      community.indexOf("export const createRequest"),
+    );
+    // Satu `get` per tawaran berarti vendor yang sama diambil berulang kali
+    // setiap kali ia menawar di permintaan yang berbeda.
+    expect(boardBlock).not.toContain("ctx.db.get(offer.vendorId)");
+    // Peta nama hasil batch dipakai saat pemetaan tawaran.
+    expect(boardBlock).toContain("vendorNameById");
+  });
+
+  test("topProviders menghitung permintaan hanya untuk finalis", () => {
+    const analytics = analyticsSource();
+    const block = analytics.slice(analytics.indexOf("export const adminMetrics"));
+    // Finalis (8 nama paling responsif) HARUS dipilih dulu, baru permintaannya
+    // dihitung: pemindaian `byVendor` untuk listing di luar 8 besar tidak
+    // pernah tampil di dashboard.
+    const finalisDipilih = block.indexOf(".slice(0, 8)");
+    const hitungPermintaan = block.indexOf('withIndex("byVendor"');
+    expect(finalisDipilih).toBeGreaterThanOrEqual(0);
+    expect(hitungPermintaan).toBeGreaterThanOrEqual(0);
+    expect(finalisDipilih).toBeLessThan(hitungPermintaan);
+  });
+
+  test("daftar galeri mengembalikan storageId; URL di-resolve di detail", async () => {
+    const t = convexTest(schema, modules);
+    const { userId } = await seedUser(t, "Pemilik Galeri");
+    const vendorId = (await seedVendor(t, { ownerId: userId })) as Id<"vendors">;
+    const storageId = await storeImage(t);
+    await insert(t, "vendorPhotos", {
+      vendorId,
+      storageId,
+      caption: "Etalase",
+      active: true,
+      moderationStatus: "approved",
+      createdAt: Date.now(),
+    });
+
+    // Pembaca publik menerima pengenal blob, bukan URL yang sudah jadi.
+    const rows = await t.query(api.community.listVendorPhotos, { vendorId: vendorId as never });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.storageId).toBe(storageId);
+    expect(rows[0], "URL harus di-resolve di pemuatan detail, bukan di daftar").not.toHaveProperty("url");
+
+    // Resolver detail yang sama melayani foto publik yang sudah disetujui.
+    const anonymous = t.withIdentity({});
+    expect(await anonymous.query(api.vendors.getImageUrl, { storageId })).toBeTruthy();
+  });
+
+  test("foto pending hanya di-resolve untuk pemilik dan pengelola", async () => {
+    const t = convexTest(schema, modules);
+    const { userId } = await seedUser(t, "Pemilik Pending");
+    const vendorId = (await seedVendor(t, { ownerId: userId })) as Id<"vendors">;
+    const storageId = await storeImage(t);
+    await insert(t, "vendorPhotos", {
+      vendorId,
+      storageId,
+      active: true,
+      moderationStatus: "pending",
+      createdAt: Date.now(),
+    });
+
+    const owner = t.withIdentity({ subject: userId });
+    const stranger = await seedUser(t, "Warga Asing");
+    const anonymous = t.withIdentity({});
+    // Galeri pemilik dan antrean moderasi memakai resolver yang SAMA dengan
+    // publik — tanpa ini kedua tampilan itu kosong setelah `url` keluar dari
+    // daftar.
+    expect(await owner.query(api.vendors.getImageUrl, { storageId })).toBeTruthy();
+    expect(await stranger.user.query(api.vendors.getImageUrl, { storageId })).toBeNull();
+    expect(await anonymous.query(api.vendors.getImageUrl, { storageId })).toBeNull();
+  });
+
+  test("papan tetap membawa nama vendor dan nama penawar setelah batching", async () => {
+    const t = convexTest(schema, modules);
+    const { userId } = await seedUser(t, "Warga Papan");
+    const claimedId = (await seedVendor(t, { name: "Diklaim Bengkel", ownerId: userId })) as Id<"vendors">;
+    const bidderId = (await seedVendor(t, { name: "Penawar Cepat", ownerId: userId })) as Id<"vendors">;
+    const requestId = await insert(t, "serviceRequests", {
+      requesterId: userId,
+      title: "Pompa mati",
+      description: "Pompa air mati sejak kemarin dan perlu diperbaiki.",
+      category: "Servis Teknik",
+      landmark: "kota",
+      status: "open",
+      vendorId: claimedId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await insert(t, "requestOffers", {
+      requestId,
+      vendorId: bidderId,
+      offeredBy: userId,
+      status: "offered",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const rows = await t.query(api.community.listRequests, { limit: 5 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.vendorName).toBe("Diklaim Bengkel");
+    expect(rows[0]?.offers).toHaveLength(1);
+    expect(rows[0]?.offers[0]?.vendorName).toBe("Penawar Cepat");
   });
 });

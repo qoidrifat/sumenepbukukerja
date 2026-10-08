@@ -262,7 +262,7 @@ describe("Fase 9: paket listing draft tidak bocor", () => {
 });
 
 describe("Fase 9: metadata moderasi tidak keluar ke pembaca publik", () => {
-  test("anonim tidak menerima catatan moderasi, id pengelola, atau storage id", async () => {
+  test("anonim tidak menerima catatan moderasi atau id pengelola; URL di-resolve di detail", async () => {
     const t = convexTest(schema, modules);
     const { vendorId } = await createDraftListing(t, "Pemilik Foto", "pemilik-moderasi@contoh.test");
     const storageId = await t.run(async (ctx) => await storeImage(ctx));
@@ -284,11 +284,18 @@ describe("Fase 9: metadata moderasi tidak keluar ke pembaca publik", () => {
     expect(rows).toHaveLength(1);
     const [row] = rows;
     expect(row?.caption).toBe("Dapur usaha");
-    expect(row?.url).toBeTruthy();
-    for (const field of ["moderatedBy", "moderationNote", "moderationStatus", "storageId"]) {
+    // Kontrak aturan 12: daftar membawa `storageId` (pengenal blob foto publik
+    // yang sudah disetujui — setara paparannya dengan URL publiknya), bukan
+    // URL yang sudah jadi. Resolver detail tetap menggerbang status moderasi,
+    // jadi id ini tidak membuka apa pun yang belum tayang.
+    expect(row?.storageId).toBe(storageId);
+    expect(row, "URL di-resolve di pemuatan detail, bukan di daftar").not.toHaveProperty("url");
+    for (const field of ["moderatedBy", "moderationNote", "moderationStatus"]) {
       expect(row, `field ${field} bocor ke pembaca publik`).not.toHaveProperty(field);
     }
     expect(JSON.stringify(rows)).not.toContain("Catatan internal pengelola");
+    // ...dan resolver detail melayani foto publik yang sudah disetujui.
+    expect(await t.query(api.vendors.getImageUrl, { storageId })).toBeTruthy();
   });
 
   test("pemilik listing tetap melihat status moderasi fotonya sendiri", async () => {

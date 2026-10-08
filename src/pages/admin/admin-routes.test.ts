@@ -26,3 +26,34 @@ test("route /admin/moderasi me-render antrean review dan review laporan", () => 
   expect(page).toContain("AdminReportReview");
   expect(page).toContain("useReviewQueue");
 });
+
+test("route /admin/katalog dan overview terdaftar dengan isi yang benar", () => {
+  const main = readFileSync("src/main.tsx", "utf8");
+  expect(main).toContain('path="katalog"');
+  expect(readFileSync("src/pages/admin/KatalogPage.tsx", "utf8")).toContain("AdminPackageManager");
+  expect(readFileSync("src/pages/admin/OverviewPage.tsx", "utf8")).toContain("AdminWorkspaceHero");
+});
+
+test("ruling T4: Peran keluar sidebar dan masuk Sistem; shell live lewat Outlet", () => {
+  // Item "Peran" tidak punya halaman di IA — peran/undangan hidup di Sistem.
+  const shell = readFileSync("src/pages/admin/AdminShell.tsx", "utf8");
+  expect(shell).not.toContain('to: "/admin/peran"');
+  expect(shell).toContain("<Outlet context={{ reviewQueue }} />");
+  // Gate me-render Outlet supaya rute anak hidup; tiap halaman me-render
+  // AdminHeader sendiri dengan antrean dari konteks shell.
+  const gate = readFileSync("src/pages/Admin.tsx", "utf8");
+  expect(gate).toContain("<Outlet />");
+  const sistem = readFileSync("src/pages/admin/SistemPage.tsx", "utf8");
+  expect(sistem).toContain("Peran pengelola");
+  expect(sistem).not.toContain('main className="admin-shell-frame');
+  for (const page of ["KatalogPage", "OverviewPage", "ModerasiPage", "KeamananPage", "SistemPage"]) {
+    expect(
+      readFileSync(`src/pages/admin/${page}.tsx`, "utf8"),
+      `${page} me-render AdminHeader dari konteks Outlet`,
+    ).toContain("useOutletContext");
+  }
+  // Badge antrean menaut ke /admin/moderasi, bukan anchor governance lama.
+  const workspace = readFileSync("src/components/admin-workspace.tsx", "utf8");
+  expect(workspace).toContain('to="/admin/moderasi"');
+  expect(workspace).not.toContain('href="#governance-title"');
+});

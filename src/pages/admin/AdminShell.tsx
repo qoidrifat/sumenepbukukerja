@@ -5,19 +5,20 @@ import {
   LayoutDashboard,
   ShieldCheck,
   Store,
-  UserRound,
 } from "lucide-react";
 import { AdminSidebar } from "@/components/admin-sidebar";
-import { useCurrentAccess, useReviewQueue } from "@/lib/catalog-store";
+import { useReviewQueue } from "@/lib/catalog-store";
 
 /**
  * Kerangka ruang pengelola untuk rute bertingkat `/admin/*`.
  *
  * Hanya scope + sidebar + `<Outlet/>`: header dan isi tiap halaman tetap
  * milik halamannya masing-masing, supaya slice pertama ini tidak mengubah
- * tampilan panel yang sudah ada. Item "Peran" tampil hanya bila
- * `useCurrentAccess().canManageRoles` — sembunyi = UX saja, guard tetap
- * server.
+ * tampilan panel yang sudah ada.
+ *
+ * Item "Peran" SENGAJA tidak ada: tidak ada halaman `/admin/peran` di IA.
+ * Kelola peran + undangan hidup di `SistemPage` (halaman Sistem = metrik +
+ * peran/undangan), jadi sidebar lima item sudah lengkap.
  *
  * Antrean review (`reviewQueue`, lonceng di `AdminHeader`) dihitung SEKALI
  * di sini lalu diteruskan lewat konteks `<Outlet/>`, supaya badge-nya tetap
@@ -26,7 +27,6 @@ import { useCurrentAccess, useReviewQueue } from "@/lib/catalog-store";
  * tidak menambah permintaan jaringan.
  */
 export function AdminShell() {
-  const access = useCurrentAccess();
   const reviewQueue = useReviewQueue();
   return (
     <div className="admin-workspace min-h-dvh bg-[#FAF7EE] text-[#1A1A1A]">
@@ -38,12 +38,6 @@ export function AdminShell() {
             { to: "/admin/moderasi", label: "Moderasi", icon: Inbox, visible: true },
             { to: "/admin/keamanan", label: "Keamanan", icon: ShieldCheck, visible: true },
             { to: "/admin/sistem", label: "Sistem", icon: BarChart3, visible: true },
-            {
-              to: "/admin/peran",
-              label: "Peran",
-              icon: UserRound,
-              visible: access?.canManageRoles ?? false,
-            },
           ]}
         />
         <div className="min-w-0 flex-1">

@@ -44,6 +44,8 @@ const ADMIN_SOURCES = [
   "../components/auth-admin-panel.tsx",
   "../pages/Admin.tsx",
   "../pages/admin/AdminShell.tsx",
+  "../pages/admin/KatalogPage.tsx",
+  "../pages/admin/OverviewPage.tsx",
   "../pages/admin/SistemPage.tsx",
 ];
 

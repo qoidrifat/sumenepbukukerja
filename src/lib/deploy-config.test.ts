@@ -56,6 +56,7 @@ test("aplikasi memang butuh rewrite: rutenya milik React Router", () => {
   expect(main, "rute /admin/sistem").toContain('path="sistem"');
   expect(main, "rute /admin/keamanan").toContain('path="keamanan"');
   expect(main, "rute /admin/moderasi").toContain('path="moderasi"');
+  expect(main, "rute /admin/katalog").toContain('path="katalog"');
 });
 
 test("permintaan same-origin ke backend dibatasi pada relay IP saja", () => {

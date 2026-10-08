@@ -20,7 +20,13 @@ const workspace = readFileSync(
 );
 const profile = readFileSync(new URL("./admin-profile.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
-const adminPage = readFileSync(new URL("../pages/Admin.tsx", import.meta.url), "utf8");
+// Editor listing (satu-satunya pemakai `field-datetime` admin) pindah ke
+// `KatalogPage` saat `Admin.tsx` dipecah. Kontraknya tidak berubah, hanya
+// tempatnya.
+const katalogPage = readFileSync(
+  new URL("../pages/admin/KatalogPage.tsx", import.meta.url),
+  "utf8",
+);
 const mitraManager = readFileSync(
   new URL("./mitra-listing-manager.tsx", import.meta.url),
   "utf8",
@@ -359,8 +365,8 @@ test("field tanggal publik memakai varian publik, bukan varian admin", () => {
 });
 
 test("field tanggal admin memakai scope admin, bukan varian publik", () => {
-  expect(adminPage).toContain('className="field-datetime"');
-  expect(adminPage).not.toContain("field-datetime--public");
+  expect(katalogPage).toContain('className="field-datetime"');
+  expect(katalogPage).not.toContain("field-datetime--public");
   // Scope admin di CSS yang membuat ikon kalender ikut tema Warm Brutalism.
   expect(css).toContain(".admin-workspace .field-datetime");
   expect(css).toContain(".admin-dialog-content .field-datetime");
@@ -382,18 +388,18 @@ test("semua field tanggal punya batas bawah dan balikan bahasa Indonesia", () =>
   // diisi masa lalu - yang tidak pernah masuk akal untuk keduanya.
   expect(community).toContain("min={todayISODate()}");
   expect(mitraManager).toContain("min={minAvailableAtLocal()}");
-  expect(adminPage).toContain("min={minNextAvailableAtLocal()}");
+  expect(katalogPage).toContain("min={minNextAvailableAtLocal()}");
   // Kontrol native memakai lokalitas perangkat; baris balikan menutup celah
   // salah baca 09/10/2026.
   expect(community).toContain("formatNeededAt(neededAt)");
   expect(mitraManager).toContain("formatDraftAvailability(draft.nextAvailableAt)");
-  expect(adminPage).toContain("Tersimpan:");
+  expect(katalogPage).toContain("Tersimpan:");
 });
 
 test("batas bawah dihitung dari waktu lokal, bukan UTC", () => {
   // `toISOString()` selalu UTC: di WIB sebelum pukul 07.00 itu menghasilkan
   // tanggal KEMARIN, dan batas bawahnya ikut bergeser.
-  for (const file of [community, mitraManager, adminPage]) {
+  for (const file of [community, mitraManager, katalogPage]) {
     expect(file).toContain("getTimezoneOffset()");
   }
 });

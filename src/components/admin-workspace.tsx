@@ -203,9 +203,9 @@ export function AdminHeader({
         {/* Kendali: satu kelompok, tidak ditulis ke seluruh lebar. */}
         <div className="relative flex shrink-0 items-center gap-2" ref={menuRef}>
           {reviewQueue && reviewQueue.total > 0 ? (
-            <a
-              href="#governance-title"
-              aria-label="Lompat ke panel Governance untuk menangani antrean review"
+            <Link
+              to="/admin/moderasi"
+              aria-label="Buka halaman Moderasi untuk menangani antrean review"
               className="admin-status shrink-0 border-[#121212] bg-[#FF5A26] text-xs text-white sm:text-sm"
               title={`${reviewQueue.claims} klaim · ${reviewQueue.photos} foto · ${reviewQueue.reports} laporan menunggu ditinjau`}
             >
@@ -216,7 +216,7 @@ export function AdminHeader({
                 : {reviewQueue.claims} klaim listing, {reviewQueue.photos} foto,{" "}
                 {reviewQueue.reports} laporan
               </span>
-            </a>
+            </Link>
           ) : null}
 
           {/* Avatar ada di header, bukan di dalam panel menu, karena panel itu

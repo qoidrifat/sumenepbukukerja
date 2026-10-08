@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { Check, Inbox, Plus } from "lucide-react";
+import { Link } from "react-router";
 import { TimeStampLabel } from "@/components/admin-workspace";
 
 /**
@@ -9,7 +10,12 @@ import { TimeStampLabel } from "@/components/admin-workspace";
  * menutup hampir seluruh state halaman — memindahkannya membuat satu
  * perubahan kecil yang bisa direview, bukan satu risalah di dalam berkas
  * 1.600 baris. Tidak ada satu pun state yang berubah: komponen ini murni
- *_presentational_, menerima angka dan callback, dan tidak memanggil hook data.
+ * _presentational_, menerima angka dan callback, dan tidak memanggil hook data.
+ *
+ * Sejak meja triage pindah ke `/admin/katalog`, kedua tautan di sini menaut
+ * ke halaman itu. Shortcut antrean tidak lagi menyaring di tempat (filter
+ * hidup di halaman katalog); ia mengantar ke meja tempat antrean itu
+ * dikerjakan.
  */
 export type AdminQueueShortcut<TQueue extends string = string> = {
   queue: TQueue;
@@ -23,14 +29,12 @@ export function AdminWorkspaceHero<TQueue extends string = string>({
   actionableCount,
   latestUpdate,
   shortcuts,
-  onSelectQueue,
   onCreate,
 }: {
   activeCount: number;
   actionableCount: number;
   latestUpdate?: number;
   shortcuts: AdminQueueShortcut<TQueue>[];
-  onSelectQueue: (queue: TQueue) => void;
   onCreate: () => void;
 }) {
   return (
@@ -57,10 +61,10 @@ export function AdminWorkspaceHero<TQueue extends string = string>({
               <Plus className="size-5" />
               Tambah listing
             </button>
-            <a href="#admin-triage" className="admin-btn admin-btn-secondary">
+            <Link to="/admin/katalog" className="admin-btn admin-btn-secondary">
               <Inbox className="size-5" />
               Buka meja triage
-            </a>
+            </Link>
           </div>
         </div>
 
@@ -90,9 +94,8 @@ export function AdminWorkspaceHero<TQueue extends string = string>({
               <ul className="mt-3 space-y-2" aria-label="Shortcut antrean kerja">
                 {shortcuts.map((shortcut) => (
                   <li key={shortcut.queue}>
-                    <a
-                      href="#admin-triage"
-                      onClick={() => onSelectQueue(shortcut.queue)}
+                    <Link
+                      to="/admin/katalog"
                       className="flex min-h-11 items-center justify-between gap-3 rounded-[2px] border-2 border-[#121212] bg-white px-3 py-1.5 text-sm transition-transform hover:bg-[#FFE662] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#FF5A26]"
                     >
                       <span className="flex min-w-0 items-center gap-2">
@@ -105,7 +108,7 @@ export function AdminWorkspaceHero<TQueue extends string = string>({
                       <span className="shrink-0 font-mono text-xs font-black text-[#525252]">
                         {shortcut.count}
                       </span>
-                    </a>
+                    </Link>
                   </li>
                 ))}
               </ul>

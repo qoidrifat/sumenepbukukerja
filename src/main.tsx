@@ -58,6 +58,14 @@ const ModerasiPage = lazy(() =>
 const KeamananPage = lazy(() =>
   import("./pages/admin/KeamananPage.tsx").then((m) => ({ default: m.KeamananPage })),
 );
+// Slice Task 4: halaman `/katalog` (pindahan verbatim blok triase/editor +
+// AdminPackageManager) dan overview `/admin` (hero + papan aksi + catatan).
+const KatalogPage = lazy(() =>
+  import("./pages/admin/KatalogPage.tsx").then((m) => ({ default: m.KatalogPage })),
+);
+const OverviewPage = lazy(() =>
+  import("./pages/admin/OverviewPage.tsx").then((m) => ({ default: m.OverviewPage })),
+);
 const VendorProfile = lazy(() => import("./pages/VendorProfile.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 /* Preview maskot hanya untuk QA desain (Phase 3). Routenya didaftarkan di
@@ -379,11 +387,14 @@ createRoot(document.getElementById("root")!).render(
                   </RequireAuth>
                 }
               />
-              {/* Gate tetap di induk `/admin` (isi `Admin` tidak berubah);
-                  halaman bertingkat dirender lewat `AdminShell` + `<Outlet/>`.
-                   Slice Task 3: tambah `moderasi`, rute lain menyusul. */}
+              {/* Gate tetap di induk `/admin` (isi `Admin` tinggal gate +
+                  `<Outlet/>`); halaman bertingkat dirender lewat `AdminShell`
+                  + `<Outlet/>`. Slice Task 4: tambah indeks overview dan
+                  `katalog`; `/admin` = Ringkasan. */}
               <Route path="/admin" element={<Admin />}>
                   <Route element={<AdminShell />}>
+                    <Route index element={<OverviewPage />} />
+                    <Route path="katalog" element={<KatalogPage />} />
                     <Route path="sistem" element={<SistemPage />} />
                     <Route path="moderasi" element={<ModerasiPage />} />
                     <Route path="keamanan" element={<KeamananPage />} />

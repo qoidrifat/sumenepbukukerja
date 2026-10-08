@@ -85,6 +85,23 @@ const CONTEXT_TTL_MS = 5 * 60_000;
 export const CONTEXT_REQUEST_LIMIT = 30;
 export const CONTEXT_REQUEST_WINDOW_MS = 60_000;
 const PRESENCE_STALE_MS = 90_000;
+/**
+ * Jendela rapid (aturan forensik): jumlah percobaan dalam 60 detik terakhir
+ * per baris. Konstanta bernama supaya tidak ada `60_000` tersebar.
+ */
+const RAPID_WINDOW_MS = 60_000;
+/**
+ * Plafon keras bacaan pelengkap per halaman. Dipilih longgar dari plafon
+ * global (60/jam): 100 menutupi jendela lockout normal dengan margin, 200
+ * untuk rentang menit yang bisa mencakup dua jendela rapid, 300 untuk
+ * pindaian halaman yang harus menutupi grup tie `createdAt` sama.
+ */
+const SUPPLEMENT_KEY_TAKE = 100;
+const SUPPLEMENT_IP_TAKE = 100;
+const SUPPLEMENT_FP_TAKE = 100;
+const SUPPLEMENT_MINUTE_TAKE = 200;
+const PREVIOUS_UNDEFINED_TAKE = 100;
+const PAGE_SCAN_CAP = 300;
 /** Salt untuk sidik jari sesi. Bukan rahasia, hanya pemisah antar instalasi. */
 const FINGERPRINT_SALT = process.env.ADMIN_FINGERPRINT_SALT?.trim() || "sumenep-buku-kerja";
 
@@ -826,36 +843,71 @@ export const listAdminSecurityEvents = query({
       if (Number.isFinite(at)) cursor = { at, id: parsed.slice(1).join(":") };
     }
 
-    // Jendela indeks berplafon: yang terbaru dulu, berhenti setelah limit + 1
-    // baris. Dengan kursor, rentang dibatasi ke `createdAt <= cursorAt` supaya
-    // baris yang sudah tampil tidak dibaca ulang.
-    const raw =
-      cursor === null
-        ? await ctx.db
-            .query("adminPasscodeAttempts")
-            .withIndex("byCreatedAt")
-            .order("desc")
-            .take(limit + 1)
-        : await ctx.db
-            .query("adminPasscodeAttempts")
-            .withIndex("byCreatedAt", (q) => q.lte("createdAt", cursor.at))
-            .order("desc")
-            .take(limit + 1);
-    // Urutan stabil + tiebreak `_id` di memori, hanya untuk jendela kecil ini.
-    const sorted = [...raw].sort(
-      (a, b) => b.createdAt - a.createdAt || (a._id < b._id ? 1 : -1),
-    );
-    const eligible =
-      cursor === null
-        ? sorted
-        : sorted.filter(
-            (row) => row.createdAt < cursor.at || (row.createdAt === cursor.at && row._id < cursor.id),
-          );
+    // Jendela indeks berplafon dengan tiebreak `_id` yang benar.
+    //
+    // `take()` terjadi SEBELUM saring `_id` di memori, jadi satu `take(limit+1)`
+    // bisa terpotong di tengah grup `createdAt` sama: baris yang seharusnya
+    // masuk halaman terbuang, dan `hasMore` menebak dari `raw.length`.
+    // Perbaikannya: ambil kandidat berplafon, saring, dan bila kandidat kurang
+    // (akibat saring kursor) atau terpotong tepat di timestamp batas, ambil
+    // ulang dengan `take` lebih besar — tetap berplafon PAGE_SCAN_CAP.
+    let raw: DataModel["adminPasscodeAttempts"]["document"][] = [];
+    let sorted: DataModel["adminPasscodeAttempts"]["document"][] = [];
+    let eligible: DataModel["adminPasscodeAttempts"]["document"][] = [];
+    let takeN = limit + 1;
+    let pageScanTruncated = false;
+    // `rawExhausted` benar hanya bila DB mengembalikan lebih sedikit dari yang
+    // diminta: artinya tidak ada lagi baris `<= cursor.at`.
+    let rawExhausted = false;
+    for (;;) {
+      const capped = Math.min(takeN, PAGE_SCAN_CAP);
+      const batch =
+        cursor === null
+          ? await ctx.db
+              .query("adminPasscodeAttempts")
+              .withIndex("byCreatedAt")
+              .order("desc")
+              .take(capped)
+          : await ctx.db
+              .query("adminPasscodeAttempts")
+              .withIndex("byCreatedAt", (q) => q.lte("createdAt", cursor.at))
+              .order("desc")
+              .take(capped);
+      raw = batch;
+      rawExhausted = batch.length < capped;
+      // Urutan stabil + tiebreak `_id` di memori, hanya untuk jendela kecil ini.
+      sorted = [...raw].sort(
+        (a, b) => b.createdAt - a.createdAt || (a._id < b._id ? 1 : -1),
+      );
+      eligible =
+        cursor === null
+          ? sorted
+          : sorted.filter(
+              (row) => row.createdAt < cursor.at || (row.createdAt === cursor.at && row._id < cursor.id),
+            );
+      const candidate = eligible.slice(0, limit);
+      const needMoreForEligible = eligible.length <= limit && !rawExhausted && takeN < PAGE_SCAN_CAP;
+      let needMoreForTie = false;
+      if (candidate.length === limit && !rawExhausted && takeN < PAGE_SCAN_CAP && sorted.length > 0) {
+        const lastPageAt = candidate[candidate.length - 1].createdAt;
+        const smallestRawAt = sorted[sorted.length - 1].createdAt;
+        if (smallestRawAt === lastPageAt) needMoreForTie = true;
+      }
+      if ((needMoreForEligible || needMoreForTie) && takeN < PAGE_SCAN_CAP) {
+        takeN = Math.min(takeN * 2, PAGE_SCAN_CAP);
+        continue;
+      }
+      if (!rawExhausted && takeN >= PAGE_SCAN_CAP && (eligible.length <= limit || needMoreForTie)) {
+        pageScanTruncated = true;
+      }
+      break;
+    }
     const page = eligible.slice(0, limit);
     const last = page[page.length - 1];
-    // Plafon tersentuh berarti mungkin masih ada halaman berikutnya; baca
-    // yang berhenti sebelum plafon berarti jendela ini sudah habis.
-    const hasMore = eligible.length > limit || (raw.length === limit + 1 && page.length === limit);
+    // Eksak: ada sisa bila kandidat eligible melebihi limit. Tidak ada tebakan
+    // dari `raw.length` lagi — kasus halaman terakhir penuh (eligible == limit
+    // dan DB habis) kini `false` dengan benar.
+    const hasMore = eligible.length > limit;
     const nextCursor =
       hasMore && last ? `${last.createdAt}:${last._id}` : null;
     const now = Date.now();
@@ -876,10 +928,9 @@ export const listAdminSecurityEvents = query({
     );
 
     const windowStart = now - LOCKOUT_MS;
-    // Agregat tiap baris dilengkapi dari indeks berlingkup (kunci, IP, sidik
-    // sesi, rentang 60 detik), bukan dari koleksi seluruh tabel. Himpunannya
-    // identik dengan saringan global sebelumnya, jadi `truncated` selalu false:
-    // penandanya tetap ada untuk kontrak Task 2 dan seterusnya.
+    // Agregat tiap baris dilengkapi dari indeks berplafon (kunci dalam jendela,
+    // IP/sidik berplafon, rentang rapid), bukan dari koleksi seluruh tabel.
+    // Bila plafon tersentuh, `truncated: true` menandainya.
     const supplement = await readSecurityPageSupplement(ctx, page, windowStart);
     // `seenIps` cukup dari jendela halaman: hash milik barisnya sendiri selalu
     // ada di himpunan ini, jadi hasil sinyal NEW_IP identik dengan hitungan
@@ -895,11 +946,14 @@ export const listAdminSecurityEvents = query({
       const keyRows = (supplement.keyRows.get(row.key) ?? []).filter(
         (other) => other._id !== row._id,
       );
-      const ipRows = row.ipHash ? (supplement.ipRows.get(row.ipHash) ?? []) : [];
+      const ipRowsAll = row.ipHash ? (supplement.ipRows.get(row.ipHash) ?? []) : [];
+      // `ipTotal` dillingkup ke jendela lockout supaya baris retensi lama tidak
+      // ikut terbaca memengaruhi halaman; `related` memakai himpunan yang sama.
+      const ipRows = ipRowsAll.filter((other) => other.createdAt >= windowStart);
       const seen = new Set(keyRows.map((other) => other._id));
       const related = [...keyRows];
       for (const other of ipRows) {
-        if (other.createdAt >= windowStart && other._id !== row._id && !seen.has(other._id)) {
+        if (other._id !== row._id && !seen.has(other._id)) {
           seen.add(other._id);
           related.push(other);
         }
@@ -908,10 +962,24 @@ export const listAdminSecurityEvents = query({
       // Sukses terbaru sebelum baris ini pada sidik sesi yang sama. Urutan
       // yang dipakai sama seperti `find` pada daftar desc global: createdAt
       // terbesar menang, seri diputus `_id` terbesar.
+      // Semantik lama `undefined === undefined` dipulihkan: baris tanpa sidik
+      // mencari di antara sukses tanpa sidik via baca berplafon, bukan pindaian.
       let previous: DataModel["adminPasscodeAttempts"]["document"] | undefined;
       if (row.sessionFingerprint) {
         for (const other of supplement.fpRows.get(row.sessionFingerprint) ?? []) {
           if (other.outcome !== "success" || other.createdAt >= row.createdAt) continue;
+          if (
+            !previous ||
+            other.createdAt > previous.createdAt ||
+            (other.createdAt === previous.createdAt && other._id > previous._id)
+          ) {
+            previous = other;
+          }
+        }
+      } else {
+        for (const other of supplement.undefinedSuccesses) {
+          if (other.sessionFingerprint !== undefined) continue;
+          if (other.createdAt >= row.createdAt) continue;
           if (
             !previous ||
             other.createdAt > previous.createdAt ||
@@ -933,7 +1001,8 @@ export const listAdminSecurityEvents = query({
         country: row.country,
         failedInWindow,
         rapidAttempts: supplement.minuteRows.filter(
-          (other) => other.createdAt >= row.createdAt - 60_000 && other.createdAt <= row.createdAt,
+          (other) =>
+            other.createdAt >= row.createdAt - RAPID_WINDOW_MS && other.createdAt <= row.createdAt,
         ).length,
         maxAttempts: MAX_ATTEMPTS,
         proxyDetected: row.proxyDetected,
@@ -1007,13 +1076,14 @@ export const listAdminSecurityEvents = query({
       };
     }));
     // `total` hanya dikirim bila eksak dari baca berplafon ini (tanpa kursor
-    // dan tidak menyentuh plafon): jangan hitung dari koleksi. Hitungan
+    // dan DB habis): jangan hitung dari koleksi. Hitungan
     // jendela dari Task 2 (`securityWindowCounts`) yang akan mengisinya lagi.
+    const truncated = pageScanTruncated || supplement.truncated;
     return {
       events,
       nextCursor,
-      truncated: false as const,
-      ...(cursor === null && raw.length <= limit ? { total: raw.length } : {}),
+      truncated,
+      ...(cursor === null && rawExhausted ? { total: eligible.length } : {}),
     };
   },
 });
@@ -1022,10 +1092,13 @@ export const listAdminSecurityEvents = query({
  * Bacaan pelengkap untuk satu halaman Security Desk.
  *
  * Tiap agregat diambil lewat indeks yang berlingkup pada halaman itu: se-kunci
- * dalam jendela (`byKeyCreatedAt`), se-IP (`byIpHash`), se-sidik sesi
- * (`bySessionFingerprint`), dan rentang 60 detik di sekitar halaman
- * (`byCreatedAt`). Himpunannya identik dengan saringan atas koleksi seluruh
- * tabel, tanpa pernah memindai tabelnya.
+ * dalam jendela (`byKeyCreatedAt` + take), se-IP (`byIpHash` + take, lalu
+ * disaring jendela di memori karena belum ada komposit ip+waktu), se-sidik sesi
+ * (`bySessionFingerprint` + take, tanpa jendela supaya `previous` tetap
+ * semantik lama), dan rentang rapid di sekitar halaman (`byCreatedAt` + take).
+ * Semua berplafon keras; bila plafon tersentuh, `truncated: true`.
+ * Sukses tanpa sidik diambil via `byOutcomeCreatedAt` berplafon untuk
+ * memulihkan `undefined === undefined` tanpa pindaian penuh.
  */
 async function readSecurityPageSupplement(
   ctx: GenericQueryCtx<DataModel>,
@@ -1037,31 +1110,32 @@ async function readSecurityPageSupplement(
     ipRows: new Map<string, DataModel["adminPasscodeAttempts"]["document"][]>(),
     fpRows: new Map<string, DataModel["adminPasscodeAttempts"]["document"][]>(),
     minuteRows: [] as DataModel["adminPasscodeAttempts"]["document"][],
+    undefinedSuccesses: [] as DataModel["adminPasscodeAttempts"]["document"][],
+    truncated: false,
   };
   if (page.length === 0) return empty;
+  let truncated = false;
   const keyRows = new Map<string, DataModel["adminPasscodeAttempts"]["document"][]>();
   await Promise.all(
     [...new Set(page.map((row) => row.key))].map(async (key) => {
-      keyRows.set(
-        key,
-        await ctx.db
-          .query("adminPasscodeAttempts")
-          .withIndex("byKeyCreatedAt", (q) => q.eq("key", key).gte("createdAt", windowStart))
-          .collect(),
-      );
+      const rows = await ctx.db
+        .query("adminPasscodeAttempts")
+        .withIndex("byKeyCreatedAt", (q) => q.eq("key", key).gte("createdAt", windowStart))
+        .take(SUPPLEMENT_KEY_TAKE);
+      if (rows.length >= SUPPLEMENT_KEY_TAKE) truncated = true;
+      keyRows.set(key, rows);
     }),
   );
   const ipRows = new Map<string, DataModel["adminPasscodeAttempts"]["document"][]>();
   await Promise.all(
     [...new Set(page.map((row) => row.ipHash).filter((value): value is string => typeof value === "string"))].map(
       async (ipHash) => {
-        ipRows.set(
-          ipHash,
-          await ctx.db
-            .query("adminPasscodeAttempts")
-            .withIndex("byIpHash", (q) => q.eq("ipHash", ipHash))
-            .collect(),
-        );
+        const rows = await ctx.db
+          .query("adminPasscodeAttempts")
+          .withIndex("byIpHash", (q) => q.eq("ipHash", ipHash))
+          .take(SUPPLEMENT_IP_TAKE);
+        if (rows.length >= SUPPLEMENT_IP_TAKE) truncated = true;
+        ipRows.set(ipHash, rows);
       },
     ),
   );
@@ -1072,26 +1146,38 @@ async function readSecurityPageSupplement(
         page.map((row) => row.sessionFingerprint).filter((value): value is string => typeof value === "string"),
       ),
     ].map(async (fingerprint) => {
-      fpRows.set(
-        fingerprint,
-        await ctx.db
-          .query("adminPasscodeAttempts")
-          .withIndex("bySessionFingerprint", (q) => q.eq("sessionFingerprint", fingerprint))
-          .collect(),
-      );
+      const rows = await ctx.db
+        .query("adminPasscodeAttempts")
+        .withIndex("bySessionFingerprint", (q) => q.eq("sessionFingerprint", fingerprint))
+        .take(SUPPLEMENT_FP_TAKE);
+      if (rows.length >= SUPPLEMENT_FP_TAKE) truncated = true;
+      fpRows.set(fingerprint, rows);
     }),
   );
-  // Satu rentang menutupi halaman + 60 detik ke belakang, lalu tiap baris
+  // Satu rentang menutupi halaman + rapid ke belakang, lalu tiap baris
   // menghitung jendelanya sendiri di memori — hasilnya sama dengan saringan
-  // global `[createdAt - 60s, createdAt]`.
+  // global `[createdAt - rapid, createdAt]`.
   const stamps = page.map((row) => row.createdAt);
   const minuteRows = await ctx.db
     .query("adminPasscodeAttempts")
     .withIndex("byCreatedAt", (q) =>
-      q.gte("createdAt", Math.min(...stamps) - 60_000).lte("createdAt", Math.max(...stamps)),
+      q.gte("createdAt", Math.min(...stamps) - RAPID_WINDOW_MS).lte("createdAt", Math.max(...stamps)),
     )
-    .collect();
-  return { keyRows, ipRows, fpRows, minuteRows };
+    .take(SUPPLEMENT_MINUTE_TAKE);
+  if (minuteRows.length >= SUPPLEMENT_MINUTE_TAKE) truncated = true;
+  let undefinedSuccesses: DataModel["adminPasscodeAttempts"]["document"][] = [];
+  if (page.some((row) => row.sessionFingerprint === undefined)) {
+    const maxStamp = Math.max(...stamps);
+    undefinedSuccesses = await ctx.db
+      .query("adminPasscodeAttempts")
+      .withIndex("byOutcomeCreatedAt", (q) =>
+        q.eq("outcome", "success").lt("createdAt", maxStamp),
+      )
+      .order("desc")
+      .take(PREVIOUS_UNDEFINED_TAKE);
+    if (undefinedSuccesses.length >= PREVIOUS_UNDEFINED_TAKE) truncated = true;
+  }
+  return { keyRows, ipRows, fpRows, minuteRows, undefinedSuccesses, truncated };
 }
 
 /** Detail satu percobaan, lengkap dengan riwayat IP-nya. */

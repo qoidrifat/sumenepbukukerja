@@ -110,6 +110,11 @@ export function AdminGovernance() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  // Panel keamanan (sesi + log + error) duduk di bawah fold dan langganannya
+  // mahal. Default terbuka supaya tampilan tidak berubah; saat ditutup,
+  // komponen berat tidak di-mount dan langganan security di-skip
+  // (`AdminSecurityLog` meneruskan `open` sebagai `enabled` ke hook).
+  const [securityOpen, setSecurityOpen] = useState(true);
 
   if (access === undefined) return null;
   const run = async (key: string, task: () => Promise<unknown>, success: string) => {
@@ -140,6 +145,15 @@ export function AdminGovernance() {
         <p className="text-sm font-black uppercase tracking-[0.14em] text-[#525252]">Governance & monitoring</p>
         <h2 id="governance-title" className="mt-1 text-2xl font-black text-[#1A1A1A]">Kelola akses, moderasi, dan status provider</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#525252]">Semua keputusan di bawah diverifikasi ulang di server. Frontend hanya menampilkan aksi; bukan sumber kebenaran role.</p>
+        <button
+          type="button"
+          onClick={() => setSecurityOpen((value) => !value)}
+          aria-expanded={securityOpen}
+          aria-controls="panel-keamanan"
+          className="admin-btn admin-btn-secondary mt-3"
+        >
+          {securityOpen ? "Sembunyikan panel keamanan" : "Tampilkan panel keamanan"}
+        </button>
       </div>
       {/*
         Kartu-kartu di bawah dulu pernah terpotong di layar ponsel.
@@ -269,11 +283,20 @@ export function AdminGovernance() {
           {history?.length ? <div className="mt-3 max-h-64 space-y-2 overflow-auto">{history.map((entry) => <article key={entry._id} className="border-b border-[#D6D3D1] pb-2 text-sm"><p className="font-black text-[#1A1A1A]">{entry.vendorName} · <TimeStampLabel timestamp={entry.createdAt} /></p>{entry.changes.map((change) => <p key={`${entry._id}-${change.field}`} className="mt-1 text-[#525252]"><span className="font-bold">{change.field}</span>: {change.oldValue ?? "—"} → {change.newValue ?? "—"}</p>)}</article>)}</div> : <p className="mt-3 text-sm text-[#525252]">Belum ada riwayat perubahan listing.</p>}
         </article>
 
-        <AdminSessionActions />
+        {/*
+          Pembungkus `display: contents` supaya anak-anaknya tetap menjadi grid
+          item dari grid induk — susunan kolom saat terbuka sama persis seperti
+          tanpa pembungkus. `min-w-0` diwariskan di sini karena aturan
+          `[&>*]:min-w-0` milik grid induk sekarang mengenai pembungkus ini,
+          bukan artikelnya (lihat catatan grid-cols-1 di atas).
+        */}
+        <div id="panel-keamanan" className="contents [&>*]:min-w-0">
+          {securityOpen ? <AdminSessionActions /> : null}
 
-        <AdminSecurityLog />
+          <AdminSecurityLog open={securityOpen} />
 
-        <AdminErrorReports />
+          {securityOpen ? <AdminErrorReports /> : null}
+        </div>
 
         <article className="border-2 border-[#121212] bg-white p-4 xl:col-span-2">
           <h3 className="text-lg font-black text-[#1A1A1A]">Audit log terbaru</h3>

@@ -238,14 +238,19 @@ function FilterButton({
   );
 }
 
-export function AdminSecurityLog() {
+export function AdminSecurityLog({ open = true }: { open?: boolean }) {
   // Paginasi kursor disimpan sebagai tumpukan path, bukan akumulasi di efek.
   // Alasannya nyata: akumulasi lewat `useEffect` membuat render pertama kosong
   // lalu diisi setelahnya, dan tidak berjalan sama sekali di render statis.
   // Tumpukan kursor merender halaman yang benar langsung di render pertama.
   const [cursorPath, setCursorPath] = useState<(string | undefined)[]>([undefined]);
   const cursor = cursorPath[cursorPath.length - 1];
-  const page = useAdminSecurityEvents(25, cursor);
+  // Langganan ikut visibilitas section (aturan 5): saat section tertutup,
+  // `enabled=false` membuat query menjadi `"skip"` — tidak ada langganan,
+  // dan anak berat (daftar event, ringkasan, tabel IP) tidak di-mount karena
+  // datanya `undefined`. Hook TETAP dipanggil tanpa syarat supaya urutan hook
+  // stabil; yang berubah hanya argumen `enabled`.
+  const page = useAdminSecurityEvents(25, cursor, open);
   /**
    * Sesi milik perangkat ini sendiri bisa dicabut dari Security Desk. Setelah
    * server mengonfirmasi pencabutan, peramban tidak boleh tetap menampilkan
@@ -258,8 +263,8 @@ export function AdminSecurityLog() {
   // menandai sesinya dicabut, jadi watchdog reaktif akan melihatnya dalam
   // hitungan milidetik dan menjalankan satu jalur keluar yang bersih: satu
   // toast, `signOut()`, baru redirect. Satu jalur keluar, bukan dua.
-  const summary = useAdminSecuritySummary(24);
-  const ipActivity = useAdminIpActivity(12);
+  const summary = useAdminSecuritySummary(24, open);
+  const ipActivity = useAdminIpActivity(12, open);
   const [outcomeFilter, setOutcomeFilter] = useState<(typeof OUTCOME_FILTERS)[number]["value"]>("all");
   const [windowFilter, setWindowFilter] = useState<(typeof WINDOW_FILTERS)[number]["value"]>("all");
   const [ipFilter, setIpFilter] = useState<(typeof IP_FILTERS)[number]["value"]>("all");
@@ -292,6 +297,12 @@ export function AdminSecurityLog() {
         (signalFilter === "all" || signalsOf(row).length > 0),
     );
   }, [page, outcomeFilter, windowFilter, ipFilter, signalFilter, now]);
+
+  // Section tertutup: langganan sudah di-skip di atas, jadi tidak ada anak
+  // berat yang perlu di-mount. Kembalikan `null` supaya skeleton "Memuat..."
+  // pun tidak tampil untuk sesuatu yang sengaja tidak dilanggan. Penjagaan ini
+  // ada SETELAH semua hook supaya urutan hook stabil saat `open` di-toggle.
+  if (!open) return null;
 
   return (
     <article className="border-2 border-[#121212] bg-white p-4 xl:col-span-2">

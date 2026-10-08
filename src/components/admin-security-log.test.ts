@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 
 /**
  * Uji render statis untuk panel "Percobaan masuk ruang admin".
@@ -12,20 +12,33 @@ import { expect, test, vi } from "vitest";
  * preview, bukan di file ini.
  */
 
-const state = vi.hoisted(() => ({
-  events: null as unknown,
-  summary: null as unknown,
-  // Kontrak `listAdminIpActivity`: objek `{ rows, truncated }`, bukan larik.
-  ips: { rows: [], truncated: false } as unknown,
-  session: null as unknown,
-}));
+const { state, mockUseAdminSecurityEvents, mockUseAdminSecuritySummary, mockUseAdminIpActivity } =
+  vi.hoisted(() => {
+    const state = {
+      events: null as unknown,
+      summary: null as unknown,
+      // Kontrak `listAdminIpActivity`: objek `{ rows, truncated }`, bukan larik.
+      ips: { rows: [], truncated: false } as unknown,
+      session: null as unknown,
+    };
+    // `vi.fn` membungkus nilai yang sama seperti pola mock sebelumnya, supaya
+    // pemanggilan hook bisa diasersi (aturan visibilitas langganan).
+    const mockUseAdminSecurityEvents = vi.fn((..._args: unknown[]) => state.events);
+    const mockUseAdminSecuritySummary = vi.fn((..._args: unknown[]) => state.summary);
+    const mockUseAdminIpActivity = vi.fn((..._args: unknown[]) => state.ips);
+    return { state, mockUseAdminSecurityEvents, mockUseAdminSecuritySummary, mockUseAdminIpActivity };
+  });
 
 vi.mock("@/lib/catalog-store", () => ({
-  useAdminSecurityEvents: () => state.events,
-  useAdminSecuritySummary: () => state.summary,
-  useAdminIpActivity: () => state.ips,
+  useAdminSecurityEvents: (...args: unknown[]) => mockUseAdminSecurityEvents(...args),
+  useAdminSecuritySummary: (...args: unknown[]) => mockUseAdminSecuritySummary(...args),
+  useAdminIpActivity: (...args: unknown[]) => mockUseAdminIpActivity(...args),
   useCurrentAdminSession: () => state.session,
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 const { AdminSecurityLog } = await import("./admin-security-log");
 
@@ -106,8 +119,28 @@ const fullEvent = makeEvent({
 const render = (events: unknown[], summary: unknown = null) => {
   state.events = { events, nextCursor: null, total: events.length };
   state.summary = summary;
-  return renderToStaticMarkup(createElement(AdminSecurityLog));
+  return renderToStaticMarkup(createElement(AdminSecurityLog, {}));
 };
+
+const renderSecuritySection = ({ open = true }: { open?: boolean } = {}) => {
+  state.events = { events: [], nextCursor: null, total: 0 };
+  state.summary = null;
+  return renderToStaticMarkup(createElement(AdminSecurityLog, { open }));
+};
+
+test("section tertutup mem-skip langganan security", () => {
+  renderSecuritySection({ open: false });
+  expect(mockUseAdminSecurityEvents).toHaveBeenCalledWith(25, undefined, false);
+  expect(mockUseAdminSecuritySummary).toHaveBeenCalledWith(24, false);
+  expect(mockUseAdminIpActivity).toHaveBeenCalledWith(12, false);
+});
+
+test("section terbuka tetap melanggan security", () => {
+  renderSecuritySection({ open: true });
+  expect(mockUseAdminSecurityEvents).toHaveBeenCalledWith(25, undefined, true);
+  expect(mockUseAdminSecuritySummary).toHaveBeenCalledWith(24, true);
+  expect(mockUseAdminIpActivity).toHaveBeenCalledWith(12, true);
+});
 
 test("event sukses: status, waktu, perangkat, dan lokasi terbaca tanpa membuka detail", () => {
   const html = render([fullEvent]);

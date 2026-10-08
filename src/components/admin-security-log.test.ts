@@ -23,9 +23,18 @@ const { state, mockUseAdminSecurityEvents, mockUseAdminSecuritySummary, mockUseA
     };
     // `vi.fn` membungkus nilai yang sama seperti pola mock sebelumnya, supaya
     // pemanggilan hook bisa diasersi (aturan visibilitas langganan).
-    const mockUseAdminSecurityEvents = vi.fn((..._args: unknown[]) => state.events);
-    const mockUseAdminSecuritySummary = vi.fn((..._args: unknown[]) => state.summary);
-    const mockUseAdminIpActivity = vi.fn((..._args: unknown[]) => state.ips);
+    const mockUseAdminSecurityEvents = vi.fn((...args: unknown[]) => {
+      void args;
+      return state.events;
+    });
+    const mockUseAdminSecuritySummary = vi.fn((...args: unknown[]) => {
+      void args;
+      return state.summary;
+    });
+    const mockUseAdminIpActivity = vi.fn((...args: unknown[]) => {
+      void args;
+      return state.ips;
+    });
     return { state, mockUseAdminSecurityEvents, mockUseAdminSecuritySummary, mockUseAdminIpActivity };
   });
 

@@ -83,7 +83,7 @@ async function seedContextToken(t: ReturnType<typeof convexTest>) {
 }
 
 /** Baris presence tunggal untuk uji no-op. */
-async function readPresence(t: ReturnType<typeof convexTest>, _admin?: unknown) {
+async function readPresence(t: ReturnType<typeof convexTest>) {
   const rows = await t.run(async (ctx) => await ctx.db.query("adminPresence").collect());
   if (rows.length !== 1) throw new Error(`presence harus 1 baris, ada ${rows.length}`);
   return rows[0] as unknown as { lastSeenAt: number };
@@ -94,8 +94,8 @@ test("reportSessionContext identik adalah no-op", async () => {
   const admin = await setupAdmin(t);
   const token = await seedContextToken(t);
   await admin.mutation(api.adminGate.reportSessionContext, { token });
-  const before = await readPresence(t, admin);
+  const before = await readPresence(t);
   await admin.mutation(api.adminGate.reportSessionContext, { token: await seedContextToken(t) });
-  const after = await readPresence(t, admin);
+  const after = await readPresence(t);
   expect(after.lastSeenAt).toBe(before.lastSeenAt);
 });

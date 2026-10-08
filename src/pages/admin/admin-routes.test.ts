@@ -9,3 +9,12 @@ test("route /admin/sistem terdaftar dan sidebar memuat 5 item", () => {
     expect(shell).toContain(label);
   }
 });
+
+test("route /admin/keamanan me-render panel sesi, security log, error, dan audit", () => {
+  const main = readFileSync("src/main.tsx", "utf8");
+  expect(main).toContain('path="keamanan"');
+  const page = readFileSync("src/pages/admin/KeamananPage.tsx", "utf8");
+  for (const name of ["AdminSessionActions", "AdminSecurityLog", "AdminErrorReports", "AdminAuditLog"]) {
+    expect(page).toContain(name);
+  }
+});

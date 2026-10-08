@@ -50,6 +50,10 @@ const AdminShell = lazy(() =>
 const SistemPage = lazy(() =>
   import("./pages/admin/SistemPage.tsx").then((m) => ({ default: m.SistemPage })),
 );
+// Slice Task 2: halaman `/keamanan` (pindahan verbatim blok security governance).
+const KeamananPage = lazy(() =>
+  import("./pages/admin/KeamananPage.tsx").then((m) => ({ default: m.KeamananPage })),
+);
 const VendorProfile = lazy(() => import("./pages/VendorProfile.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 /* Preview maskot hanya untuk QA desain (Phase 3). Routenya didaftarkan di
@@ -373,11 +377,12 @@ createRoot(document.getElementById("root")!).render(
               />
               {/* Gate tetap di induk `/admin` (isi `Admin` tidak berubah);
                   halaman bertingkat dirender lewat `AdminShell` + `<Outlet/>`.
-                  Slice Task 1: baru `sistem`, rute lain menyusul. */}
+                   Slice Task 2: tambah `keamanan`, rute lain menyusul. */}
               <Route path="/admin" element={<Admin />}>
-                <Route element={<AdminShell />}>
-                  <Route path="sistem" element={<SistemPage />} />
-                </Route>
+                  <Route element={<AdminShell />}>
+                    <Route path="sistem" element={<SistemPage />} />
+                    <Route path="keamanan" element={<KeamananPage />} />
+                  </Route>
               </Route>
               <Route
                 path="/invite/:token"

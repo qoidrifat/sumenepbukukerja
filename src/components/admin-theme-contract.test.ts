@@ -38,10 +38,13 @@ const ADMIN_SOURCES = [
   "../components/admin-security-log.tsx",
   "../components/admin-session-actions.tsx",
   "../components/admin-session-revoke.tsx",
+  "../components/admin-sidebar.tsx",
   "../components/admin-workspace-hero.tsx",
   "../components/admin-workspace.tsx",
   "../components/auth-admin-panel.tsx",
   "../pages/Admin.tsx",
+  "../pages/admin/AdminShell.tsx",
+  "../pages/admin/SistemPage.tsx",
 ];
 
 const source = (relative: string) =>

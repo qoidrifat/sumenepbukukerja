@@ -42,6 +42,14 @@ const InviteAcceptance = lazy(() => import("./pages/InviteAcceptance.tsx"));
 const WargaDashboard = lazy(() => import("./pages/WargaDashboard.tsx"));
 const MitraDashboard = lazy(() => import("./pages/MitraDashboard.tsx"));
 const Admin = lazy(() => import("./pages/Admin.tsx"));
+// Kerangka + halaman bertingkat ruang pengelola (slice Task 1: baru `/sistem`).
+// Komponennya named export, jadi dipetakan ke default untuk `lazy`.
+const AdminShell = lazy(() =>
+  import("./pages/admin/AdminShell.tsx").then((m) => ({ default: m.AdminShell })),
+);
+const SistemPage = lazy(() =>
+  import("./pages/admin/SistemPage.tsx").then((m) => ({ default: m.SistemPage })),
+);
 const VendorProfile = lazy(() => import("./pages/VendorProfile.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 /* Preview maskot hanya untuk QA desain (Phase 3). Routenya didaftarkan di
@@ -363,10 +371,14 @@ createRoot(document.getElementById("root")!).render(
                   </RequireAuth>
                 }
               />
-              <Route
-                path="/admin"
-                element={<Admin />}
-              />
+              {/* Gate tetap di induk `/admin` (isi `Admin` tidak berubah);
+                  halaman bertingkat dirender lewat `AdminShell` + `<Outlet/>`.
+                  Slice Task 1: baru `sistem`, rute lain menyusul. */}
+              <Route path="/admin" element={<Admin />}>
+                <Route element={<AdminShell />}>
+                  <Route path="sistem" element={<SistemPage />} />
+                </Route>
+              </Route>
               <Route
                 path="/invite/:token"
                 element={<InviteAcceptance />}

@@ -50,6 +50,10 @@ test("aplikasi memang butuh rewrite: rutenya milik React Router", () => {
   for (const rute of ["/auth", "/dashboard", "/warga/dashboard", "/mitra/dashboard", "/admin", "/v/:slug", "/invite/:token"]) {
     expect(main, `rute ${rute}`).toContain(`path="${rute}"`);
   }
+  // Rute bertingkat ditulis relatif terhadap induknya (`path="sistem"` di
+  // bawah `path="/admin"`), jadi URL penuhnya diasertikan di sini.
+  expect(main, "rute /admin/sistem").toContain('path="/admin"');
+  expect(main, "rute /admin/sistem").toContain('path="sistem"');
 });
 
 test("permintaan same-origin ke backend dibatasi pada relay IP saja", () => {

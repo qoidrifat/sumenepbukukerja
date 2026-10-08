@@ -163,6 +163,31 @@ describe("peta blob unggahan (dedup)", () => {
       anonymous.mutation(api.storage.recordUploadedBlob, { sha256: sha("f"), storageId, size: 32 }),
     ).rejects.toThrow();
   });
+
+  test("peta identik adalah no-op tanpa patch", async () => {
+    // Panggilan kedua dengan blob yang sama persis tidak boleh menyentuh baris
+    // peta: `storageId`+`size` sama berarti tidak ada yang berubah, jadi
+    // `patch` (termasuk `lastUsedAt`) dilewati. Jeda kecil supaya `Date.now()`
+    // pasti bergerak — tanpa itu dua `patch` berurutan bisa jatuh di milidetik
+    // yang sama dan uji ini lolos palsu.
+    const t = convexTest(schema, modules);
+    const { asUser } = await seedUser(t);
+    const storageId = await storeImage(t, 64);
+    const digest = sha("7");
+    await asUser.mutation(api.storage.recordUploadedBlob, { sha256: digest, storageId, size: 64 });
+    const before = await t.run(
+      async (ctx) =>
+        await ctx.db.query("uploadedBlobs").withIndex("bySha256", (q) => q.eq("sha256", digest)).unique(),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    await asUser.mutation(api.storage.recordUploadedBlob, { sha256: digest, storageId, size: 64 });
+    const after = await t.run(
+      async (ctx) =>
+        await ctx.db.query("uploadedBlobs").withIndex("bySha256", (q) => q.eq("sha256", digest)).unique(),
+    );
+    expect(after?.storageId).toBe(before?.storageId);
+    expect(after?.lastUsedAt).toBe(before?.lastUsedAt);
+  });
 });
 
 describe("pembersihan blob yatim", () => {

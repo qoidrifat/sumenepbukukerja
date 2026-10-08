@@ -96,6 +96,15 @@ export const recordUploadedBlob = mutation({
       .withIndex("bySha256", (q) => q.eq("sha256", sha))
       .unique();
     if (mapped) {
+      // Aturan 10 — tulis-hanya-bila-berubah: peta yang sudah menunjuk blob
+      // yang sama persis (`storageId`+`size` sama) tidak di-`patch` ulang.
+      // `lastUsedAt` sengaja ikut tidak ditulis: tidak ada query yang
+      // memakainya untuk keputusan apa pun (`byLastUsed` nol referensi, dan
+      // `pruneOrphanStorage` hanya memeriksa keberadaan baris peta), jadi
+      // menulisnya tiap dedup-hit hanya menambah write tanpa mengubah
+      // perilaku. Blob pengganti (race kalah atau blob lama hilang) tetap
+      // menimpa peta seperti sebelumnya.
+      if (mapped.storageId === args.storageId && mapped.size === metadata.size) return;
       await ctx.db.patch(mapped._id, { storageId: args.storageId, size: metadata.size, lastUsedAt: now });
       return;
     }

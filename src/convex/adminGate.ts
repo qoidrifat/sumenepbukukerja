@@ -1875,13 +1875,40 @@ export const reportSessionContext = mutation({
       sessionReference: sessionReference ?? existing?.sessionReference,
     };
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        ...fields,
-        // `signedInAt` hanya bergerak saat perangkatnya benar-benar berganti,
-        // jadi heartbeat tiap menit tidak mereset "masuk sejak".
-        signedInAt: isNewSession ? now : existing.signedInAt ?? now,
-        firstSeenAt: existing.firstSeenAt ?? now,
-      });
+      // Aturan 10 — tulis-hanya-bila-berubah, guard yang sama dengan Task 3
+      // (`heartbeatAdminPresence`): bila semua field hasil komputasi sama
+      // dengan yang tersimpan dan baris masih segar
+      // (`now - lastSeenAt < HEARTBEAT_NOOP_MS`), `patch` dilewati supaya
+      // heartbeat tiap menit tidak jadi write tiap menit. Di luar jendela
+      // segar `lastSeenAt` tetap ditulis seperti biasa.
+      // `signedInAt`/`firstSeenAt` tidak ikut perbandingan field karena
+      // turunannya sudah pasti sama saat bukan sesi baru — tapi baris lama
+      // yang belum punya keduanya tetap ditulis sekali untuk backfill, supaya
+      // jejak forensik tidak kosong selamanya.
+      const fieldsEqual =
+        fields.sessionFingerprint === existing.sessionFingerprint &&
+        fields.ipHash === existing.ipHash &&
+        fields.ipMasked === existing.ipMasked &&
+        fields.ipSource === existing.ipSource &&
+        fields.ipFamily === existing.ipFamily &&
+        fields.requestId === existing.requestId &&
+        fields.userAgent === existing.userAgent &&
+        fields.browser === existing.browser &&
+        fields.os === existing.os &&
+        fields.deviceType === existing.deviceType &&
+        fields.timezone === existing.timezone &&
+        fields.sessionReference === existing.sessionReference;
+      const fresh = now - existing.lastSeenAt < HEARTBEAT_NOOP_MS;
+      const forensicComplete = existing.signedInAt != null && existing.firstSeenAt != null;
+      if (!(fieldsEqual && fresh && forensicComplete)) {
+        await ctx.db.patch(existing._id, {
+          ...fields,
+          // `signedInAt` hanya bergerak saat perangkatnya benar-benar berganti,
+          // jadi heartbeat tiap menit tidak mereset "masuk sejak".
+          signedInAt: isNewSession ? now : existing.signedInAt ?? now,
+          firstSeenAt: existing.firstSeenAt ?? now,
+        });
+      }
     } else {
       await ctx.db.insert("adminPresence", {
         userId,

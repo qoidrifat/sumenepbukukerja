@@ -8,16 +8,18 @@ import { useAuth } from "@/hooks/use-auth";
  * admin, supaya audit log bisa menampilkan "Aktif sekarang" tanpa perlu
  * polling dari klien.
  *
- * Kenapa 60 detik, bukan 1 detik: presence bukan data real-time yang perlu
- * presisi tinggi. Satu panggilan mutation per menit per tab sudah cukup untuk
+ * Kenapa 300 detik, bukan 1 detik: presence bukan data real-time yang perlu
+ * presisi tinggi. Satu panggilan mutation per lima menit per tab sudah cukup untuk
  * membedakan "sedang bekerja" dari "terakhir terlihat sejam lalu", dan jauh
- * lebih murah daripada query berulang. Ambang "aktif" di server adalah 90
- * detik, jadi satu heartbeat yang gagal tidak langsung membuat status hilang.
+ * lebih murah daripada query berulang. Ambang "aktif" di server adalah 330
+ * detik (interval + grace 30 detik), jadi satu heartbeat yang gagal tidak
+ * langsung membuat status hilang. Ditambah guard no-op di server, heartbeat
+ * yang datang saat baris masih segar tidak menulis sama sekali.
  *
  * Berhenti saat tab disembunyikan supaya tab yang ditinggalkan tidak terus
  * menandai diri sebagai aktif.
  */
-const HEARTBEAT_MS = 60_000;
+const HEARTBEAT_MS = 300_000;
 
 export function useAdminPresence(enabled = true) {
   const heartbeat = useMutation(api.adminGate.heartbeatAdminPresence);
@@ -34,7 +36,7 @@ export function useAdminPresence(enabled = true) {
         await heartbeat({ route: "/admin" });
       } catch {
         // Kehilangan heartbeat bukan kondisi fatal — status akan basi sendiri
-        // lewat ambang 90 detik di server.
+        // lewat ambang 330 detik di server.
       }
       if (!cancelled) timer = setTimeout(beat, HEARTBEAT_MS);
     };

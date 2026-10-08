@@ -84,7 +84,21 @@ const CONTEXT_TTL_MS = 5 * 60_000;
  */
 export const CONTEXT_REQUEST_LIMIT = 30;
 export const CONTEXT_REQUEST_WINDOW_MS = 60_000;
-const PRESENCE_STALE_MS = 90_000;
+/**
+ * Aturan 10 — ambang "Aktif sekarang": 300 dtk interval + 30 dtk grace.
+ *
+ * Grace 30 dtk menutup jeda wajar antara dua heartbeat (jitter jadwal,
+ * tab sempat tersembunyi) supaya satu interval yang meleset sedikit tidak
+ * langsung membuat status hilang. Kontraknya tetap: aktif bila
+ * `now - lastSeenAt < PRESENCE_STALE_MS`.
+ */
+const PRESENCE_STALE_MS = 330_000;
+/**
+ * Aturan 2 — jendela no-op heartbeat: 270 dtk, sedikit di bawah interval
+ * 300 dtk. Jadwal normal selalu jatuh di dalam jendela ini (jadi `patch`
+ * dilewati), tapi clock yang meleset jauh tetap menulis seperti biasa.
+ */
+const HEARTBEAT_NOOP_MS = 270_000;
 /**
  * Jendela rapid (aturan forensik): jumlah percobaan dalam 60 detik terakhir
  * per baris. Konstanta bernama supaya tidak ada `60_000` tersebar.
@@ -316,7 +330,13 @@ export const readSecurityContext = internalMutation({
   },
 });
 
-/** Presence ringan supaya log bisa menandai "Aktif sekarang" tanpa polling klien. */
+/** Presence ringan supaya log bisa menandai "Aktif sekarang" tanpa polling klien.
+ *
+ * Aturan 2 — no-op: bila baris masih segar (`now - lastSeenAt` di bawah
+ * `HEARTBEAT_NOOP_MS`) DAN `route`/`sessionFingerprint` sama, `patch`
+ * dilewati dan `lastSeenAt` lama dikembalikan apa adanya dengan
+ * `wrote: false`. Pindah route atau ganti perangkat selalu menulis.
+ */
 export const heartbeatAdminPresence = mutation({
   args: { sessionFingerprint: v.optional(v.string()), route: v.optional(v.string()) },
   handler: async (ctx, args) => {
@@ -327,20 +347,29 @@ export const heartbeatAdminPresence = mutation({
       .withIndex("byUser", (q) => q.eq("userId", userId))
       .unique();
     if (existing) {
+      const nextFingerprint = args.sessionFingerprint ?? existing.sessionFingerprint;
+      const nextRoute = args.route ?? existing.route;
+      if (
+        now - existing.lastSeenAt < HEARTBEAT_NOOP_MS &&
+        nextFingerprint === existing.sessionFingerprint &&
+        nextRoute === existing.route
+      ) {
+        return { lastSeenAt: existing.lastSeenAt, wrote: false };
+      }
       await ctx.db.patch(existing._id, {
         lastSeenAt: now,
-        sessionFingerprint: args.sessionFingerprint ?? existing.sessionFingerprint,
-        route: args.route ?? existing.route,
+        sessionFingerprint: nextFingerprint,
+        route: nextRoute,
       });
-    } else {
-      await ctx.db.insert("adminPresence", {
-        userId,
-        sessionFingerprint: args.sessionFingerprint,
-        route: args.route,
-        lastSeenAt: now,
-      });
+      return { lastSeenAt: now, wrote: true };
     }
-    return now;
+    await ctx.db.insert("adminPresence", {
+      userId,
+      sessionFingerprint: args.sessionFingerprint,
+      route: args.route,
+      lastSeenAt: now,
+    });
+    return { lastSeenAt: now, wrote: true };
   },
 });
 

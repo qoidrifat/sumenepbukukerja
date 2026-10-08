@@ -80,7 +80,7 @@ export function ModerasiPage() {
   if (access === undefined) return null;
 
   return (
-    <>
+    <div>
       <AdminHeader
         role={access?.role ?? undefined}
         isOwner={access?.isOwner ?? false}
@@ -88,7 +88,7 @@ export function ModerasiPage() {
         accountImageUrl={myProfile?.imageUrl ?? null}
         reviewQueue={headerQueue}
       />
-    <main className="admin-shell-frame mx-auto max-w-[1600px] px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10">
+      <div>
       {notice ? (
         <AdminNotice notice={notice} onDismiss={() => setNotice("")} />
       ) : null}
@@ -135,7 +135,7 @@ export function ModerasiPage() {
           onUpdateStatus={updateReportStatus}
         />
       ) : null}
-    </main>
-    </>
+      </div>
+    </div>
   );
 }

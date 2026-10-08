@@ -173,7 +173,9 @@ export function OverviewPage() {
         actionableCount={actionableCount}
         latestUpdate={latestUpdate}
         shortcuts={actionShortcuts}
-        onCreate={() => navigate("/admin/katalog")}
+        onCreate={() =>
+          navigate("/admin/katalog", { state: { createNew: true } })
+        }
       />
 
       <section className="mt-8 grid gap-5 xl:grid-cols-[.85fr_1.15fr]">

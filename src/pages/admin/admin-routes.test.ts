@@ -57,3 +57,40 @@ test("ruling T4: Peran keluar sidebar dan masuk Sistem; shell live lewat Outlet"
   expect(workspace).toContain('to="/admin/moderasi"');
   expect(workspace).not.toContain('href="#governance-title"');
 });
+
+test("fix(T4): hero shortcut carries queueFilter via router state; KatalogPage uses it as initial filter", () => {
+  const hero = readFileSync("src/components/admin-workspace-hero.tsx", "utf8");
+  expect(hero).toContain('to="/admin/katalog"');
+  expect(hero).toContain("state={{ queueFilter:");
+  const katalog = readFileSync("src/pages/admin/KatalogPage.tsx", "utf8");
+  expect(katalog).toContain("useLocation");
+  expect(katalog).toMatch(/useState<QueueFilter>\(\s*initialQueueFilter\s*\)/);
+});
+
+test("fix(T4): Tambah listing passes createNew state; KatalogPage auto-opens editor", () => {
+  const overview = readFileSync("src/pages/admin/OverviewPage.tsx", "utf8");
+  expect(overview).toContain("createNew: true");
+  const katalog = readFileSync("src/pages/admin/KatalogPage.tsx", "utf8");
+  expect(katalog).toContain("createNew");
+  expect(katalog).toContain("startNew()");
+});
+
+test("fix(T4): no inner shell frame in Moderasi/Keamanan pages", () => {
+  for (const page of ["ModerasiPage", "KeamananPage"]) {
+    expect(
+      readFileSync(`src/pages/admin/${page}.tsx`, "utf8"),
+      `${page} tanpa bingkai dalam`,
+    ).not.toContain('main className="admin-shell-frame');
+  }
+});
+
+test("fix(T4): single main landmark lives in shell; pages return div", () => {
+  const shell = readFileSync("src/pages/admin/AdminShell.tsx", "utf8");
+  expect(shell.match(/<main/g)?.length ?? 0).toBe(1);
+  for (const page of ["KatalogPage", "OverviewPage", "ModerasiPage", "KeamananPage", "SistemPage"]) {
+    expect(
+      readFileSync(`src/pages/admin/${page}.tsx`, "utf8"),
+      `${page} tanpa <main>`,
+    ).not.toContain("<main");
+  }
+});

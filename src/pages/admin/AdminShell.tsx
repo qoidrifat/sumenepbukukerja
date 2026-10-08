@@ -16,6 +16,10 @@ import { useReviewQueue } from "@/lib/catalog-store";
  * milik halamannya masing-masing, supaya slice pertama ini tidak mengubah
  * tampilan panel yang sudah ada.
  *
+ * Landmark main TUNGGAL hidup di sini (elemen main membungkus Outlet);
+ * semua halaman di bawahnya mengembalikan div polos tanpa main maupun
+ * bingkai dalam, supaya tiap halaman punya tepat satu landmark.
+ *
  * Item "Peran" SENGAJA tidak ada: tidak ada halaman `/admin/peran` di IA.
  * Kelola peran + undangan hidup di `SistemPage` (halaman Sistem = metrik +
  * peran/undangan), jadi sidebar lima item sudah lengkap.
@@ -40,9 +44,9 @@ export function AdminShell() {
             { to: "/admin/sistem", label: "Sistem", icon: BarChart3, visible: true },
           ]}
         />
-        <div className="min-w-0 flex-1">
+        <main className="min-w-0 flex-1">
           <Outlet context={{ reviewQueue }} />
-        </div>
+        </main>
       </div>
     </div>
   );

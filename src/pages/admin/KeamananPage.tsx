@@ -52,7 +52,7 @@ export function KeamananPage() {
   if (access === undefined) return null;
 
   return (
-    <>
+    <div>
       <AdminHeader
         role={access?.role ?? undefined}
         isOwner={access?.isOwner ?? false}
@@ -60,7 +60,7 @@ export function KeamananPage() {
         accountImageUrl={myProfile?.imageUrl ?? null}
         reviewQueue={headerQueue}
       />
-    <main className="admin-shell-frame mx-auto max-w-[1600px] px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10">
+      <div>
       <section className="admin-panel overflow-hidden" aria-labelledby="keamanan-title">
         <div className="border-b-2 border-[#121212] bg-[#FFE662] p-4 sm:p-6">
           <p className="text-sm font-black uppercase tracking-[0.14em] text-[#525252]">Keamanan</p>
@@ -120,7 +120,7 @@ export function KeamananPage() {
           </article>
         </div>
       </section>
-    </main>
-    </>
+      </div>
+    </div>
   );
 }

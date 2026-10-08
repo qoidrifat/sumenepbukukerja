@@ -1,6 +1,6 @@
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
-import { useMemo, useId, useState } from "react";
-import { useOutletContext } from "react-router";
+import { useCallback, useEffect, useMemo, useId, useRef, useState } from "react";
+import { useLocation, useOutletContext } from "react-router";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -213,7 +213,27 @@ export function KatalogPage() {
   const [preview, setPreview] = useState<Vendor | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ModerationFilter>("all");
-  const [queueFilter, setQueueFilter] = useState<QueueFilter>("all");
+  // Handoff hero → katalog: shortcut antrean membawa `queueFilter` lewat
+  // router state. Dipakai sebagai nilai AWAL saja; pengguna tetap bisa
+  // mengubahnya lewat pemilih filter seperti biasa.
+  const location = useLocation();
+  const initialQueueFilter: QueueFilter = (() => {
+    const raw = (location.state as { queueFilter?: unknown } | null)
+      ?.queueFilter;
+    return raw === "draft" ||
+      raw === "archived" ||
+      raw === "incomplete" ||
+      raw === "all"
+      ? raw
+      : "all";
+  })();
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>(initialQueueFilter);
+  // Handoff "Tambah listing" hero → katalog: dibuka lewat router state
+  // `createNew`. Penjagaan akses milik `startNew`; di sini hanya menunggu
+  // akses selesai dimuat supaya viewer tidak dikira loading.
+  const createNewRequested =
+    (location.state as { createNew?: unknown } | null)?.createNew === true;
+  const createNewHandled = useRef(false);
   const [categoryFilter, setCategoryFilter] = useState<"all" | Category>("all");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] =
@@ -231,7 +251,9 @@ export function KatalogPage() {
     setError("");
   };
 
-  const startNew = () => {
+  // `useCallback` supaya handoff `createNew` di bawah (useEffect) punya
+  // dependensi stabil; isi penjagaan + draft + scroll tidak berubah.
+  const startNew = useCallback(() => {
     if (!access?.canModerate) {
       setError("Viewer hanya dapat melihat data. Minta admin atau staff melakukan perubahan.");
       return;
@@ -247,7 +269,18 @@ export function KatalogPage() {
         block: "start",
       });
     }, 0);
-  };
+  }, [access?.canModerate]);
+
+  useEffect(() => {
+    if (
+      createNewRequested &&
+      !createNewHandled.current &&
+      access !== undefined
+    ) {
+      createNewHandled.current = true;
+      startNew();
+    }
+  }, [access, createNewRequested, startNew]);
 
   const startEdit = (vendor: VendorRecord) => {
     if (!access?.canModerate) {

@@ -239,7 +239,11 @@ const schema = defineSchema(
       // indeks (kind, createdAt) satu pembacaan cukup `.take(N + 1)` pada satu
       // rentang satu jam: bounded, tanpa memindai tabel notifikasi yang juga
       // dipakai pengirim pesan warga.
-      .index("byKindCreatedAt", ["kind", "createdAt"]),
+      .index("byKindCreatedAt", ["kind", "createdAt"])
+      // Retensi `pruneApplicationHistory` memangkas dari yang tertua; tanpa
+      // indeks ini ia harus collect() seluruh tabel lalu mengurutkan di
+      // memori. Lahir bersama query pemakainya (aturan 11).
+      .index("byCreatedAt", ["createdAt"]),
 
     vendorPhotos: defineTable({
       vendorId: v.id("vendors"),
@@ -1140,13 +1144,6 @@ const schema = defineSchema(
       .index("byAggregate", ["ruleKey", "subjectType", "subjectRef"])
       .index("byStatusLastSeen", ["status", "lastSeenAt"]),
 
-    vendorSubscriptions: defineTable({
-      vendorId: v.id("vendors"),
-      tier: v.union(v.literal("free"), v.literal("featured"), v.literal("premium")),
-      status: v.union(v.literal("active"), v.literal("cancelled"), v.literal("past_due")),
-      startedAt: v.number(),
-      renewsAt: v.optional(v.number()),
-    }).index("byVendor", ["vendorId"]),
   },
   { schemaValidation: false },
 );

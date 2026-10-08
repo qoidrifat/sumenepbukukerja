@@ -352,11 +352,10 @@ export const pruneApplicationHistory = internalMutation({
 
     // Notifikasi lama. Batas jumlah dulu (2000 terbaru dipertahankan), lalu
     // batas usia 90 hari — pola yang sama dengan `auditRows`/`errorRows`.
-    // `notifications` belum punya indeks `byCreatedAt` (itu urusan Task 8),
-    // jadi urutan tertua-dulu dirapikan di sini dari hasil `collect()`.
+    // Indeks `byCreatedAt` mengembalikan urutan tertua-dulu langsung dari
+    // database, jadi tidak ada collect() + sort() di memori.
     const notificationCutoff = Date.now() - RETENTION_LIMITS.notificationDays * DAY;
-    const notificationRows = await ctx.db.query("notifications").collect();
-    const oldestFirst = [...notificationRows].sort((a, b) => a.createdAt - b.createdAt);
+    const oldestFirst = await ctx.db.query("notifications").withIndex("byCreatedAt").collect();
     let notificationOverflow = Math.max(
       0,
       oldestFirst.length - RETENTION_LIMITS.notificationKeepLatest,

@@ -457,3 +457,101 @@ describe("daftar di-batch + URL foto pindah ke detail (aturan 4, 12)", () => {
     expect(rows[0]?.offers[0]?.vendorName).toBe("Penawar Cepat");
   });
 });
+
+describe("aturan 7: angka dasbor yang tetap membaca tabel (temuan beraudit)", () => {
+  /**
+   * Audit Task 7 memeriksa setiap `.collect()` di query user-facing untuk
+   * dipindah ke pembacaan counter (preseden: `analyticsCounters`,
+   * `whatsappDeliveryStats`). Hasilnya: tidak satu pun angka yang tersisa
+   * punya penulis counter yang menutupi SEMUA jalur tulisnya (rincinya di
+   * laporan Task 7), jadi tidak ada pembacaan yang dimigrasi — mengarang
+   * counter tanpa penulis dilarang oleh brief task ini sendiri.
+   *
+   * Dua tes ini mengunci MAKNA yang wajib dipertahankan kalau suatu hari
+   * counter-nya benar-benar dibuat: penghitung jumlah baris yang naif akan
+   * menjawab SALAH untuk keduanya, jadi keduanya adalah spesifikasi
+   * kebenaran counter masa depan, bukan sekadar dokumentasi.
+   */
+
+  /** Pembantu baris database langsung, mengikuti pola describe di atas. */
+  const insert = (t: ReturnType<typeof convexTest>, table: string, doc: Record<string, unknown>) =>
+    t.run(async (ctx) => {
+      const db = ctx.db as unknown as {
+        insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+      };
+      return await db.insert(table, doc);
+    });
+
+  const seedVendor = (t: ReturnType<typeof convexTest>, overrides: Record<string, unknown> = {}) =>
+    insert(t, "vendors", {
+      slug: `usaha-${Math.random().toString(36).slice(2, 10)}`,
+      name: "Usaha Uji",
+      category: "Servis Teknik",
+      description: "Deskripsi",
+      address: "Jl. Uji",
+      landmark: "kota",
+      price: "Mulai Rp50.000",
+      hours: "07.00–17.00",
+      phone: "628123456789",
+      rating: "4.8",
+      accent: "from-blue-500 to-blue-700",
+      mark: "UU",
+      tags: [],
+      status: "active",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      ...overrides,
+    });
+
+  const seedRegistered = (t: ReturnType<typeof convexTest>, name: string, email: string) =>
+    insert(t, "users", { name, email });
+
+  const seedStaff = async (t: ReturnType<typeof convexTest>, name: string, email: string) => {
+    const userId = await seedRegistered(t, name, email);
+    await insert(t, "staffMembers", {
+      userId,
+      role: "admin",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return { userId, staff: t.withIdentity({ subject: userId }) };
+  };
+
+  test("penyimpan yang sama di dua listing tetap dihitung satu di returningSaverRate", async () => {
+    const t = convexTest(schema, modules);
+    const { staff } = await seedStaff(t, "Pengelola Tujuh", "tujuh@sumenep.co.id");
+    const residentA = await seedRegistered(t, "Warga A", "warga-a@sumenep.co.id");
+    await seedRegistered(t, "Warga B", "warga-b@sumenep.co.id");
+    const vendorA = (await seedVendor(t)) as Id<"vendors">;
+    const vendorB = (await seedVendor(t)) as Id<"vendors">;
+    // Dua baris favorites milik SATU warga, lewat mutasi aslinya.
+    const saver = t.withIdentity({ subject: residentA });
+    await saver.mutation(api.vendors.toggleFavorite, { vendorId: vendorA });
+    await saver.mutation(api.vendors.toggleFavorite, { vendorId: vendorB });
+
+    const metrics = await staff.query(api.community.listCommunityMetrics, {});
+    // Pembilangnya pengguna UNIK (1 dari 3 warga = 33). Penghitung jumlah
+    // baris favorites yang naif akan menjawab 2/3 = 67 — salah.
+    expect(metrics.returningSaverRate).toBe(33);
+  });
+
+  test("foto lawas tanpa status moderasi tetap dihitung sebagai kelengkapan", async () => {
+    const t = convexTest(schema, modules);
+    const { staff } = await seedStaff(t, "Pengelola Foto", "foto@sumenep.co.id");
+    const vendorId = (await seedVendor(t, { name: "Tanpa PhotoId" })) as Id<"vendors">;
+    // Baris lawas: dibuat sebelum `moderationStatus` ada, jadi field-nya
+    // tidak ada sama sekali. Penyempitan "hanya yang approved" ala indeks
+    // `byModeration` tidak melihat baris ini dan akan menuduh listing
+    // kekurangan foto.
+    await insert(t, "vendorPhotos", {
+      vendorId,
+      storageId: "storage-lawas",
+      active: true,
+      createdAt: Date.now(),
+    });
+
+    const metrics = await staff.query(api.community.listCommunityMetrics, {});
+    expect(metrics.listingsWithoutPhotos).toBe(0);
+    expect(metrics.listingsWithPhotos).toBe(1);
+  });
+});

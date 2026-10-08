@@ -1381,7 +1381,24 @@ export const listCommunityMetrics = query({
         // (pengguna x listing), jadi jumlahnya dibatasi oleh data nyata, bukan
         // oleh waktu. Ia bisa ditinjau lagi kalau suatu saat jumlah barisnya
         // melewati beberapa ribu.
+        //
+        // Audit aturan 7 (2026-10-08): angka yang lahir dari tabel ini
+        // (`returningSaverRate`) TIDAK dipindah ke counter. Pembilangnya
+        // adalah pengguna UNIK, bukan jumlah baris — penghitung skalar yang
+        // naik-turun di tiap tulis/simpan akan menjawab salah begitu satu
+        // warga menyimpan dua listing, dan penulisnya tersebar (toggle,
+        // impor, hapus) tanpa satu pun yang tahu "simpanan pertama/terakhir".
+        // Penyebutnya (warga ber-email) ditulis oleh Convex Auth di luar
+        // mutasi kita. Tanpa penulis yang menutupi semua jalur tulis,
+        // counter tidak dibuat — lihat laporan Task 7.
         ctx.db.query("favorites").collect(),
+        // `vendorPhotos` dibaca penuh karena yang dibutuhkan adalah HIMPUNAN
+        // per vendor ("listing mana yang tercakup foto"), bukan satu angka
+        // global — counter skalar tidak bisa menjawabnya. Filter-nya juga
+        // sengaja longgar (`bukan rejected/pending`, bukan `approved saja`)
+        // supaya baris lawas yang belum punya `moderationStatus` tetap
+        // dihitung; indeks `byModeration` tidak melihat baris itu. Sama
+        // seperti `favorites`: tidak ada counter tanpa penulis yang jelas.
         ctx.db.query("vendorPhotos").collect(),
       ]);
     const photoVendorIds = new Set(

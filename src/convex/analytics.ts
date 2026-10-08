@@ -223,6 +223,16 @@ export const adminMetrics = query({
     //  - `serviceRequests` → dihitung per vendor lewat indeks `byVendor`, dan
     //                     statusnya lewat `byStatus`, bukan dengan membaca
     //                     seluruh riwayat permintaan warga.
+    //
+    // Audit aturan 7 (2026-10-08): `completedRequests` SENGAJA tetap membaca
+    // tabel, bukan `analyticsCounters.request_completed`. Penghitung itu
+    // hanya naik lewat `recordEvent`, sedangkan baris `completed` juga lahir
+    // dari jalur tulis langsung (seed, konsol, migrasi) — mencoloknya ke
+    // counter terbukti mematahkan `metrics-index.test.ts` (counter 0 lawan
+    // tabel 1). Sampai kontrak itu diubah pemiliknya dan backfill dijalankan,
+    // kebenaran tabel yang berlaku. `expiredRequests` lebih jauh lagi:
+    // statusnya bisa pergi (`reopen`), jadi hitungan kumulatif tidak akan
+    // pernah sama dengan isi status saat ini.
     const [counters, active, approvedPhotos, completedRequests] = await Promise.all([
       readCounters(ctx),
       ctx.db.query("vendors").withIndex("byStatus", (q) => q.eq("status", "active")).collect(),

@@ -49,7 +49,7 @@ import {
 } from "@/components/ui/table";
 
 type SecurityEvent = NonNullable<ReturnType<typeof useAdminSecurityEvents>>["events"][number];
-type IpActivity = NonNullable<ReturnType<typeof useAdminIpActivity>>[number];
+type IpActivity = NonNullable<ReturnType<typeof useAdminIpActivity>>["rows"][number];
 
 /** Lihat catatan di blok `handleSelfRevoked`: keluar dari sesi sendiri ditangani watchdog. */
 const noop = () => {};
@@ -726,7 +726,7 @@ export function AdminSecurityLog() {
         </div>
       ) : null}
 
-      {ipActivity && ipActivity.length > 0 ? (
+      {ipActivity && ipActivity.rows.length > 0 ? (
         <section className="mt-4 border-t-2 border-[#121212] pt-3" aria-labelledby="aktivitas-ip">
           <h4
             id="aktivitas-ip"
@@ -759,7 +759,7 @@ export function AdminSecurityLog() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ipActivity.map((row: IpActivity) => (
+                {ipActivity.rows.map((row: IpActivity) => (
                   <TableRow key={row.ipHash} className="border-b border-[#EDEAE0] align-top hover:bg-transparent">
                     <TableCell className="py-1.5 pr-2">
                       <span className="font-black text-[#1A1A1A]">{row.ipMasked ?? UNKNOWN_LABEL}</span>

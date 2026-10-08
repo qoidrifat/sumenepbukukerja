@@ -102,6 +102,18 @@ const SUPPLEMENT_FP_TAKE = 100;
 const SUPPLEMENT_MINUTE_TAKE = 200;
 const PREVIOUS_UNDEFINED_TAKE = 100;
 const PAGE_SCAN_CAP = 300;
+/**
+ * Plafon bacaan ringkasan + aktivitas IP (aturan 1). 500 selaras batas
+ * retensi `keepLatest: 500`: tabel yang sehat tidak pernah melebihi ini, jadi
+ * plafon hanya tersentuh saat anomali — dan `truncated` menandainya.
+ */
+const SUMMARY_WINDOW_TAKE = 500;
+const SUMMARY_BASELINE_TAKE = 500;
+const IP_ACTIVITY_SCAN_TAKE = 500;
+/** 20 riwayat IP terbaru + 1 baris probe, pola `limit + 1` yang sama. */
+const IP_HISTORY_TAKE = 21;
+/** Kehadiran: satu baris per pengelola, jadi 100 longgar sekali. */
+const PRESENCE_SCAN_TAKE = 100;
 /** Salt untuk sidik jari sesi. Bukan rahasia, hanya pemisah antar instalasi. */
 const FINGERPRINT_SALT = process.env.ADMIN_FINGERPRINT_SALT?.trim() || "sumenep-buku-kerja";
 
@@ -336,8 +348,13 @@ export const listAdminPresence = query({
   args: {},
   handler: async (ctx) => {
     await requireManagementViewer(ctx);
-    const rows = await ctx.db.query("adminPresence").collect();
     const now = Date.now();
+    // Hanya baris hidup yang dibaca, lewat rentang `byLastSeenAt` + take
+    // berplafon — bukan seluruh tabel lalu disaring di memori.
+    const rows = await ctx.db
+      .query("adminPresence")
+      .withIndex("byLastSeenAt", (q) => q.gte("lastSeenAt", now - PRESENCE_STALE_MS))
+      .take(PRESENCE_SCAN_TAKE);
     return rows
       .filter((row) => now - row.lastSeenAt < PRESENCE_STALE_MS)
       .map((row) => ({ sessionFingerprint: row.sessionFingerprint ?? null, route: row.route ?? null, lastSeenAt: row.lastSeenAt }));
@@ -917,12 +934,12 @@ export const listAdminSecurityEvents = query({
     const ownSessionId = await getAuthSessionId(ctx);
     const ownSessionReference = ownSessionId ? await sha256Hex(ownSessionId) : null;
     // Kehadiran: hanya baris yang masih hidup yang dibaca, lewat rentang
-    // `byLastSeenAt`. Baris basi tidak memengaruhi `sessionLive`, jadi tidak
-    // perlu ikut terbaca.
+    // `byLastSeenAt` + take berplafon. Baris basi tidak memengaruhi
+    // `sessionLive`, jadi tidak perlu ikut terbaca.
     const livePresence = await ctx.db
       .query("adminPresence")
       .withIndex("byLastSeenAt", (q) => q.gte("lastSeenAt", now - PRESENCE_STALE_MS))
-      .collect();
+      .take(PRESENCE_SCAN_TAKE);
     const liveFingerprints = new Set(
       livePresence.filter((row) => now - row.lastSeenAt < PRESENCE_STALE_MS && row.sessionFingerprint).map((row) => row.sessionFingerprint as string),
     );
@@ -1187,14 +1204,21 @@ export const getAdminSecurityAttempt = query({
     const { userId } = await requireManagementViewer(ctx);
     const row = await ctx.db.get(args.attemptId);
     if (!row) return null;
-    // Riwayat IP dibaca lewat indeks `byIpHash` milik IP itu sendiri, bukan
-    // dengan mengambil seluruh riwayat percobaan lalu menyaringnya.
-    const ipRows = row.ipHash
+    // Riwayat IP dibaca lewat komposit `byIpHashCreatedAt` milik IP itu
+    // sendiri, desc + take berplafon — bukan seluruh riwayat lalu disaring.
+    // Indeksnya mengurutkan `createdAt` menurun dalam satu IP, jadi 21 baris
+    // pertama sudah pasti memuat 20 terbaru; bila plafon tersentuh,
+    // `truncated` menandai bahwa `ipHistory`/`ipTotals` memakai sampel.
+    const ipHash = row.ipHash;
+    const ipSample = ipHash
       ? await ctx.db
           .query("adminPasscodeAttempts")
-          .withIndex("byIpHash", (q) => q.eq("ipHash", row.ipHash))
-          .collect()
+          .withIndex("byIpHashCreatedAt", (q) => q.eq("ipHash", ipHash))
+          .order("desc")
+          .take(IP_HISTORY_TAKE)
       : [];
+    const truncated = ipSample.length >= IP_HISTORY_TAKE;
+    const ipRows = truncated ? ipSample.slice(0, IP_HISTORY_TAKE - 1) : ipSample;
     void userId;
     return {
       _id: row._id,
@@ -1239,10 +1263,9 @@ export const getAdminSecurityAttempt = query({
       eventType: row.eventType ?? null,
       createdAt: row.createdAt,
       signals: row.signals ?? [],
+      // `ipSample` sudah desc dari indeks, jadi tanpa urut ulang di memori.
+      truncated,
       ipHistory: ipRows
-        .slice()
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, 20)
         .map((other) => ({
           _id: other._id,
           outcome: other.outcome,
@@ -1273,16 +1296,24 @@ export const listAdminIpActivity = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     await requireManagementViewer(ctx);
-    const rows = await ctx.db.query("adminPasscodeAttempts").collect();
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
-    const byIp = new Map<string, typeof rows>();
-    for (const row of rows) {
+    // Pindaian terbaru berplafon lewat `byCreatedAt` desc — bukan seluruh
+    // tabel. Agregat per IP dihitung dari pindaian ini; bila plafon
+    // tersentuh, angkanya batas bawah dan `truncated` menandainya.
+    const recent = await ctx.db
+      .query("adminPasscodeAttempts")
+      .withIndex("byCreatedAt")
+      .order("desc")
+      .take(IP_ACTIVITY_SCAN_TAKE);
+    const truncated = recent.length >= IP_ACTIVITY_SCAN_TAKE;
+    const byIp = new Map<string, typeof recent>();
+    for (const row of recent) {
       if (!row.ipHash) continue;
       const bucket = byIp.get(row.ipHash) ?? [];
       bucket.push(row);
       byIp.set(row.ipHash, bucket);
     }
-    return [...byIp.entries()]
+    const rows = [...byIp.entries()]
       .map(([ipHash, bucket]) => {
         const sorted = bucket.slice().sort((a, b) => b.createdAt - a.createdAt);
         const latest = sorted[0];
@@ -1312,6 +1343,7 @@ export const listAdminIpActivity = query({
       })
       .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
       .slice(0, limit);
+    return { rows, truncated };
   },
 });
 
@@ -1320,14 +1352,35 @@ export const adminSecuritySummary = query({
   args: { windowHours: v.optional(v.number()) },
   handler: async (ctx, args) => {
     await requireManagementViewer(ctx);
-    const rows = await ctx.db.query("adminPasscodeAttempts").withIndex("byCreatedAt").collect();
     const now = Date.now();
     const hours = Math.min(Math.max(args.windowHours ?? 24, 1), 24 * 90);
     const dayStart = now - hours * 60 * 60_000;
-    const today = rows.filter((row) => row.createdAt >= dayStart);
-    const earlier = rows.filter((row) => row.createdAt < dayStart);
+    // Jendela + acuan "dikenal sebelumnya" dibaca berplafon lewat rentang
+    // `byCreatedAt` — bukan `collect()` seluruh tabel. Bila plafon tersentuh,
+    // hitungan memakai sampel dan `truncated` menandainya; `total` sepanjang
+    // masa hanya dikirim bila eksak (kedua bacaan habis), tidak pernah
+    // dikarang dari sampel yang dipotong.
+    const today = await ctx.db
+      .query("adminPasscodeAttempts")
+      .withIndex("byCreatedAt", (q) => q.gte("createdAt", dayStart))
+      .take(SUMMARY_WINDOW_TAKE);
+    const windowExhausted = today.length < SUMMARY_WINDOW_TAKE;
+    const earlier = await ctx.db
+      .query("adminPasscodeAttempts")
+      .withIndex("byCreatedAt", (q) => q.lt("createdAt", dayStart))
+      .order("desc")
+      .take(SUMMARY_BASELINE_TAKE);
+    const baselineExhausted = earlier.length < SUMMARY_BASELINE_TAKE;
+    // Baris terbaru untuk "percobaan terakhir": satu bacaan titik, bukan
+    // pindaian untuk mencari maksimum.
+    const latest = await ctx.db
+      .query("adminPasscodeAttempts")
+      .withIndex("byCreatedAt")
+      .order("desc")
+      .take(1);
+    const truncated = !windowExhausted || !baselineExhausted;
 
-    const ipOf = (row: (typeof rows)[number]) => row.ipHash;
+    const ipOf = (row: (typeof today)[number]) => row.ipHash;
     const knownBefore = new Set(earlier.map(ipOf).filter((value): value is string => Boolean(value)));
     const knownDevicesBefore = new Set(
       earlier.map((row) => `${row.browser ?? ""}|${row.os ?? ""}|${row.deviceType ?? ""}`),
@@ -1355,7 +1408,6 @@ export const adminSecuritySummary = query({
     await Promise.resolve();
     return {
       windowHours: hours,
-      total: rows.length,
       last24h: today.length,
       succeeded24h: today.filter((row) => row.outcome === "success").length,
       failed24h: today.filter((row) => row.outcome === "failed").length,
@@ -1369,7 +1421,11 @@ export const adminSecuritySummary = query({
       ).length,
       countries: [...new Set(today.map((row) => row.country).filter(Boolean))].length,
       riskFlags,
-      lastEventAt: rows.reduce((max, row) => Math.max(max, row.createdAt), 0) || null,
+      lastEventAt: latest[0]?.createdAt ?? null,
+      truncated,
+      // Jendela + acuan mempartisi tabel, jadi jumlah keduanya eksak hanya
+      // bila kedua bacaan habis — pola yang sama dengan `total` di daftar.
+      ...(truncated ? {} : { total: today.length + earlier.length }),
     };
   },
 });

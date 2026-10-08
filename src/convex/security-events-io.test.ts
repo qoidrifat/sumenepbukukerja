@@ -260,3 +260,130 @@ test("ekuivalen dengan full-scan lama untuk fixture dalam jendela", async () => 
     expect(e.previousSuccessAt).toBe(exp?.prev);
   }
 });
+
+test("ringkasan menandai truncated saat jendela melebihi plafon", async () => {
+  const t = convexTest(schema, modules);
+  const owner = await setupAdmin(t);
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 30; i++) {
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: `k-${i}`, outcome: "failed", createdAt: now - i * 1000,
+      });
+    }
+  });
+  const summary = await owner.query(api.adminGate.adminSecuritySummary, { windowHours: 24 });
+  expect(summary.last24h).toBeLessThanOrEqual(30);
+  expect(typeof summary.truncated).toBe("boolean");
+});
+
+test("ringkasan truncated dan total absen saat tabel melebihi plafon", async () => {
+  const t = convexTest(schema, modules);
+  const owner = await setupAdmin(t);
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 520; i++) {
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: `banjir-${i}`, outcome: "failed", createdAt: now - i * 1000,
+      });
+    }
+  });
+  const summary = await owner.query(api.adminGate.adminSecuritySummary, { windowHours: 24 });
+  // Plafon jendela 500: hitungan memakai sampel terbaru, bukan seluruh tabel.
+  expect(summary.truncated).toBe(true);
+  expect(summary.last24h).toBeLessThanOrEqual(520);
+  // Total sepanjang masa tidak boleh dikarang dari sampel yang dipotong.
+  expect(summary.total).toBeUndefined();
+});
+
+test("aktivitas IP dibaca dari pindaian terbaru berplafon", async () => {
+  const t = convexTest(schema, modules);
+  const owner = await setupAdmin(t);
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 3; i++) {
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: `ip-a-${i}`, outcome: "failed", ipHash: "ip-a", createdAt: now - i * 1000,
+      });
+    }
+    await ctx.db.insert("adminPasscodeAttempts", {
+      key: "ip-b-0", outcome: "success", ipHash: "ip-b", createdAt: now - 4000,
+    });
+  });
+  const activity = await owner.query(api.adminGate.listAdminIpActivity, { limit: 10 });
+  expect(activity.truncated).toBe(false);
+  expect(activity.rows).toHaveLength(2);
+  const bucketA = activity.rows.find((row: { ipHash: string }) => row.ipHash === "ip-a") as {
+    attempts: number;
+    failed: number;
+  };
+  expect(bucketA.attempts).toBe(3);
+  expect(bucketA.failed).toBe(3);
+});
+
+test("aktivitas IP truncated saat pindaian melebihi plafon", async () => {
+  const t = convexTest(schema, modules);
+  const owner = await setupAdmin(t);
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 520; i++) {
+      await ctx.db.insert("adminPasscodeAttempts", {
+        key: `sebar-${i}`, outcome: "failed", ipHash: `ip-sebar-${i}`, createdAt: now - i * 1000,
+      });
+    }
+  });
+  const activity = await owner.query(api.adminGate.listAdminIpActivity, { limit: 10 });
+  expect(activity.truncated).toBe(true);
+  expect(activity.rows).toHaveLength(10);
+});
+
+test("detail percobaan memakai riwayat IP berplafon tanpa truncated bila muat", async () => {
+  const t = convexTest(schema, modules);
+  const owner = await setupAdmin(t);
+  const now = Date.now();
+  const ids = await t.run(async (ctx) => {
+    const out = [];
+    for (let i = 0; i < 3; i++) {
+      out.push(
+        await ctx.db.insert("adminPasscodeAttempts", {
+          key: `riwayat-${i}`,
+          outcome: i === 0 ? "success" : "failed",
+          ipHash: "ip-riwayat",
+          createdAt: now - i * 1000,
+        }),
+      );
+    }
+    return out;
+  });
+  const detail = await owner.query(api.adminGate.getAdminSecurityAttempt, { attemptId: ids[0] });
+  expect(detail).not.toBeNull();
+  expect(detail?.ipHistory).toHaveLength(3);
+  expect(detail?.truncated).toBe(false);
+  expect(detail?.ipTotals.attempts).toBe(3);
+});
+
+test("detail percobaan truncated saat riwayat IP melebihi plafon", async () => {
+  const t = convexTest(schema, modules);
+  const owner = await setupAdmin(t);
+  const now = Date.now();
+  const ids = await t.run(async (ctx) => {
+    const out = [];
+    for (let i = 0; i < 25; i++) {
+      out.push(
+        await ctx.db.insert("adminPasscodeAttempts", {
+          key: `ramai-${i}`, outcome: "failed", ipHash: "ip-ramai", createdAt: now - i * 1000,
+        }),
+      );
+    }
+    return out;
+  });
+  const detail = await owner.query(api.adminGate.getAdminSecurityAttempt, { attemptId: ids[0] });
+  expect(detail).not.toBeNull();
+  // 20 terbaru + flag: tanpa membaca seluruh riwayat IP itu.
+  expect(detail?.ipHistory).toHaveLength(20);
+  expect(detail?.truncated).toBe(true);
+  // Urutan tetap terbaru dulu, sama seperti sebelum dipotong.
+  const stamps = (detail?.ipHistory ?? []).map((row: { createdAt: number }) => row.createdAt);
+  expect(stamps).toEqual([...stamps].sort((a, b) => b - a));
+  expect(stamps[0]).toBe(now);
+});

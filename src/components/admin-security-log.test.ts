@@ -15,7 +15,8 @@ import { expect, test, vi } from "vitest";
 const state = vi.hoisted(() => ({
   events: null as unknown,
   summary: null as unknown,
-  ips: [] as unknown[],
+  // Kontrak `listAdminIpActivity`: objek `{ rows, truncated }`, bukan larik.
+  ips: { rows: [], truncated: false } as unknown,
   session: null as unknown,
 }));
 

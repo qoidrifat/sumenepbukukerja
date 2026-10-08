@@ -761,6 +761,10 @@ const schema = defineSchema(
       // ketika sedang ada percobaan masuk beruntun.
       .index("byKeyCreatedAt", ["key", "createdAt"])
       .index("byOutcomeCreatedAt", ["outcome", "createdAt"])
+      // Riwayat satu IP untuk `getAdminSecurityAttempt`: tanpa komposit ini,
+      // "20 terbaru" hanya bisa dijawab dengan membaca seluruh riwayat IP lalu
+      // menyaringnya. Lahir bersama query pemakainya (aturan 11).
+      .index("byIpHashCreatedAt", ["ipHash", "createdAt"])
       .index("byAttemptCode", ["attemptCode"])
       // Penelusuran event memakai `eventId`, bukan `attemptCode`: kode
       // percobaan dibaca manusia dan bisa diketik ulang, sedangkan `eventId`

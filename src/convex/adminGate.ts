@@ -1885,13 +1885,17 @@ export const reportSessionContext = mutation({
       // turunannya sudah pasti sama saat bukan sesi baru — tapi baris lama
       // yang belum punya keduanya tetap ditulis sekali untuk backfill, supaya
       // jejak forensik tidak kosong selamanya.
+      // `requestId` SENGAJA tidak ikut perbandingan: produksi menerbitkan
+      // `req_<acak>` segar di setiap panggilan `POST /admin-gate/context`
+      // (`src/convex/http.ts`), jadi memasukkannya membuat guard ini tidak
+      // pernah no-op di produksi. Nilai barunya tetap tertulis lewat `fields`
+      // setiap kali patch memang terjadi.
       const fieldsEqual =
         fields.sessionFingerprint === existing.sessionFingerprint &&
         fields.ipHash === existing.ipHash &&
         fields.ipMasked === existing.ipMasked &&
         fields.ipSource === existing.ipSource &&
         fields.ipFamily === existing.ipFamily &&
-        fields.requestId === existing.requestId &&
         fields.userAgent === existing.userAgent &&
         fields.browser === existing.browser &&
         fields.os === existing.os &&

@@ -298,6 +298,15 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
     );
   }, [page, outcomeFilter, windowFilter, ipFilter, signalFilter, now]);
 
+  // Backend mengomit `total` saat bacaannya terpotong (`truncated: true`):
+  // jangan mengarang "dari 0", dan tandai semua angka sebagai batas bawah.
+  // Salah satu dari tiga query (daftar, ringkasan, aktivitas IP) yang
+  // terpotong cukup untuk menyalakan badge.
+  const isSampled = Boolean(page?.truncated || summary?.truncated || ipActivity?.truncated);
+  // Klaim "belum ada" hanya sah bila totalnya diketahui nol, bukan
+  // tak-diketahui (`undefined` saat truncated).
+  const isKnownEmpty = page !== undefined && page.total === 0;
+
   // Section tertutup: langganan sudah di-skip di atas, jadi tidak ada anak
   // berat yang perlu di-mount. Kembalikan `null` supaya skeleton "Memuat..."
   // pun tidak tampil untuk sesuatu yang sengaja tidak dilanggan. Penjagaan ini
@@ -332,9 +341,11 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
               Ringkasan aktivitas keamanan 24 jam terakhir beserta IP unik, perangkat
               baru, dan security signal.
             </p>
-            <p className="text-xs font-bold text-[#525252]">
-              Total tercatat {summary.total} percobaan
-            </p>
+            {summary.total !== undefined ? (
+              <p className="text-xs font-bold text-[#525252]">
+                Total tercatat {summary.total} percobaan
+              </p>
+            ) : null}
           </div>
           <dl className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
@@ -406,8 +417,15 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
             />
           ))}
         </div>
+        {isSampled ? (
+          <span className="inline-flex items-center gap-1 border-2 border-[#121212] bg-[#FFE662] px-1.5 py-0.5 text-[0.7rem] font-black text-[#1A1A1A]">
+            Data sampled — angka adalah batas bawah
+          </span>
+        ) : null}
         <span className="ml-auto text-xs font-black text-[#525252]">
-          Menampilkan {visible.length} dari {page?.total ?? 0} percobaan
+          {page?.total !== undefined
+            ? `Menampilkan ${visible.length} dari ${page.total} percobaan`
+            : `Menampilkan ${visible.length} percobaan`}
         </span>
       </div>
 
@@ -420,12 +438,12 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
           </span>
           <div className="min-w-0">
             <p className="text-sm font-black text-[#1A1A1A]">
-              {page.total === 0
+              {isKnownEmpty
                 ? "Belum ada percobaan masuk."
                 : "Tidak ada percobaan yang cocok dengan filter ini."}
             </p>
             <p className="mt-0.5 text-xs font-bold text-[#525252]">
-              {page.total === 0
+              {isKnownEmpty
                 ? "Aktivitas akses admin akan muncul di sini."
                 : "Ubah filter hasil, rentang waktu, atau sinyal di atas."}
             </p>

@@ -55,8 +55,12 @@ let contextTokenCounter = 0;
 
 /**
  * Meniru `POST /admin-gate/context`: satu baris konteks server yang berlaku.
- * Isinya sengaja tetap (tidak acak) supaya dua token berurutan menghasilkan
- * field komputasi yang identik — syarat uji no-op di bawah.
+ *
+ * Semua field jaringan sengaja tetap antar panggilan — KECUALI `requestId`.
+ * Produksi menerbitkan `req_<acak>` segar di setiap panggilan
+ * (`src/convex/http.ts`), jadi dua konteks berurutan TIDAK PERNAH punya
+ * requestId sama. Guard no-op harus mengabaikan requestId, atau ia mati di
+ * produksi; uji ini menguncinya dengan requestId yang selalu berbeda.
  */
 async function seedContextToken(t: ReturnType<typeof convexTest>) {
   contextTokenCounter += 1;
@@ -74,7 +78,7 @@ async function seedContextToken(t: ReturnType<typeof convexTest>) {
       ipFamily: "IPv4",
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      requestId: "req_noop-server",
+      requestId: `req_noop-server-${contextTokenCounter}`,
       createdAt: now,
       expiresAt: now + 5 * 60_000,
     });
@@ -86,7 +90,7 @@ async function seedContextToken(t: ReturnType<typeof convexTest>) {
 async function readPresence(t: ReturnType<typeof convexTest>) {
   const rows = await t.run(async (ctx) => await ctx.db.query("adminPresence").collect());
   if (rows.length !== 1) throw new Error(`presence harus 1 baris, ada ${rows.length}`);
-  return rows[0] as unknown as { lastSeenAt: number };
+  return rows[0] as unknown as { lastSeenAt: number; requestId: string | undefined };
 }
 
 test("reportSessionContext identik adalah no-op", async () => {
@@ -97,5 +101,9 @@ test("reportSessionContext identik adalah no-op", async () => {
   const before = await readPresence(t);
   await admin.mutation(api.adminGate.reportSessionContext, { token: await seedContextToken(t) });
   const after = await readPresence(t);
+  // `requestId` kedua SELALU berbeda (lihat `seedContextToken`): no-op yang
+  // benar tetap tidak menulis — `lastSeenAt` tidak bergerak DAN requestId lama
+  // dipertahankan. Guard yang membandingkan requestId akan patch di sini.
   expect(after.lastSeenAt).toBe(before.lastSeenAt);
+  expect(after.requestId).toBe(before.requestId);
 });

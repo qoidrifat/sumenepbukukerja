@@ -425,6 +425,39 @@ describe("daftar di-batch + URL foto pindah ke detail (aturan 4, 12)", () => {
     expect(await anonymous.query(api.vendors.getImageUrl, { storageId })).toBeNull();
   });
 
+  test("staf bukan pemilik tetap bisa me-resolve foto pending; warga asing/anonim tidak", async () => {
+    // Jalur `hasStaffAccess` di `vendors.getImageUrl` (aturan 12): antrean
+    // moderasi staf memakai resolver yang sama dengan galeri pemilik. Peran
+    // yang dipakai sengaja `staff`, bukan `admin` dan bukan pemilik, supaya
+    // yang terkunci adalah cabang stafnya — bukan cabang pemilik.
+    const t = convexTest(schema, modules);
+    const { userId } = await seedUser(t, "Pemilik Staf");
+    const vendorId = await seedVendor(t, { ownerId: userId });
+    const storageId = await storeImage(t);
+    await insert(t, "vendorPhotos", {
+      vendorId,
+      storageId,
+      active: true,
+      moderationStatus: "pending",
+      createdAt: Date.now(),
+    });
+
+    const staffUserId = await insert(t, "users", { name: "Staf Moderasi" });
+    await insert(t, "staffMembers", {
+      userId: staffUserId,
+      role: "staff",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const staff = t.withIdentity({ subject: staffUserId });
+
+    const stranger = await seedUser(t, "Warga Asing Staf");
+    const anonymous = t.withIdentity({});
+    expect(await staff.query(api.vendors.getImageUrl, { storageId })).toBeTruthy();
+    expect(await stranger.user.query(api.vendors.getImageUrl, { storageId })).toBeNull();
+    expect(await anonymous.query(api.vendors.getImageUrl, { storageId })).toBeNull();
+  });
+
   test("papan tetap membawa nama vendor dan nama penawar setelah batching", async () => {
     const t = convexTest(schema, modules);
     const { userId } = await seedUser(t, "Warga Papan");

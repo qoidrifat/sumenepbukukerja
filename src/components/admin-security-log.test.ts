@@ -125,15 +125,33 @@ const fullEvent = makeEvent({
   sessionLive: true,
 });
 
-const render = (events: unknown[], summary: unknown = null) => {
-  state.events = { events, nextCursor: null, total: events.length };
+type RenderOpts = {
+  /** Hilangkan `total` halaman, seperti backend saat truncated (total diomit). */
+  omitPageTotal?: boolean;
+  /** Tandai halaman terpotong (`truncated: true`). */
+  pageTruncated?: boolean;
+  /** Tandai aktivitas IP terpotong. */
+  ipTruncated?: boolean;
+};
+
+const render = (events: unknown[], summary: unknown = null, opts: RenderOpts = {}) => {
+  state.events = {
+    events,
+    nextCursor: null,
+    ...(opts.omitPageTotal ? {} : { total: events.length }),
+    ...(opts.pageTruncated ? { truncated: true } : {}),
+  };
+  // `summary` dipakai apa adanya supaya pemanggil bisa menyertakan
+  // `truncated: true` TANPA `total`, persis bentuk backend saat memangkas.
   state.summary = summary;
+  state.ips = { rows: [], truncated: Boolean(opts.ipTruncated) };
   return renderToStaticMarkup(createElement(AdminSecurityLog, {}));
 };
 
 const renderSecuritySection = ({ open = true }: { open?: boolean } = {}) => {
   state.events = { events: [], nextCursor: null, total: 0 };
   state.summary = null;
+  state.ips = { rows: [], truncated: false };
   return renderToStaticMarkup(createElement(AdminSecurityLog, { open }));
 };
 
@@ -285,6 +303,57 @@ test("empty state menjelaskan apa yang akan muncul, bukan tabel kosong", () => {
   expect(html).toContain("Belum ada percobaan masuk.");
   expect(html).toContain("Aktivitas akses admin akan muncul di sini.");
   expect(html).not.toContain("Lihat detail keamanan");
+});
+
+test("total disembunyikan dan badge sampled tampil saat backend memangkas", () => {
+  const html = render(
+    [fullEvent],
+    {
+      last24h: 27,
+      succeeded24h: 21,
+      failed24h: 4,
+      locked24h: 2,
+      lastEventAt: CREATED_AT,
+      truncated: true,
+      // `total` sengaja absen: backend mengomitnya saat truncated.
+    },
+    { omitPageTotal: true, pageTruncated: true },
+  );
+
+  expect(html).not.toContain("Total tercatat");
+  expect(html).not.toContain("dari 0 percobaan");
+  expect(html).not.toMatch(/undefined/);
+  expect(html).toContain("Data sampled — angka adalah batas bawah");
+  // Data asli tetap tampil.
+  expect(html).toContain("Berhasil");
+});
+
+test("badge sampled tampil bila hanya aktivitas IP yang terpotong", () => {
+  const html = render(
+    [fullEvent],
+    {
+      total: 40,
+      last24h: 27,
+      succeeded24h: 21,
+      failed24h: 4,
+      locked24h: 2,
+      lastEventAt: CREATED_AT,
+    },
+    { ipTruncated: true },
+  );
+
+  // Total yang eksak tetap tampil; hanya badge yang bertambah.
+  expect(html).toContain("Total tercatat 40 percobaan");
+  expect(html).toContain("Menampilkan 1 dari 1 percobaan");
+  expect(html).toContain("Data sampled — angka adalah batas bawah");
+});
+
+test("empty state tak-diketahui-total tidak mengklaim kekosongan", () => {
+  const html = render([], null, { omitPageTotal: true, pageTruncated: true });
+
+  expect(html).not.toContain("Belum ada percobaan masuk.");
+  expect(html).toContain("Tidak ada percobaan yang cocok dengan filter ini.");
+  expect(html).toContain("Data sampled — angka adalah batas bawah");
 });
 
 test("keterangan alamat IP dibungkus satu elemen, tidak dipecah jadi beberapa flex item", () => {

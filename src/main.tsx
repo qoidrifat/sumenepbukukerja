@@ -50,6 +50,10 @@ const AdminShell = lazy(() =>
 const SistemPage = lazy(() =>
   import("./pages/admin/SistemPage.tsx").then((m) => ({ default: m.SistemPage })),
 );
+// Slice Task 3: halaman `/moderasi` (pindahan verbatim blok antrean + review laporan).
+const ModerasiPage = lazy(() =>
+  import("./pages/admin/ModerasiPage.tsx").then((m) => ({ default: m.ModerasiPage })),
+);
 // Slice Task 2: halaman `/keamanan` (pindahan verbatim blok security governance).
 const KeamananPage = lazy(() =>
   import("./pages/admin/KeamananPage.tsx").then((m) => ({ default: m.KeamananPage })),
@@ -377,10 +381,11 @@ createRoot(document.getElementById("root")!).render(
               />
               {/* Gate tetap di induk `/admin` (isi `Admin` tidak berubah);
                   halaman bertingkat dirender lewat `AdminShell` + `<Outlet/>`.
-                   Slice Task 2: tambah `keamanan`, rute lain menyusul. */}
+                   Slice Task 3: tambah `moderasi`, rute lain menyusul. */}
               <Route path="/admin" element={<Admin />}>
                   <Route element={<AdminShell />}>
                     <Route path="sistem" element={<SistemPage />} />
+                    <Route path="moderasi" element={<ModerasiPage />} />
                     <Route path="keamanan" element={<KeamananPage />} />
                   </Route>
               </Route>

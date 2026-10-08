@@ -18,3 +18,11 @@ test("route /admin/keamanan me-render panel sesi, security log, error, dan audit
     expect(page).toContain(name);
   }
 });
+
+test("route /admin/moderasi me-render antrean review dan review laporan", () => {
+  const main = readFileSync("src/main.tsx", "utf8");
+  expect(main).toContain('path="moderasi"');
+  const page = readFileSync("src/pages/admin/ModerasiPage.tsx", "utf8");
+  expect(page).toContain("AdminReportReview");
+  expect(page).toContain("useReviewQueue");
+});

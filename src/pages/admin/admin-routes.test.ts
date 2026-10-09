@@ -94,3 +94,14 @@ test("fix(T4): single main landmark lives in shell; pages return div", () => {
     ).not.toContain("<main");
   }
 });
+
+test("sidebar responsif dan aksesibel", () => {
+  const sidebar = readFileSync("src/components/admin-sidebar.tsx", "utf8");
+  expect(sidebar).toContain("aria-expanded");
+  expect(sidebar).toContain("NavLink");
+  // Item navigasi = link asli (keyboard-native); hanya tombol hamburger
+  // yang boleh punya onClick, dan ia wajib berpasangan dengan aria-expanded.
+  expect(sidebar).toContain("<button");
+  const navBlock = sidebar.slice(sidebar.indexOf("<nav"), sidebar.indexOf("</nav>"));
+  expect(navBlock).not.toContain("onClick");
+});

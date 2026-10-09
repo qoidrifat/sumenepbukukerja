@@ -265,6 +265,15 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
   // toast, `signOut()`, baru redirect. Satu jalur keluar, bukan dua.
   const summary = useAdminSecuritySummary(24, open);
   const ipActivity = useAdminIpActivity(12, open);
+  // Backend Convex di-deploy terpisah dari frontend, jadi di produksi bisa
+  // tertinggal beberapa hari. Selama selisih versi, `listAdminIpActivity`
+  // masih mengembalikan larik telanjang (bentuk lama sebelum berubah jadi
+  // `{ rows, truncated }`). Seragamkan di titik ini: bentuk lama berarti
+  // "semua baris tanpa pemangkasan", sehingga satu seksi yang kehilangan
+  // field barunya hanya menyembunyikan isinya — bukan menjatuhkan halaman.
+  const ipActivityView = Array.isArray(ipActivity)
+    ? { rows: ipActivity as IpActivity[], truncated: false }
+    : ipActivity;
   const [outcomeFilter, setOutcomeFilter] = useState<(typeof OUTCOME_FILTERS)[number]["value"]>("all");
   const [windowFilter, setWindowFilter] = useState<(typeof WINDOW_FILTERS)[number]["value"]>("all");
   const [ipFilter, setIpFilter] = useState<(typeof IP_FILTERS)[number]["value"]>("all");
@@ -302,7 +311,7 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
   // jangan mengarang "dari 0", dan tandai semua angka sebagai batas bawah.
   // Salah satu dari tiga query (daftar, ringkasan, aktivitas IP) yang
   // terpotong cukup untuk menyalakan badge.
-  const isSampled = Boolean(page?.truncated || summary?.truncated || ipActivity?.truncated);
+  const isSampled = Boolean(page?.truncated || summary?.truncated || ipActivityView?.truncated);
   // Klaim "belum ada" hanya sah bila totalnya diketahui nol, bukan
   // tak-diketahui (`undefined` saat truncated).
   const isKnownEmpty = page !== undefined && page.total === 0;
@@ -755,7 +764,7 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
         </div>
       ) : null}
 
-      {ipActivity && ipActivity.rows.length > 0 ? (
+      {ipActivityView && ipActivityView.rows.length > 0 ? (
         <section className="mt-4 border-t-2 border-[#121212] pt-3" aria-labelledby="aktivitas-ip">
           <h4
             id="aktivitas-ip"
@@ -788,7 +797,7 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ipActivity.rows.map((row: IpActivity) => (
+                {ipActivityView.rows.map((row: IpActivity) => (
                   <TableRow key={row.ipHash} className="border-b border-[#EDEAE0] align-top hover:bg-transparent">
                     <TableCell className="py-1.5 pr-2">
                       <span className="font-black text-[#1A1A1A]">{row.ipMasked ?? UNKNOWN_LABEL}</span>

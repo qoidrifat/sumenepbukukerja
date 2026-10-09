@@ -356,6 +356,35 @@ test("empty state tak-diketahui-total tidak mengklaim kekosongan", () => {
   expect(html).toContain("Data sampled — angka adalah batas bawah");
 });
 
+test("aktivitas IP berbentuk larik lama (backend tertinggal) tidak menjatuhkan halaman", () => {
+  // Produksi bisa menjalankan frontend yang lebih baru dari backend Convex
+  // (deploy manual). Selama selisih versi, `listAdminIpActivity` masih
+  // mengembalikan larik telanjang — bentuk yang dulu dipakai sebelum berubah
+  // jadi `{ rows, truncated }`. Peramban tidak boleh crash hanya karena satu
+  // seksi kehilangan field barunya.
+  state.events = { events: [], nextCursor: null, total: 0 };
+  state.summary = null;
+  state.ips = [
+    {
+      ipHash: "hash1",
+      ipMasked: "103.21.44.xxx",
+      ipFamily: "IPv4",
+      proxyDetected: null,
+      attempts: 3,
+      success: 1,
+      failed: 2,
+      lastSeenAt: CREATED_AT,
+      isNew: true,
+    },
+  ];
+
+  const html = renderToStaticMarkup(createElement(AdminSecurityLog, {}));
+
+  expect(html).toContain("Aktivitas berdasarkan IP");
+  expect(html).toContain("103.21.44.xxx");
+  expect(html).toContain("IP baru");
+});
+
 test("keterangan alamat IP dibungkus satu elemen, tidak dipecah jadi beberapa flex item", () => {
   const html = render([fullEvent]);
   const start = html.indexOf('class="mt-3 flex items-start gap-2 text-xs leading-6 text-[#525252]"');

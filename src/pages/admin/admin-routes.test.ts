@@ -104,4 +104,14 @@ test("sidebar responsif dan aksesibel", () => {
   expect(sidebar).toContain("<button");
   const navBlock = sidebar.slice(sidebar.indexOf("<nav"), sidebar.indexOf("</nav>"));
   expect(navBlock).not.toContain("onClick");
+  // NavBlock hanya memotong call site `{renderLinks(...)}`; markup NavLink
+  // ada di fungsi renderLinks. Kunci keduanya: hanya satu handler onClick
+  // di seluruh file (punya tombol), dan blok tombol memakainya berpasangan
+  // dengan aria-expanded.
+  const linksBlock = sidebar.slice(sidebar.indexOf("const renderLinks"), sidebar.indexOf("if (isMobile)"));
+  expect(linksBlock).not.toContain("onClick");
+  const buttonBlock = sidebar.slice(sidebar.indexOf("<button"), sidebar.indexOf("</button>"));
+  expect(buttonBlock).toContain("onClick");
+  expect(buttonBlock).toContain("aria-expanded");
+  expect(sidebar.match(/onClick=\{/g)?.length ?? 0, "hanya tombol hamburger dengan onClick").toBe(1);
 });

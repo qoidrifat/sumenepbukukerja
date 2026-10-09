@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 
 /**
@@ -45,6 +45,8 @@ const ADMIN_SOURCES = [
   "../pages/Admin.tsx",
   "../pages/admin/AdminShell.tsx",
   "../pages/admin/KatalogPage.tsx",
+  "../pages/admin/KeamananPage.tsx",
+  "../pages/admin/ModerasiPage.tsx",
   "../pages/admin/OverviewPage.tsx",
   "../pages/admin/SistemPage.tsx",
 ];
@@ -448,4 +450,72 @@ test("gelar pemilik hanya boleh ditulis di modulnya", () => {
   }
   const ownerModule = source("../lib/owner-account.ts");
   expect(ownerModule).toContain("OWNER_SHORT_TITLE");
+});
+
+test("semua halaman rute admin ikut daftar kontrak tema", () => {
+  // Rencana mewajibkan setiap file baru masuk ADMIN_SOURCES; KeamananPage dan
+  // ModerasiPage lolos dari daftar saat review akhir. Daftar otomatis dari
+  // direktori supaya halaman rute berikutnya tidak bisa terlewat lagi.
+  const pages = readdirSync(new URL("../pages/admin/", import.meta.url))
+    .filter((name) => name.endsWith(".tsx"))
+    .map((name) => `../pages/admin/${name}`);
+  expect(pages.length).toBeGreaterThan(0);
+  for (const page of pages) expect(ADMIN_SOURCES, page).toContain(page);
+});
+
+test("baris header memakai bingkai shell, bukan bingkai sendiri", () => {
+  // Header kini dirender di dalam `main` di dalam bingkai shell. Dengan
+  // bingkai kedua di barisnya, isi header kepadat padding ganda 12/24/40px dan
+  // garis 2px inline (>=1024) tidak lagi sejajar dengan bingkai luar.
+  const workspace = source("../components/admin-workspace.tsx");
+  expect(workspace).toContain(
+    'className="flex min-h-16 items-center gap-2 sm:gap-3"',
+  );
+  expect(workspace).not.toContain("admin-shell-frame");
+  expect(workspace).not.toContain("max-w-[1600px]");
+  expect(workspace).not.toContain("mx-auto");
+});
+
+test("efek kaca bilah perintah mengenai header di hierarki shell baru", () => {
+  // Header bukan lagi anak langsung `.admin-workspace`, jadi aturan kaca
+  // (88% + blur) mati dan bilah jatuh ke bg padat `bg-[#FAF7EE]` markup.
+  const start = css.indexOf("/* Bilah perintah");
+  expect(start).toBeGreaterThan(-1);
+  const glass = css.slice(start, css.indexOf("}", start));
+  // Anak langsung tetap disertakan untuk layar gerbang akses; header halaman
+  // kini duduk di dalam `main > div` halaman.
+  expect(glass).toContain(".admin-workspace > header,");
+  expect(glass).toContain(
+    ".admin-workspace .admin-shell-frame > main > * > header {",
+  );
+  expect(glass).toContain("backdrop-filter: blur(12px) saturate(150%)");
+});
+
+test("gerak masuk mengenai blok halaman di hierarki shell baru", () => {
+  const motion = css.slice(
+    css.indexOf("@keyframes admin-rise"),
+    css.indexOf(".dash-shell {"),
+  );
+  // Bingkai kini div pemisah di AdminShell; tidak ada lagi elemen yang
+  // sekaligus `<main>` dan `.admin-shell-frame`.
+  expect(motion).not.toContain("main.admin-shell-frame");
+  // AdminHeader adalah anak pertama tiap halaman (chrome, tanpa animasi),
+  // jadi blok konten mulai di nth-child(2) dan seluruh jeda bergeser satu.
+  expect(motion).toContain(
+    ".admin-workspace .admin-shell-frame > main > * > :not(:first-child)",
+  );
+  expect(motion).toContain(
+    ".admin-workspace .admin-shell-frame > main > * > :nth-child(3)",
+  );
+  expect(motion).not.toContain(
+    ".admin-workspace .admin-shell-frame > main > * > :nth-child(2)",
+  );
+  expect(motion).toContain(
+    ".admin-workspace .admin-shell-frame > main > * > :nth-child(n + 7)",
+  );
+  // Gaya geraknya sendiri tidak berubah: satu kali per blok, hormati reduced
+  // motion, dan papan metrik tetap ikut animasi seperti aslinya.
+  expect(motion).toContain("admin-rise 380ms");
+  expect(motion).toContain("@media (prefers-reduced-motion: no-preference)");
+  expect(motion).toContain(".admin-workspace .admin-metric");
 });

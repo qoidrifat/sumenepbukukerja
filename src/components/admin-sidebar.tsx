@@ -99,7 +99,7 @@ export function AdminSidebar({ items }: { items: AdminSidebarItem[] }) {
           ref={triggerRef}
           type="button"
           aria-expanded={open}
-          aria-controls="navigasi-pengelola"
+          aria-controls={open ? "navigasi-pengelola" : undefined}
           onClick={() => setDrawer({ forPathname: pathname, open: !open })}
           className="admin-btn admin-btn-secondary w-full justify-start"
         >

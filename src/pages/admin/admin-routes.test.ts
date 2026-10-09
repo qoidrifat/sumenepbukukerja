@@ -115,3 +115,39 @@ test("sidebar responsif dan aksesibel", () => {
   expect(buttonBlock).toContain("aria-expanded");
   expect(sidebar.match(/onClick=\{/g)?.length ?? 0, "hanya tombol hamburger dengan onClick").toBe(1);
 });
+
+test("shell selaras useIsMobile: baris flex hanya mulai 768px", () => {
+  // `useIsMobile` memakai <=767px. Kalau shell tetap berbaris lewat `sm`
+  // (>=640), wrapper mobile `w-full shrink-0` memakan seluruh baris dan
+  // `main` menyusut ke 0px pada 640-767px — hanya tombol "Buka menu" yang
+  // terlihat (termasuk potret iPad mini 744px).
+  const shell = readFileSync("src/pages/admin/AdminShell.tsx", "utf8");
+  expect(shell).not.toContain("sm:flex-row");
+  expect(shell).not.toContain("sm:items-start");
+  expect(shell).toContain("min-[768px]:flex-row");
+  expect(shell).toContain("min-[768px]:items-start");
+});
+
+test("shell mempertahankan pagar ruang kerja lama", () => {
+  // Pembungkus `Admin.tsx` sebelum shell membawa tinggi viewport minimum dan
+  // ruang aman bawah; tanpa keduanya, isi menempel di tepi gesture ponsel.
+  const shell = readFileSync("src/pages/admin/AdminShell.tsx", "utf8");
+  expect(shell).toContain("min-h-[100svh]");
+  expect(shell).toContain("pb-[calc(2rem+env(safe-area-inset-bottom))]");
+});
+
+test("route indeks /admin terdaftar sebagai Ringkasan", () => {
+  // Satu-satunya pendaftaran rute baru yang belum dikunci kontrak.
+  const main = readFileSync("src/main.tsx", "utf8");
+  expect(main).toContain('<Route index element={<OverviewPage />} />');
+});
+
+test("aria-controls tombol menu menunjuk id hanya saat drawer terbuka", () => {
+  // `id="navigasi-pengelola"` hanya dirender saat drawer terbuka, jadi
+  // aria-controls yang menggantung saat tertutup menunjuk ke id tak ada.
+  const sidebar = readFileSync("src/components/admin-sidebar.tsx", "utf8");
+  expect(sidebar).toContain(
+    'aria-controls={open ? "navigasi-pengelola" : undefined}',
+  );
+  expect(sidebar).not.toContain('aria-controls="navigasi-pengelola"');
+});

@@ -235,10 +235,13 @@ test("halaman auth memang punya isian berikon yang perlu kolom ikon", () => {
   // Fase 9.5 menghapus isian email-sandi berikon, jadi ambang turun dari
   // 7 ke 3. Yang tersisa adalah isian passcode (ikon kiri + tombol
   // intip kanan) di kedua tema; keduanya dijaga per berkas supaya satu
-  // tema yang kehilangan ikonnya langsung terlihat.
+  // tema yang kehilangan ikonnya langsung terlihat. Pasangan ketiga adalah
+  // isian triase katalog — ikonnya ikut pindah dari Admin.tsx ke
+  // KatalogPage.tsx saat /admin dipecah jadi 5 halaman, jadi daftarnya
+  // menulis nama berkas tujuan, bukan berkas asal.
   const targets = pairs.filter((pair) =>
-    ["auth-admin-panel.tsx", "Auth.tsx", "Admin.tsx"].some((name) =>
-      pair.file.endsWith(name),
+    ["auth-admin-panel.tsx", "Auth.tsx", "Admin.tsx", "KatalogPage.tsx"].some(
+      (name) => pair.file.endsWith(name),
     ),
   );
   expect(targets.length).toBeGreaterThanOrEqual(3);

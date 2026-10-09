@@ -175,7 +175,7 @@ export function AdminHeader({
 
   return (
     <header className="sticky top-0 z-40 border-b-2 border-[#121212] bg-[#FAF7EE] pt-[env(safe-area-inset-top)]">
-      <div className="admin-shell-frame mx-auto flex min-h-16 max-w-[1600px] items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:px-10">
+      <div className="flex min-h-16 items-center gap-2 sm:gap-3">
         {/* Identitas: semua orang menumpuk ke sisi kiri. */}
         <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
           <img

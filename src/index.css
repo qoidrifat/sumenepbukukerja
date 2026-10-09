@@ -1633,8 +1633,14 @@
 
 /* Bilah perintah. Latar kertasnya dibuat sedikit tembus pandang lalu diberi
    blur, sehingga isi yang bergulir di bawahnya terlihat sebagai lapisan yang
-   lewat - bukan hilang di balik blok padat. Warna dan garis bawah 2px tetap. */
-.admin-workspace > header {
+   lewat - bukan hilang di balik blok padat. Warna dan garis bawah 2px tetap.
+
+   Setelah shell dipecah, header halaman bukan lagi anak langsung
+   `.admin-workspace` — ia duduk di dalam `main > div` halaman, jadi aturan
+   perlu sasaran kedua itu. Anak langsung tetap disertakan: layar gerbang
+   akses masih memakai susunan lama. */
+.admin-workspace > header,
+.admin-workspace .admin-shell-frame > main > * > header {
   background-color: color-mix(in srgb, var(--admin-canvas) 88%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(150%);
   backdrop-filter: blur(12px) saturate(150%);
@@ -1720,33 +1726,35 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* `main.admin-shell-frame`, bukan `.admin-shell-frame`: header juga memakai
-     kelas itu untuk barisnya sendiri, dan tombol menu di sana adalah chrome -
-     ia harus sudah ada sejak frame pertama, bukan menyusul 12px dari bawah. */
-  .admin-workspace main.admin-shell-frame > *,
+  /* Bingkai kini div pemisah di `AdminShell`, dan `main` tidak lagi membawa
+     kelas frame. Tiap halaman dirender sebagai satu anak `main` yang anak
+     pertamanya selalu `AdminHeader` — chrome yang harus sudah ada sejak frame
+     pertama, jadi animasi menyasar blok sesudah header dan seluruh jeda
+     bergeser satu posisi (blok pertama = nth-child(2), tanpa jeda). */
+  .admin-workspace .admin-shell-frame > main > * > :not(:first-child),
   .admin-workspace .admin-metric {
     animation: admin-rise 380ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
 
   /* Bertahap 55ms per blok, berhenti di blok keenam: cukup untuk terbaca
      sebagai urutan, tidak cukup untuk terasa menunggu. */
-  .admin-workspace main.admin-shell-frame > *:nth-child(2) {
+  .admin-workspace .admin-shell-frame > main > * > :nth-child(3) {
     animation-delay: 55ms;
   }
 
-  .admin-workspace main.admin-shell-frame > *:nth-child(3) {
+  .admin-workspace .admin-shell-frame > main > * > :nth-child(4) {
     animation-delay: 110ms;
   }
 
-  .admin-workspace main.admin-shell-frame > *:nth-child(4) {
+  .admin-workspace .admin-shell-frame > main > * > :nth-child(5) {
     animation-delay: 165ms;
   }
 
-  .admin-workspace main.admin-shell-frame > *:nth-child(5) {
+  .admin-workspace .admin-shell-frame > main > * > :nth-child(6) {
     animation-delay: 220ms;
   }
 
-  .admin-workspace main.admin-shell-frame > *:nth-child(n + 6) {
+  .admin-workspace .admin-shell-frame > main > * > :nth-child(n + 7) {
     animation-delay: 275ms;
   }
 }

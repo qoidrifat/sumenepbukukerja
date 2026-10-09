@@ -384,9 +384,16 @@ export const listAdminPresence = query({
       .query("adminPresence")
       .withIndex("byLastSeenAt", (q) => q.gte("lastSeenAt", now - PRESENCE_STALE_MS))
       .take(PRESENCE_SCAN_TAKE);
+    // Sidik dimasking dengan fungsi yang sama seperti payload event, supaya
+    // klien bisa mencocokkan badge "Aktif sekarang" tanpa pengenal mentah
+    // pernah menyentuh permukaan klien.
     return rows
       .filter((row) => now - row.lastSeenAt < PRESENCE_STALE_MS)
-      .map((row) => ({ sessionFingerprint: row.sessionFingerprint ?? null, route: row.route ?? null, lastSeenAt: row.lastSeenAt }));
+      .map((row) => ({
+        sessionFingerprint: maskFingerprint(row.sessionFingerprint ?? null),
+        route: row.route ?? null,
+        lastSeenAt: row.lastSeenAt,
+      }));
   },
 });
 
@@ -962,16 +969,11 @@ export const listAdminSecurityEvents = query({
     // UI tidak menawarkan mencabut sesi yang sedang dinaiki.
     const ownSessionId = await getAuthSessionId(ctx);
     const ownSessionReference = ownSessionId ? await sha256Hex(ownSessionId) : null;
-    // Kehadiran: hanya baris yang masih hidup yang dibaca, lewat rentang
-    // `byLastSeenAt` + take berplafon. Baris basi tidak memengaruhi
-    // `sessionLive`, jadi tidak perlu ikut terbaca.
-    const livePresence = await ctx.db
-      .query("adminPresence")
-      .withIndex("byLastSeenAt", (q) => q.gte("lastSeenAt", now - PRESENCE_STALE_MS))
-      .take(PRESENCE_SCAN_TAKE);
-    const liveFingerprints = new Set(
-      livePresence.filter((row) => now - row.lastSeenAt < PRESENCE_STALE_MS && row.sessionFingerprint).map((row) => row.sessionFingerprint as string),
-    );
+    // Kehadiran TIDAK dibaca di sini, disengaja. Baris `adminPresence`
+    // ditulis tiap heartbeat (±5 menit per sesi); selama query ini membacanya,
+    // setiap heartbeat men-total ulang query besar — bacaan ini yang terbukti
+    // menjadi pembakar I/O terbesar di produksi. Badge "Aktif sekarang" kini
+    // dihitung klien dari `listAdminPresence`, bacaan kecil dan terpisah.
 
     const windowStart = now - LOCKOUT_MS;
     // Agregat tiap baris dilengkapi dari indeks berplafon (kunci dalam jendela,
@@ -1112,7 +1114,6 @@ export const listAdminSecurityEvents = query({
         ipSuccessCount: ipRows.filter((other) => other.outcome === "success").length,
         ipFailureCount: ipRows.filter((other) => other.outcome === "failed").length,
         status: securityStatus({ outcome: row.outcome, failedInWindow, locked, maxAttempts: MAX_ATTEMPTS }),
-        sessionLive: row.sessionFingerprint ? liveFingerprints.has(row.sessionFingerprint) : false,
         previousSuccessAt: previous?.createdAt ?? null,
         sameIpAsPrevious: previous ? previous.ipHash === row.ipHash && row.ipHash !== undefined : null,
         sameDeviceAsPrevious: previous
@@ -1138,8 +1139,8 @@ export const listAdminSecurityEvents = query({
  * Bacaan pelengkap untuk satu halaman Security Desk.
  *
  * Tiap agregat diambil lewat indeks yang berlingkup pada halaman itu: se-kunci
- * dalam jendela (`byKeyCreatedAt` + take), se-IP (`byIpHash` + take, lalu
- * disaring jendela di memori karena belum ada komposit ip+waktu), se-sidik sesi
+ * dalam jendela (`byKeyCreatedAt` + take), se-IP dalam jendela
+ * (`byIpHashCreatedAt` + take), se-sidik sesi
  * (`bySessionFingerprint` + take, tanpa jendela supaya `previous` tetap
  * semantik lama), dan rentang rapid di sekitar halaman (`byCreatedAt` + take).
  * Semua berplafon keras; bila plafon tersentuh, `truncated: true`.
@@ -1176,9 +1177,13 @@ async function readSecurityPageSupplement(
   await Promise.all(
     [...new Set(page.map((row) => row.ipHash).filter((value): value is string => typeof value === "string"))].map(
       async (ipHash) => {
+        // Jendela diindeks, bukan di memori: `byIpHashCreatedAt` + gte
+        // windowStart hanya mengambil baris yang memang dipakai agregat,
+        // tanpa menyapu retensi lama lalu membuangnya (pemborosan baca yang
+        // sempat mengisi take(100) dengan baris di luar jendela).
         const rows = await ctx.db
           .query("adminPasscodeAttempts")
-          .withIndex("byIpHash", (q) => q.eq("ipHash", ipHash))
+          .withIndex("byIpHashCreatedAt", (q) => q.eq("ipHash", ipHash).gte("createdAt", windowStart))
           .take(SUPPLEMENT_IP_TAKE);
         if (rows.length >= SUPPLEMENT_IP_TAKE) truncated = true;
         ipRows.set(ipHash, rows);

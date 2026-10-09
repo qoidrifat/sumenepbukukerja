@@ -12,7 +12,7 @@ import { beforeEach, expect, test, vi } from "vitest";
  * preview, bukan di file ini.
  */
 
-const { state, mockUseAdminSecurityEvents, mockUseAdminSecuritySummary, mockUseAdminIpActivity } =
+const { state, mockUseAdminSecurityEvents, mockUseAdminSecuritySummary, mockUseAdminIpActivity, mockUseAdminLivePresence } =
   vi.hoisted(() => {
     const state = {
       events: null as unknown,
@@ -20,6 +20,8 @@ const { state, mockUseAdminSecurityEvents, mockUseAdminSecuritySummary, mockUseA
       // Kontrak `listAdminIpActivity`: objek `{ rows, truncated }`, bukan larik.
       ips: { rows: [], truncated: false } as unknown,
       session: null as unknown,
+      // Baris `listAdminPresence` (query terpisah) untuk badge "Aktif sekarang".
+      presence: [] as unknown,
     };
     // `vi.fn` membungkus nilai yang sama seperti pola mock sebelumnya, supaya
     // pemanggilan hook bisa diasersi (aturan visibilitas langganan).
@@ -35,13 +37,24 @@ const { state, mockUseAdminSecurityEvents, mockUseAdminSecuritySummary, mockUseA
       void args;
       return state.ips;
     });
-    return { state, mockUseAdminSecurityEvents, mockUseAdminSecuritySummary, mockUseAdminIpActivity };
+    const mockUseAdminLivePresence = vi.fn((...args: unknown[]) => {
+      void args;
+      return state.presence;
+    });
+    return {
+      state,
+      mockUseAdminSecurityEvents,
+      mockUseAdminSecuritySummary,
+      mockUseAdminIpActivity,
+      mockUseAdminLivePresence,
+    };
   });
 
 vi.mock("@/lib/catalog-store", () => ({
   useAdminSecurityEvents: (...args: unknown[]) => mockUseAdminSecurityEvents(...args),
   useAdminSecuritySummary: (...args: unknown[]) => mockUseAdminSecuritySummary(...args),
   useAdminIpActivity: (...args: unknown[]) => mockUseAdminIpActivity(...args),
+  useAdminLivePresence: (...args: unknown[]) => mockUseAdminLivePresence(...args),
   useCurrentAdminSession: () => state.session,
 }));
 
@@ -88,7 +101,6 @@ const makeEvent = (overrides: Record<string, unknown> = {}) => ({
   failedInWindow: 0,
   successfulInWindow: 1,
   status: "Normal",
-  sessionLive: false,
   previousSuccessAt: null,
   sameIpAsPrevious: null,
   sameDeviceAsPrevious: null,
@@ -122,7 +134,6 @@ const fullEvent = makeEvent({
   referrer: "https://contoh.id/auth",
   emailMasked: "a****@contoh.id",
   attemptNumber: 1,
-  sessionLive: true,
 });
 
 type RenderOpts = {
@@ -132,6 +143,8 @@ type RenderOpts = {
   pageTruncated?: boolean;
   /** Tandai aktivitas IP terpotong. */
   ipTruncated?: boolean;
+  /** Baris kehadiran dari query terpisah `listAdminPresence`. */
+  presence?: Array<{ sessionFingerprint: string | null; route: string | null; lastSeenAt: number }>;
 };
 
 const render = (events: unknown[], summary: unknown = null, opts: RenderOpts = {}) => {
@@ -145,6 +158,7 @@ const render = (events: unknown[], summary: unknown = null, opts: RenderOpts = {
   // `truncated: true` TANPA `total`, persis bentuk backend saat memangkas.
   state.summary = summary;
   state.ips = { rows: [], truncated: Boolean(opts.ipTruncated) };
+  state.presence = opts.presence ?? [];
   return renderToStaticMarkup(createElement(AdminSecurityLog, {}));
 };
 
@@ -152,6 +166,7 @@ const renderSecuritySection = ({ open = true }: { open?: boolean } = {}) => {
   state.events = { events: [], nextCursor: null, total: 0 };
   state.summary = null;
   state.ips = { rows: [], truncated: false };
+  state.presence = [];
   return renderToStaticMarkup(createElement(AdminSecurityLog, { open }));
 };
 
@@ -170,7 +185,9 @@ test("section terbuka tetap melanggan security", () => {
 });
 
 test("event sukses: status, waktu, perangkat, dan lokasi terbaca tanpa membuka detail", () => {
-  const html = render([fullEvent]);
+  const html = render([fullEvent], null, {
+    presence: [{ sessionFingerprint: "••••cdef", route: "/admin-gate/verify", lastSeenAt: CREATED_AT }],
+  });
 
   expect(html).toContain("Berhasil");
   expect(html).toContain("Aktif sekarang");
@@ -184,6 +201,17 @@ test("event sukses: status, waktu, perangkat, dan lokasi terbaca tanpa membuka d
   expect(html).toContain('aria-expanded="false"');
   expect(html).toContain('aria-controls="security-detail-evt1"');
   expect(html).toContain("Lihat detail keamanan");
+});
+
+test("badge aktif datang dari query kehadiran terpisah, bukan field payload event", () => {
+  // Payload event tidak lagi memuat `sessionLive` (lihat
+  // security-events-io.test.ts). Badge dihitung klien dari baris
+  // `listAdminPresence` yang sidiknya cocok dengan sidik ternormalisasi event.
+  const html = render([makeEvent({ _id: "evtLive", sessionFingerprint: "••••cdef" })], null, {
+    presence: [{ sessionFingerprint: "••••cdef", route: "/admin", lastSeenAt: CREATED_AT }],
+  });
+
+  expect(html).toContain("Aktif sekarang");
 });
 
 test("metadata teknis tetap disembunyikan sampai detail dibuka", () => {

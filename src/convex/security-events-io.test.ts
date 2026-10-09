@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { LOCKOUT_MS } from "../lib/admin-passcode";
+import { maskFingerprint } from "../lib/security-context";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -259,6 +260,52 @@ test("ekuivalen dengan full-scan lama untuk fixture dalam jendela", async () => 
     expect(e.failedInWindow).toBe(exp?.failed);
     expect(e.previousSuccessAt).toBe(exp?.prev);
   }
+});
+
+test("payload event tidak membawa kehadiran — dipisah ke query murah", async () => {
+  // Kehadiran (`adminPresence`) ditulis tiap heartbeat (±5 menit per sesi).
+  // Selama query daftar MEMBACA baris presence, setiap heartbeat men-total
+  // ulang seluruh query besar ini untuk tiap panel yang terbuka — pembakar
+  // I/O terbesar di produksi. Kehadiran kini milik `listAdminPresence`
+  // (bacaan kecil), jadi payload daftar tidak lagi memuat `sessionLive`.
+  const t = convexTest(schema, modules);
+  const owner = await setupAdmin(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("adminPasscodeAttempts", {
+      key: "k-hadir",
+      outcome: "failed",
+      createdAt: Date.now(),
+    });
+  });
+  const page = await owner.query(api.adminGate.listAdminSecurityEvents, { limit: 10 });
+  expect(page.events.length).toBeGreaterThan(0);
+  expect(page.events[0]).not.toHaveProperty("sessionLive");
+});
+
+test("listAdminPresence menyamai masking sidik seperti payload event", async () => {
+  // Klien mencocokkan sidik kehadiran dengan `sessionFingerprint` (sudah
+  // dimasking) di payload event. Kalau kehadiran mentah, badge "Aktif
+  // sekarang" tidak akan pernah cocok — dan sidik mentah tidak boleh bocor
+  // ke permukaan klien.
+  const t = convexTest(schema, modules);
+  const owner = await setupAdmin(t);
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    const db = ctx.db as unknown as {
+      insert: (table: string, doc: Record<string, unknown>) => Promise<string>;
+    };
+    const userId = await db.insert("users", { name: "Hadir Uji", email: "hadir@sumenep.co.id" });
+    await db.insert("adminPresence", {
+      userId,
+      sessionFingerprint: "sidik-mentah",
+      route: "/admin",
+      lastSeenAt: now,
+    });
+  });
+  const presence = await owner.query(api.adminGate.listAdminPresence, {});
+  expect(presence).toHaveLength(1);
+  expect(presence[0].sessionFingerprint).toBe(maskFingerprint("sidik-mentah"));
+  expect(presence[0].sessionFingerprint).not.toBe("sidik-mentah");
 });
 
 test("ringkasan menandai truncated saat jendela melebihi plafon", async () => {

@@ -22,6 +22,7 @@ import { TimeStampLabel } from "@/components/admin-workspace";
 import { SessionRevokeControl } from "@/components/admin-session-revoke";
 import {
   useAdminIpActivity,
+  useAdminLivePresence,
   useAdminSecurityEvents,
   useAdminSecuritySummary,
 } from "@/lib/catalog-store";
@@ -265,6 +266,11 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
   // toast, `signOut()`, baru redirect. Satu jalur keluar, bukan dua.
   const summary = useAdminSecuritySummary(24, open);
   const ipActivity = useAdminIpActivity(12, open);
+  // Kehadiran disubscribe terpisah dan murah: `adminPresence` ditulis tiap
+  // heartbeat, jadi kalau bacaannya ikut di query daftar (pembacaan besar),
+  // setiap heartbeat men-total ulang query daftar untuk panel yang terbuka —
+  // pembakar I/O terbesar di produksi. Di sini hanya ratusan byte per run.
+  const presence = useAdminLivePresence(open);
   // Backend Convex di-deploy terpisah dari frontend, jadi di produksi bisa
   // tertinggal beberapa hari. Selama selisih versi, `listAdminIpActivity`
   // masih mengembalikan larik telanjang (bentuk lama sebelum berubah jadi
@@ -315,6 +321,14 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
   // Klaim "belum ada" hanya sah bila totalnya diketahui nol, bukan
   // tak-diketahui (`undefined` saat truncated).
   const isKnownEmpty = page !== undefined && page.total === 0;
+  // Badge "Aktif sekarang" dihitung dari kehadiran terpisah: sidik event
+  // (dimasking server) dicocokkan dengan sidik kehadiran (dimasking fungsi
+  // yang sama), sehingga tidak ada pengenal mentah yang sampai ke klien.
+  const liveFingerprints = new Set(
+    (presence ?? []).flatMap((row) => (row.sessionFingerprint ? [row.sessionFingerprint] : [])),
+  );
+  const isSessionLive = (event: SecurityEvent) =>
+    Boolean(event.sessionFingerprint && liveFingerprints.has(event.sessionFingerprint));
 
   // Section tertutup: langganan sudah di-skip di atas, jadi tidak ada anak
   // berat yang perlu di-mount. Kembalikan `null` supaya skeleton "Memuat..."
@@ -497,7 +511,7 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
                           {status.label}
                         </span>
                       ) : null}
-                      {event.sessionLive ? (
+                      {isSessionLive(event) ? (
                         <span className="inline-flex items-center gap-1 border-2 border-[#121212] bg-[#DCEBD7] px-2 py-0.5 text-xs font-black text-[#24533A]">
                           <Radio className="size-3 shrink-0" aria-hidden="true" />
                           Aktif sekarang
@@ -711,7 +725,7 @@ export function AdminSecurityLog({ open = true }: { open?: boolean }) {
                       </Group>
                       <Group title="Aktivitas">
                         <Row label="Sesi aktif">
-                          {event.sessionLive ? "Aktif sekarang" : "Tidak aktif"}
+                          {isSessionLive(event) ? "Aktif sekarang" : "Tidak aktif"}
                         </Row>
                         <Row label="Login berhasil sebelumnya">
                           {event.previousSuccessAt ? (

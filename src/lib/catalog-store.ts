@@ -919,6 +919,19 @@ export function useAdminIpActivity(limit = 20, enabled = true) {
   return useQuery(api.adminGate.listAdminIpActivity, enabled ? { limit } : "skip");
 }
 
+/**
+ * Kehadiran admin hidup untuk badge "Aktif sekarang".
+ *
+ * Sengaja dipisah dari `useAdminSecurityEvents`: baris `adminPresence`
+ * ditulis tiap heartbeat (±5 menit per sesi), jadi selama bacaannya ikut di
+ * query daftar, setiap heartbeat men-total ulang query daftar yang besar
+ * (pembakar I/O terbesar di produksi). Bacaan ini hanya ratusan byte per run
+ * dan berhenti otomatis saat panel ditutup.
+ */
+export function useAdminLivePresence(enabled = true) {
+  return useQuery(api.adminGate.listAdminPresence, enabled ? {} : "skip");
+}
+
 /** Panel "Sesi Anda": hanya tentang sesi pengelola yang sedang membaca. */
 export function useCurrentAdminSession(enabled = true) {
   return useQuery(api.adminGate.currentAdminSession, enabled ? {} : "skip");

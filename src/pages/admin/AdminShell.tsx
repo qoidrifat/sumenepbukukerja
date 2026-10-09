@@ -33,8 +33,8 @@ import { useReviewQueue } from "@/lib/catalog-store";
 export function AdminShell() {
   const reviewQueue = useReviewQueue();
   return (
-    <div className="admin-workspace min-h-dvh bg-[#FAF7EE] text-[#1A1A1A]">
-      <div className="admin-shell-frame mx-auto flex max-w-[1600px] flex-col gap-4 px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10 sm:flex-row sm:items-start">
+    <div className="admin-workspace min-h-dvh min-h-[100svh] pb-[calc(2rem+env(safe-area-inset-bottom))] bg-[#FAF7EE] text-[#1A1A1A]">
+      <div className="admin-shell-frame mx-auto flex max-w-[1600px] flex-col gap-4 px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10 min-[768px]:flex-row min-[768px]:items-start">
         <AdminSidebar
           items={[
             { to: "/admin", label: "Ringkasan", icon: LayoutDashboard, visible: true },

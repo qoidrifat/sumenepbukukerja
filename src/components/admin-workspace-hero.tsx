@@ -15,7 +15,10 @@ import { TimeStampLabel } from "@/components/admin-workspace";
  * Sejak meja triage pindah ke `/admin/katalog`, kedua tautan di sini menaut
  * ke halaman itu. Shortcut antrean membawa nilai antreannya lewat router
  * state (`state={{ queueFilter }}`), dipakai halaman katalog sebagai nilai
- * AWAL filter — tetap bisa diubah pengguna di sana.
+ * AWAL filter — tetap bisa diubah pengguna di sana. Karena itu tautannya
+ * menandai `data-no-view-transition`: intersepsi zoom `AdminShell` hanya
+ * membawa `href`, dan tanpa penanda itu filter antrean akan hilang di
+ * jalan. (Tautan tanpa state tetap ikut transisi.)
  */
 export type AdminQueueShortcut<TQueue extends string = string> = {
   queue: TQueue;
@@ -97,6 +100,7 @@ export function AdminWorkspaceHero<TQueue extends string = string>({
                     <Link
                       to="/admin/katalog"
                       state={{ queueFilter: shortcut.queue }}
+                      data-no-view-transition
                       className="flex min-h-11 items-center justify-between gap-3 rounded-[2px] border-2 border-[#121212] bg-white px-3 py-1.5 text-sm transition-transform hover:bg-[#FFE662] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#FF5A26]"
                     >
                       <span className="flex min-w-0 items-center gap-2">

@@ -26,6 +26,60 @@ const reportArgs = {
   providerCode: "131008",
 };
 
+describe("skrip E2E tidak membuang antrean pengelola", () => {
+  /**
+   * Dua skenario di `e2e/flows.spec.ts` MELEMPAR error sungguhan
+   * (ruang nama `e2e:`) supaya dialog pelaporan teruji end-to-end. Rantai
+   * penuh sengaja tetap dijalankan — server memang harus menerima laporan
+   * dan mengembalikan ID. Yang tidak boleh terjadi: baris-artefak itu
+   * mengisi antrean `open` dan membangunkan admin (ERR-20261003-1Y09URI,
+   * ERR-20261004-0XRTHMK).
+   */
+  const e2eArgs = {
+    ...reportArgs,
+    kind: "operation" as const,
+    code: "RUNTIME_ERROR",
+    feature: "Unhandled runtime error",
+    operation: "window.onerror@unknown",
+    message: "e2e: pemeriksa nama aksesibel dialog",
+  };
+
+  test("pesan ber-awalan e2e: tersimpan sebagai ignored, bukan open", async () => {
+    const t = convexTest(schema, modules);
+    const outcome = await t.mutation(api.errorReports.reportError, e2eArgs);
+    // Rantai yang diuji E2E tetap utuh: server menjawab dengan ID laporan.
+    expect(outcome.reported).toBe(true);
+    expect(outcome.reportId).toMatch(/^ERR-/);
+
+    const rows = await t.run(async (ctx) => await ctx.db.query("errorReports").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("ignored");
+    expect(rows[0]!.alertStatus).toBe("skipped");
+  });
+
+  test("pengulangan e2e digabung tetap ignored dan tidak menjadwalkan alert", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.errorReports.reportError, e2eArgs);
+    await t.mutation(api.errorReports.reportError, e2eArgs);
+
+    const rows = await t.run(async (ctx) => await ctx.db.query("errorReports").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.occurrences).toBe(2);
+    expect(rows[0]!.status).toBe("ignored");
+    expect(rows[0]!.alertStatus).toBe("skipped");
+  });
+
+  test("laporan biasa tetap masuk antrean open", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.errorReports.reportError, reportArgs);
+
+    const rows = await t.run(async (ctx) => await ctx.db.query("errorReports").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("open");
+    expect(rows[0]!.alertStatus).toBe("queued");
+  });
+});
+
 describe("agregasi laporan per fingerprint", () => {
   test("fingerprint di luar jendela dedup menjadi kelompok tersendiri", async () => {
     // Jendela dedup sengaja berbatas: kegagalan yang sama setelah jendela

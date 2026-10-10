@@ -44,6 +44,20 @@ test("tidak menyentuh error yang bukan soal aset", () => {
   expect(isStaleChunkError("")).toBe(false);
 });
 
+test("aset yang memang dihapus: satu muat ulang lalu ditahan, bukan berputar (ERR-20261003-1LFCIUK)", () => {
+  // Laporan produksi ERR-20261003-1LFCIUK memuat URL pratinjau lokal dengan
+  // berkas yang sengaja dihapus. Perilaku yang benar bukan "tidak dilaporkan":
+  // pemulihan dicoba satu kali, dan ketika berkasnya tetap hilang penjaga
+  // menahan putaran sehingga RootErrorBoundary MENULIS laporan terminal.
+  const message =
+    "Failed to fetch dynamically imported module: http://127.0.0.1:4183/assets/Admin-SudahDihapus1234.js";
+  expect(isStaleChunkError(message)).toBe(true);
+
+  const { storage } = memoryStorage();
+  expect(recoverFromStaleChunk(message, { storage, reload: () => {}, now: 1_000_000 })).toBe("reloaded");
+  expect(recoverFromStaleChunk(message, { storage, reload: () => {}, now: 1_000_005 })).toBe("already-tried");
+});
+
 test("error chunk basi memicu satu muat ulang", () => {
   const { storage, map } = memoryStorage();
   let reloads = 0;

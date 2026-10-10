@@ -155,6 +155,33 @@ describe("reportAndNotify", () => {
     });
     expect(getErrorDialog().message).toBe("Integrasi WhatsApp belum dapat mengirim pesan uji");
   });
+
+  test("amplop diagnostik Convex sampai utuh ke server, tampilan tetap informatif (ERR-20261004-1AB3LQA)", async () => {
+    // Produksi: pesan yang tampil ke pengguna hanya "Called by client" —
+    // pembersihan di klien melepas `[CONVEX M(...)]` dan `[Request ID: ...]`
+    // SEBELUM laporan dikirim, sehingga server kehilangan satu-satunya
+    // petunjuk fungsi mana yang gagal. Rantainya harus: pesan mentah ke
+    // server, kalimat ramah yang disusun normalisasi yang tampil di dialog.
+    const reporter = reporterOk();
+    await reportAndNotify(reporter, {
+      caught: new Error(
+        "[CONVEX M(vendors.createVendor)] [Request ID: abcdef123456] Server Error\n    Called by client",
+      ),
+      kind: "operation",
+      feature: "Listing Management",
+      operation: "vendors.createVendor",
+    });
+
+    const payload = reporter.mock.calls[0]?.[0] as ErrorReportInput;
+    expect(payload.message).toContain("[CONVEX M(vendors.createVendor)]");
+    expect(payload.message).toContain("[Request ID: abcdef123456]");
+    // Tidak ada `userMessage` duplikat: kalimat ramah disusun server dari
+    // amplop yang kirimkan, bukan salinan pesan yang sudah dibersihkan.
+    expect(payload.userMessage).toBeUndefined();
+    expect(getErrorDialog().message).toBe(
+      "Error server pada vendors.createVendor tanpa pesan (Request ID abcdef123456)",
+    );
+  });
 });
 
 describe("withErrorReporting", () => {

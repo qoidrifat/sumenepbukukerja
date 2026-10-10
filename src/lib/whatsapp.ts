@@ -1,6 +1,17 @@
 export const sanitizePhoneNumber = (phone: string) => phone.replace(/\D/g, "").replace(/^0/, "62");
 
 /**
+ * Pesan mentah dari objek yang dilempar, TANPA pembersihan.
+ *
+ * Laporan error membutuhkan amplop `[CONVEX M(...)]` dan `[Request ID: ...]`
+ * untuk tahu fungsi mana yang gagal (ERR-20261004-1AB3LQA: tanpa amplop,
+ * server hanya menerima "Called by client"). Pembersihan hanya untuk
+ * tampilan, lewat `formatConvexError`.
+ */
+export const rawErrorMessage = (caught: unknown): string =>
+  caught instanceof Error ? caught.message : typeof caught === "string" ? caught : "";
+
+/**
  * Bersihkan pesan error dari server sebelum ditampilkan ke pengguna.
  *
  * Convex membungkus error action dengan pelacak internal
@@ -9,7 +20,7 @@ export const sanitizePhoneNumber = (phone: string) => phone.replace(/\D/g, "").r
  * balik jejak internal yang tidak berguna bagi warga.
  */
 export const formatConvexError = (caught: unknown, fallback: string) => {
-  const raw = caught instanceof Error ? caught.message : typeof caught === "string" ? caught : "";
+  const raw = rawErrorMessage(caught);
   const cleaned = raw
     // Nama kelas error di depan pesan. `err.message` dari Convex tidak
     // memuatnya (itu bagian dari `err.stack`), tapi teks yang dicatat di

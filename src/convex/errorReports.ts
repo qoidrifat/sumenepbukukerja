@@ -30,6 +30,7 @@ import {
   DEDUPE_WINDOW_MS,
   REPORT_REUSE_WINDOW_MS,
   buildAdminAlertMessage,
+  isE2eTestMessage,
   normalizeErrorReport,
   reportIdFor,
   resolveEnvironment,
@@ -173,11 +174,16 @@ const recordReport = async (
   const report = normalizeErrorReport(input, now);
   if (!report) return null;
 
+  // Artefak skrip E2E: rantai penuh tetap dijalankan sampai sini (dialog E2E
+  // bergantung pada ID laporan yang dikembalikan), tapi statusnya `ignored`
+  // dan tidak pernah menjadwalkan alert — baris ini bukan masalah produksi.
+  const e2eArtifact = isE2eTestMessage(input.message);
+
   const previous = await latestByFingerprint(ctx, report.fingerprint);
 
   if (previous && now - previous.lastSeenAt < DEDUPE_WINDOW_MS) {
     const occurrences = previous.occurrences + 1;
-    const alertScheduled = alertDecision(previous, occurrences, now);
+    const alertScheduled = !e2eArtifact && alertDecision(previous, occurrences, now);
     if (alertScheduled) scheduleAlert(ctx, previous._id);
     await ctx.db.patch(previous._id, {
       occurrences,
@@ -217,13 +223,11 @@ const recordReport = async (
     sequence = siblings.filter((row) => row.reportId === base || row.reportId.startsWith(`${base}-`)).length;
   }
 
-  const alertScheduled = alertDecision(
-    { severity: report.severity, alertAt: undefined },
-    1,
-    now,
-  );
+  const alertScheduled =
+    !e2eArtifact && alertDecision({ severity: report.severity, alertAt: undefined }, 1, now);
   const id = await ctx.db.insert("errorReports", {
     ...report,
+    status: e2eArtifact ? ("ignored" as const) : report.status,
     reportId: reportIdFor(now, report.fingerprint, sequence),
     environment: environment(),
     occurrences: 1,

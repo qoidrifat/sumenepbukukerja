@@ -104,10 +104,47 @@ function sameSecret(left: string, right: string) {
   return diff === 0;
 }
 
-async function validTwilioSignature(request: Request, body: string, params: URLSearchParams) {
+/**
+ * Alasan penolakan webhook Twilio.
+ *
+ * Dipisah supaya laporan produksi menunjuk akar masalah yang benar:
+ * ERR-20260930-1W7KRTQ dilaporkan sebagai "signature tidak cocok" padahal
+ * `TWILIO_AUTH_TOKEN` tidak pernah terpasang — memperbaiki signature tidak
+ * menyelesaikan apa pun selama tokennya kosong.
+ */
+export type TwilioSignatureRejection = "missing-token" | "missing-header" | "mismatch";
+
+export type SignatureVerdict = { ok: true } | { ok: false; reason: TwilioSignatureRejection };
+
+/**
+ * Pesan penolakan per alasan.
+ *
+ * Pesan `mismatch` sengaja PERSIS sama dengan versi lama: sidik jari laporan
+ * di panel dihitung dari teks ini, dan mengubahnya memecah riwayat yang
+ * sudah ada.
+ */
+export const twilioRejectionMessage = (reason: TwilioSignatureRejection): string =>
+  reason === "missing-token"
+    ? "Webhook Twilio ditolak karena TWILIO_AUTH_TOKEN belum terpasang di environment deployment, sehingga setiap permintaan Twilio gagal diverifikasi."
+    : reason === "missing-header"
+      ? "Webhook Twilio ditolak karena permintaan tidak membawa header X-Twilio-Signature."
+      : "Webhook Twilio ditolak karena signature tidak cocok.";
+
+/** Tindakan yang benar untuk penolakan yang berakar pada konfigurasi. */
+export const twilioRejectionAction = (reason: TwilioSignatureRejection): string | undefined =>
+  reason === "missing-token"
+    ? "Pasang TWILIO_AUTH_TOKEN di environment deployment Convex (bunx convex env set TWILIO_AUTH_TOKEN <token> --prod), atau matikan webhook Twilio di dashboard provider bila tidak dipakai."
+    : undefined;
+
+export async function validTwilioSignature(
+  request: Request,
+  body: string,
+  params: URLSearchParams,
+): Promise<SignatureVerdict> {
   const token = process.env.TWILIO_AUTH_TOKEN;
   const signature = request.headers.get("X-Twilio-Signature");
-  if (!token || !signature) return false;
+  if (!token) return { ok: false, reason: "missing-token" };
+  if (!signature) return { ok: false, reason: "missing-header" };
   const signedPayload =
     new URL(request.url).toString() +
     [...params.entries()]
@@ -125,9 +162,9 @@ async function validTwilioSignature(request: Request, body: string, params: URLS
     const expected = [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedPayload)))]
       .map((byte) => byte.toString(16).padStart(2, "0"))
       .join("");
-    return sameSecret(expected, signature);
+    return sameSecret(expected, signature) ? { ok: true } : { ok: false, reason: "mismatch" };
   } catch {
-    return false;
+    return { ok: false, reason: "mismatch" };
   }
 }
 
@@ -160,6 +197,8 @@ const reportWebhookIssue = async (
     /** Path rute yang dilaporkan, dipakai sebagai subjek `endpoint_error_burst`. */
     path?: string;
     context?: Record<string, unknown>;
+    /** Tindakan perbaikan spesifik alasan, kalau ada. */
+    recommendedAction?: string;
   },
 ) => {
   try {
@@ -172,6 +211,7 @@ const reportWebhookIssue = async (
       operation: input.operation,
       message: input.message,
       context: input.context,
+      recommendedAction: input.recommendedAction,
     });
   } catch (error) {
     // Reporter gagal. Dicatat di log server, lalu dihentikan di sini.
@@ -350,15 +390,21 @@ const whatsappWebhook = httpAction(async (ctx, request) => {
   }
 
   const params = new URLSearchParams(body);
-  if (!(await validTwilioSignature(request, body, params))) {
+  const verdict = await validTwilioSignature(request, body, params);
+  if (!verdict.ok) {
     await reportWebhookIssue(ctx, {
       feature: "WhatsApp Webhook",
       operation: "webhook.whatsapp.twilio.signature",
       kind: "operation",
       code: "WHATSAPP_WEBHOOK_SIGNATURE",
       severity: "warning",
-      message: "Webhook Twilio ditolak karena signature tidak cocok.",
-      context: { provider: "twilio", path: new URL(request.url).pathname },
+      message: twilioRejectionMessage(verdict.reason),
+      recommendedAction: twilioRejectionAction(verdict.reason),
+      context: {
+        provider: "twilio",
+        path: new URL(request.url).pathname,
+        rejection: verdict.reason,
+      },
       path: new URL(request.url).pathname,
     });
     return new Response("Invalid signature", { status: 403 });

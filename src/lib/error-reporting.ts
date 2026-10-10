@@ -574,6 +574,17 @@ export const resolveEnvironment = (env: Record<string, string | undefined>): str
 };
 
 /**
+ * Penanda laporan-artefak dari skrip E2E.
+ *
+ * `e2e/flows.spec.ts` melempar error sungguhan ber-awalan `e2e:` supaya
+ * dialog pelaporan teruji end-to-end — rantai penuh tetap dijalankan sampai
+ * server. Tapi baris hasilnya bukan masalah produksi: `recordReport`
+ * menandainya `ignored` supaya tidak mengisi antrean `open` dan tidak
+ * membangunkan admin (ERR-20261003-1Y09URI, ERR-20261004-0XRTHMK).
+ */
+export const isE2eTestMessage = (message: string): boolean => /^\s*e2e:/i.test(message);
+
+/**
  * Satu-satunya pintu masuk pelaporan. Semua sumber error -- klien, server,
  * webhook -- dinormalisasi di sini supaya tidak ada dua definisi "apa itu
  * laporan bug" di dalam kode.

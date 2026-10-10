@@ -27,7 +27,7 @@ import {
   type ErrorSeverity,
 } from "./error-reporting";
 import { buildAdminWhatsappLink } from "./admin-whatsapp";
-import { formatConvexError } from "./whatsapp";
+import { rawErrorMessage } from "./whatsapp";
 
 const FALLBACK_TITLE = "Terjadi kendala";
 
@@ -217,11 +217,14 @@ export const reportAndNotify = async (
   reporter: RegisteredReporter,
   input: ReportAndNotifyInput,
 ): Promise<ReportOutcome> => {
-  const message = formatConvexError(input.caught, input.userMessage ?? "Terjadi kesalahan.");
+  // Pesan dikirim APA ADANYA ke server. Amplop `[CONVEX M(...)]` dan
+  // `[Request ID: ...]` adalah satu-satunya petunjuk fungsi mana yang gagal;
+  // membersihkannya di klien membuat server hanya menerima "Called by client"
+  // (ERR-20261004-1AB3LQA). Kalimat ramah disusun server di `normalizeErrorReport`.
+  const message = rawErrorMessage(input.caught) || "Terjadi kesalahan.";
   const enriched: ErrorReportInput = {
     ...input,
     message,
-    userMessage: input.userMessage ?? message,
     route: input.route ?? currentRoute(),
     browser: browserName(),
     os: osName(),
@@ -240,7 +243,10 @@ export const reportAndNotify = async (
     setErrorDialog({
       phase: "reporting",
       title: input.title ?? FALLBACK_TITLE,
-      message: input.userMessage ?? message,
+      // `normalized` sudah dihitung di atas: kalimat yang tampil adalah
+      // hasil normalisasi server-setara (ramah bila tersedia, normalisasi
+      // bila tidak), bukan pesan mentah berisi jejak internal.
+      message: normalized.userMessage ?? normalized.message,
       errorCode: input.code,
       detail: technicalDetail(enriched),
       occurredAt: Date.now(),

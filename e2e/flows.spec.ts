@@ -82,7 +82,9 @@ test.describe("Skenario B — pelaporan error", () => {
    * laporan tampil -> popup bisa ditutup.
    *
    * CATATAN: ini menulis satu baris `errorReports` sungguhan di deployment
-   * yang sedang diuji.
+   * yang sedang diuji. Server menandai baris-artefak ini `ignored`
+   * (`isE2eTestMessage`), jadi tidak pernah mengisi antrean `open` dan tidak
+   * menjadwalkan alert — tetapi tetap ada di tabel sebagai jejak audit.
    */
   test("error sungguhan membuka dialog, menyimpan laporan, dan bisa ditutup", async ({ page }) => {
     await page.goto("/");

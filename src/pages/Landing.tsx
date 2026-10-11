@@ -100,8 +100,8 @@ function TopNav({ active = "Beranda" }: { active?: string }) {
     { label: "Cara Pakai", icon: Compass, to: "/#cara-pakai" },
   ];
   return (
-    <header className="sticky top-0 z-40 flex justify-center px-3 pt-3 pb-2 pt-[calc(0.75rem+env(safe-area-inset-top))]">
-      <div className="liquid-nav liquid--public relative w-full max-w-max">
+    <header className="liquid-bottom-wrap sticky top-0 z-40 flex justify-center px-3 pt-3 pb-2 pt-[calc(0.75rem+env(safe-area-inset-top))] max-[720px]:fixed max-[720px]:inset-x-0 max-[720px]:bottom-0 max-[720px]:top-auto max-[720px]:px-2 max-[720px]:pt-1">
+      <div className="liquid-nav liquid--public relative w-full max-w-[640px]">
         <div className="liquid-glare-wrap" aria-hidden="true">
           <div className="liquid-glare" />
         </div>

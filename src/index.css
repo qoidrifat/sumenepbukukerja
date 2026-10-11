@@ -273,10 +273,10 @@
     padding-bottom: calc(6rem + env(safe-area-inset-bottom));
   }
 
-  /* Ruang untuk BottomNav hanya relevan di lebar kecil. Di >=lg BottomNav
-     disembunyikan, jadi ruangnya harus hilang lagi - inilah yang dulu membuat
-     halaman perlu dua shell terpisah (AppShell/WebShell). */
-  @media (min-width: 1024px) {
+  /* Ruang untuk navbar bawah hanya relevan di <=720px (navbar pindah ke
+     bawah di breakpoint itu). Di >=721px navbar di atas, jadi ruang
+     bawah harus hilang. */
+  @media (min-width: 721px) {
     .pb-safe-nav {
       padding-bottom: 0;
     }

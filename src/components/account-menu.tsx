@@ -5,7 +5,6 @@ import { LayoutDashboard, LogOut, UserRound } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useDashboardTarget } from "@/hooks/use-dashboard-target";
-import { focusRing } from "@/lib/focus-ring";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,20 +58,37 @@ export function AccountMenu() {
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`Menu akun ${displayName}`}
-          className={`flex min-h-12 min-w-0 shrink-0 items-center gap-2 rounded-full border border-slate-200/90 bg-white py-1 pl-1 pr-3 shadow-[0_1px_2px_rgb(15_23_42/6%)] transition-colors hover:border-blue-300 hover:bg-blue-50 ${focusRing}`}
+          className="liquid-acct"
         >
-          <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-600 text-sm font-black text-white ring-1 ring-inset ring-white/25">
+          <span className="liquid-avatar">
             {profile?.imageUrl ? (
               <img src={profile.imageUrl} alt="" className="size-full object-cover" />
             ) : (
-              initials || <UserRound className="size-5" aria-hidden="true" />
+              initials || <UserRound className="size-4" aria-hidden="true" />
             )}
           </span>
-          <span className="hidden max-w-28 truncate text-sm font-extrabold text-slate-800 min-[420px]:inline">
+          <span className="liquid-acct-name">
             {displayName}
           </span>
+          <svg
+            className="liquid-chev"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-60 rounded-2xl border-slate-200/80 p-1.5 shadow-[0_18px_44px_-26px_rgb(15_23_42/38%)]">
+        <DropdownMenuContent
+          side="top"
+          align="end"
+          sideOffset={12}
+          className="min-w-[17.5rem] rounded-[20px] border-2 border-slate-900/12 bg-white/78 p-1.5 shadow-[0_24px_48px_-16px_rgb(15_23_42/18%),0_8px_16px_-8px_rgb(15_23_42/10%),inset_0_1px_1px_rgb(255_255_255/65%)] backdrop-blur-[36px] backdrop-saturate-[175%]"
+        >
           <DropdownMenuItem disabled={target === null} asChild={target !== null}>
             {target === null ? (
               <span className="flex min-h-12 items-center gap-2"><span>Dashboard</span></span>

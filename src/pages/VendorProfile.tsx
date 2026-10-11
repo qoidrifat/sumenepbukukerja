@@ -78,7 +78,7 @@ function CtaFeedback({
 
 function ProfileLoading() {
   return (
-    <main className="flex min-h-dvh min-h-[100svh] items-center justify-center bg-[#f7f8fc] px-4">
+    <main className="flex min-h-screen min-h-dvh min-h-[100svh] items-center justify-center bg-[#f7f8fc] px-4">
       <div className="text-center">
         <div className="mx-auto size-12 animate-pulse rounded-xl bg-blue-200" />
         <p className="mt-4 text-base font-bold text-slate-600">Membuka catatan usaha...</p>
@@ -273,7 +273,7 @@ function VendorProfileContent() {
   };
 
   return (
-    <div className="min-h-dvh min-h-[100svh] overflow-x-hidden bg-[#f7f8fc] pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-12">
+    <div className="min-h-screen min-h-dvh min-h-[100svh] overflow-x-hidden bg-[#f7f8fc] pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-12">
       <motion.header
         initial={reduceMotion ? false : { opacity: 0, y: -16 }}
         animate={{ opacity: 1, y: 0 }}

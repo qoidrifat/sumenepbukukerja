@@ -188,13 +188,16 @@ test("dialog profil dirender tanpa syarat, termasuk saat reduced-motion aktif", 
   const dialogIndex = workspace.indexOf("<AdminProfileDialog");
   expect(dialogIndex).toBeGreaterThan(-1);
 
-  // Baris sebelum tag dialog - di situlah kondisi apa pun akan ditulis.
-  const sebelum = workspace.slice(Math.max(0, dialogIndex - 200), dialogIndex);
-  expect(sebelum).not.toMatch(/reduceMotion\s*[?&]{1,2}/);
-  expect(sebelum).not.toMatch(/[?&]{1,2}\s*!?\s*reduceMotion/);
-  // `AnimatePresence` di area sekitar dialog juga tidak boleh
-  // muncul: itu lifecycle menu yang tidak boleh ada di dekat sini.
-  expect(sebelum).not.toContain("AnimatePresence");
+  // Kini ada DUA AnimatePresence (menu desktop + menu mobile). Dialog harus
+  // berada SETELAH penutup AnimatePresence terakhir — bukan di dalam salah
+  // satunya. Cari posisi penutup terakhir sebelum dialog.
+  const lastAnimateClose = workspace.lastIndexOf("</AnimatePresence>", dialogIndex);
+  expect(lastAnimateClose).toBeGreaterThan(-1);
+  expect(
+    dialogIndex,
+    "AdminProfileDialog harus dirender DI LUAR semua <AnimatePresence>. "
+      + "Di dalam sana, menutup panel menu akan mencabut dialognya sendiri.",
+  ).toBeGreaterThan(lastAnimateClose);
 });
 
 test("tombol profil memakai token admin, bukan gaya tombol generik", () => {

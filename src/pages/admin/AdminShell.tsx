@@ -104,7 +104,7 @@ export function AdminShell() {
   }, [navigate, pathname, search]);
 
   return (
-    <div className="admin-workspace min-h-dvh min-h-[100svh] bg-[#FAF7EE] text-[#1A1A1A]">
+    <div className="admin-workspace min-h-screen min-h-dvh min-h-[100svh] bg-[#FAF7EE] text-[#1A1A1A]">
       <AdminHeader
         role={access?.role ?? undefined}
         isOwner={access?.isOwner ?? false}
@@ -112,9 +112,9 @@ export function AdminShell() {
         accountImageUrl={myProfile?.imageUrl ?? null}
         reviewQueue={reviewQueue ?? undefined}
       />
-      {/* Desktop: jarak ~50px di bawah pill sticky. Mobile: bar bottom, jadi
-          konten hanya perlu padding bawah yang cukup untuk bar + safe-area. */}
-      <div className="admin-shell-frame relative mx-auto max-w-[1600px] px-3 pt-[50px] pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-10 lg:pb-10">
+      {/* Desktop: floating pill sticky di puncak. Mobile: bar bottom fixed,
+          konten perlu padding bawah agar tidak tertutup. */}
+      <div className="admin-shell-frame relative mx-auto max-w-[1600px] px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-10 min-[721px]:pb-10">
         <main className="min-w-0">
           <Outlet context={{ reviewQueue }} />
         </main>

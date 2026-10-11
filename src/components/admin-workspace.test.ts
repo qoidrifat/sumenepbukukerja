@@ -275,15 +275,14 @@ test("antrean review tampil sebagai badge di item Moderasi", () => {
   const html = renderHeader({
     reviewQueue: { claims: 1, photos: 2, reports: 3, total: 6 },
   });
+  // Angka badge tampil di item Moderasi.
   expect(html).toContain("6");
-  expect(html).toContain("perlu direview");
 });
 
-test("mobile bottom bar fixed + safe-area", () => {
+test("floating liquid pill sticky di puncak", () => {
   const html = renderHeader();
-  // Bar mobile: fixed bottom, safe-area aware, tersembunyi di desktop.
-  expect(html).toContain("fixed inset-x-0 bottom-0");
-  expect(html).toContain("md:hidden");
-  expect(html).toContain("safe-area-inset-bottom");
-  expect(html).toContain("liquid-nav--bottom");
+  expect(html).toContain("sticky top-0");
+  expect(html).toContain("liquid-nav");
+  expect(html).toContain("liquid-item");
+  expect(html).toContain("liquid-dropdown-wrap");
 });

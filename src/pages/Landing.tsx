@@ -56,31 +56,6 @@ import {
 // `@/lib/focus-ring` supaya semua kontrol di aplikasi memakai penanda yang sama.
 const recordedSearches = new Map<string, number>();
 
-function NotebookMark({ className = "" }: { className?: string }) {
-  return (
-    <img
-      src="/brand/logo-mark.svg"
-      alt=""
-      width={44}
-      height={44}
-      className={`size-11 shrink-0 rounded-xl object-contain ${className}`}
-      aria-hidden="true"
-    />
-  );
-}
-
-function Brand({ compact = false }: { compact?: boolean }) {
-  return (
-    <Link to="/" className={`group flex min-h-12 min-w-0 items-center gap-3 rounded-lg ${focusRing}`} aria-label="Sumenep Buku Kerja beranda">
-      <NotebookMark />
-      <span className="min-w-0 leading-tight">
-        <span className="brand-name block truncate text-lg font-extrabold tracking-[-0.04em] text-slate-950">Sumenep <span className="text-blue-600">Buku</span> Kerja</span>
-        {!compact && <span className="brand-tagline block truncate text-sm font-medium text-slate-600">Jasa dekat, tanpa ribet.</span>}
-      </span>
-    </Link>
-  );
-}
-
 // `landmark` tidak lagi jadi argumen: sejak FASE 10 teks pesan WhatsApp
 // disusun server dari data listing, bukan di peramban. Parameternya dihapus,
 // bukan dibiarkan tidak terpakai, supaya tidak menyesatkan pembaca kode.
@@ -126,71 +101,18 @@ function TopNav({ active = "Beranda" }: { active?: string }) {
   ];
   return (
     <header className="sticky top-0 z-40 flex justify-center px-3 pt-3 pb-2 pt-[calc(0.75rem+env(safe-area-inset-top))]">
-      <div className="liquid-nav liquid--public relative w-full max-w-[1600px] justify-between gap-2 rounded-[20px] px-2 lg:justify-start">
+      <div className="liquid-nav liquid--public relative w-full max-w-max">
         <div className="liquid-glare-wrap" aria-hidden="true">
           <div className="liquid-glare" />
         </div>
-        <div className="relative z-10 flex min-w-0 items-center">
-          <Brand />
-        </div>
-        <nav className="relative z-10 hidden items-center gap-0.5 lg:flex" aria-label="Navigasi utama">
+        <div className="liquid-items">
           {links.map(({ label, icon: Icon, to }) => (
             <a
               key={label}
               href={to}
               aria-current={active === label ? "page" : undefined}
               aria-label={label}
-              className={`liquid-item ${active === label ? "" : ""}`}
-            >
-              <span className="liquid-item-content">
-                <Icon aria-hidden />
-                <span className="liquid-lbl max-w-[8rem] truncate">{label}</span>
-              </span>
-            </a>
-          ))}
-        </nav>
-        <div className="relative z-10 flex shrink-0 items-center gap-2">
-          {isAuthenticated ? (
-            <AccountMenu />
-          ) : (
-            <a
-              href="#katalog"
-              aria-label="Cari jasa"
-              className="header-cta inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-4 text-sm font-extrabold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
-            >
-              <Search className="size-4 shrink-0" aria-hidden="true" />
-              <span className="hidden min-[420px]:inline">Cari jasa</span>
-            </a>
-          )}
-        </div>
-      </div>
-    </header>
-  );
-}
-
-function BottomNav() {
-  const items = [
-    { label: "Beranda", icon: Home, href: "#beranda" },
-    { label: "Katalog", icon: Store, href: "#katalog" },
-    { label: "Permintaan", icon: ClipboardList, href: "#permintaan" },
-    { label: "Cara Pakai", icon: Compass, href: "#cara-pakai" },
-  ];
-  return (
-    <nav
-      className="fixed inset-x-0 bottom-0 z-50 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1 lg:hidden"
-      aria-label="Navigasi bawah"
-    >
-      <div className="liquid-nav liquid--public liquid-nav--bottom relative">
-        <div className="liquid-glare-wrap" aria-hidden="true">
-          <div className="liquid-glare" />
-        </div>
-        <div className="liquid-items">
-          {items.map(({ label, icon: Icon, href }) => (
-            <a
-              key={label}
-              href={href}
               className="liquid-item"
-              aria-current={label === "Beranda" ? "page" : undefined}
             >
               <span className="liquid-item-content">
                 <Icon aria-hidden />
@@ -199,8 +121,35 @@ function BottomNav() {
             </a>
           ))}
         </div>
+        <div className="liquid-divider" aria-hidden="true" />
+        {isAuthenticated ? (
+          <AccountMenu />
+        ) : (
+          <a
+            href="#katalog"
+            aria-label="Cari jasa"
+            className="liquid-acct"
+          >
+            <span className="liquid-avatar">
+              <Search className="size-4" aria-hidden="true" />
+            </span>
+            <span className="liquid-acct-name">Cari jasa</span>
+            <svg
+              className="liquid-chev"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </a>
+        )}
       </div>
-    </nav>
+    </header>
   );
 }
 
@@ -318,7 +267,7 @@ function VendorCard({ vendor, saved, onSave, onCompare }: { vendor: Vendor; save
  * Perbedaannya sekarang cukup satu aturan di `pb-safe-nav` (lihat index.css).
  */
 function LandingShell({ children }: { children: React.ReactNode }) {
-  return <div className="min-h-dvh min-h-[100svh] w-full overflow-x-hidden bg-[#f7f8fc] pb-safe-nav">{children}</div>;
+  return <div className="min-h-screen min-h-dvh min-h-[100svh] w-full overflow-x-hidden bg-[#f7f8fc] pb-safe-nav">{children}</div>;
 }
 
 function NotebookBackdrop() {
@@ -720,7 +669,7 @@ function DirectoryContent({
   onClearLocation: () => void;
 }) {
   const [activeLandmark, setActiveLandmark] = useState("all");
-  return <><ScrollProgress /><TopNav /><NotebookBackdrop /><Hero vendorCount={vendors.length} onBrowse={() => document.getElementById("katalog")?.scrollIntoView({ behavior: "smooth" })} /><FilterSection activeLandmark={activeLandmark} setActiveLandmark={setActiveLandmark} /><Catalog activeLandmark={activeLandmark} vendors={vendors} location={location} locationStatus={locationStatus} locationError={locationError} onRequestLocation={onRequestLocation} onClearLocation={onClearLocation} /><RequestBoard /><HowItWorks /><LocalCategories /><SiteFooter /><BottomNav /></>;
+  return <><ScrollProgress /><TopNav /><NotebookBackdrop /><Hero vendorCount={vendors.length} onBrowse={() => document.getElementById("katalog")?.scrollIntoView({ behavior: "smooth" })} /><FilterSection activeLandmark={activeLandmark} setActiveLandmark={setActiveLandmark} /><Catalog activeLandmark={activeLandmark} vendors={vendors} location={location} locationStatus={locationStatus} locationError={locationError} onRequestLocation={onRequestLocation} onClearLocation={onClearLocation} /><RequestBoard /><HowItWorks /><LocalCategories /><SiteFooter /></>;
 }
 
 export default function Landing() {

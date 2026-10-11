@@ -364,18 +364,22 @@ test("menu header punya isi yang lengkap dan bisa diakses", () => {
   expect(workspace).toContain("<ArrowLeft");
   // Liquid pill + sliding active pill.
   expect(workspace).toContain("liquid-nav");
-  expect(workspace).toContain("LiquidPill");
-  expect(workspace).toContain("liquid-item");
+  expect(workspace).toContain("LiquidItems");
+  expect(workspace).toContain("LiquidItem");
   // Keluar lewat modul bersama, bukan implementasi kedua.
   expect(workspace).toContain("AdminLogoutConfirm");
   expect(workspace).toContain("setLogoutOpen(true)");
 });
 
-test("mobile bottom bar fixed di bawah layar", () => {
+test("dropdown akun membuka dropup di mobile", () => {
   const workspace = source("../components/admin-workspace.tsx");
-  expect(workspace).toContain("fixed inset-x-0 bottom-0");
-  expect(workspace).toContain("md:hidden");
-  expect(workspace).toContain("liquid-nav--bottom");
+  // Deteksi mobile → dropup class.
+  expect(workspace).toContain("useIsMobileLiquid");
+  expect(workspace).toContain("liquid-dropdown--up");
+  // Chevron rotasi saat expanded.
+  const css = source("../index.css");
+  expect(css).toContain(".liquid-chev");
+  expect(css).toContain('aria-expanded="true"]');
 });
 
 test("alur keluar punya satu implementasi saja", () => {
@@ -468,14 +472,17 @@ test("semua halaman rute admin ikut daftar kontrak tema", () => {
   for (const page of pages) expect(ADMIN_SOURCES, page).toContain(page);
 });
 
-test("baris header memakai liquid pill, bukan bingkai sendiri", () => {
-  // Header kini floating liquid pill (desktop) + fixed bottom bar (mobile).
-  // Tidak ada lagi `admin-shell-frame` / `max-w` di dalam header.
+test("baris header memakai struktur yang benar", () => {
+  // Desktop: header brutalist sticky (bukan liquid pill).
+  // Mobile: liquid bottom bar.
+  // Keduanya dirender di AdminShell.
   const workspace = source("../components/admin-workspace.tsx");
+  // Floating liquid pill sticky di puncak.
+  expect(workspace).toContain("sticky top-0");
+  expect(workspace).toContain("LiquidNav");
   expect(workspace).toContain("liquid-nav");
-  expect(workspace).toContain("admin-liquid");
+  // Tidak ada lagi bingkai shell ganda di header.
   expect(workspace).not.toContain("admin-shell-frame");
-  expect(workspace).not.toContain("max-w-[1600px]");
 });
 
 test("efek kaca bilah perintah mengenai header di hierarki shell baru", () => {

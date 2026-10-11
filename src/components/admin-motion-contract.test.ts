@@ -18,12 +18,12 @@ const read = (path: string) => readFileSync(path, "utf8");
 
 test("header sticky menempel di puncak viewport dengan jarak ke konten", () => {
   const workspace = read("src/components/admin-workspace.tsx");
-  // Sticky top-0 = mentok tepi atas halaman.
+  // Floating liquid pill sticky di puncak viewport.
   expect(workspace).toContain("sticky top-0");
+  expect(workspace).toContain("LiquidNav");
+  expect(workspace).toContain("liquid-nav");
   const shell = read("src/pages/admin/AdminShell.tsx");
-  // Jarak ~50px antara header dan bingkai konten utama.
-  expect(shell).toContain("pt-[50px]");
-  // Header dirender di shell, bukan per halaman.
+  // Header dirender di shell.
   expect(shell).toContain("<AdminHeader");
 });
 
@@ -31,10 +31,10 @@ test("drawer menu memakai framer-motion dan hormati reduced motion", () => {
   const workspace = read("src/components/admin-workspace.tsx");
   expect(workspace).toContain("AnimatePresence");
   expect(workspace).toContain("useReducedMotion");
-  // Panel menu menempel di wrapper relative header; max-height agar baris
+  // Panel menu memakai kelas liquid-dropdown; max-height agar baris
   // terakhir tetap terjangkau di layar pendek.
   const css = read("src/index.css");
-  expect(css).toContain(".admin-menu");
+  expect(css).toContain(".liquid-dropdown");
   expect(css).toContain("max-height: min(28rem");
 });
 

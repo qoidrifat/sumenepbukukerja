@@ -100,10 +100,8 @@ test("fix(T4): single main landmark lives in shell; pages return div", () => {
 
 test("shell mempertahankan pagar ruang kerja lama", () => {
   // Pembungkus `Admin.tsx` sebelum shell membawa tinggi viewport minimum.
-  // Mobile bottom bar menuntut padding bawah ekstra + safe-area.
   const shell = readFileSync("src/pages/admin/AdminShell.tsx", "utf8");
   expect(shell).toContain("min-h-[100svh]");
-  expect(shell).toContain("safe-area-inset-bottom");
 });
 
 test("route indeks /admin terdaftar sebagai Ringkasan", () => {

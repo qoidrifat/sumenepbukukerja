@@ -30,8 +30,9 @@ test("dialog hidup DI LUAR DropdownMenu (pelajaran admin-profile)", () => {
 });
 
 test("tema publik + target sentuh + tanpa kelas admin", () => {
-  expect(src).toContain("focusRing");
-  expect(src).toContain("min-h-12");
+  // Trigger memakai kelas liquid (bukan admin), tanpa border brutalism.
+  expect(src).toContain("liquid-acct");
+  expect(src).toContain("liquid-avatar");
   expect(src).not.toContain("admin-");
   expect(src).not.toContain("border-[#121212]");
 });

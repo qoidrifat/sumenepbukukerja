@@ -35,7 +35,7 @@ type PillTone = "blue" | "green" | "amber" | "red" | "neutral";
 export function DashShell({ children, className, ...rest }: ComponentPropsWithoutRef<"main">) {
   return (
     <main
-      className={cn("dash-shell min-h-dvh min-h-[100svh] bg-[#f7f8fc] text-foreground", className)}
+      className={cn("dash-shell min-h-screen min-h-dvh min-h-[100svh] bg-[#f7f8fc] text-foreground", className)}
       {...rest}
     >
       {children}

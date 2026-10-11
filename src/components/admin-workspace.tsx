@@ -26,7 +26,13 @@ import { formatDateTime, formatRelativeTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import { AdminProfileDialog, AdminProfileTrigger } from "@/components/admin-profile";
 import { AdminLogoutConfirm } from "@/components/admin-logout-button";
-import { LiquidPill } from "@/components/liquid-nav";
+import {
+  LiquidNav,
+  LiquidItems,
+  LiquidItem,
+  LiquidDivider,
+  useIsMobileLiquid,
+} from "@/components/liquid-nav";
 import { OWNER_SHORT_TITLE } from "@/lib/owner-account";
 
 /*
@@ -156,148 +162,142 @@ export function AdminHeader({
   const modQueueBadge =
     reviewQueue && reviewQueue.total > 0 ? reviewQueue.total : undefined;
 
-  // Konten navigasi bersama desktop & mobile.
-  const navContent = (
-    <>
-      <div className="liquid-glare-wrap" aria-hidden="true">
-        <div className="liquid-glare" />
-      </div>
-      <div className="liquid-items" ref={itemsRef}>
-        <LiquidPill containerRef={itemsRef} />
-        {featureNav.map((item) => {
-          const Icon = item.icon;
-          const badge = item.to === "/admin/moderasi" ? modQueueBadge : undefined;
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className="liquid-item"
-              title={item.label}
-              aria-label={
-                badge
-                  ? `${item.label}, ${badge} perlu direview`
-                  : item.label
-              }
-            >
-              <span className="liquid-item-content">
-                <Icon aria-hidden />
-                <span className="liquid-lbl">{item.label}</span>
-              </span>
-              {badge ? (
-                <span
-                  className="absolute top-0 right-0 flex size-4 items-center justify-center rounded-full bg-[#FF5A26] text-[10px] font-black text-white"
-                  aria-hidden="true"
-                >
-                  {badge > 9 ? "9+" : badge}
-                </span>
-              ) : null}
-            </NavLink>
-          );
-        })}
-      </div>
-      <div className="liquid-divider" aria-hidden="true" />
-      <div className="relative" ref={menuRef}>
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={() => setMenuOpen((open) => !open)}
-          className="liquid-acct"
-          aria-label={menuOpen ? "Tutup menu akun" : "Buka menu akun"}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          aria-controls="admin-workspace-menu"
-        >
-          <span className="liquid-avatar">
-            {accountImageUrl ? (
-              <img
-                src={accountImageUrl}
-                alt=""
-              />
-            ) : (
-              accountInitials || (
-                <UserRound className="size-4" aria-hidden />
-              )
-            )}
-          </span>
-          <span className="liquid-acct-name max-[767px]:hidden">
-            {accountName || roleLabel}
-          </span>
-        </button>
-        <AnimatePresence>
-          {menuOpen ? (
-            <motion.div
-              id="admin-workspace-menu"
-              role="menu"
-              aria-label="Menu akun"
-              className="admin-menu"
-              initial={reduceMotion ? false : { opacity: 0, y: -8, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.98 }}
-              transition={
-                reduceMotion
-                  ? { duration: 0 }
-                  : { type: "spring", stiffness: 420, damping: 32, mass: 0.7 }
-              }
-            >
-              <p className="admin-menu-head">
-                {isOwner ? OWNER_SHORT_TITLE : roleLabel}
-                {accountName ? ` · ${accountName}` : ""}
-              </p>
-              <Link
-                to="/"
-                role="menuitem"
-                className="admin-menu-item"
-                onClick={() => setMenuOpen(false)}
-              >
-                <ArrowLeft className="size-5 shrink-0" aria-hidden="true" />
-                Beranda
-              </Link>
-              <AdminProfileTrigger
-                variant="menu"
-                onOpen={() => {
-                  setMenuOpen(false);
-                  setProfileOpen(true);
-                }}
-              />
-              <div className="admin-menu-separator" aria-hidden="true" />
-              <button
-                type="button"
-                role="menuitem"
-                className="admin-menu-item admin-menu-item-danger"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setLogoutOpen(true);
-                }}
-              >
-                <LogOut className="size-5 shrink-0" aria-hidden="true" />
-                Keluar
-              </button>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
-      </div>
-    </>
-  );
+  const isMobile = useIsMobileLiquid();
 
   return (
     <>
-      {/* Desktop: floating pill sticky di puncak, tengah horizontal. */}
-      <header className="sticky top-0 z-40 flex justify-center pt-3 pb-2 max-md:hidden">
-        <div className="liquid-nav admin-liquid relative">
-          {navContent}
-        </div>
-      </header>
+      {/* Desktop (≥721px): floating pill sticky di puncak, tengah horizontal.
+          Mobile (≤720px): fixed di BOTTOM layar, lebar penuh, safe-area. */}
+      <header className="liquid-bottom-wrap sticky top-0 z-40 flex justify-center px-3 pt-3 pb-2 pt-[calc(0.75rem+env(safe-area-inset-top))] max-[720px]:fixed max-[720px]:inset-x-0 max-[720px]:bottom-0 max-[720px]:top-auto max-[720px]:px-2 max-[720px]:pt-1">
+        <LiquidNav ariaLabel="Navigasi ruang pengelola" className="relative w-full max-w-[640px]">
+          <LiquidItems containerRef={itemsRef}>
+            {featureNav.map((item) => {
+              const Icon = item.icon;
+              const badge = item.to === "/admin/moderasi" ? modQueueBadge : undefined;
+              return (
+                <LiquidItem
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  icon={Icon}
+                  label={item.label}
+                  badge={badge}
+                  title={item.label}
+                />
+              );
+            })}
+          </LiquidItems>
 
-      {/* Mobile: bar FIX di BOTTOM layar, safe-area aware. */}
-      <nav
-        aria-label="Navigasi ruang pengelola"
-        className="fixed inset-x-0 bottom-0 z-40 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1 md:hidden"
-      >
-        <div className="liquid-nav admin-liquid liquid-nav--bottom relative">
-          {navContent}
-        </div>
-      </nav>
+          <LiquidDivider />
+
+          {/* Trigger akun + dropdown/dropup */}
+          <div className="liquid-dropdown-wrap" ref={menuRef}>
+            <button
+              ref={triggerRef}
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              className="liquid-acct"
+              aria-label={menuOpen ? "Tutup menu akun" : "Buka menu akun"}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-controls="admin-workspace-menu"
+            >
+              <span className="liquid-avatar">
+                {accountImageUrl ? (
+                  <img src={accountImageUrl} alt="" />
+                ) : (
+                  accountInitials || <UserRound className="size-4" aria-hidden />
+                )}
+              </span>
+              {!isMobile && (
+                <span className="liquid-acct-name">{accountName || roleLabel}</span>
+              )}
+              <svg
+                className="liquid-chev"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+
+            <AnimatePresence>
+              {menuOpen ? (
+                <motion.div
+                  id="admin-workspace-menu"
+                  role="menu"
+                  aria-label="Menu akun"
+                  className={`liquid-dropdown${isMobile ? " liquid-dropdown--up" : ""}`}
+                  initial={reduceMotion ? false : { opacity: 0, scale: 0.95, y: isMobile ? 6 : -6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: isMobile ? 4 : -4 }}
+                  transition={
+                    reduceMotion
+                      ? { duration: 0 }
+                      : { type: "spring", stiffness: 420, damping: 32, mass: 0.7 }
+                  }
+                >
+                  <p className="liquid-dd-head">
+                    {isOwner ? OWNER_SHORT_TITLE : roleLabel}
+                    {accountName ? ` · ${accountName}` : ""}
+                  </p>
+                  {featureNav.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        end={item.end}
+                        role="menuitem"
+                        className="liquid-dd-item"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        <Icon aria-hidden />
+                        {item.label}
+                      </NavLink>
+                    );
+                  })}
+                  <div className="liquid-dd-sep" aria-hidden="true" />
+                  <Link
+                    to="/"
+                    role="menuitem"
+                    className="liquid-dd-item"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <ArrowLeft aria-hidden />
+                    Beranda
+                  </Link>
+                  <AdminProfileTrigger
+                    variant="menu"
+                    onOpen={() => {
+                      setMenuOpen(false);
+                      setProfileOpen(true);
+                    }}
+                  />
+                  <div className="liquid-dd-sep" aria-hidden="true" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="liquid-dd-item liquid-dd-danger"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setLogoutOpen(true);
+                    }}
+                  >
+                    <LogOut aria-hidden />
+                    Keluar
+                  </button>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </div>
+        </LiquidNav>
+      </header>
 
       <AdminProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
       <AdminLogoutConfirm open={logoutOpen} onOpenChange={setLogoutOpen} />

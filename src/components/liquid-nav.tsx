@@ -1,21 +1,25 @@
 /* eslint-disable react-refresh/only-export-components -- hooks + components co-located by design; split would fragment the primitive. */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router";
-import { useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
- * Primitive Liquid Glass Navigation.
+ * Primitive Liquid Glass Navigation — sinkron dengan referensi
+ * liquid-nav-preview.html.
  *
- * Material kaca Apple (blur + lapisan cahaya dalam + refleksi aqua + glare
- * kursor) di atas cincin brutalism. Sliding active pill memakai kurva spring
- * ≤350ms (HIG). Hormati reduced-motion: pill snap, glare mati.
+ * Material kaca Apple (blur 42px, saturate 185%, lapisan cahaya dalam,
+ * refleksi aqua, glare kursor) di atas cincin brutalism 2px. Sliding active
+ * pill memakai kurva spring 320ms. Reduced-motion: pill snap, glare mati.
  *
- * Dipakai AdminHeader (varian admin) dan bisa dipakai publik (varian
- * `liquid--public`).
+ * Breakpoint ikon-only: 720px.
  */
 
-/** Posisi sliding pill: lebar + translateX dari item aktif. */
+export const LIQUID_MOBILE_MQ = "(max-width: 720px)";
+
+/**
+ * Sliding active pill: ukur item `[aria-current="page"]`, geser + lebar
+ * sinkron. `useLayoutEffect` positioning sebelum paint — anti-lompat.
+ */
 export function useSlidingPill(containerRef: React.RefObject<HTMLElement | null>) {
   const { pathname } = useLocation();
   const [pill, setPill] = useState({ x: 0, w: 0, ready: false });
@@ -31,24 +35,35 @@ export function useSlidingPill(containerRef: React.RefObject<HTMLElement | null>
     setPill({ x: active.offsetLeft, w: active.offsetWidth, ready: true });
   }, [containerRef]);
 
-  // Ukur saat rute berpindah dan saat layout berubah (resize).
-  useEffect(() => {
+  useLayoutEffect(() => {
     measure();
   }, [pathname, measure]);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => measure());
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, [containerRef, measure]);
+    if (!container) return;
+    const cleanup: Array<() => void> = [];
 
-  // Frame pertama: pill mulai tanpa transisi supaya tidak meluncur dari nol.
-  const firstRender = useRef(true);
-  useEffect(() => {
-    if (firstRender.current) firstRender.current = false;
-  }, []);
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(() => measure());
+      ro.observe(container);
+      cleanup.push(() => ro.disconnect());
+    }
+
+    if (typeof window.matchMedia === "function") {
+      const mq = window.matchMedia(LIQUID_MOBILE_MQ);
+      const onMq = () => measure();
+      if (typeof mq.addEventListener === "function") {
+        mq.addEventListener("change", onMq);
+        cleanup.push(() => mq.removeEventListener("change", onMq));
+      } else {
+        mq.addListener(onMq);
+        cleanup.push(() => mq.removeListener(onMq));
+      }
+    }
+
+    return () => cleanup.forEach((fn) => fn());
+  }, [containerRef, measure]);
 
   return {
     style: {
@@ -56,13 +71,12 @@ export function useSlidingPill(containerRef: React.RefObject<HTMLElement | null>
       transform: pill.w ? `translateX(${pill.x}px)` : undefined,
       opacity: pill.ready ? 1 : 0,
     } as React.CSSProperties,
-    ready: pill.ready,
   };
 }
 
 /**
- * Glare kursor: set CSS var `--gx`/`--gy` dari posisi pointer relatif nav.
- * Hanya aktif di perangkat fine-pointer (hover); sentuhan tidak memicu.
+ * Glare kursor: set `--gx`/`--gy` dari posisi pointer relatif nav.
+ * Hanya fine-pointer (hover); sentuhan tidak memicu.
  */
 export function useGlare<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
@@ -70,6 +84,7 @@ export function useGlare<T extends HTMLElement>() {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    if (typeof window.matchMedia !== "function") return;
     if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
 
     const onMove = (event: PointerEvent) => {
@@ -85,26 +100,21 @@ export function useGlare<T extends HTMLElement>() {
 }
 
 /**
- * Shell Liquid Glass: container kaca + refleksi + glare + sliding pill.
- * Anak: item navigasi ( NavLink / button ) + divider + pemicu akun.
+ * Shell Liquid Glass: container kaca + refleksi + glare.
+ * Anak: LiquidItems + LiquidDivider + trigger akun (dropdown/dropup).
  */
 export function LiquidNav({
   children,
   className,
   variant = "admin",
-  bottom = false,
   ariaLabel,
 }: {
   children: React.ReactNode;
   className?: string;
-  /** Token warna: admin (warm brutalism) atau publik (kaca dingin). */
   variant?: "admin" | "public";
-  /** Bottom bar mobile: melebar penuh, ikon + label kecil. */
-  bottom?: boolean;
   ariaLabel: string;
 }) {
   const navRef = useGlare<HTMLDivElement>();
-  const reduceMotion = useReducedMotion();
 
   return (
     <div
@@ -115,44 +125,45 @@ export function LiquidNav({
         "liquid-nav",
         variant === "admin" && "admin-liquid",
         variant === "public" && "liquid--public",
-        bottom && "liquid-nav--bottom",
         className,
       )}
     >
-      {/* Glare: hanya fine-pointer, dimatikan reduced-motion lewat CSS. */}
       <div className="liquid-glare-wrap" aria-hidden="true">
         <div className="liquid-glare" />
       </div>
       {children}
-      {/* Sentinel untuk reduced-motion: glow kecil sebagai alternatif gerak. */}
-      {reduceMotion ? null : null}
     </div>
   );
 }
 
 /**
- * Sliding active pill. Render DI DALAM `.liquid-items` sebagai anak pertama.
- * Ukur item `[aria-current="page"]` dan geser dengan spring ≤350ms.
+ * Wrapper item navigasi + sliding pill. Render sebagai anak LiquidNav.
  */
-export function LiquidPill({
+export function LiquidItems({
   containerRef,
+  children,
 }: {
-  containerRef: React.RefObject<HTMLElement | null>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  children: React.ReactNode;
 }) {
   const { style } = useSlidingPill(containerRef);
-  return <div className="liquid-pill" style={style} aria-hidden="true" />;
+  return (
+    <div className="liquid-items" ref={containerRef}>
+      <div className="liquid-pill" style={style} aria-hidden="true" />
+      {children}
+    </div>
+  );
 }
 
 /**
- * Item navigasi pill. `as` NavLink (react-router) atau button.
- * `end` untuk rute indeks (`/admin`).
+ * Item navigasi pill. NavLink react-router; `end` untuk rute indeks.
+ * Label tersembunyi di ≤720px lewat CSS; aria-label tetap tersedia.
  */
 export function LiquidItem({
   to,
   end,
   icon: Icon,
   label,
-  children,
   badge,
   ...rest
 }: {
@@ -160,30 +171,50 @@ export function LiquidItem({
   end?: boolean;
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   label: string;
-  children?: React.ReactNode;
-  /** Badge kecil di pojok kanan atas (mis. antrean review). */
   badge?: number;
 } & Omit<React.ComponentPropsWithoutRef<"a">, "href" | "to" | "className">) {
   return (
-    <NavLink
-      to={to}
-      end={end}
-      className="liquid-item"
-      {...rest}
-    >
+    <NavLink to={to} end={end} className="liquid-item" aria-label={label} {...rest}>
       <span className="liquid-item-content">
         <Icon aria-hidden />
         <span className="liquid-lbl">{label}</span>
       </span>
       {badge && badge > 0 ? (
         <span
-          className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-[#FF5A26] text-[10px] font-black text-white"
+          className="absolute top-0 right-0 flex size-4 items-center justify-center rounded-full bg-[#FF5A26] text-[10px] font-black text-white"
           aria-hidden="true"
         >
           {badge > 9 ? "9+" : badge}
         </span>
       ) : null}
-      {children}
     </NavLink>
   );
+}
+
+/** Divider vertikal antara item navigasi dan trigger akun. */
+export function LiquidDivider() {
+  return <div className="liquid-divider" aria-hidden="true" />;
+}
+
+/**
+ * Deteksi mobile (≤720px). Dipakai untuk memilih dropdown (desktop) vs
+ * dropup (mobile) pada menu akun.
+ */
+export function useIsMobileLiquid() {
+  const [mobile, setMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia(LIQUID_MOBILE_MQ);
+    const onChange = () => setMobile(mq.matches);
+    onChange();
+    if (typeof mq.addEventListener === "function") {
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    }
+    mq.addListener(onChange);
+    return () => mq.removeListener(onChange);
+  }, []);
+
+  return mobile;
 }

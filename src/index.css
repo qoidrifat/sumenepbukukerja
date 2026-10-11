@@ -1465,11 +1465,21 @@
   right: 0;
   z-index: 60;
   width: min(17rem, calc(100vw - 1.5rem));
-  overflow: hidden;
+  max-height: min(28rem, calc(100dvh - 5.5rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 2px solid var(--admin-line);
   border-radius: 2px;
   background: var(--admin-surface);
   box-shadow: 4px 4px 0 0 var(--admin-line);
+}
+
+/* Di mobile bottom bar, menu terbuka ke ATAS (trigger di bawah layar). */
+@media (max-width: 767px) {
+  .liquid-nav--bottom .admin-menu {
+    top: auto;
+    bottom: calc(100% + 0.5rem);
+  }
 }
 
 .admin-menu-head {
@@ -1508,6 +1518,12 @@
   padding-left: 1.05rem;
 }
 
+/* NavLink rute aktif: sorot permanen, bukan sekadar hover. */
+.admin-menu-item[aria-current="page"] {
+  background: var(--admin-yellow);
+  box-shadow: inset 3px 0 0 var(--admin-orange);
+}
+
 .admin-menu-item + .admin-menu-item {
   border-top: 1.5px solid var(--admin-line);
 }
@@ -1523,6 +1539,357 @@
 .admin-menu-separator {
   height: 2px;
   background: var(--admin-line);
+}
+
+/* --------------------------------------------------------------------------
+   Liquid Glass Navigation — hybrid Warm Brutalism × Apple Liquid Glass.
+
+   Material kaca (blur tebal, lapisan cahaya dalam, refleksi aqua, glare
+   kursor) duduk di atas cincin brutalism 2px. Radius pill dikecualikan
+   khusus nav bar (preseden: status pill sudah rounded-full).
+
+   Transisi ≤350ms (HIG). Sliding pill pakai spring curve dengan overshoot
+   kecil (1.15). Reduced-motion: pill snap instan, glare mati.
+   -------------------------------------------------------------------------- */
+
+/* Token — admin (tint hangat kanvas) */
+.admin-liquid {
+  --liquid-blur: 42px;
+  --liquid-sat: 185%;
+  --liquid-bg: color-mix(in srgb, var(--admin-canvas, #faf7ee) 62%, transparent);
+  --liquid-ring: var(--admin-line, #121212);
+  --liquid-highlight: rgb(255 255 255 / 72%);
+  --liquid-caustic: rgb(255 230 98 / 35%);
+  --liquid-refl-start: rgb(255 255 255 / 55%);
+  --liquid-refl-end: rgb(255 255 255 / 0%);
+  --liquid-glare: rgb(255 255 255 / 45%);
+  --liquid-shadow: rgb(18 18 18 / 12%);
+  --liquid-pill-bg: rgb(255 255 255 / 72%);
+  --liquid-pill-accent: rgb(255 90 38 / 45%);
+  --liquid-item: var(--admin-muted, #525252);
+  --liquid-item-active: var(--admin-ink, #1a1a1a);
+  --liquid-accent: var(--admin-orange, #ff5a26);
+  --liquid-ease-spring: cubic-bezier(0.34, 1.15, 0.64, 1);
+  --liquid-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --liquid-dur: 320ms;
+}
+
+/* Token — publik (kaca dingin biru) */
+.liquid--public {
+  --liquid-bg: rgb(255 255 255 / 58%);
+  --liquid-ring: rgb(15 23 42 / 12%);
+  --liquid-highlight: rgb(255 255 255 / 90%);
+  --liquid-caustic: rgb(59 130 246 / 18%);
+  --liquid-refl-start: rgb(255 255 255 / 70%);
+  --liquid-glare: rgb(255 255 255 / 55%);
+  --liquid-shadow: rgb(15 23 42 / 12%);
+  --liquid-pill-bg: rgb(255 255 255 / 80%);
+  --liquid-pill-accent: rgb(37 99 235 / 40%);
+  --liquid-item: rgb(71 85 105);
+  --liquid-item-active: rgb(15 23 42);
+  --liquid-accent: rgb(37 99 235);
+}
+
+/* Shell kaca */
+.liquid-nav {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 99px;
+  border: 2px solid var(--liquid-ring);
+  background: var(--liquid-bg);
+  -webkit-backdrop-filter: blur(var(--liquid-blur)) saturate(var(--liquid-sat));
+  backdrop-filter: blur(var(--liquid-blur)) saturate(var(--liquid-sat));
+  box-shadow:
+    0 24px 48px -16px var(--liquid-shadow),
+    0 8px 20px -8px var(--liquid-shadow),
+    inset 0 2px 3px -1px var(--liquid-highlight),
+    inset 0 -2px 4px -1px var(--liquid-caustic),
+    inset 0 0 0 1px rgb(255 255 255 / 35%);
+  z-index: 40;
+  max-width: calc(100vw - 24px);
+  transition: box-shadow var(--liquid-dur) var(--liquid-ease-out);
+}
+
+/* Refleksi aqua klasik */
+.liquid-nav::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  right: 1px;
+  height: 46%;
+  border-radius: 99px 99px 24px 24px / 99px 99px 12px 12px;
+  background: linear-gradient(180deg, var(--liquid-refl-start) 0%, var(--liquid-refl-end) 100%);
+  pointer-events: none;
+  z-index: 6;
+}
+
+/* Glare kursor */
+.liquid-glare-wrap {
+  position: absolute;
+  inset: 0;
+  border-radius: 99px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.liquid-glare {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 280ms ease;
+  background: radial-gradient(
+    circle 100px at var(--gx, 50%) var(--gy, 50%),
+    var(--liquid-glare) 0%,
+    transparent 100%
+  );
+  mix-blend-mode: overlay;
+}
+
+.liquid-nav:hover .liquid-glare {
+  opacity: 1;
+}
+
+/* Item navigasi + sliding pill */
+.liquid-items {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  z-index: 3;
+}
+
+.liquid-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 44px;
+  background: var(--liquid-pill-bg);
+  border-radius: 99px;
+  border: 1.5px solid var(--liquid-pill-accent);
+  box-shadow:
+    0 4px 12px rgb(18 18 18 / 10%),
+    0 1px 2px rgb(18 18 18 / 6%),
+    inset 0 1px 1px rgb(255 255 255 / 85%);
+  transition:
+    transform var(--liquid-dur) var(--liquid-ease-spring),
+    width var(--liquid-dur) var(--liquid-ease-spring);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.liquid-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  border: none;
+  padding: 0 14px;
+  height: 44px;
+  border-radius: 99px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  color: var(--liquid-item);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+  z-index: 2;
+  transition: color 220ms ease;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.liquid-item:hover {
+  color: var(--liquid-item-active);
+}
+
+.liquid-item:focus-visible {
+  outline: 2px solid var(--liquid-accent);
+  outline-offset: -2px;
+}
+
+.liquid-item[aria-current="page"] {
+  color: var(--liquid-item-active);
+  font-weight: 850;
+}
+
+.liquid-item[aria-current="page"] svg {
+  color: var(--liquid-accent);
+}
+
+.liquid-item svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  stroke-width: 2.2;
+  transition: transform 200ms var(--liquid-ease-out);
+}
+
+.liquid-item:active .liquid-item-content {
+  transform: scale(0.93);
+}
+
+.liquid-item-content {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
+  transition: transform 160ms var(--liquid-ease-out);
+}
+
+/* Divider dalam pill */
+.liquid-divider {
+  width: 1.5px;
+  height: 24px;
+  background: rgb(18 18 18 / 18%);
+  margin: 0 4px;
+  z-index: 3;
+  flex-shrink: 0;
+}
+
+.liquid--public .liquid-divider {
+  background: rgb(15 23 42 / 12%);
+}
+
+/* Akun trigger dalam pill */
+.liquid-acct {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px 0 4px;
+  border-radius: 99px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  z-index: 3;
+  outline: none;
+  transition: background 200ms ease;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+.liquid-acct:hover {
+  background: rgb(255 255 255 / 50%);
+}
+
+.liquid-acct:focus-visible {
+  outline: 2px solid var(--liquid-accent);
+  outline-offset: -2px;
+}
+
+.liquid-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 99px;
+  background: var(--liquid-accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 900;
+  border: 1.5px solid var(--liquid-ring);
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 35%);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.liquid-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.liquid-acct-name {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--liquid-item-active);
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Varian bottom (mobile) — melebar penuh, ikon saja */
+.liquid-nav--bottom {
+  border-radius: 20px;
+  width: 100%;
+  max-width: 100%;
+  justify-content: space-around;
+}
+
+.liquid-nav--bottom .liquid-items {
+  flex: 1;
+  justify-content: space-around;
+}
+
+.liquid-nav--bottom .liquid-item {
+  padding: 0 10px;
+  flex-direction: column;
+  gap: 2px;
+  height: 52px;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 0;
+  flex: 1;
+  max-width: 72px;
+}
+
+.liquid-nav--bottom .liquid-pill {
+  height: 52px;
+}
+
+.liquid-nav--bottom .liquid-item svg {
+  width: 20px;
+  height: 20px;
+}
+
+.liquid-nav--bottom .liquid-divider {
+  height: 28px;
+}
+
+.liquid-nav--bottom .liquid-acct {
+  flex-direction: column;
+  gap: 2px;
+  height: 52px;
+  padding: 0 8px;
+  min-width: 52px;
+}
+
+.liquid-nav--bottom .liquid-acct-name {
+  font-size: 10px;
+  max-width: 56px;
+}
+
+/* Label disembunyikan di layar sempit (desktop pill) */
+@media (max-width: 767px) {
+  .liquid-nav:not(.liquid-nav--bottom) .liquid-item .liquid-lbl {
+    display: none;
+  }
+  .liquid-nav:not(.liquid-nav--bottom) .liquid-item {
+    padding: 0 12px;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .liquid-pill {
+    transition: none !important;
+  }
+  .liquid-glare {
+    display: none !important;
+  }
+  .liquid-item:active .liquid-item-content {
+    transform: none;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -1631,15 +1998,10 @@
   background-size: auto, auto, 12px 12px;
 }
 
-/* Bilah perintah. Latar kertasnya dibuat sedikit tembus pandang lalu diberi
-   blur, sehingga isi yang bergulir di bawahnya terlihat sebagai lapisan yang
-   lewat - bukan hilang di balik blok padat. Warna dan garis bawah 2px tetap.
-
-   Setelah shell dipecah, header halaman bukan lagi anak langsung
-   `.admin-workspace` — ia duduk di dalam `main > div` halaman, jadi aturan
-   perlu sasaran kedua itu. Anak langsung tetap disertakan: layar gerbang
-   akses masih memakai susunan lama. */
-.admin-workspace > header,
+/* Bilah perintah gerbang akses (layar tolak/setup) masih header padat.
+   Header shell kini wrapper positioning untuk liquid pill — material kaca
+   sudah ditangani `.liquid-nav`, jadi aturan ini hanya untuk gerbang. */
+.admin-workspace > header:not(:has(.liquid-nav)),
 .admin-workspace .admin-shell-frame > main > * > header {
   background-color: color-mix(in srgb, var(--admin-canvas) 88%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(150%);
@@ -1726,35 +2088,33 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Bingkai kini div pemisah di `AdminShell`, dan `main` tidak lagi membawa
-     kelas frame. Tiap halaman dirender sebagai satu anak `main` yang anak
-     pertamanya selalu `AdminHeader` — chrome yang harus sudah ada sejak frame
-     pertama, jadi animasi menyasar blok sesudah header dan seluruh jeda
-     bergeser satu posisi (blok pertama = nth-child(2), tanpa jeda). */
-  .admin-workspace .admin-shell-frame > main > * > :not(:first-child),
+  /* Header keluar dari alur halaman (kini anak langsung shell), jadi
+     animasi menyasar SEMUA blok anak halaman — tidak ada lagi chrome
+     pertama yang harus bebas animasi. */
+  .admin-workspace .admin-shell-frame > main > * > *,
   .admin-workspace .admin-metric {
     animation: admin-rise 380ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
 
   /* Bertahap 55ms per blok, berhenti di blok keenam: cukup untuk terbaca
      sebagai urutan, tidak cukup untuk terasa menunggu. */
-  .admin-workspace .admin-shell-frame > main > * > :nth-child(3) {
+  .admin-workspace .admin-shell-frame > main > * > :nth-child(2) {
     animation-delay: 55ms;
   }
 
-  .admin-workspace .admin-shell-frame > main > * > :nth-child(4) {
+  .admin-workspace .admin-shell-frame > main > * > :nth-child(3) {
     animation-delay: 110ms;
   }
 
-  .admin-workspace .admin-shell-frame > main > * > :nth-child(5) {
+  .admin-workspace .admin-shell-frame > main > * > :nth-child(4) {
     animation-delay: 165ms;
   }
 
-  .admin-workspace .admin-shell-frame > main > * > :nth-child(6) {
+  .admin-workspace .admin-shell-frame > main > * > :nth-child(5) {
     animation-delay: 220ms;
   }
 
-  .admin-workspace .admin-shell-frame > main > * > :nth-child(n + 7) {
+  .admin-workspace .admin-shell-frame > main > * > :nth-child(n + 6) {
     animation-delay: 275ms;
   }
 }
@@ -1810,7 +2170,7 @@
   }
 }
 
-html.admin-vt-active .admin-workspace .admin-shell-frame > main > * > :not(:first-child),
+html.admin-vt-active .admin-workspace .admin-shell-frame > main > * > *,
 html.admin-vt-active .admin-workspace .admin-metric {
   animation: none !important;
 }
@@ -1946,16 +2306,19 @@ html.admin-vt-active .admin-workspace .admin-metric {
     linear-gradient(180deg, rgb(255 255 255 / 78%), rgb(255 255 255 / 0%));
 }
 
-/* Bilah atas yang menempel. Latarnya translusen dan di-blur supaya isi yang
-   lewat di bawahnya masih terbaca sebagai konteks, bukan hilang. */
+/* Bilah atas yang menempel. Material Liquid Glass: blur tebal + saturate,
+   refleksi tipis, bayangan lembut — bukan sekadar translusen. */
 .dash-topbar {
   position: sticky;
   top: 0;
   z-index: 30;
-  background: rgb(255 255 255 / 74%);
+  background: rgb(255 255 255 / 55%);
   border-bottom: 1px solid var(--dash-line);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
-  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(36px) saturate(175%);
+  backdrop-filter: blur(36px) saturate(175%);
+  box-shadow:
+    inset 0 -1px 0 rgb(255 255 255 / 60%),
+    0 8px 24px -12px rgb(15 23 42 / 10%);
 }
 
 .dash-panel {

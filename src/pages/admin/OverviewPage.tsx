@@ -1,6 +1,4 @@
-import { useOutletContext, useNavigate } from "react-router";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
+import { useNavigate } from "react-router";
 import {
   AlertTriangle,
   Archive,
@@ -11,18 +9,16 @@ import {
   Inbox,
   type LucideIcon,
 } from "lucide-react";
-import { AdminHeader, SectionHeading } from "@/components/admin-workspace";
+import { SectionHeading } from "@/components/admin-workspace";
 import { AdminWorkspaceHero } from "@/components/admin-workspace-hero";
 import { type Vendor } from "@/lib/catalog";
 import { qualityIssues } from "@/lib/catalog-data";
 import {
   useAdminVendors,
-  useCurrentAccess,
   useOpenReports,
   type VendorRecord,
 } from "@/lib/catalog-store";
 import { statusInfo, type QueueFilter } from "@/lib/admin-workspace-helpers";
-import { useAuth } from "@/hooks/use-auth";
 import { useAdminPresence } from "@/lib/admin-presence";
 
 const EMPTY_ITEMS: VendorRecord[] = [];
@@ -41,28 +37,10 @@ const EMPTY_ITEMS: VendorRecord[] = [];
  * membuka halaman katalog (editornya hidup di sana); shortcut antrean
  * membuka halaman yang sama dan penyaringannya dilakukan di sana.
  *
- * Header milik halaman ini (bukan shell): peran dari `useCurrentAccess`,
- * nama dari sesi auth, foto dari `myProfile` server (sesi auth tidak membawa
- * storage id), dan lonceng antrean dari konteks `<Outlet/>` milik shell.
+ * Header kini milik `AdminShell` (sticky di puncak viewport); halaman ini
+ * hanya menyajikan isi.
  */
 export function OverviewPage() {
-  const access = useCurrentAccess();
-  // Nama akun sendiri hanya untuk menu header. Diambil dari `useAuth` yang
-  // sudah ada, bukan query tambahan, supaya header tidak menambah permintaan
-  // jaringan hanya untuk satu kalimat.
-  const { user } = useAuth();
-  // Foto profil TIDAK bisa diambil dari `useAuth`. Sesi auth tidak membawa
-  // `profileImageStorageId`, dan memang tidak seharusnya - storage id adalah
-  // kunci internal. `myProfile` menghitung URL-nya di server, jadi satu
-  // query ini sudah cukup dan tidak membuka apa pun ke klien.
-  const myProfile = useQuery(api.users.myProfile, {});
-  // Lonceng antrean dihitung SEKALI di `AdminShell` lalu diteruskan lewat
-  // konteks `<Outlet/>`; halaman mengambilnya di sini supaya badge-nya hidup
-  // tanpa langganan query sendiri.
-  const outlet = useOutletContext<{
-    reviewQueue?: { claims: number; photos: number; reports: number; total: number };
-  } | null>();
-  const headerQueue = outlet?.reviewQueue ?? undefined;
   // Menandai sesi ini sebagai aktif supaya panel audit bisa menampilkan
   // "Aktif sekarang" pada baris dengan sidik jari yang sama.
   useAdminPresence();
@@ -160,14 +138,6 @@ export function OverviewPage() {
 
   return (
     <div>
-      <AdminHeader
-        role={access?.role ?? undefined}
-        isOwner={access?.isOwner ?? false}
-        accountName={user?.name ?? null}
-        accountImageUrl={myProfile?.imageUrl ?? null}
-        reviewQueue={headerQueue}
-      />
-
       <AdminWorkspaceHero
         activeCount={activeItems.length}
         actionableCount={actionableCount}

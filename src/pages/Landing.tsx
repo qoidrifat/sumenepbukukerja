@@ -125,45 +125,44 @@ function TopNav({ active = "Beranda" }: { active?: string }) {
     { label: "Cara Pakai", icon: Compass, to: "/#cara-pakai" },
   ];
   return (
-    <header className="site-header sticky top-0 z-40 border-b border-slate-200/80 bg-white/85 pt-[env(safe-area-inset-top)] backdrop-blur-md supports-[backdrop-filter]:bg-white/70">
-      {/* Tiga aturan bentuk header ini, dan ketiganya soal ruang:
-          - Brand dibungkus `min-w-0 flex-1` supaya teks panjangnya boleh
-            menyusut, bukan mendorong CTA keluar layar di 320px.
-          - CTA memakai `shrink-0` dan labelnya disembunyikan di bawah `sm`,
-            jadi tetap ada satu aksi utama di ponsel tanpa memakan seluruh baris.
-          - `gap` dan `padding-inline` tighten sendiri di <=360px lewat
-            `.site-header` di index.css, jadi iPhone SE dan Android kecil
-            tidak perlu breakpoint terpisah di JSX. */}
-      <div className="mx-auto flex min-h-16 max-w-[1600px] items-center gap-3 px-4 sm:gap-4 sm:px-6 lg:gap-6 lg:px-10">
-        <div className="min-w-0 flex-1">
+    <header className="sticky top-0 z-40 flex justify-center px-3 pt-3 pb-2 pt-[calc(0.75rem+env(safe-area-inset-top))]">
+      <div className="liquid-nav liquid--public relative w-full max-w-[1600px] justify-between gap-2 rounded-[20px] px-2 lg:justify-start">
+        <div className="liquid-glare-wrap" aria-hidden="true">
+          <div className="liquid-glare" />
+        </div>
+        <div className="relative z-10 flex min-w-0 items-center">
           <Brand />
         </div>
-        <nav className="hidden items-center gap-1 lg:flex" aria-label="Navigasi utama">
+        <nav className="relative z-10 hidden items-center gap-0.5 lg:flex" aria-label="Navigasi utama">
           {links.map(({ label, icon: Icon, to }) => (
             <a
               key={label}
               href={to}
               aria-current={active === label ? "page" : undefined}
               aria-label={label}
-              className={`flex min-h-12 min-w-12 items-center gap-2 rounded-lg px-3 text-base font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 xl:px-4 ${active === label ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"}`}
+              className={`liquid-item ${active === label ? "" : ""}`}
             >
-              <Icon className="size-4 shrink-0" aria-hidden="true" />
-              <span className="hidden max-w-[9rem] truncate xl:inline">{label}</span>
+              <span className="liquid-item-content">
+                <Icon aria-hidden />
+                <span className="liquid-lbl max-w-[8rem] truncate">{label}</span>
+              </span>
             </a>
           ))}
         </nav>
-        {isAuthenticated ? (
-          <AccountMenu />
-        ) : (
-          <a
-            href="#katalog"
-            aria-label="Cari jasa"
-            className="header-cta inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-base font-extrabold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 lg:px-5"
-          >
-            <Search className="size-4 shrink-0" aria-hidden="true" />
-            <span className="hidden min-[420px]:inline">Cari jasa</span>
-          </a>
-        )}
+        <div className="relative z-10 flex shrink-0 items-center gap-2">
+          {isAuthenticated ? (
+            <AccountMenu />
+          ) : (
+            <a
+              href="#katalog"
+              aria-label="Cari jasa"
+              className="header-cta inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-4 text-sm font-extrabold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+            >
+              <Search className="size-4 shrink-0" aria-hidden="true" />
+              <span className="hidden min-[420px]:inline">Cari jasa</span>
+            </a>
+          )}
+        </div>
       </div>
     </header>
   );
@@ -177,13 +176,29 @@ function BottomNav() {
     { label: "Cara Pakai", icon: Compass, href: "#cara-pakai" },
   ];
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] lg:hidden" aria-label="Navigasi bawah">
-      <div className="mx-auto flex h-16 max-w-md items-center justify-around">
-        {items.map(({ label, icon: Icon, href }) => (
-          <a key={label} href={href} className={`flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 text-xs font-bold text-slate-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:min-w-[84px] sm:text-sm ${label === "Beranda" ? "text-blue-700" : ""}`}>
-            <Icon className="size-5" aria-hidden="true" /><span className="max-w-full truncate">{label}</span>
-          </a>
-        ))}
+    <nav
+      className="fixed inset-x-0 bottom-0 z-50 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1 lg:hidden"
+      aria-label="Navigasi bawah"
+    >
+      <div className="liquid-nav liquid--public liquid-nav--bottom relative">
+        <div className="liquid-glare-wrap" aria-hidden="true">
+          <div className="liquid-glare" />
+        </div>
+        <div className="liquid-items">
+          {items.map(({ label, icon: Icon, href }) => (
+            <a
+              key={label}
+              href={href}
+              className="liquid-item"
+              aria-current={label === "Beranda" ? "page" : undefined}
+            >
+              <span className="liquid-item-content">
+                <Icon aria-hidden />
+                <span className="liquid-lbl">{label}</span>
+              </span>
+            </a>
+          ))}
+        </div>
       </div>
     </nav>
   );

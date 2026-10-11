@@ -52,26 +52,18 @@ const community = readFileSync(
 );
 
 test("ikon orang ada di sebelah label peran di header", () => {
-  // `shrink-0` pada kotak peran adalah load-bearing: header ini memakai
-  // `justify-between` di dalam grup kiri yang boleh menyusut, jadi tanpa itu
-  // kotak peran ikut gepeng persis di layar ponsel yang paling menyebalkan.
-  const roleIndex = workspace.indexOf("admin-status admin-status-confirmed ml-1 shrink-0");
-  // Pemicunya pindah ke menu header (Fase 9.2), jadi yang dicari di
-  // `admin-workspace.tsx` adalah pemanggilan dengan variant menu. Yang tetap
-  // dijaga: panel peran dan pemicu profil ada di header yang sama, dan
-  // keduanya bukan sekadar teks.
-  //
-  // Namanya `AdminProfileTrigger`, bukan `AdminProfile`: pemicu dan dialognya
-  // sudah dipisah. Alasannya ada di test berikutnya - pemisahan itu yang
-  // membuat dialog bisa dibuka sama sekali.
+  // Header kini liquid pill: peran tampil lewat avatar + menu head, bukan
+  // kotak `admin-status` terpisah. Pemicu profil tetap di header yang sama.
   const profileIndex = indexOfMenuTrigger(workspace);
-  expect(roleIndex).toBeGreaterThan(-1);
   expect(profileIndex).toBeGreaterThan(-1);
   // Aksesibel lewat nama, bukan hanya ikon.
   expect(profile).toContain('aria-label="Atur profil"');
   expect(profile).toContain("<UserRound");
   // Bentuk menu harus menyamar sebagai baris menu, bukan tombol avatar.
   expect(profile).toContain('className="admin-menu-item"');
+  // Liquid avatar tetap ada sebagai wajah akun di pill.
+  expect(workspace).toContain("liquid-avatar");
+  expect(workspace).toContain("liquid-acct");
 });
 
 test("dialog profil dirender DI LUAR subtree menu yang bisa dicabut", () => {

@@ -2,57 +2,40 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 
 /**
- * Kontrak gerak ruang pengelola (transisi opsi A + sticky + pin + drawer).
+ * Kontrak gerak ruang pengelola (transisi opsi A + header sticky + drawer menu).
  *
  * Semua asersi = string pada sumber, pola yang sama dengan
  * `admin-routes.test.ts` dan `admin-theme-contract.test.ts`: kontrak
  * dipatahkan oleh penghapusan kalimat kunci, bukan oleh perubahan gaya
  * bebas. Opsi A dipilih pengguna di layar companion: zoom kontinuitas
  * 1.100ms (sadar melampaui HIG ≤350ms) + kilau Liquid Glass.
+ *
+ * Sidebar diganti menu tarik-turun di AdminHeader (permintaan modernisasi):
+ * sticky top-0 di shell, jarak ~50px ke bingkai konten, item fitur di menu.
  */
 
 const read = (path: string) => readFileSync(path, "utf8");
 
-test("sidebar desktop menempel mengikuti padding kontainer sejak 768px", () => {
-  const sidebar = read("src/components/admin-sidebar.tsx");
-  expect(sidebar).toContain("min-[768px]:sticky");
-  // Offset meniru `sm:py-7 lg:py-10` pada bingkai shell: tepi sidebar dan
-  // tepi bingkai berhenti di garis yang sama, bukan menempel di viewport.
-  expect(sidebar).toContain("sm:top-7 lg:top-10");
+test("header sticky menempel di puncak viewport dengan jarak ke konten", () => {
+  const workspace = read("src/components/admin-workspace.tsx");
+  // Sticky top-0 = mentok tepi atas halaman.
+  expect(workspace).toContain("sticky top-0");
   const shell = read("src/pages/admin/AdminShell.tsx");
-  expect(shell).toContain("sm:py-7");
-  expect(shell).toContain("lg:py-10");
+  // Jarak ~50px antara header dan bingkai konten utama.
+  expect(shell).toContain("pt-[50px]");
+  // Header dirender di shell, bukan per halaman.
+  expect(shell).toContain("<AdminHeader");
 });
 
-test("tombol hamburger mobile ikut menempel tepat di bawah header", () => {
-  const sidebar = read("src/components/admin-sidebar.tsx");
-  // Tinggi header = safe-area + baris min-h-16 (64px) + bar gradien h-2
-  // dengan border-t-2 (8+2px) + border-b-2 (2px) = 76px = 4.75rem.
-  expect(sidebar).toContain("top-[calc(env(safe-area-inset-top)+4.75rem)]");
-  expect(sidebar).toContain("z-30");
-});
-
-test("efek pin: sentinel di AdminShell, kelas admin-stuck, bayangan di CSS", () => {
-  const shell = read("src/pages/admin/AdminShell.tsx");
-  expect(shell).toContain("IntersectionObserver");
-  expect(shell).toContain("pinRef");
-  expect(shell).toContain("pinned={pinned}");
-  const sidebar = read("src/components/admin-sidebar.tsx");
-  expect(sidebar).toContain("admin-stuck");
+test("drawer menu memakai framer-motion dan hormati reduced motion", () => {
+  const workspace = read("src/components/admin-workspace.tsx");
+  expect(workspace).toContain("AnimatePresence");
+  expect(workspace).toContain("useReducedMotion");
+  // Panel menu menempel di wrapper relative header; max-height agar baris
+  // terakhir tetap terjangkau di layar pendek.
   const css = read("src/index.css");
-  expect(css).toContain(".admin-workspace .admin-stuck");
-  // Bayangan hanya muncul setelah menempel; transisinya hormati gerak minimal.
-  expect(css).toContain(".admin-workspace .admin-stuck > .admin-btn");
-});
-
-test("drawer mobile teranimasi ala Apple lewat framer-motion", () => {
-  const sidebar = read("src/components/admin-sidebar.tsx");
-  expect(sidebar).toContain("AnimatePresence");
-  expect(sidebar).toContain("motion.aside");
-  expect(sidebar).toContain("useReducedMotion");
-  // Panel yang menempel di wrapper sticky harus bisa di-scroll pada layar
-  // pendek (mis. lanskap), kalau tidak baris terakhir tak terjangkau.
-  expect(sidebar).toContain("max-h-[calc(100dvh-");
+  expect(css).toContain(".admin-menu");
+  expect(css).toContain("max-height: min(28rem");
 });
 
 test("transisi opsi A: zoom 1100ms dua arah + kurva yang disepakati", () => {
@@ -95,4 +78,17 @@ test("tautan pembawa state router lolos dari intersepsi", () => {
   const hero = read("src/components/admin-workspace-hero.tsx");
   expect(hero).toContain("data-no-view-transition");
   expect(hero).toContain("state={{ queueFilter:");
+});
+
+test("menu header memuat lima fitur navigasi sebagai NavLink", () => {
+  const workspace = read("src/components/admin-workspace.tsx");
+  // Fitur pindah dari sidebar ke menu SuperAdmin.
+  expect(workspace).toContain("featureNav");
+  expect(workspace).toContain("NavLink");
+  for (const label of ["Ringkasan", "Katalog", "Moderasi", "Keamanan", "Sistem"]) {
+    expect(workspace).toContain(label);
+  }
+  // NavLink rute aktif disorot lewat aria-current.
+  const css = read("src/index.css");
+  expect(css).toContain('.admin-menu-item[aria-current="page"]');
 });

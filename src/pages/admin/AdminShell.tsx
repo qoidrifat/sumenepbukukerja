@@ -1,72 +1,47 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { flushSync } from "react-dom";
-import {
-  BarChart3,
-  Inbox,
-  LayoutDashboard,
-  ShieldCheck,
-  Store,
-} from "lucide-react";
-import { AdminSidebar } from "@/components/admin-sidebar";
-import { useReviewQueue } from "@/lib/catalog-store";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { AdminHeader } from "@/components/admin-workspace";
+import { useReviewQueue, useCurrentAccess } from "@/lib/catalog-store";
+import { useAuth } from "@/hooks/use-auth";
 
 /**
  * Kerangka ruang pengelola untuk rute bertingkat `/admin/*`.
  *
- * Hanya scope + sidebar + `<Outlet/>`: header dan isi tiap halaman tetap
- * milik halamannya masing-masing, supaya slice pertama ini tidak mengubah
- * tampilan panel yang sudah ada.
+ * Susunan kini: satu `AdminHeader` STICKY di puncak (mentok tepi viewport),
+ * lalu bingkai konten dengan jarak ~50px di bawahnya. Sidebar diganti
+ * menu tarik-turun akun pemilik di header (Ringkasan · Katalog · Moderasi ·
+ * Keamanan · Sistem · Beranda · Profil · Keluar), mengikuti permintaan
+ * modernisasi.
  *
- * Landmark main TUNGGAL hidup di sini (elemen main membungkus Outlet);
+ * Landasan main TUNGGAL hidup di sini (elemen main membungkus Outlet);
  * semua halaman di bawahnya mengembalikan div polos tanpa main maupun
  * bingkai dalam, supaya tiap halaman punya tepat satu landmark.
  *
- * Item "Peran" SENGAJA tidak ada: tidak ada halaman `/admin/peran` di IA.
- * Kelola peran + undangan hidup di `SistemPage` (halaman Sistem = metrik +
- * peran/undangan), jadi sidebar lima item sudah lengkap.
+ * Header diangkat ke shell supaya satu query profil + satu langganan
+ * akses melayani semua halaman (sebelumnya tiap halaman mengulang).
  *
- * Antrean review (`reviewQueue`, lonceng di `AdminHeader`) dihitung SEKALI
- * di sini lalu diteruskan lewat konteks `<Outlet/>`, supaya badge-nya tetap
- * hidup di semua halaman tanpa tiap halaman langganan sendiri. Convex
- * mendedup query yang sama, jadi langganan ganda (shell + `ModerasiPage`)
- * tidak menambah permintaan jaringan.
+ * Gerak lintas-rute tetap kontrak opsi A (zoom 1.100ms + kilau Liquid
+ * Glass, lihat `admin-motion-contract.test.ts`):
  *
- * Shell juga tempat dua mekanik gerak lintas-rute (kontrak di
- * `admin-motion-contract.test.ts`):
- *
- * 1. Efek pin — sentinel `size-px` di puncak bingkai; sidebar desktop
- *    (`sm:top-7 lg:top-10`) dan hamburger mobile menempel tepat pada
- *    offset padding bingkai, jadi momen sentinel keluar viewport == momen
- *    benar-benar "stuck". Kelas `admin-stuck` menambah bayangan tipis.
- * 2. Transisi opsi A (zoom 1.100ms + kilau) — dipicu manual lewat
- *    intersepsi klik tautan `/admin`, karena mode deklaratif
- *    `BrowserRouter` + `<Routes>` TIDAK meneruskan prop `viewTransition`
- *    React Router ke `document.startViewTransition` (navigasi jatuh ke
- *    `navigator.push(to, state)` tanpa kanal opsi). Tautan pembawa
- *    `state` router minta lolos lewat `data-no-view-transition` —
- *    `navigate(href)` hasil intersepsi tidak membawa state tersebut.
+ * 1. Transisi dipicu manual lewat intersepsi klik tautan `/admin`, karena
+ *    mode deklaratif `BrowserRouter` + `<Routes>` TIDAK meneruskan prop
+ *    `viewTransition` React Router ke `document.startViewTransition`.
+ *    Tautan pembawa `state` router minta lolos lewat
+ *    `data-no-view-transition`.
+ * 2. Kilau menyusul zoom via `.admin-page-sweep` setelah snapshot baru
+ *    selesai.
  */
 export function AdminShell() {
   const reviewQueue = useReviewQueue();
+  const access = useCurrentAccess();
+  const { user } = useAuth();
+  const myProfile = useQuery(api.users.myProfile, {});
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
-  const pinRef = useRef<HTMLDivElement | null>(null);
-  const [pinned, setPinned] = useState(false);
   const [sweep, setSweep] = useState(false);
-
-  // Pin: sentinel di puncak bingkai (absolut, di luar alur flex). Ia keluar
-  // viewport tepat ketika elemen sticky melewati offset padding-nya.
-  useEffect(() => {
-    const sentinel = pinRef.current;
-    if (!sentinel) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setPinned(!entry.isIntersecting),
-      { threshold: 0 },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, []);
 
   // Kilau Liquid Glass menyusul zoom: piksel snapshot membeku saat transisi
   // berjalan, jadi kilau baru boleh dilepas setelah `::view-transition-new`
@@ -129,24 +104,18 @@ export function AdminShell() {
   }, [navigate, pathname, search]);
 
   return (
-    <div className="admin-workspace min-h-dvh min-h-[100svh] pb-[calc(2rem+env(safe-area-inset-bottom))] bg-[#FAF7EE] text-[#1A1A1A]">
-      <div className="admin-shell-frame relative mx-auto flex max-w-[1600px] flex-col gap-4 px-3 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-10 min-[768px]:flex-row min-[768px]:items-start">
-        <div
-          ref={pinRef}
-          aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 size-px"
-        />
-        <AdminSidebar
-          pinned={pinned}
-          items={[
-            { to: "/admin", label: "Ringkasan", icon: LayoutDashboard, visible: true },
-            { to: "/admin/katalog", label: "Katalog", icon: Store, visible: true },
-            { to: "/admin/moderasi", label: "Moderasi", icon: Inbox, visible: true },
-            { to: "/admin/keamanan", label: "Keamanan", icon: ShieldCheck, visible: true },
-            { to: "/admin/sistem", label: "Sistem", icon: BarChart3, visible: true },
-          ]}
-        />
-        <main className="min-w-0 flex-1">
+    <div className="admin-workspace min-h-dvh min-h-[100svh] bg-[#FAF7EE] text-[#1A1A1A]">
+      <AdminHeader
+        role={access?.role ?? undefined}
+        isOwner={access?.isOwner ?? false}
+        accountName={user?.name ?? null}
+        accountImageUrl={myProfile?.imageUrl ?? null}
+        reviewQueue={reviewQueue ?? undefined}
+      />
+      {/* Desktop: jarak ~50px di bawah pill sticky. Mobile: bar bottom, jadi
+          konten hanya perlu padding bawah yang cukup untuk bar + safe-area. */}
+      <div className="admin-shell-frame relative mx-auto max-w-[1600px] px-3 pt-[50px] pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-10 lg:pb-10">
+        <main className="min-w-0">
           <Outlet context={{ reviewQueue }} />
         </main>
       </div>

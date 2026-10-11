@@ -38,7 +38,6 @@ const ADMIN_SOURCES = [
   "../components/admin-security-log.tsx",
   "../components/admin-session-actions.tsx",
   "../components/admin-session-revoke.tsx",
-  "../components/admin-sidebar.tsx",
   "../components/admin-workspace-hero.tsx",
   "../components/admin-workspace.tsx",
   "../components/auth-admin-panel.tsx",
@@ -350,27 +349,33 @@ test("halaman akses ditolak memakai admin, bukan gaya aplikasi", () => {
 
 test("menu header punya isi yang lengkap dan bisa diakses", () => {
   const workspace = source("../components/admin-workspace.tsx");
-  // Tombol Beranda tidak lagi memenuhi header: ia pindah ke menu.
+  // Fitur navigasi kini inline di liquid pill, bukan di dropdown.
   expect(workspace).not.toContain("Kembali ke katalog");
   expect(workspace).toContain('role="menu"');
   expect(workspace).toContain('role="menuitem"');
   expect(workspace).toContain('aria-haspopup="menu"');
   expect(workspace).toContain("aria-expanded={menuOpen}");
   expect(workspace).toContain('id="admin-workspace-menu"');
+  // Dropdown berisi: Beranda, Profil, Keluar.
   for (const label of ["Beranda", "Profil", "Keluar"]) {
     expect(workspace, label).toContain(label);
   }
-  // Ketiganya harus punya ikon, dan Keluar harus memakai ikon pintu keluar.
   expect(workspace).toContain("<LogOut");
   expect(workspace).toContain("<ArrowLeft");
-  // Ikon digambar sendiri, bukan aset eksternal.
-  expect(workspace).toContain("admin-menu-icon");
-  expect(workspace).not.toMatch(/https?:\/\/[^"']*menu[^"']*\.(svg|png)/);
-  // Keluar lewat modul bersama, bukan implementasi kedua. Item menunya cuma
-  // membuka konfirmasi; dialognya dipasang di luar panel menu supaya tidak
-  // ikut terlepas bersama panel yang menutupi dirinya.
+  // Liquid pill + sliding active pill.
+  expect(workspace).toContain("liquid-nav");
+  expect(workspace).toContain("LiquidPill");
+  expect(workspace).toContain("liquid-item");
+  // Keluar lewat modul bersama, bukan implementasi kedua.
   expect(workspace).toContain("AdminLogoutConfirm");
   expect(workspace).toContain("setLogoutOpen(true)");
+});
+
+test("mobile bottom bar fixed di bawah layar", () => {
+  const workspace = source("../components/admin-workspace.tsx");
+  expect(workspace).toContain("fixed inset-x-0 bottom-0");
+  expect(workspace).toContain("md:hidden");
+  expect(workspace).toContain("liquid-nav--bottom");
 });
 
 test("alur keluar punya satu implementasi saja", () => {
@@ -463,32 +468,28 @@ test("semua halaman rute admin ikut daftar kontrak tema", () => {
   for (const page of pages) expect(ADMIN_SOURCES, page).toContain(page);
 });
 
-test("baris header memakai bingkai shell, bukan bingkai sendiri", () => {
-  // Header kini dirender di dalam `main` di dalam bingkai shell. Dengan
-  // bingkai kedua di barisnya, isi header kepadat padding ganda 12/24/40px dan
-  // garis 2px inline (>=1024) tidak lagi sejajar dengan bingkai luar.
+test("baris header memakai liquid pill, bukan bingkai sendiri", () => {
+  // Header kini floating liquid pill (desktop) + fixed bottom bar (mobile).
+  // Tidak ada lagi `admin-shell-frame` / `max-w` di dalam header.
   const workspace = source("../components/admin-workspace.tsx");
-  expect(workspace).toContain(
-    'className="flex min-h-16 items-center gap-2 sm:gap-3"',
-  );
+  expect(workspace).toContain("liquid-nav");
+  expect(workspace).toContain("admin-liquid");
   expect(workspace).not.toContain("admin-shell-frame");
   expect(workspace).not.toContain("max-w-[1600px]");
-  expect(workspace).not.toContain("mx-auto");
 });
 
 test("efek kaca bilah perintah mengenai header di hierarki shell baru", () => {
-  // Header bukan lagi anak langsung `.admin-workspace`, jadi aturan kaca
-  // (88% + blur) mati dan bilah jatuh ke bg padat `bg-[#FAF7EE]` markup.
-  const start = css.indexOf("/* Bilah perintah");
+  // Header shell kini wrapper positioning; material kaca ditangani
+  // `.liquid-nav`. Aturan lama hanya untuk gerbang akses (header padat).
+  const start = css.indexOf("/* Bilah perintah gerbang");
   expect(start).toBeGreaterThan(-1);
   const glass = css.slice(start, css.indexOf("}", start));
-  // Anak langsung tetap disertakan untuk layar gerbang akses; header halaman
-  // kini duduk di dalam `main > div` halaman.
-  expect(glass).toContain(".admin-workspace > header,");
-  expect(glass).toContain(
-    ".admin-workspace .admin-shell-frame > main > * > header {",
-  );
+  expect(glass).toContain(".admin-workspace > header:not(:has(.liquid-nav)),");
   expect(glass).toContain("backdrop-filter: blur(12px) saturate(150%)");
+  // Material liquid ada di CSS.
+  expect(css).toContain(".liquid-nav");
+  expect(css).toContain(".liquid-pill");
+  expect(css).toContain("backdrop-filter: blur(var(--liquid-blur))");
 });
 
 test("gerak masuk mengenai blok halaman di hierarki shell baru", () => {
@@ -499,19 +500,20 @@ test("gerak masuk mengenai blok halaman di hierarki shell baru", () => {
   // Bingkai kini div pemisah di AdminShell; tidak ada lagi elemen yang
   // sekaligus `<main>` dan `.admin-shell-frame`.
   expect(motion).not.toContain("main.admin-shell-frame");
-  // AdminHeader adalah anak pertama tiap halaman (chrome, tanpa animasi),
-  // jadi blok konten mulai di nth-child(2) dan seluruh jeda bergeser satu.
+  // Header keluar dari alur halaman (anak langsung shell), jadi animasi
+  // menyasar SEMUA blok anak halaman — tidak ada chrome pertama yang
+  // harus bebas animasi.
   expect(motion).toContain(
+    ".admin-workspace .admin-shell-frame > main > * > *",
+  );
+  expect(motion).toContain(
+    ".admin-workspace .admin-shell-frame > main > * > :nth-child(2)",
+  );
+  expect(motion).not.toContain(
     ".admin-workspace .admin-shell-frame > main > * > :not(:first-child)",
   );
   expect(motion).toContain(
-    ".admin-workspace .admin-shell-frame > main > * > :nth-child(3)",
-  );
-  expect(motion).not.toContain(
-    ".admin-workspace .admin-shell-frame > main > * > :nth-child(2)",
-  );
-  expect(motion).toContain(
-    ".admin-workspace .admin-shell-frame > main > * > :nth-child(n + 7)",
+    ".admin-workspace .admin-shell-frame > main > * > :nth-child(n + 6)",
   );
   // Gaya geraknya sendiri tidak berubah: satu kali per blok, hormati reduced
   // motion, dan papan metrik tetap ikut animasi seperti aslinya.

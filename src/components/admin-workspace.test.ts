@@ -221,88 +221,69 @@ const renderHeader = (props: Record<string, unknown> = {}) =>
 
 test("header tidak lagi memakai tombol Beranda yang memenuhi layar", () => {
   const html = renderHeader();
-  // Ini keluhan yang jadi pemicu perubahan: di Android, tombol ini memakan
-  // hampir separuh lebar header dan mendorong kotak peran sampai gepeng.
   expect(html).not.toContain("Kembali ke katalog");
-  // Identitas tetap di kiri, mepet.
-  expect(html.indexOf("Sumenep Buku Kerja")).toBeGreaterThan(-1);
-  expect(html.indexOf("Ruang MANAGER")).toBe(-1);
-  expect(html.indexOf("Ruang pengelola")).toBeGreaterThan(-1);
-  expect(html.indexOf("logo-mark.svg")).toBeGreaterThan(-1);
+  // Fitur navigasi kini inline di liquid pill.
+  expect(html).toContain("liquid-nav");
+  expect(html).toContain("Ringkasan");
+  expect(html).toContain("Katalog");
+  expect(html).toContain("Moderasi");
+  expect(html).toContain("Keamanan");
+  expect(html).toContain("Sistem");
 });
 
 test("header menampilkan foto profil, dengan inisial sebagai cadangan", () => {
-  // Foto profil dihitung server dari storage id. Sebelumnya `myProfile` sudah
-  // mengembalikan `imageUrl`, tapi nilainya hanya dipakai DI DALAM dialog -
-  // header tidak pernah menampilkannya. Akibatnya pengelola yang sudah
-  // memasang foto tetap tidak melihatnya di mana pun.
-  //
-  // Avatar harus di HEADER, bukan di panel menu. Panel itu hanya dirender
-  // setelah dibuka, jadi foto yang baru dipasang tidak terlihat tanpa satu
-  // langkah tambahan, dan memasang foto terasa seperti tidak ada yang terjadi.
-  // Itu juga alasan test ini bisa memeriksa markup sama sekali.
   const withPhoto = renderHeader({
     accountName: "Ahmad Fauzi",
     accountImageUrl: "https://storage.convex.test/abc123",
   });
   expect(withPhoto).toContain("abc123");
-  expect(withPhoto).toContain("object-cover");
 
-  // Tanpa foto, inisial - bukan kotak kosong. Kotak kosong di sebelah menu
-  // terbaca sebagai bug, bukan sebagai "belum ada foto".
   const withoutPhoto = renderHeader({ accountName: "Ahmad Fauzi" });
-  expect(withoutPhoto).not.toContain("object-cover");
   expect(withoutPhoto).toContain("AF");
 
-  // Tanpa nama dan tanpa foto, header harus tetap utuh.
   const bare = renderHeader();
-  expect(bare).toContain("Buka menu ruang pengelola");
+  expect(bare).toContain("Buka menu akun");
 });
 
-test("kotak peran ada di sisi kiri dan tidak pernah gepeng", () => {
+test("avatar akun ada di liquid pill, bukan kotak peran terpisah", () => {
   const html = renderHeader({ role: "staff" });
-  expect(html).toContain("admin-status");
+  expect(html).toContain("liquid-avatar");
+  expect(html).toContain("liquid-acct");
   expect(html).toContain("Staff");
-  // `shrink-0` adalah penjaga yang sebenarnya: tanpa itu kotak peran ikut
-  // menyusut bersama judul pada layar sempit.
-  expect(html).toContain("shrink-0");
-  // Urutan di DOM: peran muncul sebelum tombol menu di kanan.
-  expect(html.indexOf("admin-status")).toBeLessThan(html.indexOf("admin-menu-icon"));
 });
 
-test("ikon menu dibuat sendiri dan punya kontrak aksesibilitas", () => {
+test("tombol akun punya kontrak aksesibilitas", () => {
   const html = renderHeader();
   expect(html).toContain('aria-haspopup="menu"');
   expect(html).toContain('aria-expanded="false"');
-  expect(html).toContain("Buka menu ruang pengelola");
-  // Tiga garis, bukan aset eksternal. State `data-open` inilah yang dipakai CSS
-  // untuk mengubahnya menjadi tanda silang.
-  expect(html).toContain('data-open="false"');
-  expect((html.match(/<span><\/span>/g) ?? []).length).toBe(3);
+  expect(html).toContain("Buka menu akun");
 });
 
 test("menu tertutup sampai tombol ditekan", () => {
-  // State awal harus benar-benar tertutup: panel yang ikut ter-render sejak
-  // awal akan menutupi konten di ponsel.
   const html = renderHeader();
   expect(html).not.toContain("Keluar");
   expect(html).not.toContain('role="menu"');
 });
 
 test("akun pemilik memakai gelar singkatnya, bukan gelar lengkap", () => {
-  // Gelar lengkap terlalu panjang untuk chip 48px dan akan mendorong ikon
-  // menu ke luar layar.
   expect(renderHeader({ isOwner: true })).toContain("SuperAdmin");
   expect(renderHeader()).not.toContain("SuperAdmin");
   expect(renderHeader()).toContain("Admin");
 });
 
-test("antrean review tetap terlihat meski dipersempit di ponsel", () => {
+test("antrean review tampil sebagai badge di item Moderasi", () => {
   const html = renderHeader({
     reviewQueue: { claims: 1, photos: 2, reports: 3, total: 6 },
   });
   expect(html).toContain("6");
   expect(html).toContain("perlu direview");
-  // Angka rinci hanya untuk pembaca layar, bukan teks yang menumpuk.
-  expect(html).toContain("klaim listing");
+});
+
+test("mobile bottom bar fixed + safe-area", () => {
+  const html = renderHeader();
+  // Bar mobile: fixed bottom, safe-area aware, tersembunyi di desktop.
+  expect(html).toContain("fixed inset-x-0 bottom-0");
+  expect(html).toContain("md:hidden");
+  expect(html).toContain("safe-area-inset-bottom");
+  expect(html).toContain("liquid-nav--bottom");
 });

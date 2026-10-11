@@ -1,14 +1,9 @@
 import { useState } from "react";
-import { useOutletContext } from "react-router";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import { AdminHeader } from "@/components/admin-workspace";
 import { AdminAuditLog } from "@/components/admin-audit-log";
 import { AdminErrorReports } from "@/components/admin-error-reports";
 import { AdminSecurityLog } from "@/components/admin-security-log";
 import { AdminSessionActions } from "@/components/admin-session-actions";
 import { useAuditLogs, useCurrentAccess } from "@/lib/catalog-store";
-import { useAuth } from "@/hooks/use-auth";
 import { useAdminPresence } from "@/lib/admin-presence";
 
 /**
@@ -20,25 +15,11 @@ import { useAdminPresence } from "@/lib/admin-presence";
  * (sesi + error hanya di-mount saat terbuka) tidak diubah — hanya tempatnya
  * yang pindah ke rute bertingkat supaya dirender di dalam `<Outlet/>`
  * milik `AdminShell`.
+ *
+ * Header kini milik `AdminShell`; halaman ini hanya menyajikan isi.
  */
 export function KeamananPage() {
   const access = useCurrentAccess();
-  // Nama akun sendiri hanya untuk menu header. Diambil dari `useAuth` yang
-  // sudah ada, bukan query tambahan, supaya header tidak menambah permintaan
-  // jaringan hanya untuk satu kalimat.
-  const { user } = useAuth();
-  // Foto profil TIDAK bisa diambil dari `useAuth`. Sesi auth tidak membawa
-  // `profileImageStorageId`, dan memang tidak seharusnya - storage id adalah
-  // kunci internal. `myProfile` menghitung URL-nya di server, jadi satu
-  // query ini sudah cukup dan tidak membuka apa pun ke klien.
-  const myProfile = useQuery(api.users.myProfile, {});
-  // Lonceng antrean dihitung SEKALI di `AdminShell` lalu diteruskan lewat
-  // konteks `<Outlet/>`; halaman mengambilnya di sini supaya badge-nya hidup
-  // tanpa langganan query sendiri.
-  const outlet = useOutletContext<{
-    reviewQueue?: { claims: number; photos: number; reports: number; total: number };
-  } | null>();
-  const headerQueue = outlet?.reviewQueue ?? undefined;
   // Menandai sesi ini sebagai aktif supaya panel audit bisa menampilkan
   // "Aktif sekarang" pada baris dengan sidik jari yang sama.
   useAdminPresence();
@@ -53,13 +34,6 @@ export function KeamananPage() {
 
   return (
     <div>
-      <AdminHeader
-        role={access?.role ?? undefined}
-        isOwner={access?.isOwner ?? false}
-        accountName={user?.name ?? null}
-        accountImageUrl={myProfile?.imageUrl ?? null}
-        reviewQueue={headerQueue}
-      />
       <div>
       <section className="admin-panel overflow-hidden" aria-labelledby="keamanan-title">
         <div className="border-b-2 border-[#121212] bg-[#FFE662] p-4 sm:p-6">

@@ -278,7 +278,8 @@ function VendorProfileContent() {
         initial={reduceMotion ? false : { opacity: 0, y: -16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: reduceMotion ? 0 : 0.45, ease: [0.22, 1, 0.36, 1] }}
-        className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur-sm"
+        className="sticky top-0 z-40 bg-white/55 pt-[env(safe-area-inset-top)] backdrop-blur-[36px] backdrop-saturate-[175%]"
+        style={{ boxShadow: "inset 0 -1px 0 rgb(255 255 255 / 60%), 0 8px 24px -12px rgb(15 23 42 / 10%)" }}
       >
         <div className="mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
           <Link

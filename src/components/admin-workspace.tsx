@@ -2,16 +2,21 @@ import { type ElementType, type ReactNode, useEffect, useRef, useState } from "r
 import {
   ArrowLeft,
   ArrowUpRight,
+  BarChart3,
   Check,
   Inbox,
+  LayoutDashboard,
   LogOut,
   MessageCircle,
   Pencil,
+  ShieldCheck,
   Sparkles,
+  Store,
   Trash2,
+  UserRound,
   X,
 } from "lucide-react";
-import { Link } from "react-router";
+import { Link, NavLink } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -21,6 +26,7 @@ import { formatDateTime, formatRelativeTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import { AdminProfileDialog, AdminProfileTrigger } from "@/components/admin-profile";
 import { AdminLogoutConfirm } from "@/components/admin-logout-button";
+import { LiquidPill } from "@/components/liquid-nav";
 import { OWNER_SHORT_TITLE } from "@/lib/owner-account";
 
 /*
@@ -68,25 +74,17 @@ export function TimeStampLabel({
 }
 
 /**
- * Header ruang pengelola.
+ * Header ruang pengelola — Liquid Glass Navigation.
  *
- * Bentuknya ditentukan oleh layar yang paling sempit, bukan yang paling
- * lebar. Di Android, header lama berisi lima hal sekaligus: tombol kembali
- * ke katalog yang selebar separuh layar, logo, dua baris judul, kotak peran,
- * dan tombol profil. Semuanya berebut ruang yang sama, jadi yang
- * pertama terpangkas adalah kotak peran - informasi yang justru paling
- * penting untuk pengelola tahu hak aksesnya apa.
+ * Desktop: floating pill di puncak viewport (mentok atas, jarak ~50px ke
+ * konten). 5 fitur NavLink inline dengan sliding active pill; akun di ujung
+ * kanan.
  *
- * Tiga aturan yang dipakai di sini:
- *  1. hanya ada dua kelompok: identitas di kiri (logo, judul, peran) dan
- *     kendali di kanan (antrean review, menu). Tidak ada tombol Beranda di
- *     header; ia pindah ke menu, karena satu tombol selebar setengah layar
- *     untuk satu tujuan saja adalah tempat yang paling mahal.
- *  2. Kotak peran memakai `shrink-0` supaya tidak pernah gepeng, dan judul
- *     yang boleh dipangkas - dia punya `truncate`, kotak peran tidak.
- *  3. Menu dirender DI DALAM header, bukan lewat portal. Portal berada di
- *     luar `.admin-workspace`, jadi panel di dalamnya harus dicakup satu
- *     per satu; dengan tetap di dalam, seluruh tema admin berlaku otomatis.
+ * Mobile (≤767px): bar FIX di BOTTOM layar (seperti BottomNav publik),
+ * ikon + label kecil, safe-area aware. Akun tetap bisa diakses.
+ *
+ * Menu dropdown (Beranda · Profil · Keluar) tetap di dalam header, bukan
+ * portal, supaya tema admin berlaku otomatis.
  */
 export function AdminHeader({
   role = "admin",
@@ -96,37 +94,19 @@ export function AdminHeader({
   reviewQueue,
 }: {
   role?: string;
-  /** Dari `users.currentAccess`, bukan ditebak di klien. */
   isOwner?: boolean;
   accountName?: string | null;
-  /**
-   * Foto profil, dihitung server dari storage id.
-   *
-   * SENGaja bukan diambil dari `useAuth()`. Sesi auth hanya membawa identitas
-   * dasar; `profileImageStorageId` tidak pernah ikut di dalamnya, dan tidak
-   * seharusnya - storage id adalah kunci internal, bukan bagian profil yang
-   * boleh beredar di state klien. `users.myProfile` sudah menghitung URL-nya
-   * di server lewat `ctx.storage.getUrl`, jadi di situ foto bisa dibaca tanpa
-   * membuka akses ke id-nya.
-   */
   accountImageUrl?: string | null;
   reviewQueue?: { claims: number; photos: number; reports: number; total: number };
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  // Konfirmasi keluar hidup di luar `AnimatePresence`. Panel menu harus dilepas
-  // begitu item dipilih supaya tidak menutupi dialog, dan kalau dialognya ikut
-  // terpasang di dalam panel itu, konfirmasi tidak akan pernah terlihat.
   const [logoutOpen, setLogoutOpen] = useState(false);
-  // Keadaan dialog profil hidup DI HEADER, bukan di dalam komponen pemicunya.
-  // Pemicunya boleh ikut tercabut bersama panel menu; dialog tidak boleh.
   const [profileOpen, setProfileOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const itemsRef = useRef<HTMLDivElement | null>(null);
   const reduceMotion = useReducedMotion();
 
-  // Inisial untuk keadaan tanpa foto. Tanpa ini, pengelola yang belum memasang
-  // foto akan melihat panel menu yang kosong di sebelah namanya - dan itu
-  // terbaca sebagai bug, bukan sebagai pilihan.
   const accountInitials = (accountName ?? "")
     .split(/\s+/)
     .filter(Boolean)
@@ -134,19 +114,11 @@ export function AdminHeader({
     .map((part) => part.slice(0, 1).toUpperCase())
     .join("");
 
-  // Panel menutup saat diklik di luar dan saat Escape, dengan fokus dikembalikan
-  // ke pemicunya. Tanpa dua hal itu, menu yang terbuka di ponsel tetap
-  // menggantung di layar dan menutupi isi panel tanpa ada yang memicunya.
   useEffect(() => {
     if (!menuOpen) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
-      // Dialog admin dirender lewat PORTAL ke `document.body`, jadi isinya
-      // secara DOM berada DI LUAR header ini. Tanpa baris ini, ketukan apa pun
-      // di dalam dialog selalu terbaca sebagai "di luar" - termasuk ketukan
-      // pertama pengguna untuk menyentuh isian. `closest` juga menangkap
-      // dialog yang dirender di dalam portal lain.
       if (target instanceof Element && target.closest("[data-admin-dialog]")) {
         return;
       }
@@ -173,177 +145,163 @@ export function AdminHeader({
         ? "Staff"
         : "Viewer";
 
-  return (
-    <header className="sticky top-0 z-40 border-b-2 border-[#121212] bg-[#FAF7EE] pt-[env(safe-area-inset-top)]">
-      <div className="flex min-h-16 items-center gap-2 sm:gap-3">
-        {/* Identitas: semua orang menumpuk ke sisi kiri. */}
-        <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
-          <img
-            src="/brand/logo-mark.svg"
-            alt=""
-            width={40}
-            height={40}
-            className="size-9 shrink-0 rounded-[2px] border-2 border-[#121212] bg-white object-contain shadow-[2px_2px_0_#121212] sm:size-10"
-            aria-hidden="true"
-          />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-black uppercase tracking-[-0.035em] text-[#1A1A1A] sm:text-lg">
-              Sumenep Buku Kerja
-            </p>
-            <p className="truncate text-xs font-bold text-[#525252] sm:text-sm">
-              Ruang pengelola
-            </p>
-          </div>
-          <span className="admin-status admin-status-confirmed ml-1 shrink-0 text-xs sm:text-sm">
-            <span className="mr-1.5 size-2 rounded-full bg-[#1A1A1A]" aria-hidden="true" />
-            {roleLabel}
-          </span>
-        </div>
+  const featureNav = [
+    { to: "/admin", label: "Ringkasan", icon: LayoutDashboard, end: true },
+    { to: "/admin/katalog", label: "Katalog", icon: Store, end: false },
+    { to: "/admin/moderasi", label: "Moderasi", icon: Inbox, end: false },
+    { to: "/admin/keamanan", label: "Keamanan", icon: ShieldCheck, end: false },
+    { to: "/admin/sistem", label: "Sistem", icon: BarChart3, end: false },
+  ] as const;
 
-        {/* Kendali: satu kelompok, tidak ditulis ke seluruh lebar. */}
-        <div className="relative flex shrink-0 items-center gap-2" ref={menuRef}>
-          {reviewQueue && reviewQueue.total > 0 ? (
-            <Link
-              to="/admin/moderasi"
-              aria-label="Buka halaman Moderasi untuk menangani antrean review"
-              className="admin-status shrink-0 border-[#121212] bg-[#FF5A26] text-xs text-white sm:text-sm"
-              title={`${reviewQueue.claims} klaim · ${reviewQueue.photos} foto · ${reviewQueue.reports} laporan menunggu ditinjau`}
-            >
-              <Inbox className="mr-1.5 size-4" aria-hidden="true" />
-              {reviewQueue.total}
-              <span className="hidden sm:inline"> perlu direview</span>
-              <span className="sr-only">
-                : {reviewQueue.claims} klaim listing, {reviewQueue.photos} foto,{" "}
-                {reviewQueue.reports} laporan
-              </span>
-            </Link>
-          ) : null}
+  const modQueueBadge =
+    reviewQueue && reviewQueue.total > 0 ? reviewQueue.total : undefined;
 
-          {/* Avatar ada di header, bukan di dalam panel menu, karena panel itu
-              hanya dirender setelah dibuka. Foto profil yang baru dipasang
-              harus terlihat tanpa satu langkah tambahan - kalau disembunyikan
-              di balik menu, memasang foto terasa seperti tidak ada yang terjadi.
-
-              Sumbernya bukan `useAuth`, tapi `users.myProfile` yang menghitung
-              URL di server. Alasannya ada di catatan prop `accountImageUrl`. */}
-          {accountImageUrl ? (
-            <img
-              src={accountImageUrl}
-              alt={accountName ? `Foto profil ${accountName}` : "Foto profil"}
-              className="size-9 shrink-0 rounded-[2px] border-2 border-[#121212] bg-white object-cover sm:size-10"
-            />
-          ) : accountInitials ? (
-            <span
-              aria-hidden="true"
-              className="flex size-9 shrink-0 items-center justify-center rounded-[2px] border-2 border-[#121212] bg-[#FFE662] text-xs font-black text-[#121212] sm:size-10 sm:text-sm"
-            >
-              {accountInitials}
-            </span>
-          ) : null}
-
-          <button
-            ref={triggerRef}
-            type="button"
-            onClick={() => setMenuOpen((open) => !open)}
-            className="admin-icon-btn"
-            aria-label={menuOpen ? "Tutup menu ruang pengelola" : "Buka menu ruang pengelola"}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-controls="admin-workspace-menu"
-          >
-            <span className="admin-menu-icon" data-open={menuOpen} aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </span>
-          </button>
-
-          <AnimatePresence>
-            {menuOpen ? (
-              <motion.div
-                id="admin-workspace-menu"
-                role="menu"
-                aria-label="Menu ruang pengelola"
-                className="admin-menu"
-                initial={reduceMotion ? false : { opacity: 0, y: -10, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.98 }}
-                transition={
-                  reduceMotion
-                    ? { duration: 0 }
-                    : { type: "spring", stiffness: 420, damping: 32, mass: 0.7 }
-                }
-              >
-                <p className="admin-menu-head">
-                  {isOwner ? OWNER_SHORT_TITLE : roleLabel}
-                  {accountName ? ` · ${accountName}` : ""}
-                </p>
-                <Link
-                  to="/"
-                  role="menuitem"
-                  className="admin-menu-item"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <ArrowLeft className="size-5 shrink-0" aria-hidden="true" />
-                  Beranda
-                </Link>
-                <AdminProfileTrigger
-                  variant="menu"
-                  onOpen={() => {
-                    // Panel menu ditutup BERSAMAAN dialognya dibuka. Aman
-                    // sekarang karena dialognya hidup di luar `AnimatePresence`
-                    // (lihat catatan di bawah): panel boleh dicabut, dialog
-                    // tidak. Kalau panel dibiarkan terbuka, ia tetap menutupi
-                    // sebagian layar di belakang dialog dan muncul lagi begitu
-                    // dialog ditutup.
-                    setMenuOpen(false);
-                    setProfileOpen(true);
-                  }}
-                />
-                <div className="admin-menu-separator" aria-hidden="true" />
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="admin-menu-item admin-menu-item-danger"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setLogoutOpen(true);
-                  }}
-                >
-                  <LogOut className="size-5 shrink-0" aria-hidden="true" />
-                  Keluar
-                </button>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-        </div>
+  // Konten navigasi bersama desktop & mobile.
+  const navContent = (
+    <>
+      <div className="liquid-glare-wrap" aria-hidden="true">
+        <div className="liquid-glare" />
       </div>
+      <div className="liquid-items" ref={itemsRef}>
+        <LiquidPill containerRef={itemsRef} />
+        {featureNav.map((item) => {
+          const Icon = item.icon;
+          const badge = item.to === "/admin/moderasi" ? modQueueBadge : undefined;
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className="liquid-item"
+              title={item.label}
+              aria-label={
+                badge
+                  ? `${item.label}, ${badge} perlu direview`
+                  : item.label
+              }
+            >
+              <span className="liquid-item-content">
+                <Icon aria-hidden />
+                <span className="liquid-lbl">{item.label}</span>
+              </span>
+              {badge ? (
+                <span
+                  className="absolute top-0 right-0 flex size-4 items-center justify-center rounded-full bg-[#FF5A26] text-[10px] font-black text-white"
+                  aria-hidden="true"
+                >
+                  {badge > 9 ? "9+" : badge}
+                </span>
+              ) : null}
+            </NavLink>
+          );
+        })}
+      </div>
+      <div className="liquid-divider" aria-hidden="true" />
+      <div className="relative" ref={menuRef}>
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setMenuOpen((open) => !open)}
+          className="liquid-acct"
+          aria-label={menuOpen ? "Tutup menu akun" : "Buka menu akun"}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-controls="admin-workspace-menu"
+        >
+          <span className="liquid-avatar">
+            {accountImageUrl ? (
+              <img
+                src={accountImageUrl}
+                alt=""
+              />
+            ) : (
+              accountInitials || (
+                <UserRound className="size-4" aria-hidden />
+              )
+            )}
+          </span>
+          <span className="liquid-acct-name max-[767px]:hidden">
+            {accountName || roleLabel}
+          </span>
+        </button>
+        <AnimatePresence>
+          {menuOpen ? (
+            <motion.div
+              id="admin-workspace-menu"
+              role="menu"
+              aria-label="Menu akun"
+              className="admin-menu"
+              initial={reduceMotion ? false : { opacity: 0, y: -8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.98 }}
+              transition={
+                reduceMotion
+                  ? { duration: 0 }
+                  : { type: "spring", stiffness: 420, damping: 32, mass: 0.7 }
+              }
+            >
+              <p className="admin-menu-head">
+                {isOwner ? OWNER_SHORT_TITLE : roleLabel}
+                {accountName ? ` · ${accountName}` : ""}
+              </p>
+              <Link
+                to="/"
+                role="menuitem"
+                className="admin-menu-item"
+                onClick={() => setMenuOpen(false)}
+              >
+                <ArrowLeft className="size-5 shrink-0" aria-hidden="true" />
+                Beranda
+              </Link>
+              <AdminProfileTrigger
+                variant="menu"
+                onOpen={() => {
+                  setMenuOpen(false);
+                  setProfileOpen(true);
+                }}
+              />
+              <div className="admin-menu-separator" aria-hidden="true" />
+              <button
+                type="button"
+                role="menuitem"
+                className="admin-menu-item admin-menu-item-danger"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setLogoutOpen(true);
+                }}
+              >
+                <LogOut className="size-5 shrink-0" aria-hidden="true" />
+                Keluar
+              </button>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </div>
+    </>
+  );
 
-      {/* Dialog profil DI LUAR `AnimatePresence` dan di luar `menuRef` - ini
-          satu-satunya tempat yang aman, dan alasannya ada di
-          `admin-profile.tsx`. Ringkasnya: begitu panel menu ditutup,
-          `AnimatePresence` mencabut seluruh anaknya, dan dialog yang dirender
-          dari dalam akan ikut tercabut beserta portalnya.
+  return (
+    <>
+      {/* Desktop: floating pill sticky di puncak, tengah horizontal. */}
+      <header className="sticky top-0 z-40 flex justify-center pt-3 pb-2 max-md:hidden">
+        <div className="liquid-nav admin-liquid relative">
+          {navContent}
+        </div>
+      </header>
 
-          Dua hal lain dulu ikut terperangkap di sini. `pointerdown` di luar
-          header menutup menu, dan portal dialog berada di `document.body` -
-          yaitu di luar header. Jadi tanpa pemisahan ini, ketukan pertama di
-          dalam dialog akan menutup menu, dan dialog ikut hilang. Di Android
-          itu terlihat sebagai "terbuka sebentar lalu menutup sendiri". Dua
-          sisi lain sekarang ikut ditutup: pemicu menu menutup panelnya sendiri
-          di handler yang sama, dan penutup `pointerdown` di atas paling dulu
-          memeriksa `[data-admin-dialog]`.
+      {/* Mobile: bar FIX di BOTTOM layar, safe-area aware. */}
+      <nav
+        aria-label="Navigasi ruang pengelola"
+        className="fixed inset-x-0 bottom-0 z-40 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1 md:hidden"
+      >
+        <div className="liquid-nav admin-liquid liquid-nav--bottom relative">
+          {navContent}
+        </div>
+      </nav>
 
-          Letak di DOM sebenarnya tidak berpengaruh karena dialog dirender
-          lewat portal; yang menentukan adalah posisi di POHON React. */}
       <AdminProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
-
       <AdminLogoutConfirm open={logoutOpen} onOpenChange={setLogoutOpen} />
-      <div
-        className="h-2 border-t-2 border-[#121212] bg-[linear-gradient(90deg,#FF5A26_0_38%,#FFE662_38%_72%,#121212_72%_100%)]"
-        aria-hidden="true"
-      />
-    </header>
+    </>
   );
 }
 
